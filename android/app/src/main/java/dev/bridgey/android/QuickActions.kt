@@ -229,9 +229,9 @@ class QuickActions(
                     )
                 }
                 mutableStatus.value = if (accepted) {
-                    if (opened) "Link opened on the Mac"
+                    if (opened) "Link opened on the other device"
                     else if (feature == "links") "Link delivered — waiting for the user to open it" else "Media command completed"
-                } else if (feature == "media") "The Mac could not do that. Check the player on your Mac and try again."
+                } else if (feature == "media") "The device could not do that. Check its player and try again."
                 else "Link declined — check settings or dismiss the previous link"
             }
             "media.state" -> {

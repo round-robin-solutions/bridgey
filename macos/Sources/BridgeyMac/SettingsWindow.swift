@@ -956,8 +956,8 @@ private struct NotificationsPane: View {
             NotificationPermissionRow(model: model, actions: actions)
         }
         SettingsCard {
-            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I'm using this Mac"),
-                           subtitle: L10n.text("settings.presence.detail", fallback: "Helps your phone send to this Mac. Only activity status and time since input are shared."),
+            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I'm using this device"),
+                           subtitle: L10n.text("settings.presence.detail", fallback: "Helps other devices send here. Only activity status and time since input are shared."),
                            divider: false, isOn: model.shareActivityStatus, set: actions.setShareActivityStatus)
         }
         CodesCard(model: model, actions: actions)
@@ -1002,7 +1002,7 @@ private struct FilesPane: View {
                            synced: model.syncs(.folderIncludeSystem), isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
             SyncStatusLine(key: .folderIncludeSystem, model: model, actions: actions)
         }
-        SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from your phone keep their structure. Received files get a Where from line in Finder.")) {
+        SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from other devices keep their structure. Received files get a Where from line in Finder.")) {
             SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
                         subtitle: nil, divider: false, synced: model.syncs(.folderDestination)) {
                 ChoiceButton(value: folderReceiveModeTitle(model.folderReceiveMode)) {
@@ -1022,7 +1022,7 @@ private struct FilesPane: View {
             }
             SyncStatusLine(key: .folderConflict, model: model, actions: actions)
             SettingsToggle(title: L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
-                           subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything that came from your phone."),
+                           subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."),
                            isOn: model.tagReceivedFiles, set: actions.setTagReceivedFiles)
         }
         SettingsCard(footnote: L10n.text("camera.settings.note", fallback: "In the menu bar panel, File > Take Photo with your phone. The phone opens its camera once it is unlocked; the photo lands in Received files.")) {
@@ -1064,8 +1064,8 @@ private struct MediaActionsPane: View {
             ForEach(Array([BridgeyFeature.links, .ping, .findDevice, .battery].enumerated()), id: \.element) { index, feature in
                 FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
                 if feature == .links {
-                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from phones right away"),
-                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from your phone open in the browser. Turn this off to keep them in Bridgey's menu bar."),
+                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from other devices right away"),
+                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from other devices open in the browser. Turn this off to keep them in Bridgey's menu bar."),
                                    isOn: model.openLinksRightAway, set: actions.setOpenLinksRightAway)
                         .disabled(model.globalFeatures[.links] == false)
                 }

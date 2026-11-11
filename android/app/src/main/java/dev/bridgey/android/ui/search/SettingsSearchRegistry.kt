@@ -218,7 +218,7 @@ object SettingsSearchRegistry {
         feature("media.battery", SearchPage.MEDIA, R.string.feature_battery, R.string.settings_battery_detail, BridgeyFeature.BATTERY, BATTERY_WORDS),
 
         SettingsSearchEntry("share.when", SearchPage.MEDIA, null, R.string.share_when, R.string.share_auto,
-            listOf("share", "send", "mac", "always ask", "отправить")),
+            listOf("share", "send", "device", "always ask", "отправить", "устройство")),
 
         // Remote control
         feature("remote.switch", SearchPage.REMOTE_CONTROL, R.string.feature_remote_input, R.string.settings_remote_detail, BridgeyFeature.REMOTE_INPUT, REMOTE_WORDS),

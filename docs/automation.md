@@ -71,7 +71,7 @@ process argument, never through a shell. No input is passed. A run is stopped af
 
 - **Phone to Mac:** "Open on Mac" in the share sheet. It shows only the link's host and the Mac
   (a picker when several are connected) and sends nothing until Open is tapped, because any app in
-  the foreground could start it. If the Mac's "Open links from phones right away" is on (off by
+  the foreground could start it. If the Mac's "Open links from other devices right away" is on (off by
   default), the link opens in the Mac's default browser, at most one per phone every 3 seconds.
   Otherwise it waits on the Mac like any received link.
 - **Mac to phone:** the panel's Link button is now a menu: Send the Copied Link, and Send the
@@ -79,7 +79,7 @@ process argument, never through a shell. No input is passed. A run is stopped af
   tab's address. macOS asks for Automation access to that browser the first time it is used, never
   before.
 - **Future: a browser extension.** A small Safari Web Extension and a Chrome extension could offer
-  "Send to phone" in the toolbar and the page menu without the Automation prompt, and could also
+  "Send to device" in the toolbar and the page menu without the Automation prompt, and could also
   catch links the phone sends. They would talk to the app through native messaging (Chrome) or the
   containing app (Safari), and need packaging and store review, so they are not built yet.
 

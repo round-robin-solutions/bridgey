@@ -82,7 +82,7 @@
         </dict>
         <dict>
             <key>NSMenuItem</key>
-            <dict><key>default</key><string>Send to Phone with Bridgey</string></dict>
+            <dict><key>default</key><string>Send to device with Bridgey</string></dict>
             <key>NSMessage</key>
             <string>sendToPhoneWithBridgey</string>
             <key>NSPortName</key>

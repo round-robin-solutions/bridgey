@@ -53,7 +53,7 @@
     <string name="stream_now">Now</string>
     <string name="stream_empty_title">Nothing has moved yet</string>
     <string name="stream_empty_body">Send your clipboard below, or share a file to Bridgey. What moves between your devices shows here for 7 days.</string>
-    <string name="stream_empty_unpaired">Keep Bridgey open on your Mac and this phone, on the same Wi-Fi, then tap Add to pair.</string>
+    <string name="stream_empty_unpaired">Keep Bridgey open on both devices, on the same Wi-Fi, then tap Add to pair.</string>
     <string name="stream_empty_filter_title">Nothing here yet</string>
     <string name="stream_empty_filter_body">Try All to see everything from the last 7 days.</string>
     <string name="stream_clipboard_sent_title">Sent to %1$s</string>
@@ -112,7 +112,7 @@
     <string name="live_ringing_title">%1$s is ringing this phone</string>
     <string name="live_ringing_detail">Find device</string>
 
-    <string name="media_title">%1$s on the Mac</string>
+    <string name="media_title">%1$s on the other device</string>
     <string name="media_player_unknown">Media</string>
     <string name="media_in_player">In %1$s</string>
     <string name="media_artist_in_player">%1$s, in %2$s</string>
@@ -186,12 +186,12 @@
     <string name="settings_status_connecting">Connecting to %1$s</string>
     <string name="settings_status_not_connected">Not connected</string>
     <string name="settings_forwarding_title">Notification forwarding</string>
-    <string name="settings_notifications_detail">Show this phone\'s notifications on your Mac</string>
-    <string name="settings_calls_detail">Let a paired Mac start, answer and end calls</string>
-    <string name="settings_media_detail">Control music on your Mac from here</string>
-    <string name="settings_find_detail">Ring this phone from your Mac</string>
-    <string name="settings_ping_detail">Ring your Mac to check the link</string>
-    <string name="settings_battery_detail">Show this phone\'s battery on your Mac</string>
+    <string name="settings_notifications_detail">Show this phone\'s notifications on your other devices</string>
+    <string name="settings_calls_detail">Let a paired device start, answer and end calls</string>
+    <string name="settings_media_detail">Control music on your other devices from here</string>
+    <string name="settings_find_detail">Ring this phone from another device</string>
+    <string name="settings_ping_detail">Ring another device to check the link</string>
+    <string name="settings_battery_detail">Show this phone\'s battery on your other devices</string>
     <string name="settings_turn_off_detail">Stop sharing and close Bridgey on this phone</string>
     <string name="settings_version">Version</string>
     <string name="settings_licences">Open-source licences</string>
@@ -205,14 +205,14 @@
     <string name="settings_notification_apps">Notification apps</string>
     <string name="settings_notification_apps_count">%1$d of %2$d apps</string>
     <string name="settings_forwarding">Notification forwarding</string>
-    <string name="settings_forwarding_on">Android notifications appear on your Mac</string>
+    <string name="settings_forwarding_on">Android notifications appear on your other devices</string>
     <string name="settings_forwarding_off">Needs notification access</string>
     <string name="settings_app_notifications">Bridgey notifications</string>
     <string name="settings_app_notifications_on">Connection, transfers and Find device</string>
     <string name="settings_app_notifications_off">Recommended for controls in the background</string>
     <string name="auto_clipboard_title">Automatic clipboard</string>
     <string name="auto_clipboard_detail">Copy on one device, paste on the other.</string>
-    <string name="auto_clipboard_explain">From the Mac: always. From this phone: when Bridgey is open, or tap Send copied item in the notification.</string>
+    <string name="auto_clipboard_explain">From other devices: always. From this phone: when Bridgey is open, or tap Send copied item in the notification.</string>
     <string name="bg_clipboard_title">Background clipboard (advanced)</string>
     <string name="bg_clipboard_detail">Send what you copy on this phone even when Bridgey is closed. Needs a one-time setup from a computer.</string>
     <string name="bg_clipboard_step1">On OnePlus, Oppo, Realme and Xiaomi phones: Developer options, turn on Disable permission monitoring, then restart the phone.</string>
@@ -309,15 +309,15 @@
     <string name="devices_paired">Paired devices</string>
     <string name="devices_none">No paired devices yet. Tap Pair a new device to get started.</string>
     <string name="devices_pair_new">Pair a new device</string>
-    <string name="devices_pair_new_detail">Find a Mac on this Wi-Fi and compare the code</string>
+    <string name="devices_pair_new_detail">Find a device on this Wi-Fi and compare the code</string>
     <string name="devices_per_device_note">Open a device to turn features off for it only, or to forget it. What each feature shares is set in the sections of Settings.</string>
     <string name="devices_direct_calls">Call status and controls</string>
-    <string name="devices_direct_calls_detail">Lets your paired Mac start, answer, decline and end calls</string>
-    <string name="notification_apps_intro">Choose which apps may show their notifications on your paired Mac.</string>
+    <string name="devices_direct_calls_detail">Lets your paired device start, answer, decline and end calls</string>
+    <string name="notification_apps_intro">Choose which apps may show their notifications on your paired devices.</string>
     <string name="notification_apps_empty">Apps appear here after they post a notification.</string>
 
     <string name="pair_title">Pair a device</string>
-    <string name="pair_body">Open Bridgey on your Mac, on the same Wi-Fi as this phone. Choose it below, then check that both screens show the same code.</string>
+    <string name="pair_body">Open Bridgey on your other device, on the same Wi-Fi as this phone. Choose it below, then check that both screens show the same code.</string>
     <string name="pair_searching">Looking for devices on this Wi-Fi…</string>
     <string name="pair_paired_suffix">Paired, tap to reconnect</string>
     <string name="pair_new_suffix">New device, tap to pair</string>
@@ -438,14 +438,14 @@
         <item quantity="other">%1$d devices</item>
     </plurals>
     <string name="settings_background_title">Stay connected while the phone sleeps</string>
-    <string name="settings_background_on">Allowed: Bridgey can keep your Mac connected overnight</string>
+    <string name="settings_background_on">Allowed: Bridgey can keep your devices connected overnight</string>
     <string name="settings_background_off">Battery optimisation can pause Bridgey while the phone is idle</string>
     <string name="settings_background_open">Open battery settings</string>
     <string name="settings_background_note">Some phones add their own limits. On OnePlus, also open App info, then Battery usage, and allow background activity.</string>
     <string name="settings_wifi_awake_title">Keep Wi-Fi awake</string>
     <string name="settings_wifi_awake_detail">Fewer drops while connected, at some battery cost. Android 13 and older.</string>
     <string name="battery_prompt_title">Stay connected while the phone sleeps?</string>
-    <string name="battery_prompt_body">When the phone is idle, Android can pause Bridgey, and your Mac loses the connection overnight. Let Bridgey run in the background to keep it. It stays quiet while nothing is happening.</string>
+    <string name="battery_prompt_body">When the phone is idle, Android can pause Bridgey, and your other devices lose the connection overnight. Let Bridgey run in the background to keep it. It stays quiet while nothing is happening.</string>
 
     <!-- Remote control (draft remote_input_draft1): touchpad, keyboard and slides. -->
     <string name="settings_remote_control">Remote control</string>
@@ -462,8 +462,8 @@
     <string name="settings_summary_clipboard_images_on_paste">images when you paste</string>
     <string name="settings_summary_clipboard_text_only">text only</string>
     <string name="settings_summary_notifications_access">Needs notification access</string>
-    <string name="settings_summary_calls_ring">Ring on Mac</string>
-    <string name="settings_summary_calls_controls">Ring and call controls on Mac</string>
+    <string name="settings_summary_calls_ring">Ring on other devices</string>
+    <string name="settings_summary_calls_controls">Ring and call controls on other devices</string>
     <string name="settings_summary_remote_volume_keys">On, volume keys change slides</string>
     <string name="settings_summary_previews_shown">Previews shown in activity</string>
     <string name="settings_summary_previews_hidden">Previews hidden in activity</string>
@@ -881,12 +881,12 @@
     <string name="health_reason_timeout">Timed out</string>
     <string name="health_reason_replaced">Replaced by a newer connection</string>
     <string name="health_reason_other">Other (%1$s)</string>
-    <string name="open_on_mac_label">Open on Mac</string>
+    <string name="open_on_mac_label">Open on device</string>
     <string name="open_on_mac_title">Open on %1$s?</string>
-    <string name="open_on_mac_pick">Open on which Mac?</string>
-    <string name="open_on_mac_body">If the Mac allows links right away, it opens this in its browser. Otherwise the link waits there for a click.</string>
+    <string name="open_on_mac_pick">Open on which device?</string>
+    <string name="open_on_mac_body">If the device allows links right away, it opens this in its browser. Otherwise the link waits there for a click.</string>
     <string name="open_on_mac_no_link">There is no web link in what you shared</string>
-    <string name="open_on_mac_no_mac">No connected Mac has Web links on</string>
+    <string name="open_on_mac_no_mac">No connected device has Web links on</string>
     <string name="open_on_mac_sending">Sending to %1$s</string>
     <string name="open_on_mac_opened">Opened on %1$s</string>
     <string name="open_on_mac_queued">Sent. Open it on %1$s.</string>
@@ -917,17 +917,17 @@
     <string name="focus_access_off">Needed to follow the Mac. Turn on Bridgey by Round Robin in Do Not Disturb access.</string>
     <string name="focus_note">Each direction is its own switch, and the Mac needs the matching one in its Settings. If you turned Do Not Disturb on yourself, a Mac\'s Focus ending leaves it on.</string>
     <!-- Phone camera to Mac (camera_draft1) -->
-    <string name="feature_camera">Take photos for the Mac</string>
+    <string name="feature_camera">Take photos for another device</string>
     <string name="feature_camera_detail">%1$s can ask for a photo; you take it here</string>
-    <string name="settings_camera_detail">A Mac can ask for a photo, and you take it on this phone</string>
+    <string name="settings_camera_detail">Another device can ask for a photo, and you take it on this phone</string>
     <string name="camera_title">Photo for %1$s</string>
-    <string name="camera_hint">The photo goes to the Mac as soon as you take it</string>
+    <string name="camera_hint">The photo goes to the requesting device as soon as you take it</string>
     <string name="camera_shutter">Take photo</string>
     <string name="camera_take_photo">Take photo</string>
     <string name="camera_sending">Sending the photo to %1$s</string>
-    <string name="camera_ended">This request has ended. Ask again from the Mac.</string>
+    <string name="camera_ended">This request has ended. Ask again from the other device.</string>
     <string name="camera_failed">The photo could not be sent.</string>
-    <string name="camera_unavailable">The camera is not available right now. Close other camera apps and ask again from the Mac.</string>
+    <string name="camera_unavailable">The camera is not available right now. Close other camera apps and ask again from the other device.</string>
     <string name="camera_capture_failed">The photo could not be saved. Try again.</string>
     <string name="camera_send_failed">The photo could not be sent to %1$s. Check that it is connected and Files is on.</string>
     <string name="camera_permission_title">Allow the camera</string>
@@ -935,8 +935,8 @@
     <string name="camera_permission_denied">The camera is off for Bridgey. To send %1$s a photo, allow Camera in app settings.</string>
     <string name="camera_allow">Allow camera</string>
     <string name="camera_open_settings">Open app settings</string>
-    <string name="camera_channel">Photos for the Mac</string>
-    <string name="camera_channel_detail">When a Mac asks this phone for a photo</string>
+    <string name="camera_channel">Photos for other devices</string>
+    <string name="camera_channel_detail">When another device asks this phone for a photo</string>
     <string name="camera_unlock_title">Unlock your phone to take the photo</string>
     <string name="camera_unlock_text">%1$s asked for a photo</string>
     <string name="camera_ask_title">%1$s wants a photo</string>
@@ -1050,7 +1050,7 @@
     <string name="update_all_failure_interrupted">interrupted</string>
     <string name="update_all_failure_other">something went wrong</string>
     <string name="update_all_devices_title">Your devices</string>
-    <string name="update_all_devices_empty">Pair a Mac to update it from here.</string>
+    <string name="update_all_devices_empty">Pair a device to update it from here.</string>
     <string name="update_all_device_line">%1$s · %2$s</string>
     <string name="update_all_state_current">Up to date</string>
     <string name="update_all_state_checking">Checking</string>

@@ -233,12 +233,12 @@
 "quick.find" = "Найти";
 "quick.find.help" = "Звонить на телефон, пока вы не остановите";
 "quick.link" = "Ссылка";
-"quick.link.help" = "Открыть на телефоне скопированную ссылку или текущую вкладку браузера";
+"quick.link.help" = "Открыть скопированную ссылку или текущую вкладку браузера на другом устройстве";
 "quick.media" = "Медиа";
 "quick.media.help" = "Выберите плеер на Mac, которым управляет телефон";
 "quick.media.refresh" = "Обновить плеер";
 "quick.ping" = "Пинг";
-"quick.ping.help" = "Короткий сигнал на телефоне";
+"quick.ping.help" = "Воспроизвести короткий сигнал на другом устройстве";
 "remote.accessibility" = "Универсальный доступ";
 "remote.accessibility.allowed" = "Разрешено";
 "remote.accessibility.off" = "Нужен, чтобы двигать указатель и печатать. macOS спросит, когда вы впервые разрешите телефон. Если вы отказали, включите Bridgey в разделе «Конфиденциальность и безопасность» > «Универсальный доступ».";
@@ -434,7 +434,7 @@
 "stream.clip.sent.text" = "Скопирован текст (%@)";
 "stream.clipboard.received" = "Текст скопирован с %@";
 "stream.clipboard.sent" = "Буфер отправлен на %@";
-"stream.device.unknown" = "ваш телефон";
+"stream.device.unknown" = "ваше устройство";
 "stream.earlier" = "Ранее на неделе";
 "stream.empty.body" = "Отправьте буфер обмена ниже или перетащите на него файл. Всё, что передаётся между устройствами, хранится здесь 7 дней.";
 "stream.empty.title" = "Пока ничего не передавалось";
@@ -486,7 +486,7 @@
 "updates.releaseNotes" = "Что изменилось";
 "updates.unavailable" = "Обновления работают только в установленном приложении.";
 "updates.version" = "Версия %@";
-"welcome.body" = "Подключите Mac и телефон к одной локальной сети. Выберите устройство, сравните код сопряжения и подтвердите его на обоих устройствах. Необязательные разрешения запрашиваются только при использовании соответствующей функции.";
+"welcome.body" = "Подключите оба устройства к одной локальной сети. Выберите устройство, сравните код сопряжения и подтвердите его на обоих устройствах. Дополнительные разрешения запрашиваются при использовании соответствующей функции.";
 "welcome.continue" = "Начать";
 "welcome.continue.hint" = "Закрывает приветствие и начинает поиск устройств";
 "welcome.title" = "Добро пожаловать в Bridgey";
@@ -796,7 +796,7 @@
 "codes.panel.ready.detail" = "Модель готова. Текст сообщений остаётся на этом Mac.";
 
 /* Files 2.0, second slice: receive settings (contract) */
-"settings.folders.receive.note" = "Папки с телефона сохраняют свою структуру. У полученных файлов в Finder есть строка «Источник».";
+"settings.folders.receive.note" = "Папки с других устройств сохраняют структуру. У полученных файлов в Finder есть строка «Источник».";
 "settings.folders.receive" = "Папки, отправленные на этот Mac";
 "settings.folders.receive.fixed" = "Всегда сохранять в «Полученные файлы»";
 "settings.folders.receive.ask" = "Каждый раз спрашивать на этом Mac";
@@ -806,7 +806,7 @@
 "settings.folders.conflict.replace" = "Заменить файлы";
 "settings.folders.conflict.newFolder" = "Сохранить как новую папку";
 "settings.files.tag" = "Помечать полученные файлы в Finder";
-"settings.files.tag.detail" = "Добавляет тег Bridgey, чтобы Finder мог показать всё, что пришло с телефона.";
+"settings.files.tag.detail" = "Добавляет тег Bridgey, чтобы Finder мог показать всё полученное с других устройств.";
 
 /* Files 2.0: transfer engine (Mac engine agent adds below) */
 "folders.upload.items" = "%1$@ и ещё %2$@";
@@ -939,7 +939,7 @@
 "phonefiles.window" = "Файлы телефона";
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
-"sendsheet.window" = "Отправить на телефон";
+"sendsheet.window" = "Отправить на устройство";
 "sendsheet.title" = "Отправить на";
 "sendsheet.noDevice" = "Подключите устройство, чтобы отправить. Файлы можно выбрать уже сейчас.";
 "sendsheet.added" = "Добавлено";
@@ -1045,7 +1045,7 @@
 "share.noDevice" = "Нет подключённых устройств";
 "share.title.one" = "Отправить 1 объект%@ на";
 "share.title" = "Отправить объекты (%d)%@ на";
-"share.window" = "Отправить на телефон";
+"share.window" = "Отправить на устройство";
 
 /* Mac actions, opening links right away, browser tab and connection health */
 "action.remove" = "Удалить";
@@ -1132,8 +1132,8 @@
 "quick.link.copied" = "Отправить скопированную ссылку";
 "quick.link.tab" = "Отправить текущую вкладку %@";
 "quick.link.tab.none" = "Отправить текущую вкладку браузера";
-"settings.links.openRightAway" = "Сразу открывать ссылки с телефонов";
-"settings.links.openRightAway.detail" = "Ссылки с телефона открываются в браузере. Выключите, чтобы оставлять их в Bridgey в строке меню.";
+"settings.links.openRightAway" = "Сразу открывать ссылки с других устройств";
+"settings.links.openRightAway.detail" = "Ссылки с других устройств открываются в браузере. Выключите, чтобы оставлять их в Bridgey в строке меню.";
 "settings.macActions" = "Действия на Mac";
 
 /* Shortcuts and Siri (App Intents) */
@@ -1727,7 +1727,7 @@
 "localCodes.unavailable" = "Не удалось включить доступ. Выключите и включите снова.";
 "localCodes.clear" = "Изменения удаляют сохранённые коды.";
 
-"settings.presence.share" = "Сообщать, когда я пользуюсь этим Mac";
-"settings.presence.detail" = "Помогает телефону выбрать этот Mac. Передаются только статус и время с последнего ввода.";
+"settings.presence.share" = "Сообщать, когда я пользуюсь этим устройством";
+"settings.presence.detail" = "Помогает другим устройствам отправлять сюда. Передаются только статус и время с последнего ввода.";
 "share.text.copied" = "Текст скопирован";
 "share.text.from" = "От %@";

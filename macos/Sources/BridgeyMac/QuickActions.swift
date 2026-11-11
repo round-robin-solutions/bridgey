@@ -81,7 +81,7 @@ final class QuickActions: ObservableObject {
             guard id == pending, payload["feature"] as? String == "links" else { return }
             pending = nil; timeout?.cancel()
             status = payload["accepted"] as? Bool == true
-                ? "Link delivered; it opens when tapped on the phone"
+                ? "Link delivered; it opens when tapped on the other device"
                 : "Link declined; check settings or dismiss the previous link"
             if payload["accepted"] as? Bool == true { onActivity(.linkSent, deviceID) }
         } else if kind == "quick.request" {

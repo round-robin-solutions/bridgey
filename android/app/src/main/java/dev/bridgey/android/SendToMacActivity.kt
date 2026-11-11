@@ -138,13 +138,13 @@ class SendToMacModel(application: Application) : AndroidViewModel(application) {
             target?.sessionId == null -> R.string.share_disconnected
             target?.allowed != true -> R.string.share_not_allowed
             else -> R.string.share_reconnected
-        }, target?.name ?: "Mac")
+        }, target?.name ?: app.getString(R.string.share_device))
         val next = before.send(macs.value, unavailable)
         mutableFlow.value = next
         if (next.phase != SharePhase.SENDING || before.phase == SharePhase.SENDING) return
         val id = next.target ?: return
         val session = next.sessionId ?: return
-        val name = target?.name ?: "Mac"
+        val name = target?.name ?: app.getString(R.string.share_device)
         viewModelScope.launch {
             var parked = false
             val (success, message) = try { when {

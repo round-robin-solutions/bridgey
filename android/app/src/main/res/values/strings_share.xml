@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="share_to_mac">Send to Mac</string>
+    <string name="share_to_mac">Send to device</string>
     <string name="share_send">Send</string>
     <string name="share_change">Change</string>
     <string name="share_retry">Try again</string>
-    <string name="share_another">Send to another Mac</string>
+    <string name="share_another">Send to another device</string>
     <string name="share_active">Using now</string>
     <string name="share_offline">Offline</string>
-    <string name="share_feature_off">Turned off for this Mac</string>
-    <string name="share_no_mac">Connect a Mac to send.</string>
+    <string name="share_feature_off">Turned off for this device</string>
+    <string name="share_no_mac">Connect a device to send.</string>
     <string name="share_nothing">There\'s nothing here to send. Share text, a link or a file.</string>
     <string name="share_app_off">Turn on Bridgey, then share again.</string>
     <string name="share_sending_soon">Sending in a moment</string>
     <string name="share_sending">Sending...</string>
     <string name="share_unavailable">%1$s disconnected or sharing is turned off.</string>
-    <string name="share_parked">On %1$s. Open Bridgey in the menu bar to find your link.</string>
+    <string name="share_parked">On %1$s. Open Bridgey there to find your link.</string>
     <string name="share_unconfirmed">%1$s didn\'t confirm. It may have arrived.</string>
     <string name="share_rate_limited">Wait 3 seconds before sending another link to %1$s.</string>
     <string name="share_browser_failed">%1$s couldn\'t open its browser. Try again.</string>
@@ -25,9 +25,10 @@
     <string name="share_files_sent">Sent to %1$s</string>
     <string name="share_file_failed">Couldn\'t send to %1$s. Try again.</string>
     <string name="share_when">When I share</string>
-    <string name="share_auto">Send to the Mac I\'m using</string>
+    <string name="share_auto">Send to the device I\'m using</string>
     <string name="share_ask">Always ask</string>
     <string name="share_disconnected">%1$s is offline. Try again when it reconnects.</string>
     <string name="share_not_allowed">Sharing is turned off for %1$s.</string>
     <string name="share_reconnected">%1$s reconnected. Try again.</string>
+    <string name="share_device">device</string>
 </resources>

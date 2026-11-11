@@ -337,7 +337,7 @@ The phone asks with Send and Deny; Send opens Bridgey for a moment, because Andr
 
 Answered by `clipboard.ack`, `clipboard.rejected`.
 
-Explicit Android share only. Requires Clipboard grants at both ends. Copies without rich HTML or execution; small notification contains only the phone name. Existing clipboard acknowledgement semantics. Older peers receive clipboard.update instead.
+Explicit Android share only. Requires Clipboard grants at both ends. Copies without rich HTML or execution; small notification contains only the sender name. Existing clipboard acknowledgement semantics. Older peers receive clipboard.update instead.
 
 #### `files.*`
 
@@ -583,7 +583,7 @@ Never the code.
 
 Answered by `quick.result`.
 
-Edition extension (links_open_draft1): Open on Mac sends links action open. The Mac opens the link at once only when its own Open links from phones right away setting is on (on when unset, explicit off preserved), at most one explicit link per phone every 3 seconds; otherwise it replaces the parked link in the menu bar.
+Edition extension (links_open_draft1): Send to device sends links action open. The Mac opens the link at once only when its own Open links from other devices right away setting is on (on when unset, explicit off preserved), at most one explicit link per phone every 3 seconds; otherwise it replaces the parked link in the menu bar.
 
 `quick.result`
 
