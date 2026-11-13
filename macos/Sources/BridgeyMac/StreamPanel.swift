@@ -629,7 +629,7 @@ private struct WelcomeCard: View {
                 .foregroundStyle(c.on)
             Text(L10n.text(
                 "welcome.body",
-                fallback: "Keep your Mac and phone on the same local network. Choose a device, compare the pairing code, and confirm it on both devices. Optional permissions are requested only when you use the related feature."
+                fallback: "Keep both devices on the same local network. Choose a device, compare the pairing code, and confirm it on both devices. Optional permissions are requested only when you use the related feature."
             ))
             .font(BrandFont.body(12))
             .foregroundStyle(c.on2)
@@ -1214,9 +1214,9 @@ private struct QuickActionBar: View {
                 QuickActionLabel(symbol: "link", title: L10n.text("quick.link", fallback: "Link"), position: .middle)
             }
             .disabled(!model.available.contains(.links))
-            .help(L10n.text("quick.link.help", fallback: "Open the copied link or the current browser tab on the phone"))
+            .help(L10n.text("quick.link.help", fallback: "Open the copied link or the current browser tab on another device"))
             quick("phone.arrow.up.right", L10n.text("quick.call", fallback: "Call"), .calls, help: L10n.text("quick.call.help", fallback: "Call the phone number currently in the clipboard"), action: actions.call)
-            quick("wave.3.right", L10n.text("quick.ping", fallback: "Ping"), .ping, help: L10n.text("quick.ping.help", fallback: "Play a short alert on the phone"), action: actions.ping)
+            quick("wave.3.right", L10n.text("quick.ping", fallback: "Ping"), .ping, help: L10n.text("quick.ping.help", fallback: "Play a short alert on another device"), action: actions.ping)
             quick(ringing ? "stop.circle" : "location", ringing ? L10n.text("action.stop", fallback: "Stop") : L10n.text("quick.find", fallback: "Find"),
                   .findDevice, help: L10n.text("quick.find.help", fallback: "Ring the phone until you stop it"), enabled: ringing || model.available.contains(.findDevice),
                   action: ringing ? actions.stopFinding : actions.find)

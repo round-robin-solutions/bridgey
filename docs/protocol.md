@@ -900,7 +900,7 @@ Status: **Draft, edition only.** "Open on Mac" from the phone's share sheet. The
 `links_open_draft1` in `features.update` when Web links is on for that phone; it means the Mac
 understands the `open` action. The phone then sends `quick.request` with `feature: "links"`,
 `action: "open"` and the link as `value` (same validation as `offer`); without the key it sends
-`offer`. If the Mac's own "Open links from phones right away" setting is on (off by default), it
+`offer`. If the Mac's own "Open links from other devices right away" setting is on (off by default), it
 opens the link in the default browser and answers `quick.result` with `accepted: true` and
 `opened: true`, at most one link per phone every 3 seconds. Otherwise the link is queued exactly
 like `offer` (`opened: false`, declined while another link waits). Older phones ignore `opened`.

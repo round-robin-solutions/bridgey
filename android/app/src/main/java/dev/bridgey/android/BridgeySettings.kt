@@ -160,6 +160,8 @@ data class BridgeySettingsState(
     val cloudCodes: Boolean = false,
     /** Local call/media behavior; the feature and every peer still need explicit permission. */
     val callMediaPolicy: CallMediaPolicy = CallMediaPolicy(),
+    val shareAlwaysAsk: Boolean = false,
+    val lastSharedMac: String? = null,
 ) {
     /** What Connect away from home does now: the choice, or on while there is none. */
     val connectAway: Boolean get() = connectAwayChoice ?: CONNECT_AWAY_DEFAULT
@@ -313,6 +315,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         val value = bytes.takeIf { it in ClipLimits.EAGER_LIMIT_CHOICES } ?: ClipLimits.DEFAULT_EAGER_LIMIT
         preferences.edit().putLong(KEY_CLIPBOARD_EAGER_LIMIT, value).apply()
         mutableState.value = mutableState.value.copy(clipboardEagerLimit = value)
+    }
+
+    fun setShareAlwaysAsk(enabled: Boolean) {
+        preferences.edit().putBoolean("share.alwaysAsk", enabled).apply()
+        mutableState.value = mutableState.value.copy(shareAlwaysAsk = enabled)
+    }
+
+    fun setLastSharedMac(deviceId: String) {
+        preferences.edit().putString("share.lastMac", deviceId).apply()
+        mutableState.value = mutableState.value.copy(lastSharedMac = deviceId)
     }
 
     fun setScreenshotSendEnabled(enabled: Boolean) {
@@ -537,6 +549,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
                 mode = CallMediaMode.entries.firstOrNull { it.key == preferences.getString(KEY_CALL_MEDIA_MODE, null) } ?: CallMediaMode.PAUSE_THEN_MUTE,
                 restoration = CallMediaRestoration.entries.firstOrNull { it.key == preferences.getString(KEY_CALL_MEDIA_RESTORATION, null) } ?: CallMediaRestoration.RESTORE_AND_RESUME,
             ),
+            shareAlwaysAsk = preferences.getBoolean("share.alwaysAsk", false),
+            lastSharedMac = preferences.getString("share.lastMac", null),
         )
     }
 

@@ -1013,7 +1013,7 @@ final class SendSheetWindowController: NSWindowController, NSWindowDelegate {
                             styleMask: [.titled, .closable, .fullSizeContentView, .resizable], backing: .buffered, defer: false)
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
-        panel.title = L10n.text("sendsheet.window", fallback: "Send to phone")
+        panel.title = L10n.text("sendsheet.window", fallback: "Send to device")
         panel.isMovableByWindowBackground = true
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false

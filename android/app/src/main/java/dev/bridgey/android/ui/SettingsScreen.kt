@@ -134,6 +134,7 @@ data class SettingsState(
     val tailscale: dev.bridgey.android.tailscale.TailscaleSetupState = dev.bridgey.android.tailscale.TailscaleSetupState(),
     /** The hidden Developer and experimental menu is on (DeveloperMenu.kt); never synced. */
     val developerMenu: Boolean = false,
+    val shareAlwaysAsk: Boolean = false,
     /** Developer menu > Transfers: how files travel to each connected device. */
     val transferPaths: List<dev.bridgey.android.TransferPath> = emptyList(),
     val callQuiet: CallQuietSettingsState = CallQuietSettingsState(),
@@ -159,6 +160,7 @@ class SettingsActions(
     val setClipboardFiles: (Boolean) -> Unit = {},
     val setClipboardEagerLimit: (Long) -> Unit = {},
     val setScreenshotSend: (Boolean) -> Unit = {},
+    val setShareAlwaysAsk: (Boolean) -> Unit = {},
     val copyCommand: () -> Unit = {},
     val addTile: () -> Unit = {},
     val setReduceMotion: (Boolean) -> Unit = {},
@@ -554,6 +556,19 @@ private fun FilesPage(state: SettingsState, actions: SettingsActions, listState:
 @Composable
 private fun MediaPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
     SectionPage(SettingsSection.MEDIA, actions, listState) {
+        item(key = "share.when") {
+            Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp).settingsSearchHighlight(stringResource(R.string.share_when), RoundedCornerShape(16.dp)), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.share_when), style = BridgeyType.cardTitle, color = BridgeyTheme.colors.onSurface)
+                listOf(false to R.string.share_auto, true to R.string.share_ask).forEach { (ask, label) ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(BridgeyTheme.colors.surface1)
+                        .selectable(state.shareAlwaysAsk == ask, role = Role.RadioButton) { actions.setShareAlwaysAsk(ask) }
+                        .padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (state.shareAlwaysAsk == ask) BridgeyIcons.Check else BridgeyIcons.Devices, null, tint = BridgeyTheme.colors.primary)
+                        Text(stringResource(label), style = BridgeyType.itemTitle, color = BridgeyTheme.colors.onSurface)
+                    }
+                }
+            }
+        }
         item(key = "media") {
             RowGroup(Modifier.padding(top = 8.dp)) {
                 MediaSectionFeatures.forEach { feature ->

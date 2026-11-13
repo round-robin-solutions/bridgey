@@ -20,6 +20,7 @@ struct PhoneLinkState: Equatable {
     var remoteEmailCodes = false
     /// The phone advertised `focus_sync_draft1`: it understands focus.state.
     var remoteFocusSync = false
+    var remoteDevicePresence = false
     /// The phone advertised `camera_draft1`: it takes photos for this Mac.
     var remoteCamera = false
     /// The phone advertised `updates_draft1` (Update all), and its latest `updates.status`.

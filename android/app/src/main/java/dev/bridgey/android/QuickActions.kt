@@ -87,7 +87,36 @@ class QuickActions(
     private val linksOpenSupported: () -> Boolean = { false },
     /** [BridgeyFeature] is on for one device, whether or not it is the selected one. */
     private val availableFor: (BridgeyFeature, String) -> Boolean = { feature, _ -> available(feature) },
+    private val sendTo: (String, String, JSONObject) -> Boolean = { _, kind, payload -> send(kind, payload) },
+    private val linksOpenFor: (String) -> Boolean = { linksOpenSupported() },
+    private val sessionIdFor: (String) -> String? = { null },
 ) {
+    data class DirectedLink(val id: String, val deviceId: String, val sessionId: String?, val result: kotlinx.coroutines.CompletableDeferred<LinkSendResult.Outcome>)
+    private val directedLinks = mutableMapOf<String, DirectedLink>()
+
+    /** Each share owns its request and cannot consume another share's reply. */
+    suspend fun sendSharedLink(value: String, deviceId: String, sessionId: String): Pair<LinkSendResult.Outcome, String?> {
+        val url = validatedWebLink(value) ?: return LinkSendResult.Outcome.NOT_SENT to "invalid_link"
+        val id = UUID.randomUUID().toString()
+        val deferred = kotlinx.coroutines.CompletableDeferred<LinkSendResult.Outcome>()
+        synchronized(this) {
+            if (!availableFor(BridgeyFeature.LINKS, deviceId) || sessionIdFor(deviceId) != sessionId)
+                return LinkSendResult.Outcome.NOT_SENT to "unavailable"
+            directedLinks[id] = DirectedLink(id, deviceId, sessionId, deferred)
+            sequence += 1
+            if (!sendTo(deviceId, "quick.request", JSONObject().put("version", 1).put("requestId", id)
+                    .put("feature", "links").put("action", if (linksOpenFor(deviceId)) "open" else "offer")
+                    .put("value", url).put("sequence", sequence))) {
+                directedLinks.remove(id)
+                return LinkSendResult.Outcome.NOT_SENT to "unavailable"
+            }
+        }
+        return try {
+            val result = kotlinx.coroutines.withTimeoutOrNull(8_000) { deferred.await() } ?: LinkSendResult.Outcome.NOT_CONFIRMED
+            result to synchronized(this) { directedReasons.remove(id) }
+        } finally { synchronized(this) { directedLinks.remove(id); directedReasons.remove(id) } }
+    }
+    private val directedReasons = mutableMapOf<String, String>()
     private val mutableLinkResult = MutableStateFlow<LinkSendResult?>(null)
 
     /** The outcome of the latest link this phone sent, for Open on Mac. */
@@ -173,6 +202,18 @@ class QuickActions(
                     .put("accepted", accepted))
             }
             "quick.result" -> {
+                val directed = directedLinks[payload.optString("requestId")]
+                if (directed != null) {
+                    if (sender != directed.deviceId || sessionIdFor(directed.deviceId) != directed.sessionId || payload.optString("feature") != "links") return
+                    val accepted = payload.opt("accepted") == true
+                    directedReasons[directed.id] = payload.optString("reason")
+                    directed.result.complete(when {
+                        accepted && payload.opt("opened") == true -> LinkSendResult.Outcome.OPENED
+                        accepted -> LinkSendResult.Outcome.QUEUED
+                        else -> LinkSendResult.Outcome.DECLINED
+                    })
+                    return
+                }
                 val feature = payload.optString("feature")
                 if (pending[feature]?.first != payload.optString("requestId")) return
                 pending.remove(feature)?.second?.cancel()
@@ -188,9 +229,9 @@ class QuickActions(
                     )
                 }
                 mutableStatus.value = if (accepted) {
-                    if (opened) "Link opened on the Mac"
+                    if (opened) "Link opened on the other device"
                     else if (feature == "links") "Link delivered — waiting for the user to open it" else "Media command completed"
-                } else if (feature == "media") "The Mac could not do that. Check the player on your Mac and try again."
+                } else if (feature == "media") "The device could not do that. Check its player and try again."
                 else "Link declined — check settings or dismiss the previous link"
             }
             "media.state" -> {

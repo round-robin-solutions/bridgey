@@ -7,7 +7,7 @@ import SwiftUI
 // send path (SendDispatcher):
 // - the Share extension (ShareExtension/, built and signed by build-app.sh) puts what was shared on the
 //   private pasteboard `ShareHandoff.pasteboardName` and opens `ShareHandoff.scheme://share`;
-// - the Services menu item "Send to Phone with Bridgey" (Info.plist NSServices, `sendToPhoneWithBridgey`);
+// - the Services menu item "Send to device with Bridgey" (Info.plist NSServices, `sendToPhoneWithBridgey`);
 // - an NSSharingService named Bridgey for share pickers this app shows (`BridgeySharing`).
 
 enum ShareHandoff {
@@ -56,7 +56,7 @@ final class BridgeyAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// NSApp.servicesProvider: the existing "Call with Bridgey RR" and the new "Send to Phone with Bridgey".
+/// NSApp.servicesProvider: the existing "Call with Bridgey RR" and the new "Send to device with Bridgey".
 /// AppKit calls services on the main thread.
 @MainActor
 final class BridgeyServiceProvider: NSObject {
@@ -279,7 +279,7 @@ final class QuickSendController: NSObject, NSWindowDelegate {
                             backing: .buffered, defer: false)
         panel.titlebarAppearsTransparent = true
         panel.titleVisibility = .hidden
-        panel.title = L10n.text("share.window", fallback: "Send to phone")
+        panel.title = L10n.text("share.window", fallback: "Send to device")
         panel.level = .floating
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false

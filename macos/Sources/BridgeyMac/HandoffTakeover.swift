@@ -89,7 +89,7 @@ enum HandoffError: Error, Equatable, Sendable {
 
 /// The keys, read and written with `defaults -currentHost`.
 struct HandoffDefaults: Sendable {
-    static let domain = "com.apple.coreservices.useractivityd"
+    static let domain = TestInstance.enabled ? "\(Edition.identifier).handoff-test" : "com.apple.coreservices.useractivityd"
     static let advertisingKey = "ActivityAdvertisingAllowed"
     static let receivingKey = "ActivityReceivingAllowed"
 

@@ -1,5 +1,6 @@
 package dev.bridgey.android
 
+import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import org.junit.Assert.assertEquals
@@ -10,8 +11,10 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.concurrent.TimeUnit
 
+// A plain Application: this tests only the Handler gate, and BridgeyApplication would create the pairing identity
+// in the Android keystore, which passed only when an earlier test in the same JVM had installed the fake one.
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = Application::class)
 class FocusGatedRunTest {
     private val looper = Looper.getMainLooper()
     private fun advance(ms: Long) = shadowOf(looper).idleFor(ms, TimeUnit.MILLISECONDS)

@@ -133,16 +133,6 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND_MULTIPLE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="*/*" />
-            </intent-filter>
             <!-- Remote pairing by invite: bridgey://pair#<invite> from bridgey pair. Opening it only shows
                  "Pair with <name>?"; nothing happens without a tap and the code check on both ends. -->
             <intent-filter>
@@ -244,20 +234,24 @@
             android:excludeFromRecents="true" android:taskAffinity="">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" /></intent-filter>
         </activity>
-        <!-- Open on Mac (draft links_open_draft1): shows the host and waits for a tap before sending. -->
+        <activity android:name=".OpenOnMacActivity" android:exported="false" />
         <activity
-            android:name=".OpenOnMacActivity"
+            android:name=".SendToMacActivity"
             android:excludeFromRecents="true"
             android:exported="true"
             android:icon="@mipmap/ic_launcher"
-            android:label="@string/open_on_mac_label"
-            android:noHistory="true"
+            android:label="@string/share_to_mac"
             android:taskAffinity=""
             android:theme="@style/Theme.Bridgey.Sheet">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
         <receiver

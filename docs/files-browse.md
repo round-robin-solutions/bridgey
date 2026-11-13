@@ -34,7 +34,7 @@ media and documents the way Telegram shows them, and media from the phone that f
     memory). Why and how: [files-browse-performance.md](files-browse-performance.md).
   - Read-only banner while the phone does not allow changes; an explanation for a phone that
     does not allow browsing or runs an older Bridgey.
-- **Send to phone** sheet (replaces the system panel for Send Files or Folders): recent files
+- **Send to device** sheet (replaces the system panel for Send Files or Folders): recent files
   from Downloads, Desktop and Documents, recent screenshots, drop anywhere, **Browse…** as the
   fallback, target chips, the optimisation chip.
   File selection uses Shift-click ranges, modifier-click toggles and scoped keyboard navigation
@@ -61,7 +61,7 @@ media and documents the way Telegram shows them, and media from the phone that f
 
 - **Quick wins** (Rahul, 2026-10-27):
   - **Share › Bridgey** (a share extension built by build-app.sh, sandboxed; new extensions start
-    off, so turn it on in System Settings › Extensions › Sharing) and **Services › Send to Phone
+    off, so turn it on in System Settings › Extensions › Sharing) and **Services › Send to device
     with Bridgey**. Both open a small "Send to" chooser with device tiles, Tray and the chip.
   - **Received-file notifications** with Open and Show in Finder; clicking opens the item; items
     from one phone less than 3 s apart update one notification ("12 files from OnePlus 11").

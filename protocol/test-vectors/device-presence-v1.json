@@ -1,0 +1,420 @@
+{
+  "format": "bridgey.device-presence.v1",
+  "state": [
+    {
+      "name": "active0",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "active119",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 119
+      }
+    },
+    {
+      "name": "idle120",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "idle",
+        "idleSeconds": 120
+      }
+    },
+    {
+      "name": "idle86400",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "idle",
+        "idleSeconds": 86400
+      }
+    },
+    {
+      "name": "lockedNone",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "locked"
+      }
+    },
+    {
+      "name": "unknownNone",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "unknown"
+      }
+    },
+    {
+      "name": "maximum sequence",
+      "valid": true,
+      "plaintext": {
+        "version": 1,
+        "sequence": 9007199254740991,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "version 0",
+      "valid": false,
+      "plaintext": {
+        "version": 0,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "version 2",
+      "valid": false,
+      "plaintext": {
+        "version": 2,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "version True",
+      "valid": false,
+      "plaintext": {
+        "version": true,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "version 1.5",
+      "valid": false,
+      "plaintext": {
+        "version": 1.5,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "version '1'",
+      "valid": false,
+      "plaintext": {
+        "version": "1",
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "version None",
+      "valid": false,
+      "plaintext": {
+        "version": null,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence 0",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 0,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence -1",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": -1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence True",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": true,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence 1.5",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1.5,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence '1'",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": "1",
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence 9007199254740992",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 9007199254740992,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "sequence None",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": null,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "state 'typing'",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "typing",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "state 'ACTIVE'",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "ACTIVE",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "state True",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": true,
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "state None",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": null,
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "idleSeconds -1",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": -1
+      }
+    },
+    {
+      "name": "idleSeconds 120",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 120
+      }
+    },
+    {
+      "name": "idleSeconds 86401",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 86401
+      }
+    },
+    {
+      "name": "idleSeconds True",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": true
+      }
+    },
+    {
+      "name": "idleSeconds 1.5",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 1.5
+      }
+    },
+    {
+      "name": "idleSeconds '0'",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": "0"
+      }
+    },
+    {
+      "name": "idleSeconds None",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": null
+      }
+    },
+    {
+      "name": "missing version",
+      "valid": false,
+      "plaintext": {
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "missing sequence",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "state": "active",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "missing state",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "missing idleSeconds",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active"
+      }
+    },
+    {
+      "name": "idle too low",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "idle",
+        "idleSeconds": 119
+      }
+    },
+    {
+      "name": "locked with idle",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "locked",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "unknown with idle",
+      "valid": false,
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "unknown",
+        "idleSeconds": 0
+      }
+    },
+    {
+      "name": "duplicate key",
+      "valid": false,
+      "raw": "{\"version\":1,\"sequence\":1,\"state\":\"active\",\"idleSeconds\":0,\"state\":\"locked\"}"
+    },
+    {
+      "name": "array",
+      "valid": false,
+      "raw": "[]"
+    },
+    {
+      "name": "trailing object",
+      "valid": false,
+      "raw": "{\"version\": 1, \"sequence\": 1, \"state\": \"active\", \"idleSeconds\": 0}{}"
+    },
+    {
+      "name": "oversized",
+      "valid": false,
+      "raw": "{\"version\": 1, \"sequence\": 1, \"state\": \"active\", \"idleSeconds\": 0, \"extra\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}"
+    },
+    {
+      "name": "unknown activity field",
+      "plaintext": {
+        "version": 1,
+        "sequence": 1,
+        "state": "active",
+        "idleSeconds": 0,
+        "app": "private"
+      },
+      "valid": false
+    },
+    {
+      "name": "escaped duplicate state",
+      "raw": "{\"version\":1,\"sequence\":1,\"state\":\"active\",\"idleSeconds\":0,\"st\\u0061te\":\"active\"}",
+      "valid": false
+    },
+    {
+      "name": "duplicate sequence with same value",
+      "raw": "{\"version\":1,\"sequence\":1,\"state\":\"active\",\"idleSeconds\":0,\"sequence\":1}",
+      "valid": false
+    }
+  ]
+}

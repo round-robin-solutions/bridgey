@@ -137,6 +137,6 @@ class QuickActionsMediaTest {
         actions.receive("quick.result", JSONObject().put("version", 1).put("requestId", id).put("feature", "media").put("accepted", false))
         val status = actions.status.value!!
         assertFalse(status.contains('—'))
-        assertEquals("The Mac could not do that. Check the player on your Mac and try again.", status)
+        assertEquals("The device could not do that. Check its player and try again.", status)
     }
 }

@@ -233,12 +233,12 @@
 "quick.find" = "Find";
 "quick.find.help" = "Ring the phone until you stop it";
 "quick.link" = "Link";
-"quick.link.help" = "Open the copied link or the current browser tab on the phone";
+"quick.link.help" = "Open the copied link or the current browser tab on another device";
 "quick.media" = "Media";
 "quick.media.help" = "Choose the Mac player the phone controls";
 "quick.media.refresh" = "Refresh Player";
 "quick.ping" = "Ping";
-"quick.ping.help" = "Play a short alert on the phone";
+"quick.ping.help" = "Play a short alert on another device";
 "remote.accessibility" = "Accessibility access";
 "remote.accessibility.allowed" = "Allowed";
 "remote.accessibility.off" = "Needed to move the pointer and type. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Accessibility.";
@@ -434,7 +434,7 @@
 "stream.clip.sent.text" = "Copied text (%@)";
 "stream.clipboard.received" = "Copied text from %@";
 "stream.clipboard.sent" = "Clipboard sent to %@";
-"stream.device.unknown" = "your phone";
+"stream.device.unknown" = "your device";
 "stream.earlier" = "Earlier this week";
 "stream.empty.body" = "Send your clipboard below, or drop a file on it. What moves between your devices shows here for 7 days.";
 "stream.empty.title" = "Nothing has moved yet";
@@ -486,7 +486,7 @@
 "updates.releaseNotes" = "Release notes";
 "updates.unavailable" = "Updates work only in the installed app.";
 "updates.version" = "Version %@";
-"welcome.body" = "Keep your Mac and phone on the same local network. Choose a device, compare the pairing code, and confirm it on both devices. Optional permissions are requested only when you use the related feature.";
+"welcome.body" = "Keep both devices on the same local network. Choose a device, compare the pairing code, and confirm it on both devices. Optional permissions are requested only when you use the related feature.";
 "welcome.continue" = "Get started";
 "welcome.continue.hint" = "Closes the welcome guide and starts device discovery";
 "welcome.title" = "Welcome to Bridgey";
@@ -796,7 +796,7 @@
 "codes.panel.ready.detail" = "The model is ready. Message text stays on this Mac.";
 
 /* Files 2.0, second slice: receive settings (contract) */
-"settings.folders.receive.note" = "Folders from your phone keep their structure. Received files get a Where from line in Finder.";
+"settings.folders.receive.note" = "Folders from other devices keep their structure. Received files get a Where from line in Finder.";
 "settings.folders.receive" = "Folders sent to this Mac";
 "settings.folders.receive.fixed" = "Always save to Received files";
 "settings.folders.receive.ask" = "Ask on this Mac each time";
@@ -806,7 +806,7 @@
 "settings.folders.conflict.replace" = "Replace files";
 "settings.folders.conflict.newFolder" = "Save as new folder";
 "settings.files.tag" = "Tag received files in Finder";
-"settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything that came from your phone.";
+"settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything received from other devices.";
 
 /* Files 2.0: transfer engine (Mac engine agent adds below) */
 "folders.upload.items" = "%1$@ and %2$@ more";
@@ -939,7 +939,7 @@
 "phonefiles.window" = "Phone files";
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
-"sendsheet.window" = "Send to phone";
+"sendsheet.window" = "Send to device";
 "sendsheet.title" = "Send to";
 "sendsheet.noDevice" = "Connect a device to send. You can still pick files now.";
 "sendsheet.added" = "Added";
@@ -1045,7 +1045,7 @@
 "share.noDevice" = "No device connected";
 "share.title.one" = "Send 1 item%@ to";
 "share.title" = "Send %d items%@ to";
-"share.window" = "Send to phone";
+"share.window" = "Send to device";
 
 /* Mac actions, opening links right away, browser tab and connection health */
 "action.remove" = "Remove";
@@ -1132,8 +1132,8 @@
 "quick.link.copied" = "Send the Copied Link";
 "quick.link.tab" = "Send the Current %@ Tab";
 "quick.link.tab.none" = "Send the Current Browser Tab";
-"settings.links.openRightAway" = "Open links from phones right away";
-"settings.links.openRightAway.detail" = "Open on Mac from the phone’s share sheet opens the link in your browser. Off: it waits for you to open it here.";
+"settings.links.openRightAway" = "Open links from other devices right away";
+"settings.links.openRightAway.detail" = "Links shared from other devices open in the browser. Turn this off to keep them in Bridgey's menu bar.";
 "settings.macActions" = "Mac actions";
 
 /* Shortcuts and Siri (App Intents) */
@@ -1744,3 +1744,28 @@
 "callMedia.restore.backup" = "Restore sound";
 "callMedia.restore.backup.detail" = "Remove Bridgey's temporary mute without starting playback. This also works during a call.";
 "callMedia.audioAccess" = "Mac muting needs macOS 14.2 or later and System Audio Recording access. Audio stays in memory and is discarded; nothing is recorded or sent.";
+
+/* Local-only agent code access */
+"localCodes.title" = "Local agent codes";
+"localCodes.footnote" = "Uses Codes from messages. Codes stay in memory on this Mac and clear when switched off.";
+"localCodes.toggle" = "Let local agents read codes";
+"localCodes.detail" = "Off by default. Any process running as you can read them.";
+"localCodes.lifetime" = "Keep codes for";
+"localCodes.lifetimeDetail" = "1 to 30 minutes. Default: 10.";
+"localCodes.minutes" = "Minutes";
+"localCodes.minutesLabel" = "Code lifetime in minutes";
+"localCodes.unit" = "min";
+"localCodes.blocked" = "Blocked senders";
+"localCodes.blockedDetail" = "One name or app per line. Matches part of the name, ignoring punctuation and case.";
+"localCodes.blockedLabel" = "Blocked senders, one per line";
+"localCodes.defaults" = "Use defaults";
+"localCodes.defaultsHelp" = "Banks and payment apps";
+"localCodes.save" = "Save";
+"localCodes.invalid" = "Enter a whole number from 1 to 30.";
+"localCodes.unavailable" = "Local access couldn't start. Switch off, then on to retry.";
+"localCodes.clear" = "Changes clear saved codes.";
+
+"settings.presence.share" = "Share when I'm using this device";
+"settings.presence.detail" = "Helps other devices send here. Only activity status and time since input are shared.";
+"share.text.copied" = "Text copied";
+"share.text.from" = "From %@";

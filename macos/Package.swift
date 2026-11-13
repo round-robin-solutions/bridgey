@@ -1,7 +1,30 @@
 // swift-tools-version: 5.10
 import PackageDescription
+import Foundation
 
-let package = Package(
+let storeEdition = ProcessInfo.processInfo.environment["BRIDGEY_DISTRIBUTION"] == "app-store"
+
+// The explicit allowlist is the build boundary. Everything else is excluded, including future full-app files.
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let storeShared = ["ProtocolCrypto.swift", "SessionCrypto.swift", "PairingMessage.swift", "JSONInteger.swift", "ProtocolDecoding.swift", "ClipboardPayload.swift"]
+let storeExclusions = ((try? FileManager.default.contentsOfDirectory(atPath: packageRoot.path)) ?? [])
+    .filter { !["Store", "Sources", "Package.swift", "Package.resolved"].contains($0) }
+    + ((try? FileManager.default.contentsOfDirectory(atPath: packageRoot.appendingPathComponent("Sources").path)) ?? [])
+        .filter { $0 != "BridgeyMac" }.map { "Sources/" + $0 }
+    + ((try? FileManager.default.contentsOfDirectory(atPath: packageRoot.appendingPathComponent("Sources/BridgeyMac").path)) ?? [])
+        .filter { !storeShared.contains($0) }.map { "Sources/BridgeyMac/" + $0 }
+
+let package = storeEdition ? Package(
+    name: "BridgeyStore",
+    platforms: [.macOS(.v13)],
+    products: [.executable(name: "BridgeyMacStore", targets: ["BridgeyMacStore"])],
+    targets: [
+        .executableTarget(name: "BridgeyMacStore", path: ".", exclude: storeExclusions, sources: [
+            "Store/StoreApp.swift", "Store/StoreConnection.swift", "Store/StoreFiles.swift", "Store/StorePolicy.swift",
+        ] + storeShared.map { "Sources/BridgeyMac/" + $0 }, swiftSettings: [.define("BRIDGEY_APP_STORE")]),
+        .testTarget(name: "BridgeyStoreTests", dependencies: ["BridgeyMacStore"], path: "StoreTests"),
+    ], swiftLanguageVersions: [.v5]
+) : Package(
     name: "BridgeyMac",
     platforms: [.macOS(.v13)],
     products: [.executable(name: "BridgeyMac", targets: ["BridgeyMac"]),
