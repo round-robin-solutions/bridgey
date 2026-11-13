@@ -297,6 +297,8 @@ internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY,
     // Detect codes (docs/mesh-and-codes.md), after the agent keys.
     dev.bridgey.android.agents.CODES_DETECT_FEATURE_KEY,
+    dev.bridgey.android.media.CALL_QUIET_FEATURE_KEY,
+    dev.bridgey.android.routing.NOTIFICATION_ROUTING_FEATURE_KEY,
 )
 
 internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {

@@ -41,6 +41,71 @@ final class MenuBarPanelPresentation: ObservableObject {
     }
 }
 
+/// The panel's entrance. Saved as `settings.panelMotion`; Reduce Motion always means no movement.
+enum MenuBarPanelMotion: String, CaseIterable {
+    /// Grows a few points down out of the menu bar while it fades in.
+    case move
+    /// The fade only.
+    case fade
+    /// Appears and disappears at once.
+    case off
+
+    static let defaultsKey = "settings.panelMotion"
+    static var stored: () -> MenuBarPanelMotion = {
+        MenuBarPanelMotion(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .move
+    }
+}
+
+/// Moves the content layer on the render server, so a busy main thread cannot stall it; layout never changes.
+@MainActor
+enum MenuBarPanelMover {
+    static let key = "bridgey.panelMotion"
+    static let hiddenScale: CGFloat = 0.97
+    static let hiddenRise: CGFloat = 6
+    static let entrance = CAMediaTimingFunction(controlPoints: 0.2, 0.8, 0.2, 1)
+    static let exit = CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
+
+    /// Scaled about the top edge at `pivotX` and raised toward the menu bar.
+    static func hiddenTransform(for layer: CALayer, pivotX: CGFloat) -> CATransform3D {
+        let bounds = layer.bounds
+        // Layer space is y-down when an ancestor flips geometry, y-up otherwise.
+        let flipped = layer.superlayer.map(isFlipped) ?? false
+        let pivot = CGPoint(x: min(max(pivotX, 0), bounds.width), y: flipped ? bounds.minY : bounds.maxY)
+        let anchor = CGPoint(x: bounds.minX + layer.anchorPoint.x * bounds.width, y: bounds.minY + layer.anchorPoint.y * bounds.height)
+        let dx = pivot.x - anchor.x, dy = pivot.y - anchor.y
+        var transform = CATransform3DMakeTranslation(-dx, -dy, 0)
+        transform = CATransform3DConcat(transform, CATransform3DMakeScale(hiddenScale, hiddenScale, 1))
+        return CATransform3DConcat(transform, CATransform3DMakeTranslation(dx, dy + (flipped ? -hiddenRise : hiddenRise), 0))
+    }
+
+    private static func isFlipped(_ layer: CALayer) -> Bool {
+        var flips = false
+        var current: CALayer? = layer
+        while let next = current {
+            if next.isGeometryFlipped { flips.toggle() }
+            current = next.superlayer
+        }
+        return flips
+    }
+
+    /// Moves from wherever the content is drawn now, so a reversal mid-way never jumps.
+    static func move(_ layer: CALayer, to target: CATransform3D, from start: CATransform3D? = nil, duration: TimeInterval,
+                     curve: CAMediaTimingFunction) {
+        let from = start ?? layer.presentation()?.transform ?? layer.transform
+        let animation = CABasicAnimation(keyPath: "transform")
+        animation.fromValue = NSValue(caTransform3D: from)
+        animation.toValue = NSValue(caTransform3D: target)
+        animation.duration = duration
+        animation.timingFunction = curve
+        // Holds the end state, so a closed panel stays shrunk until it is ordered out.
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        layer.add(animation, forKey: key)
+    }
+
+    static func reset(_ layer: CALayer?) { layer?.removeAnimation(forKey: key) }
+}
+
 private struct MenuBarIconClick: Equatable {
     let number: Int
     let timestamp: TimeInterval
@@ -96,8 +161,12 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     /// Suppress only the very same icon event that already dismissed the panel, never a later click.
     private var dismissedIconClick: MenuBarIconClick?
     var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
-    static let openingDuration: TimeInterval = 0.12
-    static let closingDuration: TimeInterval = 0.10
+    static let openingDuration: TimeInterval = 0.18
+    static let closingDuration: TimeInterval = 0.12
+    /// The saved entrance style (movement by default).
+    var panelMotion: () -> MenuBarPanelMotion = { MenuBarPanelMotion.stored() }
+    /// The layer that moves: the whole panel content, as one surface.
+    var contentLayer: CALayer? { hosting.view.layer }
     /// Lightweight state cleanup before layout; provider refreshes belong in onDidOpen.
     var onWillOpen: () -> Void = {}
     /// Refresh after entrance completion; reduced motion uses the next main turn.
@@ -127,6 +196,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         panel.animationBehavior = .none
         panel.contentViewController = hosting
+        hosting.view.wantsLayer = true
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.close() }
         hosting.sizingOptions = [.preferredContentSize]
@@ -176,11 +246,19 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         close()
     }
 
-    /// Prepare the retained hierarchy once while hidden, without provider reads or showing a window.
+    /// Prepare the retained hierarchy once while hidden, without provider reads or showing anything.
     func prepareContent() {
         guard !panel.isVisible else { return }
         hosting.view.layoutSubtreeIfNeeded()
         fitToContent()
+        guard panel.windowNumber <= 0 else { return }
+        // Create and draw the window once, transparent, so the first entrance is not spent on that.
+        panel.alphaValue = 0
+        panel.ignoresMouseEvents = true
+        panel.orderFrontRegardless()
+        panel.displayIfNeeded()
+        CATransaction.flush()
+        BridgeyWindows.orderOut(panel)
     }
 
     func open(byDrag: Bool) {
@@ -195,7 +273,9 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         onWillOpen()
         hosting.view.layoutSubtreeIfNeeded()
         fitToContent()
-        let animate = !reduceMotion()
+        let motion: MenuBarPanelMotion = reduceMotion() ? .off : panelMotion()
+        let animate = motion != .off
+        moveContent(opening: true, moves: motion == .move, fromHidden: !alreadyVisible)
         if !alreadyVisible { panel.alphaValue = animate ? 0 : 1 }
         else if !animate { panel.alphaValue = 1 }
         panel.ignoresMouseEvents = false
@@ -207,7 +287,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         statusItem.button?.highlight(true)
         installOutsideClickMonitor()
         if animate {
-            BridgeyWindows.fadeIn(panel, duration: Self.openingDuration) { [weak self] in
+            BridgeyWindows.fadeIn(panel, duration: Self.openingDuration, timing: MenuBarPanelMover.entrance) { [weak self] in
                 self?.refreshAfterOpening(generation)
             }
         } else {
@@ -216,6 +296,8 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     }
 
     private func refreshAfterOpening(_ generation: Int) {
+        // The shadow already follows the moving content on macOS 27; this guards compositors that cache it.
+        panel.invalidateShadow()
         // A slow pasteboard provider must not block the entrance animation itself.
         scheduleOpenRefresh { [weak self] in
             guard let self, self.visibilityGeneration == generation, self.isOpen else { return }
@@ -223,9 +305,28 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Where the panel grows from: the icon's x, which is off centre when the panel is pushed in from a screen edge.
+    private var pivotX: CGFloat {
+        (iconFrame?.midX ?? panel.frame.midX) - panel.frame.minX
+    }
+
+    private func moveContent(opening: Bool, moves: Bool, fromHidden: Bool = false) {
+        guard let layer = contentLayer else { return }
+        guard moves else { MenuBarPanelMover.reset(layer); return }
+        let hidden = MenuBarPanelMover.hiddenTransform(for: layer, pivotX: pivotX)
+        if opening {
+            MenuBarPanelMover.move(layer, to: CATransform3DIdentity, from: fromHidden ? hidden : nil,
+                                   duration: Self.openingDuration, curve: MenuBarPanelMover.entrance)
+        } else {
+            MenuBarPanelMover.move(layer, to: hidden, duration: Self.closingDuration, curve: MenuBarPanelMover.exit)
+        }
+    }
+
     func close(animated: Bool = true) {
         guard wantsOpen || panel.isVisible else { return }
         let wasDrag = openedByDrag
+        let animate = animated && !wasDrag && !reduceMotion() && panelMotion() != .off
+        moveContent(opening: false, moves: animate && panelMotion() == .move)
         wantsOpen = false
         visibilityGeneration += 1
         presentation.setPresented(false)
@@ -236,8 +337,8 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         panel.resignKey()
         statusItem.button?.highlight(false)
         removeOutsideClickMonitor()
-        if animated && !wasDrag && !reduceMotion() {
-            BridgeyWindows.fadeOut(panel, duration: Self.closingDuration)
+        if animate {
+            BridgeyWindows.fadeOut(panel, duration: Self.closingDuration, timing: MenuBarPanelMover.exit)
         } else { BridgeyWindows.orderOut(panel) }
     }
 

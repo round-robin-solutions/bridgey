@@ -386,6 +386,7 @@
 "settings.quickActions" = "Quick actions";
 "settings.receivedFiles" = "Received files";
 "settings.reduceMotion" = "Reduce motion";
+"settings.panelMotion" = "Animate the menu bar panel";
 "settings.reduceMotion.detail" = "Fade between screens; nothing moves or bounces";
 "settings.remoteControl" = "Remote control";
 "settings.shortcut" = "Keyboard shortcut";
@@ -807,6 +808,10 @@
 "settings.folders.conflict.newFolder" = "Save as new folder";
 "settings.files.tag" = "Tag received files in Finder";
 "settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything received from other devices.";
+"settings.phoneFiles.quality" = "Copy and download from the phone";
+"settings.phoneFiles.quality.note" = "Optimised uses the Before sending sizes. If those are set to original size, photos go to 2048 px and videos to 1080p. Files that would not get smaller stay as they are.";
+"settings.phoneFiles.quality.optimized" = "Optimised";
+"settings.phoneFiles.quality.original" = "Original";
 
 /* Files 2.0: transfer engine (Mac engine agent adds below) */
 "folders.upload.items" = "%1$@ and %2$@ more";
@@ -864,7 +869,6 @@
 "phonefiles.day.unknown" = "Earlier";
 "phonefiles.day.yesterday" = "Yesterday";
 "phonefiles.download" = "Download";
-"phonefiles.download.help" = "Save to Received files";
 "phonefiles.drop.add" = "Drop to add to %1$@ on %2$@";
 "phonefiles.entry" = "Phone files";
 "phonefiles.entry.help" = "Browse photos, documents and folders on the phone";
@@ -937,6 +941,16 @@
 "phonefiles.sort.name" = "Name";
 "phonefiles.sort.size" = "Size";
 "phonefiles.window" = "Phone files";
+"phonefiles.activity.copy" = "Copying %@";
+"phonefiles.copied" = "Copied %@ to the clipboard";
+"phonefiles.copy" = "Copy";
+"phonefiles.copy.optimized" = "Copy Optimised";
+"phonefiles.copy.original" = "Copy Original";
+"phonefiles.download.choose" = "Choose how to download";
+"phonefiles.download.help.optimized" = "Save smaller copies to Received files";
+"phonefiles.download.help.original" = "Save the originals to Received files";
+"phonefiles.download.optimized" = "Download Optimised";
+"phonefiles.download.original" = "Download Original";
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
 "sendsheet.window" = "Send to device";
@@ -969,7 +983,7 @@
 "tray.title" = "Tray";
 "drop.tiles.collect" = "Collect, send later";
 "drop.tiles.trayCount" = "%d waiting";
-"settings.drop.note" = "Hovering over the icon while dragging opens the panel with a tile for each device and the Tray.";
+"settings.drop.note" = "Hover over the icon while dragging to choose a device. A quick drop uses the last connected device you sent to, then the selected device, then the first connected device. Drop on a named tile to change the last-used destination, or choose Always collect in the Tray to decide later.";
 "settings.drop" = "When I drop on the menu-bar icon";
 "settings.drop.spring" = "Show devices and Tray";
 "settings.drop.tray" = "Always collect in the Tray";
@@ -1706,6 +1720,44 @@
 "tailscale.action.install" = "Get Tailscale";
 "tailscale.action.check" = "Check again";
 "tailscale.action.help" = "Setup guide";
+"callMedia.counts" = "%d paused, %d muted";
+"callMedia.detail" = "Quiet supported media on allowed devices when a call starts. Later manual playback stays allowed.";
+"callMedia.grant" = "Allow call status and media quieting";
+"callMedia.limited" = "Some apps cannot be controlled";
+"callMedia.limits" = "Allow each device in Devices. Music and Spotify have independent controls; other apps may be limited. Call audio is protected. Mac calls without an integration use the manual mark below.";
+"callMedia.manual" = "This Mac's call status";
+"callMedia.manual.detail" = "A manual mark for FaceTime, Zoom or browser calls. It never answers or ends an actual call.";
+"callMedia.manual.short" = "This Mac's call";
+"callMedia.mode" = "During a call";
+"callMedia.mode.mute" = "Mute only";
+"callMedia.mode.pause" = "Pause only";
+"callMedia.mode.pauseMute" = "Pause, then mute what cannot pause";
+"callMedia.notAllowed" = "Not enabled on both devices or not allowed here";
+"callMedia.off" = "Quiet media during calls is off";
+"callMedia.offCall" = "I'm off the call";
+"callMedia.onCall" = "I'm on a call";
+"callMedia.ownership" = "Only changes made by Bridgey are restored. Later playback, volume and output choices stay yours.";
+"callMedia.restore" = "After the last call";
+"callMedia.restore.manual" = "Leave both for manual action";
+"callMedia.restore.resume" = "Restore sound and resume playback";
+"callMedia.restore.sound" = "Restore sound, leave playback paused";
+"callMedia.title" = "Quiet media during calls";
+"callMedia.waiting" = "Waiting for this device's playback result";
+
+"callMedia.recovery" = "Open %@, restore its volume (previously %d%%), then check sound recovery or retry Reset Everything.";
+"callMedia.recovery.check" = "Check sound recovery";
+"callMedia.reset.failed" = "Sound recovery could not be verified. Recovery data has been kept. Check Music and Spotify volumes and Automation access, then try Reset Everything again.";
+"callMedia.reset.fix" = "Restore sound in %@, or fix Automation access, then try Reset Everything again. Recovery data has been kept.";
+"callMedia.reset.restoring" = "Restoring media sound before Reset Everything…";
+
+"files.selection.help" = "Shift-click: select a range. ⌘-click: toggle a file. ⌘A: select all. Esc: clear.";
+
+"sendsheet.selection" = "Files to send";
+"callMedia.restore.macManual" = "Restore sound, resume playback manually";
+"callMedia.recovery.temporary" = "Bridgey could not finish sound recovery for %@. Try Restore sound.";
+"callMedia.restore.backup" = "Restore sound";
+"callMedia.restore.backup.detail" = "Remove Bridgey's temporary mute without starting playback. This also works during a call.";
+"callMedia.audioAccess" = "Mac muting needs macOS 14.2 or later and System Audio Recording access. Audio stays in memory and is discarded; nothing is recorded or sent.";
 
 /* Local-only agent code access */
 "localCodes.title" = "Local agent codes";

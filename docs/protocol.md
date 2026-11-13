@@ -2118,3 +2118,33 @@ codec must preserve IDs, types, correlation, and negotiated semantics.
 
 Notification reads follow the phone's Notification forwarding switch and blocked-app list, and
 exclude Bridgey's own, secret, quiet ongoing, group-summary and Android-redacted notifications.
+## Draft: calls quiet media (`call_quiet_draft1`)
+
+Optional, starts off, protocol 2 only. The same encrypted, sender-bound call-state snapshots
+reach permitted directly connected paired apps over LAN or Connect anywhere; this draft does
+not grant transitive trust or authorize agent/CLI devices to originate media effects.
+
+The complete [call/media contract](call-media.md#wire-contract) defines `calls.quiet_state`
+(2,048-byte strict plaintext, version/revision/opaque call ID set/uncertainty) and `calls.quiet_result`
+(1,024 bytes, observed counts and fixed capability reasons). Both use the normal tagged
+session envelope, `messageId` replay protection, encryption, both advertised feature maps
+and the receiver's per-device permission. Caller names, numbers, notification/media text,
+volume, payload origin and remote-supplied policy never travel in these messages.
+
+Snapshots renew every 25 seconds while active or uncertain and expire after 75 seconds without
+a valid renewal. Equal revisions renew only identical sets and uncertainty; older revisions are
+ignored. An empty set confirms source call end only when uncertainty is false. A previously
+advertised source lost without a verified end stays uncertain until fresh observation; missing
+evidence and another call ending never authorize autoplay under that uncertainty.
+Local effects aggregate all permitted active sources. Only the final confirmed end follows
+the local restoration setting; expiry, session loss, disable or revoke releases owned sound
+without automatically resuming playback. Already-paused/muted players and later manual
+changes remain the person's own. Shared strict vectors: `protocol/test-vectors/call-media-v1.json`.
+
+## Activity-aware notification routing (edition draft)
+
+`device_presence_draft1` and `notification_routing_draft1` are optional protocol-2 capabilities for trusted devices, never restricted agents. The Mac publishes encrypted `presence.state` only to a compatible phone while Share when I'm using this device is on (the phone share flow's presence; notification routing reuses it). A version-1 sample has an increasing per-session sequence, state `active`, `idle`, `locked` or `unknown`, and integer `idleSeconds` only for active/idle. Active is under 120 seconds, idle is 120 through 86400; locked/unknown omit the field. The sample is at most 512 bytes, has unique keys and no extra fields. The phone expires it after 20 seconds of its own monotonic time; replay cannot refresh that lease. No sender wall clock is used. Session replacement, disconnect, revocation and Forget invalidate old samples.
+
+The phone chooses an eligible active Mac, then an explicitly preferred connected Mac, otherwise phone-only. `notifications.post` may include `presentation: "alert" | "quiet"` only when both parties advertised notification routing. Missing means the legacy alert behavior; malformed or unnegotiated presentation is rejected. Quiet suppresses all automatic presentation effects including call overlays/ringing and code banners/floats/autocopy, while preserving permitted history, code extraction/reporting and call/media state. The first alert destination is retained for reposts of a logical message. Optional eventId is exactly 64 lowercase hexadecimal SHA-256 characters, only with negotiated routing and never on a call. It distinguishes a new message in a reused conversation notification; new events choose the currently active/preferred Mac and can alert again. Message metadata is used where Android exposes it; content-only fallback cannot distinguish identical messages from reposts. Calls and non-message updates stay pinned until removal. Non-chosen legacy peers receive no notification because they cannot honor quiet. `calls.quiet_state` keeps its independent all-device permissions and lifecycle.
+
+Full behavior, defaults and acceptance limits: [smart device routing](smart-device-routing.md).

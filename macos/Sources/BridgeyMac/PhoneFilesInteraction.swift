@@ -15,6 +15,7 @@ struct PhoneItemActions {
     /// The entries a drag carries (the selection when this item is in it).
     var dragEntries: () -> [PhoneFileEntry] = { [] }
     var menu: () -> NSMenu? = { nil }
+    var isSelected: () -> Bool = { false }
 }
 
 /// A transparent AppKit layer over a cell. Left out while screenshots render (ImageRenderer cannot draw it).
@@ -39,6 +40,7 @@ struct PhoneItemInteraction: NSViewRepresentable {
         var promises: PhoneFilePromises?
         private var downEvent: NSEvent?
         private var tracking: NSTrackingArea?
+        private var deferredClick = false
 
         override func updateTrackingAreas() {
             super.updateTrackingAreas()
@@ -52,20 +54,24 @@ struct PhoneItemInteraction: NSViewRepresentable {
         override func mouseExited(with event: NSEvent) { actions.hover(false) }
 
         override func mouseDown(with event: NSEvent) {
+            window?.makeFirstResponder((window as? PhoneFilesNSWindow)?.fileListResponder ?? self)
             downEvent = event
-            if event.clickCount >= 2 {
+            let flags = event.modifierFlags.intersection([.command, .shift])
+            if event.clickCount >= 2, flags.isEmpty {
                 actions.activate()
                 downEvent = nil
                 return
             }
-            let flags = event.modifierFlags
-            actions.click(flags.contains(.command), flags.contains(.shift))
+            // Keep a multi-selection intact until we know whether this is a click or a drag.
+            deferredClick = flags.isEmpty && actions.isSelected()
+            if !deferredClick { actions.click(flags.contains(.command), flags.contains(.shift)) }
         }
 
         override func mouseDragged(with event: NSEvent) {
             guard let down = downEvent, let promises else { return }
             let start = down.locationInWindow, now = event.locationInWindow
             guard hypot(now.x - start.x, now.y - start.y) > 4 else { return }
+            deferredClick = false
             downEvent = nil
             let entries = actions.dragEntries()
             guard !entries.isEmpty else { return }
@@ -81,11 +87,21 @@ struct PhoneItemInteraction: NSViewRepresentable {
             beginDraggingSession(with: items, event: event, source: self)
         }
 
-        override func mouseUp(with event: NSEvent) { downEvent = nil }
+        override func mouseUp(with event: NSEvent) {
+            if deferredClick, downEvent != nil { actions.click(false, false) }
+            deferredClick = false
+            downEvent = nil
+        }
 
         override func menu(for event: NSEvent) -> NSMenu? {
-            actions.click(false, false)
+            window?.makeFirstResponder((window as? PhoneFilesNSWindow)?.fileListResponder ?? self)
+            if !actions.isSelected() { actions.click(false, false) }
             return actions.menu()
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if (window as? PhoneFilesNSWindow)?.handleSelectionKey(event) == true { return }
+            super.keyDown(with: event)
         }
 
         func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
@@ -93,6 +109,26 @@ struct PhoneItemInteraction: NSViewRepresentable {
         }
 
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override var acceptsFirstResponder: Bool { true }
+    }
+}
+
+/// One stable responder for a virtualised file list, so scrolling a focused row away keeps the keys working.
+struct PhoneFileListKeyboardScope: NSViewRepresentable {
+    func makeNSView(context: Context) -> KeyView { KeyView() }
+    func updateNSView(_ view: KeyView, context: Context) {}
+
+    final class KeyView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            (window as? PhoneFilesNSWindow)?.fileListResponder = self
+        }
+        override func keyDown(with event: NSEvent) {
+            if (window as? PhoneFilesNSWindow)?.handleSelectionKey(event) == true { return }
+            super.keyDown(with: event)
+        }
+        override func mouseDown(with event: NSEvent) { window?.makeFirstResponder(self) }
     }
 }
 
@@ -182,17 +218,41 @@ final class PhoneFilesNSWindow: NSWindow {
     var onArrow: ((Int) -> Bool)?
     /// Command-Y when the grid does not have the keyboard (the file lists, the viewer's buttons).
     var onQuickLook: (() -> Void)?
+    /// Command-C (false) and Option-Command-C (true, the other quality).
+    var onCopy: ((Bool) -> Void)?
+    var onSelectionKey: ((NSEvent) -> Bool)?
+    var previewActive: () -> Bool = { false }
+    weak var fileListResponder: NSView?
+
+    private var textEditing: Bool { firstResponder is NSTextView || firstResponder is NSTextField }
+    private var listResponder: Bool {
+        firstResponder is PhoneItemInteraction.InteractionView || (fileListResponder != nil && firstResponder === fileListResponder)
+    }
+    private var fileResponder: Bool { listResponder || firstResponder is PhoneGridCollectionView }
+
+    func handleSelectionKey(_ event: NSEvent) -> Bool {
+        guard !textEditing, !previewActive(), listResponder else { return false }
+        return onSelectionKey?(event) == true
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.keyCode == 16, event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, let onQuickLook {
+        if handleSelectionKey(event) { return true }
+        if !textEditing, (fileResponder || previewActive()), event.keyCode == 16,
+           event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, let onQuickLook {
             onQuickLook()
+            return true
+        }
+        if !textEditing, fileResponder || previewActive(), let onCopy,
+           let other = PhoneFilesKeys.copy(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers, flags: event.modifierFlags) {
+            onCopy(other)
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
-        if !(firstResponder is NSTextView) {
+        if handleSelectionKey(event) { return }
+        if !textEditing, fileResponder || previewActive() {
             switch event.keyCode {
             case 49:
                 if let onSpace {
@@ -255,6 +315,19 @@ final class PhoneFilesNSWindow: NSWindow {
     }
 }
 
+/// One row of a cell's context menu. An alternate replaces the row before it while its extra modifier is held.
+struct PhoneMenuEntry {
+    var title = ""
+    var enabled = true
+    var key = ""
+    var modifiers: NSEvent.ModifierFlags = []
+    var alternate = false
+    var separator = false
+    var action: () -> Void = {}
+
+    static var divider: PhoneMenuEntry { PhoneMenuEntry(separator: true) }
+}
+
 /// Builds a cell's context menu.
 @MainActor
 enum PhoneItemMenu {
@@ -264,15 +337,21 @@ enum PhoneItemMenu {
         @objc func run() { action() }
     }
 
-    static func make(_ items: [(String, Bool, () -> Void)]) -> NSMenu {
+    static func make(_ entries: [PhoneMenuEntry]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        for (title, enabled, action) in items {
-            let target = Target(action)
-            let item = NSMenuItem(title: title, action: #selector(Target.run), keyEquivalent: "")
+        for entry in entries {
+            if entry.separator {
+                menu.addItem(.separator())
+                continue
+            }
+            let target = Target(entry.action)
+            let item = NSMenuItem(title: entry.title, action: #selector(Target.run), keyEquivalent: entry.key)
+            item.keyEquivalentModifierMask = entry.modifiers
+            item.isAlternate = entry.alternate
             item.target = target
             item.representedObject = target
-            item.isEnabled = enabled
+            item.isEnabled = entry.enabled
             menu.addItem(item)
         }
         return menu

@@ -234,10 +234,20 @@ protocol PhoneFilesService: AnyObject {
     func upload(phoneID: String, urls: [URL], placeId: String, path: String,
                 progress: @escaping (PhoneTransferProgress) -> Void,
                 completion: @escaping (Result<Void, PhoneFilesError>) -> Void) -> PhoneFilesCancellable
+
+    /// Copy put files from the phone on the pasteboard at `changeCount`: Automatic clipboard must not send
+    /// them back.
+    func copiedToPasteboard(phoneID: String, changeCount: Int)
+
+    /// Download Optimized saved copies made on this Mac in Received files: History, Finder metadata and the
+    /// received notification, as a download gets.
+    func savedCopies(_ urls: [URL], phoneID: String)
 }
 
 extension PhoneFilesService {
     func mediaRequestsInWindow(phoneID: String) -> Int { 0 }
+    func copiedToPasteboard(phoneID: String, changeCount: Int) {}
+    func savedCopies(_ urls: [URL], phoneID: String) {}
 
     /// A preview that waits its turn (hover prefetch).
     @discardableResult

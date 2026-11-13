@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="call_quiet_title">Медиа во время звонков</string>
+    <string name="call_quiet_summary_access">Включено · нужен доступ к медиа</string>
+    <string name="call_quiet_detail">Передавать состояние звонка разрешённым устройствам и один раз приостанавливать медиа. Ручное воспроизведение остаётся доступным. Не всеми плеерами и аудиовыходами можно управлять безопасно.</string>
+    <string name="call_quiet_device_detail">Передавать состояние звонка устройству %1$s и приостанавливать медиа здесь при его звонках. Данные звонящего и названия медиа эта функция не передаёт.</string>
+    <string name="call_quiet_mode">При начале звонка</string>
+    <string name="call_quiet_after">После последнего звонка</string>
+    <string name="call_quiet_pause_mute">Пауза; если нельзя — отключить звук</string>
+    <string name="call_quiet_pause_only">Только пауза</string>
+    <string name="call_quiet_mute_only">Только отключить звук</string>
+    <string name="call_quiet_restore_resume">Вернуть звук и продолжить медиа, остановленные Bridgey</string>
+    <string name="call_quiet_restore_sound">Вернуть звук, оставить воспроизведение на паузе</string>
+    <string name="call_quiet_leave_as_is">Оставить звук и воспроизведение для ручного управления</string>
+    <string name="call_quiet_phone_state">Состояние сотового звонка</string>
+    <string name="call_quiet_phone_state_on">Разрешено. Читается состояние звонка, а не его звук.</string>
+    <string name="call_quiet_phone_state_off">Разрешите доступ к состоянию телефона для передачи сотовых звонков. Это не разрешает удалённо отвечать на звонки или завершать их.</string>
+    <string name="call_quiet_access">Доступ к медиа и звонкам приложений</string>
+    <string name="call_quiet_access_on">Доступ к уведомлениям включён. Доступны медиасеансы и поддерживаемые уведомления о звонках.</string>
+    <string name="call_quiet_access_off">Разрешите доступ к уведомлениям для управления медиасеансами и чтения состояния звонков приложений. Обычную пересылку уведомлений можно не включать.</string>
+    <string name="call_quiet_status">Медиа на этом телефоне</string>
+    <string name="call_quiet_ready">Готово к началу разрешённого звонка. Позже можно включить воспроизведение вручную.</string>
+    <string name="call_quiet_pending">Ожидание подтверждения паузы от плееров.</string>
+    <string name="call_quiet_unavailable">Управление медиа недоступно. Проверьте доступ к уведомлениям и разрешения устройств.</string>
+    <string name="call_quiet_counts">На паузе: %1$d · Звук отключён: %2$d · Ограничено: %3$d</string>
+    <string name="call_quiet_peers">Результаты связанных устройств</string>
+    <string name="call_quiet_peers_waiting">При передаче состояния звонка устройства сообщают фактический результат. Доставка сообщения не подтверждает остановку медиа.</string>
+    <string name="call_quiet_peer_counts">Ответов: %1$d · На паузе: %2$d · Звук отключён: %3$d · Ограничено: %4$d</string>
+    <string name="call_quiet_reset_title">Верните звук медиа перед сбросом</string>
+    <string name="call_quiet_reset_detail">Bridgey не смог безопасно вернуть отключённый им звук медиа. Включите звук кнопками громкости телефона и повторите сброс. Данные и запись восстановления сохранены.</string>
+    <string name="call_quiet_reset_retry">Повторить сброс</string>
+</resources>

@@ -602,22 +602,42 @@ internal fun ResetRoute(hooks: SetupHooks, onBack: () -> Unit) {
     val context = LocalContext.current
     var confirming by rememberSaveable { mutableStateOf<ResetChoice?>(null) }
     var done by rememberSaveable { mutableStateOf<ResetChoice?>(null) }
+    var soundBlocked by rememberSaveable { mutableStateOf<ResetChoice?>(null) }
+    val executeReset: (ResetChoice) -> Unit = { choice ->
+        confirming = null
+        if (!LocalDataReset(AndroidResetEnvironment(context.applicationContext, hooks.resetHook)).perform(choice)) {
+            soundBlocked = choice
+        } else if (LocalDataReset.needsRestart(choice)) {
+            android.widget.Toast.makeText(context, context.getString(resetDoneRes(choice)), android.widget.Toast.LENGTH_SHORT).show()
+            hooks.restart()
+        } else {
+            done = choice
+        }
+    }
     ResetScreen(
         confirming = confirming,
         done = done,
         onBack = onBack,
         onChoose = { confirming = it },
-        onConfirm = { choice ->
-            confirming = null
-            LocalDataReset(AndroidResetEnvironment(context.applicationContext, hooks.resetHook)).perform(choice)
-            if (LocalDataReset.needsRestart(choice)) {
-                android.widget.Toast.makeText(context, context.getString(resetDoneRes(choice)), android.widget.Toast.LENGTH_SHORT).show()
-                hooks.restart()
-            } else {
-                done = choice
-            }
-        },
+        onConfirm = executeReset,
     )
+    soundBlocked?.let { choice ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { soundBlocked = null },
+            title = { androidx.compose.material3.Text(stringResource(R.string.call_quiet_reset_title)) },
+            text = { androidx.compose.material3.Text(stringResource(R.string.call_quiet_reset_detail)) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { soundBlocked = null; executeReset(choice) }) {
+                    androidx.compose.material3.Text(stringResource(R.string.call_quiet_reset_retry))
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { soundBlocked = null }) {
+                    androidx.compose.material3.Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 private fun resetDoneRes(choice: ResetChoice): Int = when (choice) {

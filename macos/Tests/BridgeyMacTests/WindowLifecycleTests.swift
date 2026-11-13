@@ -16,11 +16,15 @@ final class WindowLifecycleTests: XCTestCase {
     private var savedUnavailable = BridgeyWindows.screenUnavailable
     private var savedDeadline = BridgeyWindows.fadeDeadline
     private var clock = Date()
+    private var savedRepair: (String, String) -> Void = { _, _ in }
+    private var savedInterval: TimeInterval = 2
 
     override func setUp() {
         super.setUp()
         _ = NSApplication.shared
         let watchdog = WindowWatchdog.shared
+        savedRepair = watchdog.onRepair
+        savedInterval = watchdog.sweepInterval
         watchdog.sweepInterval = 1_000
         watchdog.start()
         repairs = []
@@ -47,11 +51,17 @@ final class WindowLifecycleTests: XCTestCase {
         BridgeyWindows.screenUnavailable = savedUnavailable
         BridgeyWindows.fadeDeadline = savedDeadline
         WindowWatchdog.shared.now = Date.init
+        WindowWatchdog.shared.onRepair = savedRepair
+        WindowWatchdog.shared.sweepInterval = savedInterval
         super.tearDown()
     }
 
+    /// Waits on the main queue, not on run-loop sources: `RunLoop.run(until:)` returns at once when no
+    /// source happens to be attached, so a fade deadline queued with `asyncAfter` could be skipped.
     private func spin(_ seconds: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        let waited = expectation(description: "spin")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { waited.fulfill() }
+        wait(for: [waited], timeout: seconds + 5)
     }
 
     /// A Tray-like panel: titled, closable, non-activating, with a button to anchor a popover.
@@ -72,12 +82,14 @@ final class WindowLifecycleTests: XCTestCase {
 
     private func showPopover(from button: NSButton) -> NSPopover {
         let popover = NSPopover()
-        popover.behavior = .transient
+        // Test Bridgey's explicit close/watchdog paths, without AppKit dismissing the
+        // fixture because another app on the shared runner gained focus during a fade.
+        popover.behavior = .applicationDefined
+        popover.animates = false
         let controller = NSViewController()
         controller.view = NSView(frame: NSRect(x: 0, y: 0, width: 326, height: 300))
         popover.contentViewController = controller
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-        spin(0.3)
         XCTAssertTrue(popover.isShown, "the popover did not open")
         return popover
     }
@@ -174,7 +186,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testFadeOutThatNeverFinishesStillOrdersOut() {
-        BridgeyWindows.animateAlpha = { _, _, _, _ in }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in }
         BridgeyWindows.fadeDeadline = 0.05
         let (panel, _) = makePanel()
         BridgeyWindows.fadeOut(panel)
@@ -184,7 +196,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testLockedScreenHidesAtOnce() {
-        BridgeyWindows.animateAlpha = { _, _, _, _ in XCTFail("no fade on a locked screen") }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in XCTFail("no fade on a locked screen") }
         BridgeyWindows.screenUnavailable = { true }
         let (panel, _) = makePanel()
         BridgeyWindows.fadeOut(panel)
@@ -193,7 +205,7 @@ final class WindowLifecycleTests: XCTestCase {
 
     /// The toast race: a toast fading out when the next toast arrives.
     func testShowDuringFadeOutWins() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
@@ -213,7 +225,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testDropToastRapidShowAndHide() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
@@ -221,6 +233,8 @@ final class WindowLifecycleTests: XCTestCase {
         }
         BridgeyWindows.fadeDeadline = 0.05
         let toast = DropToastController()
+        // Pinned: the machine's own Reduce Motion setting would otherwise pick the path under test.
+        toast.reduceMotion = { false }
         for round in 0..<20 {
             toast.show(DropToastModel(text: "Sent \(round)", actions: []), near: nil, seconds: 60)
             if round.isMultiple(of: 3) { pendingFades.forEach { $0() }; pendingFades = [] }
@@ -236,6 +250,31 @@ final class WindowLifecycleTests: XCTestCase {
         XCTAssertEqual(toast.panel?.alphaValue, 1)
         toast.hide()
         spin(0.2)
+        XCTAssertFalse(toast.panel?.isVisible ?? true, "the toast stayed after its hide")
+        if let panel = toast.panel { windows.append(panel) }
+    }
+
+    func testDropToastRapidShowAndHideWithReduceMotion() {
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
+            pendingFades.append {
+                window.alphaValue = alpha
+                completion()
+            }
+        }
+        BridgeyWindows.fadeDeadline = 0.05
+        let toast = DropToastController()
+        toast.reduceMotion = { true }
+        for round in 0..<20 {
+            toast.show(DropToastModel(text: "Sent \(round)", actions: []), near: nil, seconds: 60)
+            toast.hide()
+        }
+        toast.show(DropToastModel(text: "Last", actions: []), near: nil, seconds: 60)
+        XCTAssertTrue(pendingFades.isEmpty, "Reduce Motion: no fades")
+        pendingFades.forEach { $0() }
+        spin(0.2)
+        XCTAssertTrue(toast.panel?.isVisible ?? false)
+        XCTAssertEqual(toast.panel?.alphaValue, 1, "an older hide left the new toast transparent")
+        toast.hide()
         XCTAssertFalse(toast.panel?.isVisible ?? true, "the toast stayed after its hide")
         if let panel = toast.panel { windows.append(panel) }
     }
@@ -283,7 +322,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testRapidCloseAndReopenEndsWhereTheLastCallSaid() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()

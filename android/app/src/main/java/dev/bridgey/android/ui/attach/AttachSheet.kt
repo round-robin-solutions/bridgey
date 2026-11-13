@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -47,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
@@ -90,14 +92,23 @@ private const val PAGE_AHEAD = 30
  */
 @Composable
 fun AttachSheetContent(state: AttachState, actions: AttachActions, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth().height(640.dp)) {
+    val selection = rememberAttachPickerSelection(state, actions)
+    Column(modifier.fillMaxWidth().height(640.dp).onPreviewKeyEvent { selection.escape(it.nativeKeyEvent) }) {
         AttachHeader(state, actions)
+        dev.bridgey.android.ui.DeviceDestinationList(
+            state.targets.map { dev.bridgey.android.ui.DeviceDestination(it.deviceId, it.name, it.available, it.detail, it.suggested) },
+            state.targetId, actions.pickTarget,
+            Modifier.fillMaxWidth().heightIn(max = 180.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            enabled = !state.submitting,
+        )
+        if (state.extraSelectionCount > 0) Text(stringResource(R.string.attach_browsed_count, state.extraSelectionCount),
+            style = BridgeyType.small, color = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
         AttachTabs(state.tab, actions.selectTab)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (state.tab) {
-                AttachTab.MEDIA -> MediaTab(state, actions)
-                AttachTab.FILES -> FilesTab(state, actions)
-                AttachTab.FOLDERS -> FoldersTab(state, actions)
+                AttachTab.MEDIA -> MediaTab(state, actions, selection)
+                AttachTab.FILES -> FilesTab(state, actions, selection)
+                AttachTab.FOLDERS -> FoldersTab(state, actions, selection)
             }
         }
         SendBar(state, actions)
@@ -117,7 +128,7 @@ private fun AttachHeader(state: AttachState, actions: AttachActions) {
             modifier = Modifier.weight(1f).semantics { heading() },
         )
         Box {
-            TonalPillButton(stringResource(R.string.attach_browse), { browsing = true }, tint = Tint.NEUTRAL)
+            TonalPillButton(stringResource(R.string.attach_browse), { if (!state.submitting) browsing = true }, tint = Tint.NEUTRAL)
             DropdownMenu(
                 expanded = browsing,
                 onDismissRequest = { browsing = false },
@@ -188,7 +199,7 @@ private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
 // MARK: Photos and Videos
 
 @Composable
-private fun MediaTab(state: AttachState, actions: AttachActions) {
+private fun MediaTab(state: AttachState, actions: AttachActions, selection: AttachPickerSelection) {
     if (state.mediaAccess == MediaAccess.NONE) {
         PermissionCard(state.mediaPrompt, actions)
         return
@@ -196,6 +207,11 @@ private fun MediaTab(state: AttachState, actions: AttachActions) {
     val thumbnails = LocalMediaThumbnails.current
     val grid = rememberLazyGridState()
     val order = state.order
+    LaunchedEffect(selection.focusedKey, selection.keyboardFocus) {
+        if (!selection.keyboardFocus) return@LaunchedEffect
+        val index = state.media.indexOfFirst { AttachKeys.media(it) == selection.focusedKey }
+        if (index >= 0 && grid.layoutInfo.visibleItemsInfo.none { it.index == index }) grid.scrollToItem(index)
+    }
     LaunchedEffect(grid, state.media) {
         snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .distinctUntilChanged()
@@ -221,7 +237,10 @@ private fun MediaTab(state: AttachState, actions: AttachActions) {
             ) {
                 itemsIndexed(state.media, key = { _, item -> item.mediaId }, contentType = { _, _ -> "media" }) { index, item ->
                     val key = AttachKeys.media(item)
-                    MediaCell(item, order[key], first = index == 0) { actions.toggle(key) }
+                    val shape = RoundedCornerShape(if (index == 0) 18.dp else 6.dp, 6.dp, 6.dp, 6.dp)
+                    AttachSelectionItem(key, selection, shape) { modifier, toggle ->
+                        MediaCell(item, order[key], first = index == 0, modifier = modifier, onToggle = toggle)
+                    }
                 }
             }
         }
@@ -229,7 +248,7 @@ private fun MediaTab(state: AttachState, actions: AttachActions) {
 }
 
 @Composable
-private fun MediaCell(item: MediaItem, pick: Int?, first: Boolean, onToggle: () -> Unit) {
+private fun MediaCell(item: MediaItem, pick: Int?, first: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit) {
     val context = LocalContext.current
     val colors = BridgeyTheme.colors
     val motion = LocalMotion.current
@@ -243,7 +262,7 @@ private fun MediaCell(item: MediaItem, pick: Int?, first: Boolean, onToggle: () 
     val inset by animateFloatAsState(if (selected) 0.88f else 1f, motion.spatial<Float>(motion.small), label = "pick")
     val description = stringResource(if (item.isVideo) R.string.attach_video_description else R.string.attach_photo_description, Formatter.formatShortFileSize(context, item.size))
     Box(
-        Modifier
+        modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(if (first) 18.dp else 6.dp, 6.dp, 6.dp, 6.dp))
             .background(colors.surface3)
@@ -334,10 +353,17 @@ private fun PartialBanner(actions: AttachActions) {
 // MARK: Files
 
 @Composable
-private fun FilesTab(state: AttachState, actions: AttachActions) {
+private fun FilesTab(state: AttachState, actions: AttachActions, selection: AttachPickerSelection) {
     val context = LocalContext.current
     val order = state.order
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)) {
+    val list = rememberLazyListState()
+    LaunchedEffect(selection.focusedKey, selection.keyboardFocus) {
+        if (!selection.keyboardFocus) return@LaunchedEffect
+        val index = state.documents.indexOfFirst { AttachKeys.document(it) == selection.focusedKey }
+        val row = index + if (state.showDocumentsCard) 1 else 0
+        if (index >= 0 && list.layoutInfo.visibleItemsInfo.none { it.index == row }) list.scrollToItem(row)
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)) {
         if (state.showDocumentsCard) {
             item(key = "card") { DocumentsCard(actions) }
         }
@@ -359,11 +385,13 @@ private fun FilesTab(state: AttachState, actions: AttachActions) {
                 item.location,
             ).filter { it.isNotBlank() }.joinToString(" · ")
             Box(Modifier.padding(horizontal = 16.dp, vertical = 1.dp)) {
-                ListRow(
-                    groupShape(index, state.documents.size + if (state.hasDocumentPlace) 1 else 0),
-                    item.name, detail, BridgeyIcons.Description, if (pick != null) Tint.BLUE else Tint.NEUTRAL,
-                    compact = true, onClick = { actions.toggle(key) }, role = Role.Checkbox,
-                ) { PickCounter(pick) }
+                val shape = groupShape(index, state.documents.size + if (state.hasDocumentPlace) 1 else 0)
+                AttachSelectionItem(key, selection, shape) { modifier, toggle ->
+                    ListRow(
+                        shape, item.name, detail, BridgeyIcons.Description, if (pick != null) Tint.BLUE else Tint.NEUTRAL,
+                        modifier = modifier, compact = true, onClick = toggle, role = Role.Checkbox,
+                    ) { PickCounter(pick) }
+                }
             }
         }
         if (state.hasDocumentPlace) {
@@ -401,9 +429,16 @@ private fun DocumentsCard(actions: AttachActions) {
 // MARK: Folders
 
 @Composable
-private fun FoldersTab(state: AttachState, actions: AttachActions) {
+private fun FoldersTab(state: AttachState, actions: AttachActions, selection: AttachPickerSelection) {
     val order = state.order
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)) {
+    val list = rememberLazyListState()
+    LaunchedEffect(selection.focusedKey, selection.keyboardFocus) {
+        if (!selection.keyboardFocus) return@LaunchedEffect
+        val index = state.folders.indexOfFirst { AttachKeys.folder(it.placeId) == selection.focusedKey }
+        val row = index + if (state.canSendFolders) 0 else 1
+        if (index >= 0 && list.layoutInfo.visibleItemsInfo.none { it.index == row }) list.scrollToItem(row)
+    }
+    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(top = 8.dp, bottom = 8.dp)) {
         if (!state.canSendFolders) {
             item(key = "note") {
                 Note(
@@ -417,17 +452,19 @@ private fun FoldersTab(state: AttachState, actions: AttachActions) {
             val pick = order[key]
             val enabled = state.canSendFolders && folder.available
             Box(Modifier.padding(horizontal = 16.dp, vertical = 1.dp).graphicsLayer { alpha = if (enabled) 1f else 0.5f }) {
-                ListRow(
-                    groupShape(index, state.folders.size + 1),
-                    folder.label,
-                    if (!folder.available) stringResource(R.string.place_not_available) else folder.detail,
-                    if (folder.isDefault) BridgeyIcons.Download else BridgeyIcons.Folder,
-                    if (pick != null) Tint.BLUE else Tint.GREEN,
-                    compact = true,
-                    detailWarning = !folder.available,
-                    onClick = if (enabled) ({ actions.toggle(key) }) else null,
-                    role = Role.Checkbox,
-                ) { if (enabled) PickCounter(pick) }
+                val shape = groupShape(index, state.folders.size + 1)
+                val row: @Composable (Modifier, (() -> Unit)?) -> Unit = { modifier, toggle ->
+                    ListRow(
+                        shape, folder.label,
+                        if (!folder.available) stringResource(R.string.place_not_available) else folder.detail,
+                        if (folder.isDefault) BridgeyIcons.Download else BridgeyIcons.Folder,
+                        if (pick != null) Tint.BLUE else Tint.GREEN,
+                        modifier = modifier, compact = true, detailWarning = !folder.available,
+                        onClick = toggle, role = Role.Checkbox,
+                    ) { if (enabled) PickCounter(pick) }
+                }
+                if (enabled) AttachSelectionItem(key, selection, shape) { modifier, toggle -> row(modifier, toggle) }
+                else row(Modifier, null)
             }
         }
         item(key = "add") {
@@ -447,38 +484,20 @@ private fun FoldersTab(state: AttachState, actions: AttachActions) {
 @Composable
 private fun SendBar(state: AttachState, actions: AttachActions) {
     val context = LocalContext.current
-    val colors = BridgeyTheme.colors
-    var picking by remember { mutableStateOf(false) }
-    val count = state.selection.size
+    val count = state.selection.size + state.extraSelectionCount
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        if (state.targets.size > 1) {
-            Box {
-                OutlinePillButton(state.target?.name ?: "", BridgeyIcons.LaptopMac, { picking = true }, modifier = Modifier.widthIn(max = 180.dp))
-                DropdownMenu(expanded = picking, onDismissRequest = { picking = false }, containerColor = colors.surface2, shape = RoundedCornerShape(20.dp)) {
-                    state.targets.forEach { target ->
-                        DropdownMenuItem(
-                            text = { Text(target.name, style = BridgeyType.label, color = colors.onSurface) },
-                            trailingIcon = if (target.deviceId == state.target?.deviceId) ({ Icon(BridgeyIcons.Check, null, tint = colors.primary) }) else null,
-                            onClick = {
-                                picking = false
-                                actions.pickTarget(target.deviceId)
-                            },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        )
-                    }
-                }
-            }
-        }
+        OutlinePillButton(stringResource(R.string.action_cancel), null, actions.close, enabled = !state.submitting)
         Box(Modifier.weight(1f))
         val label = when {
+            state.submitting -> stringResource(R.string.attach_draft_preparing)
             count == 0 -> stringResource(R.string.attach_send_none)
             state.selectedBytes > 0 -> pluralStringResource(R.plurals.attach_send_count_size, count, count, Formatter.formatShortFileSize(context, state.selectedBytes))
             else -> pluralStringResource(R.plurals.attach_send_count, count, count)
         }
-        GradientButton(label, BridgeyIcons.Send, actions.send, enabled = count > 0 && state.target != null, height = 48.dp, textStyle = BridgeyType.label)
+        GradientButton(label, BridgeyIcons.Send, actions.send, enabled = !state.submitting && count > 0 && state.target?.available == true, height = 48.dp, textStyle = BridgeyType.label)
     }
 }

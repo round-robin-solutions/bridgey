@@ -146,6 +146,31 @@ final class SendDesignScreenshots: XCTestCase {
         }
     }
 
+    /// Uses the existing owned screenshot selector; no installed preferences or sessions are read.
+    @MainActor func testActivitySharingSettings() throws {
+        for enabled in [true, false] {
+            for scheme in [ColorScheme.light, .dark] {
+                var model = SettingsModel()
+                model.deviceName = "Work Mac with a long descriptive name"
+                model.shareActivityStatus = enabled
+                model.globalFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, true) })
+                let content = BrandRoot(reduceMotion: true) {
+                    SettingsWindowView(model: model, actions: SettingsActions(), pane: .constant(.notifications))
+                        .frame(width: 880, height: 700)
+                }.frame(width: 1440, height: 900)
+                    .environment(\.colorScheme, scheme).environment(\.snapshotRendering, true)
+                    .environment(\.locale, Locale(identifier: "en_GB"))
+                let renderer = ImageRenderer(content: content)
+                renderer.scale = 1
+                guard let image = renderer.cgImage,
+                      let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else {
+                    throw XCTSkip("ImageRenderer produced no PNG")
+                }
+                try data.write(to: directory.appendingPathComponent("mac-activity-sharing-\(enabled ? "on" : "off")-\(scheme == .dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     @MainActor func testSendSheet() throws {
         for scheme in [ColorScheme.light, .dark] {
             let suffix = scheme == .dark ? "dark" : "light"
@@ -158,6 +183,18 @@ final class SendDesignScreenshots: XCTestCase {
         try write(SendSheetView(state: empty, actions: SendSheetActions()).frame(height: 440), scheme: .light, name: "mac-send-to-phone-empty-light")
         empty.accessDenied = true
         try write(SendSheetView(state: empty, actions: SendSheetActions()).frame(height: 440), scheme: .dark, name: "mac-send-to-phone-no-access-dark")
+    }
+
+    @MainActor func testSendSheetSelectionRangeAndKeyboardFocus() throws {
+        var state = sheetState
+        state.clearSelection()
+        state.select(state.recent[1].url, shift: true)
+        state.select(state.recent[6].url, shift: true)
+        for scheme in [ColorScheme.light, .dark] {
+            let suffix = scheme == .dark ? "dark" : "light"
+            try write(SendSheetView(state: state, actions: SendSheetActions(), thumbnail: thumbnail)
+                .frame(height: 600), scheme: scheme, name: "mac-send-selection-range-\(suffix)")
+        }
     }
 
     private var panelModel: PanelModel {

@@ -15,6 +15,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -23,6 +24,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +42,7 @@ import dev.bridgey.android.folders.DEFAULT_PLACE_ID
 import dev.bridgey.android.folders.PlacesStore
 import dev.bridgey.android.ui.attach.AndroidMediaThumbnails
 import dev.bridgey.android.ui.attach.AttachActions
+import dev.bridgey.android.ui.attach.AttachDraftOwner
 import dev.bridgey.android.ui.attach.AttachFolder
 import dev.bridgey.android.ui.attach.AttachKeys
 import dev.bridgey.android.ui.attach.AttachSelection
@@ -88,6 +93,7 @@ class AttachUi internal constructor(
     internal val state: AttachState,
     internal val actions: AttachActions,
     internal val thumbnails: MediaThumbnails,
+    internal val dismiss: () -> Unit,
 )
 
 private const val MEDIA_PAGE = 120
@@ -101,13 +107,28 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
     val activity = context as? Activity
     val scope = rememberCoroutineScope()
     val preferences = remember { AttachPreferences(context) }
+    val draftOwner = remember(activity, pairing) {
+        val factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = AttachDraftOwner(context, pairing) as T
+        }
+        if (activity is ViewModelStoreOwner) ViewModelProvider(activity, factory)[AttachDraftOwner::class.java]
+        else AttachDraftOwner(context, pairing)
+    }
+    DisposableEffect(draftOwner) { onDispose { if (activity !is ViewModelStoreOwner) draftOwner.detach() } }
+    val draftStore = draftOwner.store
+    val draft by draftStore.state.collectAsStateWithLifecycle()
+    val visible = draft.visible
+    val targetId = draft.targetId
+    val selection = draft.selection
+    val browsedFiles = draft.files.map(Uri::parse)
+    val browsedFolder = draft.folder?.let(Uri::parse)
     val thumbnails = remember { AndroidMediaThumbnails(context.contentResolver) }
     val connections by pairing.connections.collectAsStateWithLifecycle()
+    val trustedTargets by pairing.trustedDevices.collectAsStateWithLifecycle()
+    val routingRevision by pairing.presenceRevision.collectAsStateWithLifecycle()
     val places by pairing.placesStore.places.collectAsStateWithLifecycle()
-    var visible by remember { mutableStateOf(false) }
     var tab by remember { mutableStateOf(preferences.tab) }
-    var targetId by remember { mutableStateOf<String?>(null) }
-    var selection by remember { mutableStateOf(emptyList<String>()) }
     var access by remember { mutableStateOf(MediaAccess.NONE) }
     var prompt by remember { mutableStateOf(MediaPrompt.ASK) }
     var media by remember { mutableStateOf(emptyList<MediaItem>()) }
@@ -130,7 +151,11 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
         }
     }
 
-    val targets = connections.filter { pairing.isFeatureAvailable(BridgeyFeature.FILES, it.deviceId) }.map { AttachTarget(it.deviceId, it.peerName) }
+    val targets = remember(connections, trustedTargets, routingRevision) {
+        dev.bridgey.android.ui.destinationChoices(context, pairing, BridgeyFeature.FILES).map {
+            AttachTarget(it.deviceId, it.name, it.available, it.detail, it.suggested)
+        }
+    }
 
     val mediaPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         preferences.mediaAsked = true
@@ -156,16 +181,13 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
     }
     val browseFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) {
-            pairing.sendFiles(uris, targetId)
-            visible = false
+            if (!draftStore.addFiles(uris.map(Uri::toString))) say(context.getString(R.string.attach_draft_not_kept))
         }
     }
     val browseFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        // sendFolder takes a persisted read grant (so a resume after a restart can still read it) and releases it
-        // when the folder ends; taking another grant here would leave a write grant behind.
-        pairing.sendFolder(FolderSource.Tree(uri.toString()), targetId)
-        visible = false
+        // Retain read access while the person confirms; the folder sender adopts it only after queueing.
+        if (!draftStore.addFolder(uri.toString())) say(context.getString(R.string.attach_draft_not_kept))
     }
 
     // Access can change in system Settings while the app is away.
@@ -209,7 +231,7 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
         }
     }
 
-    val target = targets.firstOrNull { it.deviceId == targetId } ?: targets.firstOrNull()
+    val target = targets.firstOrNull { it.deviceId == targetId }
     val state = AttachState(
         tab = tab,
         mediaAccess = access,
@@ -221,10 +243,12 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
         showDocumentsCard = places.isEmpty() && !cardDismissed,
         hasDocumentPlace = places.isNotEmpty(),
         folders = folders,
-        canSendFolders = target != null && pairing.canSendFolders(target.deviceId),
+        canSendFolders = target?.available == true && pairing.canSendFolders(target.deviceId),
         selection = selection,
         targets = targets,
-        targetId = target?.deviceId,
+        targetId = targetId,
+        extraSelectionCount = browsedFiles.size + if (browsedFolder != null) 1 else 0,
+        submitting = draft.submitting,
     )
 
     fun openSettings() {
@@ -236,7 +260,12 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
             tab = it
             preferences.tab = it
         },
-        toggle = { key -> selection = AttachSelection.toggle(selection, key) },
+        toggle = { key ->
+            if (!draftStore.select(AttachSelection.toggle(draftStore.value.selection, key))) say(context.getString(R.string.attach_draft_not_kept))
+        },
+        updateSelection = { change ->
+            if (!draftStore.select(change(draftStore.value.selection).distinct().take(AttachSelection.MAX))) say(context.getString(R.string.attach_draft_not_kept))
+        },
         requestMedia = { mediaPermission.launch(MediaAccessRules.request(Build.VERSION.SDK_INT)) },
         // Android 14 shows its photo picker again for the selected-photos permission.
         selectMorePhotos = { mediaPermission.launch(MediaAccessRules.request(Build.VERSION.SDK_INT)) },
@@ -259,55 +288,95 @@ fun rememberAttachUi(pairing: PairingCoordinator, snackbar: SnackbarHostState): 
             preferences.documentsCardDismissed = true
         },
         addFolder = { documentsTree.launch(null) },
-        browseFiles = { browseFiles.launch(arrayOf("*/*")) },
-        browseFolder = { browseFolder.launch(null) },
-        pickTarget = {
-            targetId = it
-            preferences.lastTarget = it
-        },
+        browseFiles = { if (!draftStore.value.submitting) browseFiles.launch(arrayOf("*/*")) },
+        browseFolder = { if (!draftStore.value.submitting) browseFolder.launch(null) },
+        pickTarget = { if (draftStore.target(it)) preferences.lastTarget = it },
         send = send@{
-            val deviceId = target?.deviceId ?: return@send
-            val byKey = HashMap<String, Uri>()
-            media.forEach { byKey[AttachKeys.media(it)] = Uri.parse(it.uri) }
-            val files = selection.mapNotNull { key ->
+            val deviceId = targetId
+            if (deviceId == null || pairing.connections.value.none { it.deviceId == deviceId } ||
+                !pairing.isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
+                say(context.getString(R.string.destination_unavailable))
+                return@send
+            }
+            if ((browsedFolder != null || selection.any { it.startsWith(AttachKeys.FOLDER) }) && !pairing.canSendFolders(deviceId)) {
+                say(context.getString(R.string.destination_feature_off))
+                return@send
+            }
+            if (!draftStore.pendingAccessAvailable()) {
+                say(context.getString(R.string.attach_draft_access_lost))
+                return@send
+            }
+            val sending = draftStore.value
+            val byKey = media.associate { AttachKeys.media(it) to it.uri }
+            val selectedFiles = sending.selection.mapNotNull { key ->
                 when {
-                    key.startsWith(AttachKeys.MEDIA) -> byKey[key]
-                    key.startsWith(AttachKeys.DOCUMENT) -> Uri.parse(key.removePrefix(AttachKeys.DOCUMENT))
+                    key.startsWith(AttachKeys.MEDIA) -> byKey[key]?.let { key to it }
+                    key.startsWith(AttachKeys.DOCUMENT) -> key to key.removePrefix(AttachKeys.DOCUMENT)
                     else -> null
                 }
             }
-            if (files.isNotEmpty()) pairing.sendFiles(files, deviceId)
-            selection.filter { it.startsWith(AttachKeys.FOLDER) }.forEach { key ->
-                pairing.sendFolder(FolderSource.Place(key.removePrefix(AttachKeys.FOLDER)), deviceId)
+            val allFiles = (sending.files + selectedFiles.map { it.second }).distinct()
+            val folderRequests = buildList<Pair<FolderSource, String?>> {
+                sending.folder?.let { add(FolderSource.Tree(it) to null) }
+                sending.selection.filter { it.startsWith(AttachKeys.FOLDER) }.forEach { key ->
+                    add(FolderSource.Place(key.removePrefix(AttachKeys.FOLDER)) to key)
+                }
             }
-            preferences.lastTarget = deviceId
-            selection = emptyList()
-            visible = false
+            val treeUris = folderRequests.mapNotNull { (source, _) -> (source as? FolderSource.Tree)?.treeUri }
+            if (!draftStore.beginSubmission(allFiles, treeUris)) {
+                say(context.getString(R.string.attach_draft_not_queued))
+                return@send
+            }
+            var acknowledgementFailed = false
+            val accepted = pairing.sendFilesForShare(allFiles.map(Uri::parse), deviceId)
+            allFiles.zip(accepted).forEach { (uri, transferId) ->
+                if (!draftStore.fileQueued(uri, transferId, selectedFiles.filter { it.second == uri }.map { it.first }.toSet()))
+                    acknowledgementFailed = true
+            }
+            if (acknowledgementFailed) {
+                // An accepted item was not recorded: keep the gate closed and do not queue more work.
+                say(context.getString(R.string.attach_draft_not_queued))
+                return@send
+            }
+            var remaining = folderRequests.size
+            fun finishSubmission() {
+                val recorded = draftStore.submissionFinished()
+                if (!recorded || acknowledgementFailed || draftStore.value.hasContent) say(context.getString(R.string.attach_draft_not_queued))
+                else preferences.lastTarget = deviceId
+            }
+            if (remaining == 0) finishSubmission()
+            folderRequests.forEach { (source, key) ->
+                pairing.sendFolderForShare(source, deviceId) { transferId ->
+                    if (transferId != null && !draftStore.folderQueued((source as? FolderSource.Tree)?.treeUri, transferId, key))
+                        acknowledgementFailed = true
+                    remaining--
+                    if (remaining == 0) finishSubmission()
+                }
+            }
         },
-        close = { visible = false },
+        close = { draftStore.cancel() },
     )
 
     return AttachUi(
         open = { deviceId ->
-            targetId = deviceId ?: preferences.lastTarget?.takeIf { id -> connections.any { it.deviceId == id } }
+            draftStore.open(deviceId)
             refreshAccess()
-            selection = emptyList()
-            visible = true
         },
         visible = visible,
         state = state,
         actions = actions,
         thumbnails = thumbnails,
+        dismiss = { draftStore.dismiss() },
     )
 }
 
-/** The attach sheet while Bridgey is open. Swiping it away keeps nothing selected for next time. */
+/** Dismissing hides the sheet but retains its draft; only Cancel or accepted queueing removes selections. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttachSheetHost(ui: AttachUi) {
     if (!ui.visible) return
     val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = ui.actions.close, sheetState = sheet, containerColor = BridgeyTheme.colors.surface2) {
+    ModalBottomSheet(onDismissRequest = ui.dismiss, sheetState = sheet, containerColor = BridgeyTheme.colors.surface2) {
         CompositionLocalProvider(LocalMediaThumbnails provides ui.thumbnails) {
             AttachSheetContent(ui.state, ui.actions)
         }

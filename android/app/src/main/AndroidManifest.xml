@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <!-- Quiet media during calls: media-stream mute only after explicit feature consent. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Round Robin edition: self-update through PackageInstaller after the user taps Install. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- Android 12+: lets an update the person chose (Install, or Update all here or on a paired device)
