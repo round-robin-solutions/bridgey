@@ -182,7 +182,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testFadeOutThatNeverFinishesStillOrdersOut() {
-        BridgeyWindows.animateAlpha = { _, _, _, _ in }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in }
         BridgeyWindows.fadeDeadline = 0.05
         let (panel, _) = makePanel()
         BridgeyWindows.fadeOut(panel)
@@ -192,7 +192,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testLockedScreenHidesAtOnce() {
-        BridgeyWindows.animateAlpha = { _, _, _, _ in XCTFail("no fade on a locked screen") }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in XCTFail("no fade on a locked screen") }
         BridgeyWindows.screenUnavailable = { true }
         let (panel, _) = makePanel()
         BridgeyWindows.fadeOut(panel)
@@ -201,7 +201,7 @@ final class WindowLifecycleTests: XCTestCase {
 
     /// The toast race: a toast fading out when the next toast arrives.
     func testShowDuringFadeOutWins() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
@@ -221,7 +221,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testDropToastRapidShowAndHide() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
@@ -251,7 +251,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testDropToastRapidShowAndHideWithReduceMotion() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
@@ -318,7 +318,7 @@ final class WindowLifecycleTests: XCTestCase {
     }
 
     func testRapidCloseAndReopenEndsWhereTheLastCallSaid() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()

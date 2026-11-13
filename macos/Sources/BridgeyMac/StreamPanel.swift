@@ -1458,7 +1458,6 @@ struct BridgeyPanel: View {
                 StreamPanelView(model: model, actions: actions)
             }
         }
-        .modifier(MenuBarPanelEntrance(presented: presentation.isPresented, motion: presentation.motion))
         .onChange(of: presentation.isPresented) { presented in if presented { now = Date() } }
         .onReceive(presentation.isPresented ? ticker.eraseToAnyPublisher() : Empty<Date, Never>().eraseToAnyPublisher()) { date in
             presentation.refreshClipboard()

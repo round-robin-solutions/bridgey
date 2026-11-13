@@ -75,7 +75,7 @@ final class CodeFloatWindowTests: XCTestCase {
         savedUnavailable = BridgeyWindows.screenUnavailable
         savedDeadline = BridgeyWindows.fadeDeadline
         // Fades finish at once unless a test says otherwise.
-        BridgeyWindows.animateAlpha = { window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { window, alpha, _, _, completion in
             window.alphaValue = alpha
             completion()
         }
@@ -248,7 +248,7 @@ final class CodeFloatWindowTests: XCTestCase {
 
     func testReduceMotionClosesWithoutAFade() {
         system.reduceMotion = true
-        BridgeyWindows.animateAlpha = { _, _, _, _ in XCTFail("no fade with Reduce motion") }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in XCTFail("no fade with Reduce motion") }
         controller.show(card("482913"), seconds: 60)
         XCTAssertEqual(controller.panel?.alphaValue, 1)
         controller.dismiss()
@@ -326,7 +326,7 @@ final class CodeFloatWindowTests: XCTestCase {
 
     func testClosesAtOnceWhenTheDisplaySleeps() {
         controller.show(card("482913"), seconds: 60)
-        BridgeyWindows.animateAlpha = { _, _, _, _ in XCTFail("no fade when the screen goes") }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in XCTFail("no fade when the screen goes") }
         NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.screensDidSleepNotification, object: NSWorkspace.shared)
         spin(0.05)
         assertGone("display sleep")
@@ -352,7 +352,7 @@ final class CodeFloatWindowTests: XCTestCase {
 
     func testLockWhileFadingStillEnds() {
         // A fade that never finishes (a screen that went dark under it).
-        BridgeyWindows.animateAlpha = { _, _, _, _ in }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in }
         BridgeyWindows.fadeDeadline = 0.05
         controller.show(card("482913"), seconds: 60)
         controller.dismiss()
@@ -365,7 +365,7 @@ final class CodeFloatWindowTests: XCTestCase {
     }
 
     func testFadeThatNeverEndsIsCutShort() {
-        BridgeyWindows.animateAlpha = { _, _, _, _ in }
+        BridgeyWindows.animateAlpha = { _, _, _, _, _ in }
         BridgeyWindows.fadeDeadline = 0.05
         controller.show(card("482913"), seconds: 60)
         controller.dismiss()
@@ -377,7 +377,7 @@ final class CodeFloatWindowTests: XCTestCase {
     }
 
     func testShowDuringFadeOutWins() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
@@ -398,7 +398,7 @@ final class CodeFloatWindowTests: XCTestCase {
     }
 
     func testRapidCodesAlwaysEndGone() {
-        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, completion in
+        BridgeyWindows.animateAlpha = { [unowned self] window, alpha, _, _, completion in
             pendingFades.append {
                 window.alphaValue = alpha
                 completion()
