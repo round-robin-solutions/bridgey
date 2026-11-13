@@ -6022,6 +6022,24 @@ extension PairingCoordinator: PhoneFilesHost {
     func cancelUpload(_ id: String) {
         folders.cancel(id)
     }
+
+    func phoneFilesCopied(phoneID: String, changeCount: Int) {
+        autoClipboard.noteOwnWrite(changeCount: changeCount)
+    }
+
+    func phoneFilesSavedCopies(_ urls: [URL], phoneID: String) {
+        guard !urls.isEmpty else { return }
+        let name = phoneName(phoneID)
+        FinderMetadata.finish(urls, phoneName: name, tag: settings.tagReceivedFiles)
+        for url in urls {
+            let isFolder = url.hasDirectoryPath
+            let bytes = isFolder ? TrayStore.folderSize(url) : Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            recordHistory(TransferHistoryEntry(id: UUID().uuidString.lowercased(), date: Date(), direction: .received, deviceID: phoneID,
+                                               deviceName: name, name: url.lastPathComponent, isFolder: isFolder, bytes: bytes,
+                                               outcome: .completed, localPath: url.path, download: true))
+        }
+        receivedItems(urls, phoneID: phoneID, purpose: .save)
+    }
 }
 
 /// Folder messages to one phone over the session they started on. Safe from any queue: it only encrypts

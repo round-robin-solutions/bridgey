@@ -53,6 +53,7 @@ enum PhoneFilesWindowController {
             model.showAdjacent(step)
             return true
         }
+        window.onCopy = { other in model.copySelection(other ? model.preferredQuality.other : nil) }
         window.onQuickLook = { [weak window] in
             let entries = model.preview.map { [$0.entry] } ?? model.selectedEntries
             quickLook(entries.filter(PhoneFilesText.quickLookable), model: model, window: window)

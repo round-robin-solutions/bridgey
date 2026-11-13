@@ -186,10 +186,8 @@ private struct PhoneFilesToolbar: View {
                 Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { showInFinder(url) }
                     .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
             }
-            Button(L10n.text("phonefiles.download", fallback: "Download")) { model.downloadSelection() }
-                .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+            PhoneDownloadButton(model: model) { model.downloadSelection($0) }
                 .disabled(model.selection.isEmpty)
-                .help(L10n.text("phonefiles.download.help", fallback: "Save to Received files"))
             Button { model.refresh() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
                 .disabled(model.phone?.browsable != true)
@@ -896,22 +894,54 @@ enum PhoneItemMenus {
     static func menu(for entry: PhoneFileEntry, model: PhoneFilesModel, quickLook: @escaping ([PhoneFileEntry]) -> Void,
                      showInFinder: @escaping (URL) -> Void) -> NSMenu {
         let targets = model.targets(for: entry)
-        var items: [(String, Bool, () -> Void)] = []
+        var items: [PhoneMenuEntry] = []
         if entry.isDirectory {
-            items.append((L10n.text("phonefiles.open", fallback: "Open"), true, { model.enter(entry) }))
+            items.append(PhoneMenuEntry(title: L10n.text("phonefiles.open", fallback: "Open")) { model.enter(entry) })
         } else {
-            items.append((L10n.text("phonefiles.preview", fallback: "Preview"), true, { model.openPreview(entry) }))
-            items.append((L10n.text("phonefiles.quickLook.short", fallback: "Quick Look"), targets.contains(where: PhoneFilesText.quickLookable),
-                          { quickLook(targets.filter(PhoneFilesText.quickLookable)) }))
+            items.append(PhoneMenuEntry(title: L10n.text("phonefiles.preview", fallback: "Preview")) { model.openPreview(entry) })
+            items.append(PhoneMenuEntry(title: L10n.text("phonefiles.quickLook.short", fallback: "Quick Look"),
+                                        enabled: targets.contains(where: PhoneFilesText.quickLookable)) {
+                quickLook(targets.filter(PhoneFilesText.quickLookable))
+            })
         }
-        items.append((L10n.text("phonefiles.download", fallback: "Download"), true, {
-            model.selection = Set(targets.map(\.id))
-            model.downloadSelection()
-        }))
+        items.append(.divider)
+        items += transfers(targets, model: model)
         if let url = model.savedURL(entry) {
-            items.append((L10n.text("phonefiles.showInFinder", fallback: "Show in Finder"), true, { showInFinder(url) }))
+            items.append(.divider)
+            items.append(PhoneMenuEntry(title: L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { showInFinder(url) })
         }
         return PhoneItemMenu.make(items)
+    }
+
+    /// Copy and Download, the preferred quality first with Command-C on it. Holding Option swaps each pair, as
+    /// Option-Command-C picks the other quality. Nothing to optimise (documents, folders): plain Copy and Download.
+    static func transfers(_ targets: [PhoneFileEntry], model: PhoneFilesModel) -> [PhoneMenuEntry] {
+        func select() { model.selection = Set(targets.map(\.id)) }
+        guard targets.contains(where: PhoneFilesOptimization.applies) else {
+            return [
+                PhoneMenuEntry(title: L10n.text("phonefiles.copy", fallback: "Copy"), key: "c", modifiers: .command) {
+                    select(); model.copy(targets, quality: .original)
+                },
+                PhoneMenuEntry(title: L10n.text("phonefiles.download", fallback: "Download")) {
+                    select(); model.download(targets, quality: .original)
+                },
+            ]
+        }
+        let first = model.preferredQuality
+        let second = first.other
+        func copy(_ quality: PhoneFetchQuality) -> () -> Void { { select(); model.copy(targets, quality: quality) } }
+        func download(_ quality: PhoneFetchQuality) -> () -> Void { { select(); model.download(targets, quality: quality) } }
+        return [
+            PhoneMenuEntry(title: first.copyTitle, key: "c", modifiers: .command, action: copy(first)),
+            PhoneMenuEntry(title: second.copyTitle, key: "c", modifiers: [.command, .option], alternate: true, action: copy(second)),
+            PhoneMenuEntry(title: second.copyTitle, action: copy(second)),
+            PhoneMenuEntry(title: first.copyTitle, modifiers: .option, alternate: true, action: copy(first)),
+            .divider,
+            PhoneMenuEntry(title: first.downloadTitle, action: download(first)),
+            PhoneMenuEntry(title: second.downloadTitle, modifiers: .option, alternate: true, action: download(second)),
+            PhoneMenuEntry(title: second.downloadTitle, action: download(second)),
+            PhoneMenuEntry(title: first.downloadTitle, modifiers: .option, alternate: true, action: download(first)),
+        ]
     }
 }
 
@@ -920,11 +950,31 @@ enum PhoneItemMenus {
 private struct PhoneFilesStatusStrip: View {
     @ObservedObject var model: PhoneFilesModel
     @Environment(\.brand) private var c
+    @Environment(\.brandReduceMotion) private var reduce
+
+    /// What the strip shows, for the cross-fade: an activity, a notice or the summary.
+    private var shown: String {
+        model.activities.last.map { "a" + $0.id } ?? model.notice.map { "n" + $0 } ?? "s"
+    }
 
     var body: some View {
+        ZStack(alignment: .leading) {
+            content
+                .id(shown)
+                .transition(.opacity)
+        }
+        .animation(BrandMotion.animation(BrandMotion.effects, reduce: reduce), value: shown)
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(c.s1)
+        .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
+    }
+
+    private var content: some View {
         HStack(spacing: 12) {
             if let activity = model.activities.last {
-                Image(systemName: activity.kind == .upload ? "arrow.up.circle" : "arrow.down.circle")
+                Image(systemName: PhoneFilesText.activitySymbol(activity))
                     .foregroundStyle(c.tbi)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -933,7 +983,7 @@ private struct PhoneFilesStatusStrip: View {
                             .foregroundStyle(c.on)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Text(PhoneFilesText.progress(activity.progress))
+                        Text(activity.stage ?? PhoneFilesText.progress(activity.progress))
                             .font(BrandFont.body(11).monospacedDigit())
                             .foregroundStyle(c.on2)
                             .lineLimit(1)
@@ -943,7 +993,7 @@ private struct PhoneFilesStatusStrip: View {
                                 .foregroundStyle(c.on2)
                         }
                     }
-                    UpdateProgressBar(progress: activity.progress.phase == .transferring ? activity.progress.fraction : nil)
+                    UpdateProgressBar(progress: activity.stage == nil && activity.progress.phase == .transferring ? activity.progress.fraction : nil)
                         .frame(maxWidth: 320)
                 }
                 Spacer(minLength: 0)
@@ -966,10 +1016,6 @@ private struct PhoneFilesStatusStrip: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, 16)
-        .frame(height: 44)
-        .background(c.s1)
-        .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
     }
 
     private var summary: String {
@@ -1129,11 +1175,10 @@ struct PhonePreviewOverlay: View {
                 Button(L10n.text("phonefiles.showInFinder", fallback: "Show in Finder")) { showInFinder(url) }
                     .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
             }
-            Button(L10n.text("phonefiles.download", fallback: "Download")) {
+            PhoneDownloadButton(model: model) { quality in
                 model.selection = [state.entry.id]
-                model.downloadSelection()
+                model.downloadSelection(quality)
             }
-            .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
         }
         .padding(.horizontal, 16)
         .padding(.top, 34)

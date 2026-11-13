@@ -37,6 +37,14 @@ final class UIFakePhoneFiles: PhoneFilesService {
     var thumbnailFailure: PhoneFilesError?
     /// Fires after the scheduler has consumed the result, so reconnect tests need no sleep.
     var onThumbnailFinished: ((Result<[PhoneFileEntry], PhoneFilesError>) -> Void)?
+    /// The bytes a download writes per item (else "x").
+    var downloadData: ((PhoneRef) -> Data)?
+    var downloadDelay: TimeInterval?
+    var downloadFailure: PhoneFilesError?
+    /// Cancel ends the download with `.cancelled`, as PhoneFilesController does.
+    var cancelCompletes = false
+    private(set) var copiedChangeCounts: [Int] = []
+    private(set) var savedCopyBatches: [[URL]] = []
 
     private(set) var thumbnailRequests: [(lane: String, keys: [String])] = []
     /// The size asked for each entry, by entry ID (the latest request wins).
@@ -194,20 +202,33 @@ final class UIFakePhoneFiles: PhoneFilesService {
         downloads.append((refs, directory, purpose))
         var cancelled = false
         let all = media + files + folders.values.flatMap { $0 }
-        after(simulated?.rtt ?? 0) {
+        let data = downloadData
+        let result = downloadFailure
+        after(downloadDelay ?? simulated?.rtt ?? 0) {
             guard !cancelled else { return }
+            if let result {
+                completion(.failure(result))
+                return
+            }
             progress(PhoneTransferProgress(phase: .transferring, filesDone: 0, filesTotal: refs.count, bytesDone: 0, bytesTotal: 1000))
             var urls: [URL] = []
             for ref in refs {
                 let name = all.first { $0.ref == ref }?.name ?? "item"
                 let url = directory.appendingPathComponent(name)
-                try? Data("x".utf8).write(to: url)
+                try? (data?(ref) ?? Data("x".utf8)).write(to: url)
                 urls.append(url)
             }
             completion(.success(urls))
         }
-        return PhoneFilesCancellable { cancelled = true }
+        return PhoneFilesCancellable {
+            cancelled = true
+            if self.cancelCompletes { completion(.failure(.cancelled)) }
+        }
     }
+
+    func copiedToPasteboard(phoneID: String, changeCount: Int) { copiedChangeCounts.append(changeCount) }
+
+    func savedCopies(_ urls: [URL], phoneID: String) { savedCopyBatches.append(urls) }
 
     func upload(phoneID: String, urls: [URL], placeId: String, path: String,
                 progress: @escaping (PhoneTransferProgress) -> Void,

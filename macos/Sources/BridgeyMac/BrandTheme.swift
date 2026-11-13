@@ -575,6 +575,10 @@ enum PopUpMenuPresenter {
     }
 
     static func show(_ items: [PopUpMenuItem]) {
+        menu(items).popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    static func menu(_ items: [PopUpMenuItem]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for item in items {
@@ -590,7 +594,7 @@ enum PopUpMenuPresenter {
             menuItem.representedObject = target
             menu.addItem(menuItem)
         }
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        return menu
     }
 }
 

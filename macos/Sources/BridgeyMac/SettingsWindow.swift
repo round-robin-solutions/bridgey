@@ -1042,6 +1042,7 @@ private struct FilesPane: View {
                            subtitle: L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"),
                            divider: false, isOn: model.cameraCopyToClipboard, set: actions.setCameraCopyToClipboard)
         }
+        PhoneFilesQualitySettingsCard()
         // Send options (Before sending, menu-bar drops): SendOptionsSettings.swift.
         SendOptionsSettingsSection()
     }

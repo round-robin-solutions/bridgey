@@ -194,6 +194,27 @@ final class PhoneFilesScreenshots: XCTestCase {
         }
     }
 
+    /// The split Download button with two photos selected, a Copy Optimized optimising in the status strip, and
+    /// Settings > Files > Copy and download from the phone.
+    func testCopyAndDownloadChoices() throws {
+        let listing = PhoneListing(entries: UIFakeImages.media(36, now: now), loaded: true)
+        let model = model(section: .media, listing: listing)
+        model.selection = [listing.entries[1].id, listing.entries[2].id]
+        var activity = PhoneFilesActivity(id: "copy", kind: .copy, title: "2 items", progress: PhoneTransferProgress(phase: .finishing))
+        activity.stage = "Optimising 1 of 2"
+        model.setActivitiesForTesting([activity])
+        try render(model, name: "mac-phonefiles-copy")
+        for scheme in [ColorScheme.light, .dark] {
+            try write(BrandRoot(reduceMotion: false) {
+                VStack(alignment: .leading, spacing: 16) { PhoneFilesQualitySettingsCard() }
+                    .frame(width: 560)
+                    .padding(20)
+            }
+            .background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xF4F7FB)), scheme: scheme,
+                      name: "mac-settings-phonefiles-quality-\(scheme == .dark ? "dark" : "light")")
+        }
+    }
+
     // MARK: Rendering
 
     private func render(_ model: PhoneFilesModel, name: String) throws {
