@@ -114,8 +114,12 @@ final class CodeFloatWindowTests: XCTestCase {
         LiveCodeCard(id: id, code: code, sender: "HDFCBK", deviceName: "OnePlus 11", receivedAt: Date())
     }
 
+    /// Waits on the main queue, not on run-loop sources: `RunLoop.run(until:)` returns at once when no
+    /// source happens to be attached, so a fade deadline queued with `asyncAfter` could be skipped.
     private func spin(_ seconds: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        let waited = expectation(description: "spin")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { waited.fulfill() }
+        wait(for: [waited], timeout: seconds + 5)
     }
 
     private var visibleCodeWindows: [NSWindow] {

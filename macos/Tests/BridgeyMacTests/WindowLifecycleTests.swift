@@ -56,8 +56,12 @@ final class WindowLifecycleTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Waits on the main queue, not on run-loop sources: `RunLoop.run(until:)` returns at once when no
+    /// source happens to be attached, so a fade deadline queued with `asyncAfter` could be skipped.
     private func spin(_ seconds: TimeInterval) {
-        RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+        let waited = expectation(description: "spin")
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { waited.fulfill() }
+        wait(for: [waited], timeout: seconds + 5)
     }
 
     /// A Tray-like panel: titled, closable, non-activating, with a button to anchor a popover.
