@@ -1,5 +1,8 @@
 import Foundation
 
+/// Feature-map key for routing phone alerts to the Mac in use (PR #7). Presence itself is #19's.
+let notificationRoutingFeatureKey = "notification_routing_draft1"
+
 struct CodeReadPermissionTicket {
     let channel: CodeChannel
     let codesRevision: UInt64
