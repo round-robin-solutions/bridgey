@@ -84,8 +84,8 @@ final class PhoneFilesCopyTests: XCTestCase {
         fake.media = UIFakeImages.media(3)
         let model = makeModel(fake)
         let menu = menu(model, model.listing(.media).entries[0])
-        XCTAssertEqual(visible(menu), ["Preview", "Quick Look", "-", "Copy Optimized", "Copy Original", "-", "Download Optimized", "Download Original"])
-        let copy = menu.items.first { $0.title == "Copy Optimized" && !$0.isAlternate }
+        XCTAssertEqual(visible(menu), ["Preview", "Quick Look", "-", "Copy Optimised", "Copy Original", "-", "Download Optimised", "Download Original"])
+        let copy = menu.items.first { $0.title == "Copy Optimised" && !$0.isAlternate }
         XCTAssertEqual(copy?.keyEquivalent, "c")
         XCTAssertEqual(copy?.keyEquivalentModifierMask, .command)
     }
@@ -95,7 +95,7 @@ final class PhoneFilesCopyTests: XCTestCase {
         fake.media = UIFakeImages.media(3)
         let model = makeModel(fake)
         let menu = menu(model, model.listing(.media).entries[0])
-        XCTAssertEqual(withOption(menu), ["Preview", "Quick Look", "-", "Copy Original", "Copy Optimized", "-", "Download Original", "Download Optimized"])
+        XCTAssertEqual(withOption(menu), ["Preview", "Quick Look", "-", "Copy Original", "Copy Optimised", "-", "Download Original", "Download Optimised"])
         for (index, item) in menu.items.enumerated() where item.isAlternate {
             let base = menu.items[index - 1]
             XCTAssertFalse(base.isAlternate)
@@ -131,12 +131,12 @@ final class PhoneFilesCopyTests: XCTestCase {
         let model = makeModel(fake)
         XCTAssertEqual(model.preferredQuality, .original)
         let menu = menu(model, model.listing(.media).entries[0])
-        XCTAssertEqual(visible(menu), ["Preview", "Quick Look", "-", "Copy Original", "Copy Optimized", "-", "Download Original", "Download Optimized"])
+        XCTAssertEqual(visible(menu), ["Preview", "Quick Look", "-", "Copy Original", "Copy Optimised", "-", "Download Original", "Download Optimised"])
         XCTAssertEqual(menu.items.first { $0.keyEquivalentModifierMask == .command && $0.keyEquivalent == "c" }?.title, "Copy Original")
-        XCTAssertEqual(PhoneDownloadButton.items(preferred: model.preferredQuality, download: { _ in }).map(\.title), ["Download Original", "Download Optimized"])
+        XCTAssertEqual(PhoneDownloadButton.items(preferred: model.preferredQuality, download: { _ in }).map(\.title), ["Download Original", "Download Optimised"])
         defaults.removeObject(forKey: PhoneFetchQuality.defaultsKey)
-        XCTAssertEqual(model.preferredQuality, .optimized, "Optimized when nothing is set")
-        XCTAssertEqual(PhoneDownloadButton.items(preferred: model.preferredQuality, download: { _ in }).map(\.title), ["Download Optimized", "Download Original"])
+        XCTAssertEqual(model.preferredQuality, .optimized, "Optimised when nothing is set")
+        XCTAssertEqual(PhoneDownloadButton.items(preferred: model.preferredQuality, download: { _ in }).map(\.title), ["Download Optimised", "Download Original"])
     }
 
     func testDocumentsGetPlainCopyAndDownload() {
@@ -336,7 +336,7 @@ final class PhoneFilesCopyTests: XCTestCase {
         let entry = model.listing(.media).entries[0]
         model.click(entry, command: false, shift: false)
         model.downloadSelection()
-        XCTAssertEqual(fake.downloads.last?.purpose, .preview, "Optimized fetches into the private cache first")
+        XCTAssertEqual(fake.downloads.last?.purpose, .preview, "Optimised fetches into the private cache first")
         wait(until: { model.activities.isEmpty && model.savedURL(entry) != nil })
         let saved = try XCTUnwrap(model.savedURL(entry))
         XCTAssertEqual(saved.deletingLastPathComponent().resolvingSymlinksInPath(), received.resolvingSymlinksInPath())
@@ -423,9 +423,9 @@ final class PhoneFilesCopyTests: XCTestCase {
                 XCTAssertFalse(value.contains("\u{2014}") || value.contains("\u{2013}"), "\(language) \(key) has a dash")
             }
         }
-        XCTAssertEqual(PhoneFetchQuality.optimized.copyTitle, "Copy Optimized")
+        XCTAssertEqual(PhoneFetchQuality.optimized.copyTitle, "Copy Optimised")
         XCTAssertEqual(PhoneFetchQuality.original.copyTitle, "Copy Original")
-        XCTAssertEqual(PhoneFetchQuality.optimized.downloadTitle, "Download Optimized")
+        XCTAssertEqual(PhoneFetchQuality.optimized.downloadTitle, "Download Optimised")
         XCTAssertEqual(PhoneFetchQuality.original.downloadTitle, "Download Original")
     }
 }

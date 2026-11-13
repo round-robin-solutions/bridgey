@@ -20,21 +20,21 @@ enum PhoneFetchQuality: String, CaseIterable, Equatable {
 
     var copyTitle: String {
         switch self {
-        case .optimized: L10n.text("phonefiles.copy.optimized", fallback: "Copy Optimized")
+        case .optimized: L10n.text("phonefiles.copy.optimized", fallback: "Copy Optimised")
         case .original: L10n.text("phonefiles.copy.original", fallback: "Copy Original")
         }
     }
 
     var downloadTitle: String {
         switch self {
-        case .optimized: L10n.text("phonefiles.download.optimized", fallback: "Download Optimized")
+        case .optimized: L10n.text("phonefiles.download.optimized", fallback: "Download Optimised")
         case .original: L10n.text("phonefiles.download.original", fallback: "Download Original")
         }
     }
 
     var settingTitle: String {
         switch self {
-        case .optimized: L10n.text("settings.phoneFiles.quality.optimized", fallback: "Optimized")
+        case .optimized: L10n.text("settings.phoneFiles.quality.optimized", fallback: "Optimised")
         case .original: L10n.text("settings.phoneFiles.quality.original", fallback: "Original")
         }
     }
@@ -224,7 +224,7 @@ struct PhoneFilesQualitySettingsCard: View {
 
     var body: some View {
         let current = PhoneFetchQuality(rawValue: stored) ?? .optimized
-        SettingsCard(footnote: L10n.text("settings.phoneFiles.quality.note", fallback: "Optimized uses the Before sending sizes. If those are set to original size, photos go to 2048 px and videos to 1080p. Files that would not get smaller stay as they are.")) {
+        SettingsCard(footnote: L10n.text("settings.phoneFiles.quality.note", fallback: "Optimised uses the Before sending sizes. If those are set to original size, photos go to 2048 px and videos to 1080p. Files that would not get smaller stay as they are.")) {
             SettingsRow(title: L10n.text("settings.phoneFiles.quality", fallback: "Copy and download from the phone"), subtitle: nil, divider: false) {
                 ChoiceButton(value: current.settingTitle) {
                     PhoneFetchQuality.allCases.map { quality in
