@@ -218,6 +218,8 @@ final class PhoneFilesNSWindow: NSWindow {
     var onArrow: ((Int) -> Bool)?
     /// Command-Y when the grid does not have the keyboard (the file lists, the viewer's buttons).
     var onQuickLook: (() -> Void)?
+    /// Command-C (false) and Option-Command-C (true, the other quality).
+    var onCopy: ((Bool) -> Void)?
     var onSelectionKey: ((NSEvent) -> Bool)?
     var previewActive: () -> Bool = { false }
     weak var fileListResponder: NSView?
@@ -238,6 +240,11 @@ final class PhoneFilesNSWindow: NSWindow {
         if !textEditing, (fileResponder || previewActive()), event.keyCode == 16,
            event.modifierFlags.intersection([.command, .shift, .option, .control]) == .command, let onQuickLook {
             onQuickLook()
+            return true
+        }
+        if !textEditing, fileResponder || previewActive(), let onCopy,
+           let other = PhoneFilesKeys.copy(keyCode: event.keyCode, characters: event.charactersIgnoringModifiers, flags: event.modifierFlags) {
+            onCopy(other)
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -308,6 +315,19 @@ final class PhoneFilesNSWindow: NSWindow {
     }
 }
 
+/// One row of a cell's context menu. An alternate replaces the row before it while its extra modifier is held.
+struct PhoneMenuEntry {
+    var title = ""
+    var enabled = true
+    var key = ""
+    var modifiers: NSEvent.ModifierFlags = []
+    var alternate = false
+    var separator = false
+    var action: () -> Void = {}
+
+    static var divider: PhoneMenuEntry { PhoneMenuEntry(separator: true) }
+}
+
 /// Builds a cell's context menu.
 @MainActor
 enum PhoneItemMenu {
@@ -317,15 +337,21 @@ enum PhoneItemMenu {
         @objc func run() { action() }
     }
 
-    static func make(_ items: [(String, Bool, () -> Void)]) -> NSMenu {
+    static func make(_ entries: [PhoneMenuEntry]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        for (title, enabled, action) in items {
-            let target = Target(action)
-            let item = NSMenuItem(title: title, action: #selector(Target.run), keyEquivalent: "")
+        for entry in entries {
+            if entry.separator {
+                menu.addItem(.separator())
+                continue
+            }
+            let target = Target(entry.action)
+            let item = NSMenuItem(title: entry.title, action: #selector(Target.run), keyEquivalent: entry.key)
+            item.keyEquivalentModifierMask = entry.modifiers
+            item.isAlternate = entry.alternate
             item.target = target
             item.representedObject = target
-            item.isEnabled = enabled
+            item.isEnabled = entry.enabled
             menu.addItem(item)
         }
         return menu

@@ -592,7 +592,7 @@ final class PhoneFilesUITests: XCTestCase {
         wait(until: { model.listing(.media).loaded && !model.listing(.media).loading })
         let entry = model.listing(.media).entries[1]
         model.click(entry, command: false, shift: false)
-        model.downloadSelection()
+        model.downloadSelection(.original)
         XCTAssertEqual(fake.downloads.first?.purpose, .save)
         XCTAssertEqual(fake.downloads.first?.directory.lastPathComponent, "Received")
         XCTAssertEqual(model.activities.count, 1)

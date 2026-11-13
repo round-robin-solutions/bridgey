@@ -808,6 +808,10 @@
 "settings.folders.conflict.newFolder" = "Save as new folder";
 "settings.files.tag" = "Tag received files in Finder";
 "settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything received from other devices.";
+"settings.phoneFiles.quality" = "Copy and download from the phone";
+"settings.phoneFiles.quality.note" = "Optimized uses the Before sending sizes. If those are set to original size, photos go to 2048 px and videos to 1080p. Files that would not get smaller stay as they are.";
+"settings.phoneFiles.quality.optimized" = "Optimized";
+"settings.phoneFiles.quality.original" = "Original";
 
 /* Files 2.0: transfer engine (Mac engine agent adds below) */
 "folders.upload.items" = "%1$@ and %2$@ more";
@@ -865,7 +869,6 @@
 "phonefiles.day.unknown" = "Earlier";
 "phonefiles.day.yesterday" = "Yesterday";
 "phonefiles.download" = "Download";
-"phonefiles.download.help" = "Save to Received files";
 "phonefiles.drop.add" = "Drop to add to %1$@ on %2$@";
 "phonefiles.entry" = "Phone files";
 "phonefiles.entry.help" = "Browse photos, documents and folders on the phone";
@@ -938,6 +941,16 @@
 "phonefiles.sort.name" = "Name";
 "phonefiles.sort.size" = "Size";
 "phonefiles.window" = "Phone files";
+"phonefiles.activity.copy" = "Copying %@";
+"phonefiles.copied" = "Copied %@ to the clipboard";
+"phonefiles.copy" = "Copy";
+"phonefiles.copy.optimized" = "Copy Optimized";
+"phonefiles.copy.original" = "Copy Original";
+"phonefiles.download.choose" = "Choose how to download";
+"phonefiles.download.help.optimized" = "Save smaller copies to Received files";
+"phonefiles.download.help.original" = "Save the originals to Received files";
+"phonefiles.download.optimized" = "Download Optimized";
+"phonefiles.download.original" = "Download Original";
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
 "sendsheet.window" = "Send to device";

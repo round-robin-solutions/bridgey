@@ -250,6 +250,8 @@ enum SettingsSearchRegistry {
                 L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."), ["finder", "tag", "метка"]),
             row("files.camera", .files, L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
                 L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"), ["camera", "photo", "take photo", "камера", "фото"]),
+            row("files.phoneQuality", .files, L10n.text("settings.phoneFiles.quality", fallback: "Copy and download from the phone"), nil,
+                ["phone files", "copy", "download", "optimize", "optimise", "original", "compress", "копировать", "загрузить", "оригинал", "сжать"]),
             row("files.photos", .files, section: beforeSending, L10n.text("optimize.images", fallback: "Photos"), nil, ["resize", "compress", "optimise", "optimize", "сжать"]),
             row("files.format", .files, section: beforeSending, L10n.text("optimize.format", fallback: "Format"), nil, ["webp", "jpeg", "heic"], visible: optimizing),
             row("files.quality", .files, section: beforeSending, L10n.text("optimize.quality", fallback: "Quality"), nil, ["compress", "качество"], visible: optimizing),
