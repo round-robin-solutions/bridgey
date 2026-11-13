@@ -98,7 +98,7 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var callMediaRestoration: CallMediaRestoration
     /// Settings > General > Reduce motion: cross-fades only, like the system setting.
     @Published private(set) var reduceMotion: Bool
-    /// Settings > General > Animate the menu bar panel: spring entrance (default) or fade only.
+    /// Settings > General > Animate the menu bar panel: movement and fade (default) or fade only.
     @Published private(set) var panelMotion: MenuBarPanelMotion
     /// Automatic clipboard for every device. On by default, like Universal Clipboard.
     @Published private(set) var autoClipboardEnabled: Bool
@@ -183,7 +183,7 @@ final class BridgeySettings: ObservableObject {
         shareActivityStatus = storedDefaults.object(forKey: "settings.presence.share") as? Bool ?? true
         showActivityPreviews = storedDefaults.object(forKey: "settings.activity.previews") as? Bool ?? true
         reduceMotion = storedDefaults.bool(forKey: "settings.reduceMotion")
-        panelMotion = MenuBarPanelMotion(rawValue: storedDefaults.string(forKey: MenuBarPanelMotion.defaultsKey) ?? "") ?? .spring
+        panelMotion = MenuBarPanelMotion(rawValue: storedDefaults.string(forKey: MenuBarPanelMotion.defaultsKey) ?? "") ?? .move
         ringForIncomingCalls = storedDefaults.object(forKey: "settings.calls.ring") as? Bool ?? true
         otherAppCallPolicy = MacOtherAppCallPolicy(rawValue: storedDefaults.string(forKey: "settings.calls.otherApps") ?? "") ?? .ask
         callMediaMode = CallMediaMode(rawValue: storedDefaults.string(forKey: "settings.calls.quiet.mode") ?? "") ?? .pauseThenMute
