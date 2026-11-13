@@ -386,6 +386,7 @@
 "settings.quickActions" = "Quick actions";
 "settings.receivedFiles" = "Received files";
 "settings.reduceMotion" = "Reduce motion";
+"settings.panelMotion" = "Animate the menu bar panel";
 "settings.reduceMotion.detail" = "Fade between screens; nothing moves or bounces";
 "settings.remoteControl" = "Remote control";
 "settings.shortcut" = "Keyboard shortcut";

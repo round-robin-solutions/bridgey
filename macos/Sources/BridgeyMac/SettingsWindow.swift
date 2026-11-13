@@ -155,6 +155,7 @@ struct SettingsModel {
     var mediaDetail = ""
     var showPreviews = true
     var reduceMotion = false
+    var panelSpring = true
     var activityCount = 0
     var channel: UpdateChannel = .stable
     var automaticallyChecks = false
@@ -320,6 +321,7 @@ struct SettingsActions {
     var clearActivity: () -> Void = {}
     var exportDiagnostics: () -> Void = {}
     var setReduceMotion: (Bool) -> Void = { _ in }
+    var setPanelSpring: (Bool) -> Void = { _ in }
     var usePhoneLinks: () -> Void = {}
     var setChannel: (UpdateChannel) -> Void = { _ in }
     var setAutomaticallyChecks: (Bool) -> Void = { _ in }
@@ -1101,6 +1103,8 @@ private struct GeneralPane: View {
                            subtitle: L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"),
                            synced: model.syncs(.reduceMotion), isOn: model.reduceMotion, set: actions.setReduceMotion)
             SyncStatusLine(key: .reduceMotion, model: model, actions: actions)
+            SettingsToggle(title: L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"),
+                           isOn: model.panelSpring, set: actions.setPanelSpring)
             SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"),
                            isOn: model.shortcutShift, set: actions.setShortcutShift)
         }
@@ -2070,6 +2074,7 @@ struct LiveSettingsView: View {
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
         model.reduceMotion = settings.reduceMotion
+        model.panelSpring = settings.panelMotion == .spring
         model.activityCount = activity.items.count
         model.channel = updater.channel
         model.automaticallyChecks = updater.automaticallyChecks
@@ -2274,6 +2279,7 @@ struct LiveSettingsView: View {
         actions.clearActivity = { pairing.clearActivity() }
         actions.exportDiagnostics = { pairing.exportDiagnostics() }
         actions.setReduceMotion = { settings.setReduceMotion($0) }
+        actions.setPanelSpring = { settings.setPanelMotion($0 ? .spring : .fade) }
         actions.usePhoneLinks = { makeDefaultPhoneLinkHandler() }
         actions.setChannel = { updater.setChannel($0) }
         actions.setAutomaticallyChecks = { updater.setAutomaticallyChecks($0) }

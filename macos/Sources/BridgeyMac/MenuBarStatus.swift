@@ -29,6 +29,8 @@ final class StatusPanel: NSPanel {
 @MainActor
 final class MenuBarPanelPresentation: ObservableObject {
     @Published private(set) var isPresented = false
+    /// How the panel content moves as it opens and closes; set by the controller before each change.
+    @Published var motion: MenuBarPanelMotion = .spring
     @Published private(set) var clipboard = PasteboardPreview()
     var readClipboard: (PasteboardPreview) -> PasteboardPreview = { PasteboardPreview.current(previous: $0) }
 
@@ -38,6 +40,37 @@ final class MenuBarPanelPresentation: ObservableObject {
         guard isPresented else { return }
         let latest = readClipboard(clipboard)
         if latest != clipboard { clipboard = latest }
+    }
+}
+
+/// The panel's entrance. Saved as `settings.panelMotion`; Reduce Motion always means no movement.
+enum MenuBarPanelMotion: String, CaseIterable {
+    /// Drops out of the menu bar: a short spring on scale and position plus the fade.
+    case spring
+    /// The fade only.
+    case fade
+    /// Appears and disappears at once.
+    case off
+
+    static let defaultsKey = "settings.panelMotion"
+    static var stored: () -> MenuBarPanelMotion = {
+        MenuBarPanelMotion(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .spring
+    }
+}
+
+/// Spring entrance from the menu bar. Visual only: scale and offset leave the panel's size alone.
+struct MenuBarPanelEntrance: ViewModifier {
+    let presented: Bool
+    let motion: MenuBarPanelMotion
+    static let hiddenScale: CGFloat = 0.94
+    static let hiddenOffset: CGFloat = -8
+
+    func body(content: Content) -> some View {
+        let moves = motion == .spring
+        content
+            .scaleEffect(moves && !presented ? Self.hiddenScale : 1, anchor: .top)
+            .offset(y: moves && !presented ? Self.hiddenOffset : 0)
+            .animation(moves ? (presented ? BrandMotion.spring(0.78, 420) : .easeIn(duration: 0.12)) : nil, value: presented)
     }
 }
 
@@ -96,8 +129,10 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     /// Suppress only the very same icon event that already dismissed the panel, never a later click.
     private var dismissedIconClick: MenuBarIconClick?
     var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
-    static let openingDuration: TimeInterval = 0.12
-    static let closingDuration: TimeInterval = 0.10
+    static let openingDuration: TimeInterval = 0.18
+    static let closingDuration: TimeInterval = 0.12
+    /// The saved entrance style (spring by default).
+    var panelMotion: () -> MenuBarPanelMotion = { MenuBarPanelMotion.stored() }
     /// Lightweight state cleanup before layout; provider refreshes belong in onDidOpen.
     var onWillOpen: () -> Void = {}
     /// Refresh after entrance completion; reduced motion uses the next main turn.
@@ -195,7 +230,9 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         onWillOpen()
         hosting.view.layoutSubtreeIfNeeded()
         fitToContent()
-        let animate = !reduceMotion()
+        let motion: MenuBarPanelMotion = reduceMotion() ? .off : panelMotion()
+        let animate = motion != .off
+        presentation.motion = motion
         if !alreadyVisible { panel.alphaValue = animate ? 0 : 1 }
         else if !animate { panel.alphaValue = 1 }
         panel.ignoresMouseEvents = false
@@ -221,11 +258,20 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
             guard let self, self.visibilityGeneration == generation, self.isOpen else { return }
             self.onDidOpen()
         }
+        // The window shadow follows the content's settled shape once the spring has come to rest.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.visibilityGeneration == generation, self.isOpen else { return }
+                self.panel.invalidateShadow()
+            }
+        }
     }
 
     func close(animated: Bool = true) {
         guard wantsOpen || panel.isVisible else { return }
         let wasDrag = openedByDrag
+        let animate = animated && !wasDrag && !reduceMotion() && panelMotion() != .off
+        presentation.motion = animate ? panelMotion() : .off
         wantsOpen = false
         visibilityGeneration += 1
         presentation.setPresented(false)
@@ -236,7 +282,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
         panel.resignKey()
         statusItem.button?.highlight(false)
         removeOutsideClickMonitor()
-        if animated && !wasDrag && !reduceMotion() {
+        if animate {
             BridgeyWindows.fadeOut(panel, duration: Self.closingDuration)
         } else { BridgeyWindows.orderOut(panel) }
     }

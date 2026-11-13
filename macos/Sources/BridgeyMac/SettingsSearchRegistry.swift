@@ -348,6 +348,8 @@ enum SettingsSearchRegistry {
             row("general.login", .general, L10n.text("settings.launchAtLogin", fallback: "Launch at login"), nil, login),
             row("general.reduceMotion", .general, L10n.text("settings.reduceMotion", fallback: "Reduce motion"),
                 L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"), motion, sync: .reduceMotion),
+            row("general.panelMotion", .general, L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"), nil,
+                motion + ["menu bar", "panel", "animation", "панель", "анимация"]),
             row("general.shift", .general, L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"), nil, shortcut),
             row("general.sync", .general, L10n.text("settings.sync", fallback: "Sync settings with paired devices"),
                 L10n.text("settings.sync.detail", fallback: "Keeps settings and features the same on your devices. Permissions, pairing and folders stay on each device."), sync),
