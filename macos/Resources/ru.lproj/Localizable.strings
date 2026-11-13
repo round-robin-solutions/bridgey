@@ -386,6 +386,7 @@
 "settings.quickActions" = "Быстрые действия";
 "settings.receivedFiles" = "Полученные файлы";
 "settings.reduceMotion" = "Меньше движения";
+"settings.panelMotion" = "Анимировать панель в строке меню";
 "settings.reduceMotion.detail" = "Плавная смена экранов без движения и отскоков";
 "settings.remoteControl" = "Удалённое управление";
 "settings.shortcut" = "Сочетание клавиш";

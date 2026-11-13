@@ -31,6 +31,8 @@ final class MenuBarPresentationTests: XCTestCase {
         controller = MenuBarStatusController(content: NSHostingController(rootView: AnyView(Text("Fixture").frame(width: 240, height: 120))))
         controller.currentEvent = { nil }
         controller.reduceMotion = { true }
+        // Never the test runner's defaults: a leaked value there would change every run.
+        controller.panelMotion = { .spring }
         controller.scheduleOpenRefresh = { [unowned self] refresh in refreshes.append(refresh) }
     }
 
@@ -176,6 +178,38 @@ final class MenuBarPresentationTests: XCTestCase {
         XCTAssertEqual(fades.map(\.alpha), [1, 0])
         XCTAssertEqual(fades[0].duration, MenuBarStatusController.openingDuration)
         XCTAssertEqual(fades[1].duration, MenuBarStatusController.closingDuration)
+    }
+
+    func testThePanelSpringsOpenByDefault() {
+        controller.reduceMotion = { false }
+        controller.open(byDrag: false)
+        XCTAssertEqual(controller.presentation.motion, .spring)
+        XCTAssertEqual(fades.map(\.alpha), [1])
+        controller.close()
+        XCTAssertEqual(controller.presentation.motion, .spring, "the content shrinks back while the window fades")
+    }
+
+    func testFadeOnlyKeepsTheFadeWithoutMovement() {
+        controller.reduceMotion = { false }
+        controller.panelMotion = { .fade }
+        controller.open(byDrag: false)
+        controller.close()
+        XCTAssertEqual(controller.presentation.motion, .fade)
+        XCTAssertEqual(fades.map(\.alpha), [1, 0])
+    }
+
+    func testReduceMotionAndOffShowThePanelAtOnce() {
+        for (reduce, motion) in [(true, MenuBarPanelMotion.spring), (false, .off)] {
+            fades = []
+            controller.reduceMotion = { reduce }
+            controller.panelMotion = { motion }
+            controller.open(byDrag: false)
+            XCTAssertEqual(controller.presentation.motion, .off)
+            XCTAssertEqual(controller.panel.alphaValue, 1)
+            controller.close()
+            XCTAssertFalse(controller.panel.isVisible)
+            XCTAssertTrue(fades.isEmpty)
+        }
     }
 
     func testAStaleFadeCompletionCannotHideARapidReopen() async {
