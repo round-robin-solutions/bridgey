@@ -123,13 +123,16 @@ final class MenuBarStatusDropTests: XCTestCase {
     }
 }
 
-/// "Clicking the menu bar icon again re-opens the panel instead of closing it" (beta 19, 2026-11-03).
-/// The outside-click monitor or the panel losing key closes it first, then the icon's own action ran
-/// `togglePanel`, which saw a closed panel and opened it again.
+/// "Clicking the menu bar icon again re-opens the panel instead of closing it" (beta 19, 2026-11-03), and
+/// "Toggle didn't work" (0.11.0-rr.1 Beta 1, 2026-11-15). The outside-click monitor or the panel losing key
+/// closes it first, then the icon's own action runs `togglePanel` on a closed panel. On macOS 27 that action
+/// carries a new mouse-down forwarded by MenuBarAgent, not the event the monitor saw.
 @MainActor
 final class MenuBarStatusToggleTests: XCTestCase {
     private var controller: MenuBarStatusController!
     private var event: NSEvent?
+    private var pointer = NSPoint(x: -5_000, y: -5_000)
+    private var clock: TimeInterval = 0
 
     override func setUp() {
         super.setUp()
@@ -137,6 +140,8 @@ final class MenuBarStatusToggleTests: XCTestCase {
         controller = MenuBarStatusController(content: NSHostingController(rootView: AnyView(Text("Bridgey").frame(width: 200, height: 120))))
         controller.reduceMotion = { true }
         controller.currentEvent = { [weak self] in self?.event }
+        controller.pointerLocation = { [weak self] in self?.pointer ?? .zero }
+        controller.now = { [weak self] in self?.clock ?? 0 }
         event = nil
     }
 
@@ -153,13 +158,29 @@ final class MenuBarStatusToggleTests: XCTestCase {
         XCTAssertFalse(controller.isOpen)
     }
 
+    private func iconCentre() throws -> NSPoint {
+        let icon = try XCTUnwrap(controller.iconFrame)
+        return NSPoint(x: icon.midX, y: icon.midY)
+    }
+
     private func mouse(_ number: Int, timestamp: TimeInterval, onIcon: Bool = true,
                        type: NSEvent.EventType = .leftMouseDown) throws -> NSEvent {
         let icon = try XCTUnwrap(controller.iconFrame)
         let point = onIcon ? NSPoint(x: icon.midX, y: icon.midY) : NSPoint(x: icon.minX - 100, y: icon.minY - 100)
+        return try mouse(number, timestamp: timestamp, at: point, type: type)
+    }
+
+    private func mouse(_ number: Int, timestamp: TimeInterval, at point: NSPoint,
+                       type: NSEvent.EventType = .leftMouseDown) throws -> NSEvent {
         // A nil event window means the supplied location is already in screen coordinates.
-        return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: timestamp,
-                                               windowNumber: 0, context: nil, eventNumber: number, clickCount: 1, pressure: 1))
+        try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: timestamp,
+                                         windowNumber: 0, context: nil, eventNumber: number, clickCount: 1, pressure: 1))
+    }
+
+    /// A window server event that is not a mouse event, as current when the panel lost key on the other display.
+    private func windowServerEvent(timestamp: TimeInterval) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.otherEvent(with: .appKitDefined, location: .zero, modifierFlags: [], timestamp: timestamp,
+                                         windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0))
     }
 
     func testIconClickAfterTheMonitorClosedItDoesNotReopen() throws {
@@ -172,6 +193,62 @@ final class MenuBarStatusToggleTests: XCTestCase {
         event = try mouse(21, timestamp: 10.001)
         controller.togglePanel()
         XCTAssertTrue(controller.isOpen, "a distinct next click opens it immediately")
+    }
+
+    /// Recorded with real clicks on macOS 27.2 (fix/menu-icon-toggle): the press goes to the menu bar, so the
+    /// global monitor gets it (no window, event number 0) and closes the panel; 54 ms later the button gets a
+    /// new mouse-down for the same press (event number 0 again, a point lower after rounding).
+    func testMacOS27ForwardedIconMouseDownAfterTheMonitorClosesItDoesNotReopen() throws {
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+        let icon = try iconCentre()
+        controller.dismissFromOutside(event: try mouse(0, timestamp: 550_979.1021, at: icon))
+        XCTAssertFalse(controller.isOpen)
+        event = try mouse(0, timestamp: 550_979.1558, at: NSPoint(x: icon.x, y: icon.y - 1))
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen, "the forwarded mouse-down is the same click: it toggles closed")
+        // Closed, the monitor is gone: the next press reaches only the button, and opens the panel.
+        event = try mouse(0, timestamp: 550_980.4677, at: icon)
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+    }
+
+    /// A real press near the icon's edge (2 pt outside its frame, still the icon's): the forwarded mouse-down
+    /// lands on the icon's centre, 14 pt from the press.
+    func testMacOS27ForwardedMouseDownAtTheIconCentrePairsWithAnOffCentrePress() throws {
+        controller.togglePanel()
+        let icon = try XCTUnwrap(controller.iconFrame)
+        let centre = NSPoint(x: icon.midX, y: icon.midY)
+        controller.dismissFromOutside(event: try mouse(21_523, timestamp: 552_064.5849, at: NSPoint(x: icon.maxX + 2, y: centre.y - 2)))
+        event = try mouse(0, timestamp: 552_064.6396, at: centre)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen, "a press anywhere on the icon toggles closed")
+    }
+
+    func testAPressOnTheNextStatusItemDoesNotSwallowAnIconClick() throws {
+        controller.togglePanel()
+        let icon = try XCTUnwrap(controller.iconFrame)
+        let neighbour = NSPoint(x: icon.maxX + MenuBarPress.sameClickSlack + 12, y: icon.midY)
+        controller.dismissFromOutside(event: try mouse(90, timestamp: 80, at: neighbour))
+        event = try mouse(0, timestamp: 80.05, at: NSPoint(x: icon.midX, y: icon.midY))
+        controller.togglePanel()
+        XCTAssertTrue(controller.isOpen)
+    }
+
+    /// Recorded the same way, clicking the icon drawn in the other display's menu bar: no monitor event, the
+    /// panel loses key with a window server event current and the pointer on that icon, far from iconFrame
+    /// (which still names the first display), then the forwarded mouse-down arrives 66 ms later.
+    func testMacOS27IconClickOnTheOtherDisplayClosesThePanel() throws {
+        controller.togglePanel()
+        let icon = try iconCentre()
+        let otherIcon = NSPoint(x: icon.x + 1_920, y: icon.y + 2)
+        pointer = NSPoint(x: otherIcon.x + 5, y: otherIcon.y - 3)
+        event = try windowServerEvent(timestamp: 551_333.4876)
+        controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.panel))
+        XCTAssertFalse(controller.isOpen)
+        event = try mouse(0, timestamp: 551_333.5530, at: otherIcon)
+        controller.togglePanel()
+        XCTAssertFalse(controller.isOpen, "the press on the other display's icon toggles closed")
     }
 
     func testIconClickAfterThePanelLostKeyDoesNotReopen() throws {
@@ -192,26 +269,27 @@ final class MenuBarStatusToggleTests: XCTestCase {
         XCTAssertTrue(controller.isOpen)
     }
 
-    func testADifferentIconEventIsNotSuppressedEvenBeforeTheOldGuardWouldExpire() throws {
+    func testAnIconClickAfterTheSameClickWindowIsANewClick() throws {
         controller.togglePanel()
         event = try mouse(50, timestamp: 40)
         controller.dismissFromOutside(event: event)
-        event = try mouse(51, timestamp: 40.001)
+        event = try mouse(51, timestamp: 40 + MenuBarPress.sameClickWindow + 0.05)
         controller.togglePanel()
-        XCTAssertTrue(controller.isOpen)
+        XCTAssertTrue(controller.isOpen, "a press whose own mouse-down never came cannot swallow a later click")
     }
 
     func testKeyboardFocusDismissalDoesNotSuppressTheNextIconClick() throws {
         controller.togglePanel()
         event = nil
+        clock = 50
         controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification, object: controller.panel))
         XCTAssertFalse(controller.isOpen)
-        event = try mouse(60, timestamp: 50)
+        event = try mouse(60, timestamp: 50.1)
         controller.togglePanel()
-        XCTAssertTrue(controller.isOpen)
+        XCTAssertTrue(controller.isOpen, "the pointer was elsewhere when the keyboard moved")
     }
 
-    func testTheRightIconMouseDownIsAlsoDeduplicatedByItsExactEvent() throws {
+    func testTheRightIconMouseDownIsAlsoDeduplicated() throws {
         controller.togglePanel()
         event = try mouse(70, timestamp: 60, type: .rightMouseDown)
         controller.dismissFromOutside(event: event)
