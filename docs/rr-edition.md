@@ -712,9 +712,11 @@ moves to it. `--from v1.0.0-beta.2` promotes an older beta; `--notes-file` repla
 beta's notes, introduced as "The same code as 1.0 Beta 3, now on Stable").
 
 **CHANGELOG.md** at the repository root lists every beta and stable release, newest first. `cut-release.py`
-adds the entry (the notes, under "## 1.0 Beta 2 (1.0.0-beta.2), 16 November 2026") in a commit on `rr/main`
-after pushing the tag, so the tagged build is the commit that passed its checks. If a release is abandoned,
-remove its entry by hand. Nightlies are not listed.
+adds the entry (the notes, under "## 1.0 Beta 2 (1.0.0-beta.2), 16 November 2026") in a commit on `rr/main`.
+A beta commits the entry and tags that commit, so RR CI verifies it once and, because it is tagged, builds
+no nightly for it. A promotion tags the beta's own commit and then commits the entry with the next
+`EDITION_NEXT_VERSION`; that commit is verified and becomes the first nightly of the next version. If a
+release is abandoned, remove its entry by hand. Nightlies are not listed.
 
 Write the notes for people: short, plain British English, what changed and where to find it.
 

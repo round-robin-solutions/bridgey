@@ -10,8 +10,11 @@
       EDITION_NEXT_VERSION (or --from). RR CI then rebuilds that commit as 1.0.0 with a new build number.
       Then moves EDITION_NEXT_VERSION on rr/main to the next minor version (or --next).
 
-Both add an entry at the top of CHANGELOG.md on rr/main after the tag is pushed. Pushing the tag is what
-starts the release: RR CI runs scripts/rr/ci-release.sh tag, which builds, publishes and updates the feeds.
+Both add an entry at the top of CHANGELOG.md on rr/main. A beta of the head of rr/main commits the entry first
+and tags that commit, so RR CI verifies it once and builds no nightly for it. A promotion tags the beta's own
+commit, then commits the entry and the next version on top (that commit starts the next version's nightlies).
+Pushing the tag is what starts the release: RR CI runs scripts/rr/ci-release.sh tag, which builds, publishes
+and updates the feeds.
 Without --push nothing is created: the plan, the tag message and the changelog entry are printed.
 
 Why promotion rebuilds instead of relabelling the beta's files: a build carries its version inside it.
@@ -239,12 +242,15 @@ def cut(args: argparse.Namespace, root: Path = REPO_ROOT, published=published_re
     if tag in tags:
         raise CutError(f"{tag} already exists")
     entry = changelog_entry(version, body, today)
-    plan = {"tag": tag, "commit": commit, "version": version, "message": message, "changelog": entry, "next": next_after}
+    # A beta of the head of rr/main tags its own changelog commit: RR CI verifies that commit once and,
+    # because it is tagged, builds no nightly for it. A promotion (or a beta of an older commit) tags that
+    # commit as it is and adds the changelog commit on top afterwards.
+    tags_changelog_commit = args.command == "beta" and commit == head
+    plan = {"tag": tag, "commit": commit, "version": version, "message": message, "changelog": entry, "next": next_after,
+            "tags_changelog_commit": tags_changelog_commit}
 
     if not args.push:
         return plan
-
-    push_tag(root, remote, tag, commit, message)
 
     def edit(work: Path) -> None:
         path = work / CHANGELOG
@@ -256,7 +262,14 @@ def cut(args: argparse.Namespace, root: Path = REPO_ROOT, published=published_re
     subject = f"Changelog: {versions.display(version)}"
     if next_after:
         subject += f"; next version {next_after}"
-    plan["changelog_commit"] = commit_on_branch(root, remote, subject, edit, push=True)
+    if tags_changelog_commit:
+        plan["changelog_commit"] = commit_on_branch(root, remote, subject, edit, push=True)
+        plan["commit"] = plan["changelog_commit"]
+        git("fetch", "--quiet", remote, BRANCH, cwd=root)
+        push_tag(root, remote, tag, plan["commit"], message)
+    else:
+        push_tag(root, remote, tag, commit, message)
+        plan["changelog_commit"] = commit_on_branch(root, remote, subject, edit, push=True)
     return plan
 
 
@@ -279,7 +292,8 @@ def main(argv: list[str] | None = None) -> int:
     except (CutError, OSError, KeyError) as error:
         print(f"cut-release: {error}", file=sys.stderr)
         return 1
-    print(f"{'Pushed' if args.push else 'Would push'} {plan['tag']} at {plan['commit'][:7]} ({versions.display(plan['version'])})")
+    where = "the new changelog commit on top of " + plan["commit"][:7] if plan["tags_changelog_commit"] and not args.push else plan["commit"][:7]
+    print(f"{'Pushed' if args.push else 'Would push'} {plan['tag']} at {where} ({versions.display(plan['version'])})")
     if plan["next"]:
         print(f"EDITION_NEXT_VERSION on {BRANCH} afterwards: {plan['next']}")
     print("\nTag message (the release notes):\n" + plan["message"])

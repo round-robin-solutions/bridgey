@@ -118,7 +118,11 @@ class CutReleaseTests(unittest.TestCase):
     def test_beta_numbers_count_up_and_the_changelog_grows_newest_first(self):
         first = self.run_cut("beta", notes_file=str(self.notes))
         self.assertEqual(first["tag"], "v1.0.0-beta.1")
+        # The beta tags its own changelog commit, the head of rr/main.
         self.assertEqual(git(self.origin, "rev-parse", "v1.0.0-beta.1^{commit}"), first["commit"])
+        self.assertEqual(first["commit"], first["changelog_commit"])
+        self.assertEqual(git(self.origin, "rev-parse", "rr/main"), first["commit"])
+        self.assertIn("1.0 Beta 1", git(self.origin, "show", "v1.0.0-beta.1:CHANGELOG.md"))
         self.assertEqual(git(self.origin, "cat-file", "-t", "v1.0.0-beta.1"), "tag")
         self.assertIn("Own version numbers", git(self.origin, "tag", "-l", "--format=%(contents)", "v1.0.0-beta.1"))
         second = self.run_cut("beta", notes_file=str(self.notes))
@@ -128,6 +132,16 @@ class CutReleaseTests(unittest.TestCase):
         self.assertLess(changelog.index("1.0 Beta 2"), changelog.index("1.0 Beta 1"))
         self.assertLess(changelog.index("1.0 Beta 1"), changelog.index("0.11 Beta 3"))
         self.assertTrue(changelog.startswith("# Changelog\n\nNewest first.\n\n## 1.0 Beta 2"))
+
+    def test_a_beta_of_an_older_commit_tags_that_commit(self):
+        start = git(self.repo, "rev-parse", "HEAD")
+        self.write("feature.txt", "later\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "--quiet", "-m", "feature")
+        git(self.repo, "push", "--quiet", "origin", "rr/main")
+        plan = self.run_cut("beta", notes_file=str(self.notes), commit=start)
+        self.assertEqual(git(self.origin, "rev-parse", "v1.0.0-beta.1^{commit}"), start)
+        self.assertNotEqual(plan["changelog_commit"], start)
 
     def test_beta_needs_notes(self):
         with self.assertRaises(cut_release.CutError):
@@ -149,6 +163,7 @@ class CutReleaseTests(unittest.TestCase):
         plan = self.run_cut("promote")
         self.assertEqual(plan["tag"], "v1.0.0")
         self.assertEqual(plan["commit"], beta1["commit"])
+        self.assertNotEqual(plan["changelog_commit"], beta1["commit"])
         self.assertEqual(git(self.origin, "rev-parse", "v1.0.0^{commit}"), beta1["commit"])
         self.assertIn("The same code as 1.0 Beta 1, now on Stable.", plan["message"])
         self.assertTrue(plan["message"].startswith("Bridgey by Round Robin 1.0\n"))
