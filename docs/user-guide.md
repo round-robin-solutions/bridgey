@@ -160,8 +160,14 @@ Dismissals sync both ways. A notification history on the Mac is off by default.
   default the phone shows a notification; tap it to review the number in the dialer.
 - **Call status and answer controls on the Mac:** on the phone open **Settings > Calls** and turn on
   **Call status and controls**. Android asks for Phone permissions. After that the Mac shows incoming
-  and active calls with **Answer**, **Decline** and **Hang Up**. Bridgey does not ask for contacts or call
-  history and never dials emergency numbers itself.
+  and active calls with **Answer**, **Decline** and **Hang Up**. This option does not ask for contacts or
+  call history, and Bridgey never dials emergency numbers itself.
+- **Calls window:** a keypad, your phone's contacts and recent calls on the Mac. Turn it on in
+  **Settings > Calls > Calls window** on both devices and allow each Mac on the phone (and each phone
+  on the Mac); the phone asks for Phone, Contacts and Call history then. Open it from the menu bar
+  panel. Type digits or a name, then press Return to call; Option-Return starts a WhatsApp call through
+  the phone's WhatsApp and Shift-Option-Return a WhatsApp video call. Command-1 and Command-2 pick the
+  SIM. The phone places every call, so the call audio stays on the phone or its earbuds.
 - **Phone links:** on the Mac, Settings > Calls > **Phone links** > **Use Bridgey** sends `tel:` links
   from your browser to Bridgey.
 

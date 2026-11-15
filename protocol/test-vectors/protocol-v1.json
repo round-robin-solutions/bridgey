@@ -501,7 +501,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -569,7 +570,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -633,7 +635,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": true
+     "notification_routing_draft1": true,
+     "dialer_draft1": false
     }
    }
   },
@@ -697,7 +700,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -767,7 +771,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -833,7 +838,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -901,7 +907,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -965,7 +972,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1028,7 +1036,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1092,7 +1101,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1155,7 +1165,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1219,7 +1230,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1282,7 +1294,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1346,7 +1359,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1409,7 +1423,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1472,7 +1487,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": true,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1535,7 +1551,136 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
+    }
+   }
+  },
+  {
+   "name": "Mac and phone with the Calls window on",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "dialer_draft1": true
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false,
+     "settings_sync_draft1": false,
+     "connect_draft1": false,
+     "files_fast_draft1": false,
+     "email_codes_draft1": false,
+     "agent_draft1": false,
+     "notify_draft1": false,
+     "ask_draft1": false,
+     "clipboard_request_draft1": false,
+     "agent_codes_draft1": false,
+     "agents_mirror_draft1": false,
+     "codes_detect_draft1": false,
+     "call_quiet_draft1": false,
+     "notification_routing_draft1": false,
+     "dialer_draft1": true
+    }
+   }
+  },
+  {
+   "name": "dialer_draft1 that is not a boolean counts as false",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false,
+     "dialer_draft1": "true"
+    }
+   },
+   "expect": {
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": true,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": true,
+     "media": true,
+     "calls": true,
+     "remote_input_draft1": false
+    },
+    "drafts": {
+     "device_presence_draft1": false,
+     "share_receive_draft1": false,
+     "clipboard_files_draft1": false,
+     "folders_draft1": false,
+     "places_draft1": false,
+     "sms_codes_draft1": false,
+     "folders_receive_draft1": false,
+     "files_browse_draft1": false,
+     "mac_actions_draft1": false,
+     "links_open_draft1": false,
+     "focus_sync_draft1": false,
+     "camera_draft1": false,
+     "updates_draft1": false,
+     "screen_draft1": false,
+     "sms_draft1": false,
+     "settings_sync_draft1": false,
+     "connect_draft1": false,
+     "files_fast_draft1": false,
+     "email_codes_draft1": false,
+     "agent_draft1": false,
+     "notify_draft1": false,
+     "ask_draft1": false,
+     "clipboard_request_draft1": false,
+     "agent_codes_draft1": false,
+     "agents_mirror_draft1": false,
+     "codes_detect_draft1": false,
+     "call_quiet_draft1": false,
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1598,7 +1743,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1661,7 +1807,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1727,7 +1874,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1790,7 +1938,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1853,7 +2002,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1917,7 +2067,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -1981,7 +2132,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2045,7 +2197,8 @@
      "agents_mirror_draft1": true,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2109,7 +2262,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": true,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2172,7 +2326,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2235,7 +2390,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2299,7 +2455,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2356,7 +2513,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2417,7 +2575,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },
@@ -2475,7 +2634,8 @@
      "agents_mirror_draft1": false,
      "codes_detect_draft1": false,
      "call_quiet_draft1": false,
-     "notification_routing_draft1": false
+     "notification_routing_draft1": false,
+     "dialer_draft1": false
     }
    }
   },

@@ -37,6 +37,7 @@ v0.10 is still stabilisation, before the v1.0 protocol freeze and wider device a
 | Settings sync | none | On by default, one switch to turn it off (and one per device): feature switches and shared preferences stay the same on paired devices; a phone with two Macs carries changes between them. Permissions, per-device grants, pairing and folders never sync; a device that differs shows "Different on <device>" with Apply to all, and every change from another device is in the activity stream (draft `settings_sync_draft1`, see [folders-and-settings-sync.md](folders-and-settings-sync.md) 8.4) |
 | Codes from text messages | none | Opt-in: the Mac shows "Code 482913 from HDFC Bank" with Copy code, read on the Mac by a small downloaded model (default) or, if chosen, through Round Robin's relay to Cloudflare Workers AI; a companion link lets Android 15+ show Bridgey the codes (draft `sms_codes_draft1`, see below). Also from email: Gmail, Outlook, Proton Mail and Spark notifications, read on the Mac only (draft `email_codes_draft1`, [codes-from-email.md](codes-from-email.md)) |
 | Text messages | notification replies only | Opt-in, off by default: SMS conversations on the Mac (Messages window with conversations, new messages to a contact or number, delivery status, the SIM per conversation, MMS images read only) and a Reply field on every text message notification; incremental sync over the encrypted session, no cloud (draft `sms_draft1`, see below and [sms-call-policy.md](sms-call-policy.md)) |
+| Calls window | `calls.v1` (one number from the Mac) | Opt-in, off by default, per device on both sides: a Mac Calls window with a keypad, contact search on the phone, recent calls and the SIM; calls go through the phone, WhatsApp voice and video through the phone's WhatsApp, and "Open in WhatsApp on this Mac" when WhatsApp Desktop is installed. Call audio stays on the phone (draft `dialer_draft1`, see below and [sms-call-policy.md](sms-call-policy.md)) |
 | Agent commands | none | Released `bridgey` CLI for Linux and macOS: pairing, files, clipboard, notifications, questions, device status and codes, gated by per-server permissions and audited on the phone ([setup](agent-cli-setup.md)) |
 | Codes without a Mac | none | Shared Rust reader on a server with Detect codes enabled, or separately enabled SMS-only cloud detection on the phone; the default CLI package omits local detection ([mesh-and-codes.md](mesh-and-codes.md#phase-2-2026-11-04)) |
 | Pairing over the tailnet | none | Mac–Mac, server–Mac and server–server by Tailscale address; new peers start restricted until explicitly trusted. Full mesh invites remain deferred ([mesh-and-codes.md](mesh-and-codes.md#pairing-over-the-tailnet)) |
@@ -322,6 +323,30 @@ the draft `sms_draft1` in `docs/protocol.md`; the permission and Play position i
   each, per phone) is a 0600 file in Application Support, or memory only if "Keep conversations on
   this Mac" is off; images stay in memory. It is deleted when Text messages is turned off on either
   device, when the phone is forgotten and from Reset. Bodies, numbers and names are never logged.
+
+### Calls window (draft protocol)
+
+Rahul, 2026-10-27: a Mac Calls window with a dialer keypad, contact search synced from the phone,
+recent calls and SIM choice; each contact gets Call plus WhatsApp voice and video; opt-in; call audio
+stays on the phone. Wire format: `dialer_draft1` in `docs/protocol.md`; permissions and Play position
+in [sms-call-policy.md](sms-call-policy.md).
+
+- **Off until chosen, per device on both sides.** Phone: Settings > Calls > Calls window, then each
+  Mac under "Macs that can call" (or its device page). Mac: Settings > Calls > Calls window, then each
+  phone, or Turn On in the window itself. The phone asks for Phone, Contacts and Call history only
+  when the window is turned on. Protocol 2 only; agent devices never get it.
+- **Keyboard first.** Type digits or a name; the arrows move through the list; Return calls;
+  Option-Return is a WhatsApp call and Shift-Option-Return a WhatsApp video call; Command-1 and
+  Command-2 pick the SIM; Escape clears, then closes. Opens from the menu bar panel and Settings.
+- **Defaults you can change (Mac, Settings > Calls > Calls window):** Call from (Ask each time, SIM 1,
+  SIM 2; Ask each time by default, and a phone with one SIM never asks), Show WhatsApp calls (on),
+  Recent calls (last 10, 20 or 50; 20). Phone: Ask on this phone first (off).
+- **Never silent on the phone.** Every call from a Mac opens the phone's call screen or waits for a
+  tap on a notification, and is an entry in the activity stream. Emergency numbers are refused.
+- **Privacy.** Contacts and recent calls are read when the Mac asks and kept on the Mac in memory only.
+  Names and numbers are never logged.
+- **Play build.** Keypad and SIM choice only (no contacts or call history), see the policy note.
+- Settings sync does not carry the Calls window switch: it needs each device's own permission anyway.
 
 ### On-device code model
 

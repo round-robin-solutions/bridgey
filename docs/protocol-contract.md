@@ -164,6 +164,7 @@ the tables at the end of this page are generated from it with
 | `codes_detect_draft1` | edition-draft | no | false |
 | `agent_notifications_draft1` | edition-draft | no | false |
 | `call_quiet_draft1` | edition-draft | no | false |
+| `dialer_draft1` | edition-draft | no | false |
 | `device_presence_draft1` | edition-draft | no | false |
 | `share_receive_draft1` | edition-draft | no | false |
 | `notification_routing_draft1` | edition-draft | no | false |
@@ -193,7 +194,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-178 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+185 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -2009,6 +2010,86 @@ After features.update with the key on both sides and on every change, at most on
 Answered by `agents.state`.
 
 Applied as if switched on the phone, recorded as changed on that Mac.
+
+#### `dialer.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `dialer.status` | edition-draft | phone-to-mac | dialer_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.contacts` | edition-draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.contacts_result` | edition-draft | phone-to-mac | dialer_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.recents` | edition-draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.recents_result` | edition-draft | phone-to-mac | dialer_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.call` | edition-draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.call_result` | edition-draft | phone-to-mac | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`dialer.status`
+
+- `version`: integer, 1
+- `place`: boolean: CALL_PHONE allowed, so a call can start without a tap on the phone
+- `confirm`: boolean: the phone's Ask on this phone first switch is on, so every call waits for a tap there
+- `contacts`: on | off | unavailable: READ_CONTACTS allowed, not allowed, or not in this build (an unknown value reads as off)
+- `recents`: on | off | unavailable: READ_CALL_LOG, as contacts
+- `whatsapp`: boolean: WhatsApp or WhatsApp Business is on the phone and contacts is on
+- `sims`: array of at most 4 {subId (integer), slot (0 to 3), label (at most 64)}, as in sms.status; empty when the phone cannot list them; an invalid entry is dropped
+
+Sent after each features.update that shows the key on both sides, and when a permission, a switch or the SIM list changes.
+
+`dialer.contacts`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `query`: string, 1 to 64 UTF-16 units, not only spaces: a name, or part of a number
+
+Answered by `dialer.contacts_result`.
+
+At most 30 in 10 seconds per Mac; more are answered with error rate_limited.
+
+`dialer.contacts_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `contacts`: array of at most 20 {id (integer, at least 1), name (1 to 128), starred (optional boolean), numbers (at most 8 {address (1 to 64), label (optional, at most 32)}), whatsapp (optional, at most 4 {address (at most 64), voice (optional integer, the data row, at least 1), video (optional, as voice)}, each with voice or video)}; a contact with neither a number nor a WhatsApp entry, or with an invalid field, is dropped
+- `error`: optional: disabled | permission | unavailable | rate_limited (contacts is then empty)
+
+The phone stops adding contacts before the plaintext limit. Nothing is kept on the Mac beyond the open window.
+
+`dialer.recents`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `limit`: integer, 1 to 50
+
+Answered by `dialer.recents_result`.
+
+At most 10 in 10 seconds per Mac; more are answered with error rate_limited.
+
+`dialer.recents_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `calls`: array, newest first, of at most 50 {id (integer, at least 1), address (at most 64; empty for a private or unknown number), name (optional, at most 128), type: incoming | outgoing | missed | rejected | blocked | voicemail (an unknown type reads as incoming), date (Unix ms), duration (seconds, at least 0), subId (optional integer)}; an invalid entry is dropped
+- `error`: optional: disabled | permission | unavailable | rate_limited (calls is then empty)
+
+`dialer.call`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `via`: phone | whatsapp_voice | whatsapp_video
+- `address`: with phone only: 3 to 15 digits with an optional leading +; spaces, parentheses, dots and hyphens are removed (as calls.request)
+- `subId`: integer, optional, with phone only: the SIM to call from (absent: the phone's default, which may ask on the phone)
+- `dataId`: integer, at least 1, with whatsapp_voice or whatsapp_video only: the WhatsApp row from dialer.contacts_result
+
+Answered by `dialer.call_result`.
+
+A remote action: refused unless this Mac is allowed on the phone. At most one every 3 seconds and 10 in 10 minutes per Mac. Emergency numbers are refused. The phone checks that dataId is a WhatsApp row of that kind before opening it. Every call started from a Mac is an entry in the phone's activity stream; numbers and names are never logged.
+
+`dialer.call_result`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `result`: started | confirm | refused (an unknown result reads as refused). started: the phone's call screen or WhatsApp is open; confirm: a notification on the phone starts it when tapped
+- `reason`: with refused only: disabled | permission | invalid | emergency | no_sim | rate_limited | not_found | unavailable | failed (an unknown or missing reason reads as failed)
 
 #### `presence.*`
 

@@ -92,7 +92,9 @@ drafts_none = {"device_presence_draft1":False,"share_receive_draft1":False,"clip
                "agent_draft1":False,"notify_draft1":False,"ask_draft1":False,"clipboard_request_draft1":False,
                "agent_codes_draft1":False,"agents_mirror_draft1":False,
                # Detect codes (docs/mesh-and-codes.md), after the agent keys.
-               "codes_detect_draft1":False,"call_quiet_draft1":False,"notification_routing_draft1":False}
+               "codes_detect_draft1":False,"call_quiet_draft1":False,"notification_routing_draft1":False,
+               # Calls window (docs/protocol.md "Draft: Calls window"), last.
+               "dialer_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -136,6 +138,11 @@ fe("sms_draft1 that is not a boolean counts as false", {"version":1,"features":{
 fe("call quieting key is negotiated", {"version":1,"features":{**features_all,"call_quiet_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"call_quiet_draft1":True}})
 fe("call quieting key rejects nonboolean", {"version":1,"features":{**features_all,"call_quiet_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
+# Calls window (dialer_draft1): a plain draft key on both platforms.
+fe("Mac and phone with the Calls window on", {"version":1,"features":{**features_all,"dialer_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"dialer_draft1":True}})
+fe("dialer_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"dialer_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
 # Settings sync (v0.10): settings_sync_draft1 is a draft key on both sides, true only for JSON true.
 fe("v0.10 device with settings sync on", {"version":1,"features":{**features_all,"settings_sync_draft1":True}},
