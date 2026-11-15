@@ -438,12 +438,12 @@ final class AutoUpdateTests: XCTestCase {
     func testNoticeShowsAtTheStartAndDuringTheCountdownOnly() {
         var run = autoRun()
         XCTAssertEqual(AutoNoticeState.make(run: run, now: t0.addingTimeInterval(1), currentVersion: "0.10.0-rr.1-beta.10", closedRunID: nil),
-                       .starting(title: "Updating your devices to beta.11", detail: "OnePlus 11 updates first. This Mac restarts last.", canLater: false))
+                       .starting(title: "Updating your devices to Beta 11", detail: "OnePlus 11 updates first. This Mac restarts last.", canLater: false))
         XCTAssertEqual(AutoNoticeState.make(run: run, now: t0.addingTimeInterval(13), currentVersion: "0.10.0-rr.1-beta.10", closedRunID: nil), .hidden)
         XCTAssertEqual(AutoNoticeState.make(run: run, now: t0.addingTimeInterval(1), currentVersion: "0.10.0-rr.1-beta.10", closedRunID: run.id), .hidden)
         run.countdownUntil = t0.addingTimeInterval(60)
         XCTAssertEqual(AutoNoticeState.make(run: run, now: t0.addingTimeInterval(20), currentVersion: "0.10.0-rr.1-beta.10", closedRunID: run.id),
-                       .countdown(title: "Updating your devices to beta.11", until: t0.addingTimeInterval(60)))
+                       .countdown(title: "Updating your devices to Beta 11", until: t0.addingTimeInterval(60)))
         run.busy(.call, now: t0.addingTimeInterval(21))
         XCTAssertEqual(AutoNoticeState.make(run: run, now: t0.addingTimeInterval(21), currentVersion: "0.10.0-rr.1-beta.10", closedRunID: nil), .hidden,
                        "never over a call")
@@ -456,7 +456,8 @@ final class AutoUpdateTests: XCTestCase {
             ActivityItem(id: 1, kind: kind, deviceID: nil, deviceName: device, fileName: nil, preview: nil, appName: nil, sensitive: false,
                          automatic: false, count: 1, at: t0, content: content)
         }
-        XCTAssertEqual(AutoUpdateText.activityTitle(item(.updateAutoDone, content: "0.10.0-rr.1-beta.11")), "Updated automatically to 0.10.0-rr.1-beta.11")
+        XCTAssertEqual(AutoUpdateText.activityTitle(item(.updateAutoDone, content: "0.10.0-rr.1-beta.11")), "Updated automatically to 0.10.0-rr.1 Beta 11")
+        XCTAssertEqual(AutoUpdateText.activityTitle(item(.updateAutoDone, content: "1.0.0-beta.2")), "Updated automatically to 1.0 Beta 2")
         XCTAssertEqual(AutoUpdateText.activityTitle(item(.updateAutoWaiting, content: "call")), "Waiting: call in progress")
         XCTAssertEqual(AutoUpdateText.activityTitle(item(.updateAutoWaiting, device: "OnePlus 11", content: "call")), "Waiting: call in progress on OnePlus 11")
         XCTAssertEqual(AutoUpdateText.activityTitle(item(.updateAutoSkipped, device: "Work phone", content: "remote_off")),

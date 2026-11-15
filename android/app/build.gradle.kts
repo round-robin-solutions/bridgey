@@ -30,10 +30,13 @@ fun editionValue(key: String): String = requireNotNull(edition.getProperty(key))
 // Release builds get BRIDGEY_VERSION_NAME/BRIDGEY_BUILD_NUMBER from scripts/rr; local builds use a dev version.
 val editionVersionName = System.getenv("BRIDGEY_VERSION_NAME") ?: "${editionValue("EDITION_NEXT_VERSION")}-dev"
 val editionVersionCode = System.getenv("BRIDGEY_BUILD_NUMBER")?.toInt() ?: 1
-// Stable releases are "x.y.z-rr.N"; betas, nightlies and local builds are lab builds. Only lab builds
+// Stable releases are "x.y.z" (1.0.0); betas, nightlies and local builds are lab builds. Only lab builds
 // show the hidden Code reader test. SMS access itself is in every build since Text messages (off by
 // default, asked for only when it is turned on).
-val isStableBuild = Regex("""^\d+\.\d+\.\d+-rr\.\d+$""").matches(editionVersionName)
+val isStableBuild = Regex("""^\d+\.\d+\.\d+$""").matches(editionVersionName)
+// Store builds (the "play" build type) get plain numbers: 1.0.0-beta.3 is 1.0.0 on Google Play, with the same
+// build number as versionCode (docs/rr-edition.md, "Store versions").
+val editionStoreVersionName = Regex("""^\d+\.\d+\.\d+""").find(editionVersionName)?.value ?: editionVersionName
 
 android {
     namespace = "dev.bridgey.android"
@@ -49,6 +52,8 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         buildConfigField("String", "UPDATE_FEED_BASE_URL", "\"${editionValue("UPDATE_FEED_BASE_URL")}\"")
         buildConfigField("String", "UPDATE_ASSET_URL_PREFIX", "\"${editionValue("UPDATE_ASSET_URL_PREFIX")}\"")
+        // About: the upstream Bridgey release this edition is built on.
+        buildConfigField("String", "UPSTREAM_BASE", "\"${editionValue("EDITION_UPSTREAM_BASE")}\"")
         // Codes from messages: the relay the Code reader test may use (the Mac reads codes in the app).
         buildConfigField("String", "OTP_PROXY_URL", "\"${edition.getProperty("OTP_PROXY_URL").orEmpty()}\"")
         buildConfigField("boolean", "CODE_TEST_AVAILABLE", (!isStableBuild).toString())
@@ -226,5 +231,6 @@ androidComponents.beforeVariants { variant ->
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addStaticSourceDirectory(connectJniDir.get().asFile.path)
+    if (variant.buildType == "play") variant.outputs.forEach { it.versionName.set(editionStoreVersionName) }
 }
 tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach { dependsOn(buildConnectCore) }

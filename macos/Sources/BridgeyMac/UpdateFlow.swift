@@ -89,7 +89,7 @@ struct UpdateDeferral: Equatable {
     }
 }
 
-/// User-visible words for each state. The Stream panel's card is short ("beta.10 ready"); Settings
+/// User-visible words for each state. The Stream panel's card is short ("Beta 10 ready"); Settings
 /// names the full version once, in the status card.
 enum UpdateFlowText {
     // MARK: Stream panel card
@@ -134,7 +134,7 @@ enum UpdateFlowText {
         }
     }
 
-    /// The panel card in one line, for example "beta.10 ready · Install" or "beta.10 ready · Restart to update".
+    /// The panel card in one line, for example "Beta 10 ready · Install" or "Beta 10 ready · Restart to update".
     static func line(_ flow: UpdateFlow, currentVersion: String) -> String {
         [title(flow, currentVersion: currentVersion), primaryAction(flow) ?? detail(flow)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
@@ -145,18 +145,18 @@ enum UpdateFlowText {
     static func settingsTitle(_ flow: UpdateFlow, currentVersion: String) -> String {
         switch flow {
         case .idle, .upToDate:
-            String(format: L10n.text("updates.current", fallback: "Bridgey %@"), currentVersion)
+            String(format: L10n.text("updates.current", fallback: "Bridgey %@"), label(currentVersion))
         case .checking: L10n.text("update.checking", fallback: "Checking for updates…")
         case let .available(offer):
-            String(format: L10n.text("updates.isReady", fallback: "%@ is ready"), offer.version)
+            String(format: L10n.text("updates.isReady", fallback: "%@ is ready"), label(offer.version))
         case let .downloading(version, _, _):
-            String(format: L10n.text("update.downloading", fallback: "Downloading %@"), version)
+            String(format: L10n.text("update.downloading", fallback: "Downloading %@"), label(version))
         case let .extracting(version, _):
-            String(format: L10n.text("update.preparing", fallback: "Preparing %@"), version)
+            String(format: L10n.text("update.preparing", fallback: "Preparing %@"), label(version))
         case let .ready(version):
-            String(format: L10n.text("updates.isReady", fallback: "%@ is ready"), version)
+            String(format: L10n.text("updates.isReady", fallback: "%@ is ready"), label(version))
         case let .installing(version):
-            String(format: L10n.text("update.installing", fallback: "Installing %@"), version)
+            String(format: L10n.text("update.installing", fallback: "Installing %@"), label(version))
         case .failed: L10n.text("update.failed", fallback: "Update didn't finish")
         }
     }
@@ -201,20 +201,15 @@ enum UpdateFlowText {
         return String(format: L10n.text("updates.upToDate.checked", fallback: "Up to date · checked %@"), when)
     }
 
-    /// The part of `version` that differs from `other`: "beta.10" when both are pre-releases of
-    /// the same release, otherwise the whole version.
+    /// The label of `version` next to `other`: "Beta 10" when both are builds of the same release,
+    /// otherwise the whole label ("1.0 Beta 10", "1.0"). See `VersionNames`.
     static func shortVersion(_ version: String, comparedTo other: String) -> String {
-        func split(_ value: String) -> (base: String, pre: String?) {
-            for marker in ["-beta.", "-nightly."] {
-                if let range = value.range(of: marker) {
-                    return (String(value[..<range.lowerBound]), String(value[value.index(after: range.lowerBound)...]))
-                }
-            }
-            return (value, nil)
-        }
-        let mine = split(version)
-        guard let pre = mine.pre, mine.base == split(other).base else { return version }
-        return pre
+        VersionNames.short(version, comparedTo: other, words: .current)
+    }
+
+    /// The label people see for a version: "1.0 Beta 2".
+    static func label(_ version: String) -> String {
+        VersionNames.label(version, words: .current)
     }
 
     private static func progressText(received: UInt64, expected: UInt64?) -> String {

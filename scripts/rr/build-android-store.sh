@@ -3,6 +3,8 @@
 #   play  Google Play AAB (no self-updater, no install or SMS permissions), signed with the Play UPLOAD key
 #   qa    test/QA APK (minified like release), signed with the TEST key; never published
 # Usage: BRIDGEY_VERSION_NAME=... BRIDGEY_BUILD_NUMBER=... scripts/rr/build-android-store.sh play|qa <output>
+# The Play bundle's versionName is the plain numbers of BRIDGEY_VERSION_NAME (1.0.0-beta.3 -> 1.0.0; Gradle maps it)
+# and its versionCode is the build number; qa keeps the full name (docs/rr-edition.md, "Store versions").
 # Signing comes from a credentials JSON (default ~/.config/bridgey/signing/credentials.json, keys "upload"
 # and "test"); values go only into the Gradle environment and are never printed.
 set -eu
@@ -24,6 +26,11 @@ case "$KIND" in
   *) die "kind must be play or qa" ;;
 esac
 EXPECTED=$(printf '%s' "$EXPECTED" | tr -d ':' | tr 'A-F' 'a-f')
+EXPECTED_NAME=$BRIDGEY_VERSION_NAME
+if [ "$KIND" = play ]; then
+  EXPECTED_NAME=$(printf '%s' "$BRIDGEY_VERSION_NAME" | sed -n 's/^\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')
+  [ -n "$EXPECTED_NAME" ] || die "BRIDGEY_VERSION_NAME $BRIDGEY_VERSION_NAME does not start with a version number"
+fi
 [ "$EXPECTED" != "$RELEASE_CERT" ] || die "the $ROLE certificate in rr-edition.properties is the release certificate"
 
 sh "$(dirname -- "$0")/rust-toolchain.sh" android
@@ -82,7 +89,7 @@ fi
 
 # Read the final artifact with Android's own parser. An AAB's base uses protobuf XML/resources;
 # convert a temporary copy of those resources so aapt2 can read its actual package and version.
-python3 - "$BUILD_TOOLS/aapt2" "$ARTIFACT" "$(edition_value EDITION_APP_ID)" "$BRIDGEY_BUILD_NUMBER" "$BRIDGEY_VERSION_NAME" <<'PY'
+python3 - "$BUILD_TOOLS/aapt2" "$ARTIFACT" "$(edition_value EDITION_APP_ID)" "$BRIDGEY_BUILD_NUMBER" "$EXPECTED_NAME" <<'PY'
 import pathlib
 import shlex
 import subprocess

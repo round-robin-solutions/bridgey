@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Audit the built store bundle, including its effective sandbox entitlements."""
-import pathlib, plistlib, subprocess, sys
+import pathlib, plistlib, re, subprocess, sys
 app = pathlib.Path(sys.argv[1])
 info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
 assert info['CFBundleIdentifier'] == 'in.roundrobin.bridgey.store'
+# The Mac App Store takes plain numbers (1.0.0-beta.3 is 1.0.0 there) and a numeric, growing build.
+assert re.fullmatch(r'\d+\.\d+\.\d+', info['CFBundleShortVersionString']), info['CFBundleShortVersionString']
+assert info['CFBundleVersion'].isdigit(), info['CFBundleVersion']
 assert not any(k.startswith('SU') for k in info)
 assert not (app / 'Contents/Frameworks').exists()
 assert (app / 'Contents/Resources/Licences/LICENSE.txt').read_text().startswith('MIT License')

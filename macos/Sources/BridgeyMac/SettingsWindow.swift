@@ -570,7 +570,7 @@ private struct SettingsSidebar: View {
             .animation(BrandMotion.fade, value: searching)
             HStack(spacing: 8) {
                 AuroraMark(size: 24)
-                Text("\(Edition.displayName)\n\(model.shortVersion)")
+                Text("\(Edition.displayName)\n\(UpdateFlowText.label(model.shortVersion))")
                     .font(BrandFont.body(12))
                     .foregroundStyle(side.on2)
                     .lineSpacing(1)
@@ -1795,7 +1795,7 @@ struct AboutPane: View {
             }
             .padding(.vertical, 10)
             .settingsSearchAnchor(SettingsSearchRegistry.version)
-            SettingsRow(title: L10n.text("about.credit", fallback: "Built on Bridgey by Semyon Mikhailov (MIT)"),
+            SettingsRow(title: Edition.credit,
                         subtitle: L10n.text("about.license", fallback: "Open source under the MIT License.")) {
                 Button(L10n.text("about.original", fallback: "Original project")) { actions.openURL(Edition.upstreamProjectURL) }
                     .buttonStyle(PillButtonStyle(kind: .outline, height: 28))

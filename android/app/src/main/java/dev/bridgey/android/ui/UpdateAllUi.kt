@@ -205,19 +205,19 @@ fun runRowText(item: RunItem, later: Boolean): String = when (item.step) {
     RunStep.NEEDS_USER -> stringResource(
         if (item.needsReason == UpdateReason.PERMISSION) R.string.update_all_row_needs_permission else R.string.update_all_row_needs_you,
     )
-    RunStep.DONE -> stringResource(R.string.update_all_row_done, item.newApp ?: item.targetApp.orEmpty())
+    RunStep.DONE -> stringResource(R.string.update_all_row_done, versionLabel(item.newApp ?: item.targetApp.orEmpty()))
     RunStep.UP_TO_DATE -> stringResource(R.string.update_all_row_up_to_date)
     RunStep.FAILED -> stringResource(R.string.update_all_row_failed, failureText(item.failure))
     RunStep.NOT_APPLIED -> stringResource(R.string.update_all_row_not_applied)
 }
 
-/** "0.9.0-rr.3-beta.2 → beta.3", or "→ newest Beta, if newer" when the device checks its own feed. */
+/** "1.0 Beta 2 → Beta 3", or "→ newest Beta, if newer" when the device checks its own feed. */
 @Composable
 private fun fromToText(fromApp: String, to: String?, channel: WireChannel): String =
     if (to != null) {
-        stringResource(R.string.update_all_from_to, fromApp, UpdateFeeds.shortVersion(to, fromApp))
+        stringResource(R.string.update_all_from_to, versionLabel(fromApp), shortVersionLabel(to, fromApp))
     } else {
-        stringResource(R.string.update_all_newest, fromApp, channelName(channel))
+        stringResource(R.string.update_all_newest, versionLabel(fromApp), channelName(channel))
     }
 
 /** A device's state on Settings > Updates > Your devices. */
@@ -225,7 +225,7 @@ private fun fromToText(fromApp: String, to: String?, channel: WireChannel): Stri
 private fun deviceStateText(row: DeviceUpdateRow): String {
     row.skip?.let { return skipText(it) }
     val status = row.status ?: return skipText(UpdateSkipReason.NO_STATUS)
-    val short = status.target?.let { UpdateFeeds.shortVersion(it, status.app) }.orEmpty()
+    val short = status.target?.let { shortVersionLabel(it, status.app) }.orEmpty()
     return when (status.state) {
         UpdateState.CURRENT -> stringResource(R.string.update_all_state_current)
         UpdateState.CHECKING -> stringResource(R.string.update_all_state_checking)
@@ -552,7 +552,7 @@ private fun YourDeviceRow(row: DeviceUpdateRow) {
 internal fun autoUpdateItemTitle(item: ActivityItem, device: String): String {
     val content = item.content
     return when (item.kind) {
-        ActivityKind.UPDATE_AUTO_DONE -> stringResource(R.string.stream_update_auto_done_title, content.orEmpty())
+        ActivityKind.UPDATE_AUTO_DONE -> stringResource(R.string.stream_update_auto_done_title, versionLabel(content.orEmpty()))
         ActivityKind.UPDATE_AUTO_WAITING -> waitingText(UpdateBusy.fromWire(content.orEmpty()), device.takeIf { item.deviceId != null })
         ActivityKind.UPDATE_AUTO_SKIPPED -> autoSkipText(content)?.let { stringResource(R.string.stream_update_auto_skipped_title, device, it) }
             ?: stringResource(R.string.stream_update_auto_skipped_plain, device)

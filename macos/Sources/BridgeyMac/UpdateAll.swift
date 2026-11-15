@@ -596,16 +596,16 @@ enum UpdateAllText {
         }
     }
 
-    /// From and to for a target: "0.9.0-rr.3-beta.2 > beta.3", or "newest Beta, if newer".
+    /// From and to for a target: "1.0 Beta 2 > Beta 3", or "newest Beta, if newer".
     static func change(_ entry: UpdatePlanEntry) -> String {
         let from = entry.app ?? ""
         guard let to = entry.knownTarget else {
             let channel = entry.channel?.title ?? UpdateChannel.stable.title
             return from.isEmpty
                 ? String(format: L10n.text("updateAll.newest", fallback: "Newest %@, if newer"), channel)
-                : String(format: L10n.text("updateAll.fromNewest", fallback: "%1$@ > newest %2$@, if newer"), from, channel)
+                : String(format: L10n.text("updateAll.fromNewest", fallback: "%1$@ > newest %2$@, if newer"), UpdateFlowText.label(from), channel)
         }
-        return "\(from) > \(UpdateFlowText.shortVersion(to, comparedTo: from))"
+        return "\(UpdateFlowText.label(from)) > \(UpdateFlowText.shortVersion(to, comparedTo: from))"
     }
 
     /// The hover text: one line per device it updates.
@@ -654,7 +654,7 @@ enum UpdateAllText {
         }
     }
 
-    /// A device row during a run: "Downloading 42%", "Updated to 0.9.0-rr.3", "Didn't finish: no answer".
+    /// A device row during a run: "Downloading 42%", "Updated to 1.0", "Didn't finish: no answer".
     static func step(_ item: UpdateRunItem, countdownUntil: Date?, now: Date) -> String {
         switch item.step {
         case .waiting: return L10n.text("updateAll.step.waiting", fallback: "Waiting")
@@ -670,7 +670,7 @@ enum UpdateAllText {
         case .restarting: return L10n.text("updateAll.step.restarting", fallback: "Restarting")
         case .needsUser: return L10n.text("updateAll.step.needsUser", fallback: "Waiting for you")
         case .later: return L10n.text("updateAll.step.later", fallback: "Restarts when Bridgey quits")
-        case let .done(app): return String(format: L10n.text("updateAll.step.done", fallback: "Updated to %@"), app)
+        case let .done(app): return String(format: L10n.text("updateAll.step.done", fallback: "Updated to %@"), UpdateFlowText.label(app))
         case .upToDate: return L10n.text("updateAll.step.upToDate", fallback: "Already up to date")
         case let .failed(failure):
             return String(format: L10n.text("updateAll.step.failed", fallback: "Didn\u{2019}t finish: %@"), Self.failure(failure))

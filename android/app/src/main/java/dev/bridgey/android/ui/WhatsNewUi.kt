@@ -59,7 +59,7 @@ fun WhatsNewDialog(
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.whats_new_title), style = BridgeyType.cardTitle, color = colors.onSurface)
-                Text(stringResource(R.string.whats_new_version, version), style = BridgeyType.small, color = colors.onSurfaceVariant)
+                Text(stringResource(R.string.whats_new_version, versionLabel(version)), style = BridgeyType.small, color = colors.onSurfaceVariant)
             }
         },
         text = {

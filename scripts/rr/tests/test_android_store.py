@@ -94,7 +94,7 @@ class StoreSigningTests(unittest.TestCase):
 import os, pathlib, sys
 if os.environ.get('TEST_AAPT_FAIL'): sys.exit(7)
 if sys.argv[1] == 'convert': pathlib.Path(sys.argv[5]).touch()
-else: print("package: name='%s' versionCode='%s' versionName='%s'" % (os.environ.get('TEST_PACKAGE', 'in.roundrobin.bridgey'), os.environ.get('TEST_CODE', '123'), os.environ.get('TEST_NAME', '0.10.0-rr.1-test')))
+else: print("package: name='%s' versionCode='%s' versionName='%s'" % (os.environ.get('TEST_PACKAGE', 'in.roundrobin.bridgey'), os.environ.get('TEST_CODE', '123'), os.environ['TEST_NAME']))
 """)
         android = self.root / "android"
         android.mkdir()
@@ -123,7 +123,7 @@ case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permis
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
             "ANDROID_HOME": str(self.root / "sdk"),
             "BRIDGEY_SIGNING_CREDENTIALS": str(self.credentials),
-            "BRIDGEY_VERSION_NAME": "0.10.0-rr.1-test",
+            "BRIDGEY_VERSION_NAME": "1.0.0-beta.3",
             "BRIDGEY_BUILD_NUMBER": "123",
             "TEST_CAPTURE": str(self.capture),
             "BRIDGEY_ANDROID_STORE_PASSWORD": "release-secret",
@@ -136,7 +136,17 @@ case "$3" in META-INF/*) printf 'upload certificate';; *) printf 'android.permis
         path.chmod(0o755)
 
     def run_build(self, kind="play"):
-        return subprocess.run(["sh", str(self.root / "scripts/rr/build-android-store.sh"), kind, str(self.output)], env=self.environment, text=True, capture_output=True)
+        # Play carries the plain numbers of the release (1.0.0-beta.3 -> 1.0.0); qa keeps the full name.
+        environment = {"TEST_NAME": "1.0.0" if kind == "play" else "1.0.0-beta.3", **self.environment}
+        return subprocess.run(["sh", str(self.root / "scripts/rr/build-android-store.sh"), kind, str(self.output)], env=environment, text=True, capture_output=True)
+
+    def test_play_bundle_carries_plain_numbers(self):
+        self.environment["TEST_NAME"] = "1.0.0-beta.3"
+        result = self.run_build("play")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("unexpected artifact identity", result.stderr)
+        self.environment.pop("TEST_NAME")
+        self.assertEqual(0, self.run_build("play").returncode)
 
     def test_only_upload_credentials_reach_play_gradle(self):
         result = self.run_build()

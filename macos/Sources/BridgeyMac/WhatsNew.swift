@@ -56,9 +56,10 @@ struct WhatsNewStore {
     func rememberOffered(version: String, notes: String) {
         var offered = defaults.dictionary(forKey: Self.offeredNotesKey) as? [String: String] ?? [:]
         offered[version] = String(notes.prefix(16_384))
-        // Keep the newest few versions only (versions sort well enough for this bound).
+        // Keep the newest few versions only (numeric order: beta.10 after beta.9, 1.0.0 after 0.11.0).
         if offered.count > Self.maximumOffered {
-            for key in offered.keys.sorted().prefix(offered.count - Self.maximumOffered) { offered.removeValue(forKey: key) }
+            let oldest = offered.keys.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+            for key in oldest.prefix(offered.count - Self.maximumOffered) { offered.removeValue(forKey: key) }
         }
         defaults.set(offered, forKey: Self.offeredNotesKey)
     }
@@ -113,7 +114,7 @@ struct WhatsNewView: View {
                         .font(BrandFont.heading(24))
                         .foregroundStyle(c.on)
                         .accessibilityAddTraits(.isHeader)
-                    Text(String(format: L10n.setup("whatsNew.version", fallback: "Bridgey %@"), content.version))
+                    Text(String(format: L10n.setup("whatsNew.version", fallback: "Bridgey %@"), UpdateFlowText.label(content.version)))
                         .font(BrandFont.body(13))
                         .foregroundStyle(c.on2)
                 }

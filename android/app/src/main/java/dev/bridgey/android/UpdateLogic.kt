@@ -51,22 +51,18 @@ object UpdateFeeds {
     const val APP_OPEN_MIN_INTERVAL_MILLIS = 15L * 60 * 1000
 
     private val sha256Pattern = Regex("^[0-9a-f]{64}$")
-    private val versionPattern = Regex("""^\d+\.\d+\.\d+-rr\.\d+(-(beta\.\d+|nightly\.\d{8}))?$""")
 
     fun feedUrl(baseUrl: String, channel: UpdateChannel): String {
         require(baseUrl.startsWith("https://")) { "Update feeds must use HTTPS" }
         return "${baseUrl.trimEnd('/')}/${channel.key}.json"
     }
 
-    /** Version names carry their channel: no suffix for Stable, -beta.N or -nightly.YYYYMMDD otherwise. */
-    fun versionNameMatchesChannel(versionName: String, channel: UpdateChannel): Boolean {
-        if (!versionPattern.matches(versionName)) return false
-        return when (channel) {
-            UpdateChannel.STABLE -> !versionName.contains("-beta.") && !versionName.contains("-nightly.")
-            UpdateChannel.BETA -> versionName.contains("-beta.")
-            UpdateChannel.NIGHTLY -> versionName.contains("-nightly.")
-        }
-    }
+    /**
+     * Version names carry their channel: 1.0.0 for Stable, 1.0.0-beta.N or 1.0.0-nightly.YYYYMMDD otherwise.
+     * Names from before 1.0 (0.11.0-rr.1, 0.11.0-rr.1-beta.3) are accepted too; see [VersionNames].
+     */
+    fun versionNameMatchesChannel(versionName: String, channel: UpdateChannel): Boolean =
+        VersionNames.parse(versionName)?.channel == channel
 
     /**
      * Parses one channel feed and returns its Android entry, or null when the
@@ -92,7 +88,9 @@ object UpdateFeeds {
             val notesUrl = root.optString("notesUrl", "")
             if (notesUrl.isNotEmpty() && !notesUrl.startsWith("https://")) throw UpdateFeedException("Release notes must use HTTPS")
             val android = root.optJSONObject("android") ?: return null
-            val versionName = android.getString("versionName")
+            // From 1.0 the real name is in "version"; "versionName" keeps the pre-1.0 form that 0.x apps
+            // check (1.0.0-rr.1-beta.2). Feeds written before 1.0 only have "versionName".
+            val versionName = android.optString("version").ifEmpty { android.getString("versionName") }
             if (!versionNameMatchesChannel(versionName, expectedChannel)) {
                 throw UpdateFeedException("Version $versionName does not belong to ${expectedChannel.title}")
             }
@@ -137,20 +135,11 @@ object UpdateFeeds {
         update?.takeIf { userInitiated || it.versionCode != skippedVersionCode }
 
     /**
-     * The part of [versionName] that differs from [other]: "beta.10" when both are pre-releases
-     * of the same release, otherwise the whole name.
+     * The label of [versionName] next to [other]: "Beta 10" when both are pre-releases of the same
+     * release, otherwise the whole label ("1.0 Beta 10", "1.0"). See [VersionNames.label].
      */
-    fun shortVersion(versionName: String, other: String): String {
-        fun split(value: String): Pair<String, String?> {
-            for (marker in listOf("-beta.", "-nightly.")) {
-                val index = value.indexOf(marker)
-                if (index >= 0) return value.substring(0, index) to value.substring(index + 1)
-            }
-            return value to null
-        }
-        val (base, pre) = split(versionName)
-        return if (pre != null && base == split(other).first) pre else versionName
-    }
+    fun shortVersion(versionName: String, other: String, words: VersionWords = VersionWords()): String =
+        VersionNames.short(versionName, other, words)
 
     fun isCheckDue(lastCheckedAt: Long, now: Long, intervalMillis: Long): Boolean =
         lastCheckedAt <= 0 || now < lastCheckedAt || now - lastCheckedAt >= intervalMillis
@@ -175,6 +164,89 @@ object UpdateFeeds {
     /** The downloaded APK must be signed by exactly the certificates of the installed app. */
     fun signersMatch(installed: Set<String>, candidate: Set<String>): Boolean =
         installed.isNotEmpty() && installed == candidate
+}
+
+/** The words of a version label, in the app's language (the UI passes its own; see ui/VersionText.kt). */
+data class VersionWords(
+    val beta: String = "Beta",
+    val nightly: String = "Nightly",
+    val months: List<String> = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"),
+)
+
+/**
+ * Version names of Bridgey by Round Robin (docs/rr-edition.md, "Versions"; scripts/rr/versions.py has
+ * the same rules). From 1.0: 1.0.0, 1.0.0-beta.2, 1.0.0-nightly.20261116. Before 1.0 the names carried
+ * the upstream roadmap milestone and a Round Robin count: 0.11.0-rr.1, 0.11.0-rr.1-beta.3. Both parse. People see
+ * labels ("1.0 Beta 2"); About shows the full name and the build number.
+ */
+object VersionNames {
+    data class Parsed(
+        val major: Int,
+        val minor: Int,
+        val patch: Int,
+        /** The Round Robin count of a name from before 1.0, null from 1.0. */
+        val rr: Int?,
+        val channel: UpdateChannel,
+        /** Beta number or nightly date (YYYYMMDD); null for Stable. */
+        val number: Int?,
+    ) {
+        val core: String get() = "$major.$minor.$patch"
+    }
+
+    private val pattern = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-rr\.(\d+))?(?:-(beta|nightly)\.(\d+))?$""")
+
+    fun parse(name: String): Parsed? {
+        val match = pattern.matchEntire(name) ?: return null
+        val (major, minor, patch, rr, pre, number) = match.destructured
+        if (pre == "nightly" && number.length != 8) return null
+        return runCatching {
+            Parsed(
+                major.toInt(), minor.toInt(), patch.toInt(), rr.ifEmpty { null }?.toInt(),
+                when (pre) {
+                    "beta" -> UpdateChannel.BETA
+                    "nightly" -> UpdateChannel.NIGHTLY
+                    else -> UpdateChannel.STABLE
+                },
+                number.ifEmpty { null }?.toInt(),
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * "1.0", "1.0.1", "1.0 Beta 2", "1.1 Nightly 16 Nov". A name from before 1.0 keeps its base ("0.11.0-rr.1 Beta 3");
+     * a name that does not parse (a development build) stays as it is.
+     */
+    fun label(name: String, words: VersionWords = VersionWords()): String {
+        val version = parse(name) ?: return name
+        val base = when {
+            version.rr != null -> "${version.core}-rr.${version.rr}"
+            version.patch == 0 -> "${version.major}.${version.minor}"
+            else -> version.core
+        }
+        return pre(version, words)?.let { "$base $it" } ?: base
+    }
+
+    /** [label] of [name], or only its pre-release part ("Beta 10") when [other] is a build of the same release. */
+    fun short(name: String, other: String, words: VersionWords = VersionWords()): String {
+        val version = parse(name) ?: return name
+        val against = parse(other)
+        val same = against != null && against.core == version.core && against.rr == version.rr
+        return pre(version, words)?.takeIf { same } ?: label(name, words)
+    }
+
+    private fun pre(version: Parsed, words: VersionWords): String? = when (version.channel) {
+        UpdateChannel.STABLE -> null
+        UpdateChannel.BETA -> "${words.beta} ${version.number}"
+        UpdateChannel.NIGHTLY -> {
+            val date = version.number ?: 0
+            val day = date % 100
+            val month = (date / 100) % 100
+            if (month in 1..12 && day in 1..31) "${words.nightly} $day ${words.months.getOrElse(month - 1) { "$month" }}" else "${words.nightly} $date"
+        }
+    }
+
+    /** About: the full name and the build number, "1.0.0-beta.2 (263201200)". */
+    fun full(name: String, build: Long): String = if (build > 0) "$name ($build)" else name
 }
 
 /** One piece of release notes as Settings draws it. */

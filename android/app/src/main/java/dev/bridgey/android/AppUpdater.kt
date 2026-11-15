@@ -647,7 +647,7 @@ class AppUpdater(
             android.app.Notification.Builder(context, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_bridgey_notification)
                 .setContentTitle("Update available")
-                .setContentText("Bridgey by Round Robin ${update.versionName} is ready to install.")
+                .setContentText("Bridgey by Round Robin ${VersionNames.label(update.versionName)} is ready to install.")
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build(),

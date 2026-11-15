@@ -1,5 +1,6 @@
 /* Bridgey by Round Robin: Russian text. */
 "about.credit" = "Основано на Bridgey от Семёна Михайлова (MIT)";
+"about.credit.base" = "Основано на Bridgey %@ от Семёна Михайлова (MIT)";
 "about.credit.short" = "Основано на Bridgey от Семёна Михайлова (MIT)";
 "about.fonts" = "Шрифты";
 "about.fonts.detail" = "Space Grotesk и Inter под лицензией SIL Open Font License 1.1.";
@@ -561,6 +562,8 @@
 "updates.releaseNotes" = "Что изменилось";
 "updates.unavailable" = "Обновления работают только в установленном приложении.";
 "updates.version" = "Версия %@";
+"version.beta" = "Бета";
+"version.nightly" = "Ночной";
 "welcome.body" = "Подключите оба устройства к одной локальной сети. Выберите устройство, сравните код сопряжения и подтвердите его на обоих устройствах. Дополнительные разрешения запрашиваются при использовании соответствующей функции.";
 "welcome.continue" = "Начать";
 "welcome.continue.hint" = "Закрывает приветствие и начинает поиск устройств";

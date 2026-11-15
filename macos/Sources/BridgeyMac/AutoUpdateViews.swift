@@ -60,7 +60,7 @@ enum AutoUpdateText {
         let device = item.deviceName.isEmpty ? nil : item.deviceName
         switch item.kind {
         case .updateAutoDone:
-            return String(format: L10n.text("autoUpdate.activity.done", fallback: "Updated automatically to %@"), item.content ?? "")
+            return String(format: L10n.text("autoUpdate.activity.done", fallback: "Updated automatically to %@"), UpdateFlowText.label(item.content ?? ""))
         case .updateAutoWaiting:
             return waiting(UpdateBusy(rawValue: item.content ?? "") ?? .other, device: device)
         case .updateAutoSkipped:

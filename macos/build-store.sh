@@ -33,10 +33,14 @@ APP="$SCRATCH/$CONFIGURATION/Bridgey Store.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$SCRATCH/$CONFIGURATION/BridgeyMacStore" "$APP/Contents/MacOS/BridgeyMacStore"
+# The Mac App Store takes up to three plain numbers: 1.0.0-beta.3 is 1.0.0 there, and the build number
+# (the UTC build time, which only grows) is CFBundleVersion (docs/rr-edition.md, "Store versions").
 python3 - "$APP/Contents/Info.plist" <<'PY'
-import os,plistlib,sys
+import os,plistlib,re,sys
+props=dict(l.split('=',1) for l in open('../rr-edition.properties',encoding='utf-8').read().splitlines() if '=' in l and not l.startswith('#'))
+store_version=re.match(r'\d+\.\d+\.\d+',os.environ.get('BRIDGEY_VERSION_NAME') or props['EDITION_NEXT_VERSION']).group(0)
 p={'CFBundleIdentifier':'in.roundrobin.bridgey.store','CFBundleName':'Bridgey Store','CFBundleDisplayName':'Bridgey by Round Robin',
-   'CFBundleExecutable':'BridgeyMacStore','CFBundlePackageType':'APPL','CFBundleShortVersionString':os.environ.get('BRIDGEY_VERSION_NAME','0.10.0'),
+   'CFBundleExecutable':'BridgeyMacStore','CFBundlePackageType':'APPL','CFBundleShortVersionString':store_version,
    'CFBundleVersion':os.environ.get('BRIDGEY_BUILD_NUMBER','1'),'LSMinimumSystemVersion':'13.0','NSHighResolutionCapable':True,
    'NSLocalNetworkUsageDescription':'Bridgey finds and connects to your paired Android phone to share files, clipboard text and notifications.',
    'NSBonjourServices':['_bridgey._tcp.'],'NSHumanReadableCopyright':'Round Robin Solutions','CFBundleIconFile':'Bridgey'}

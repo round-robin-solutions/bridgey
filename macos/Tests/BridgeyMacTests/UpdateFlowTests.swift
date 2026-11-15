@@ -22,31 +22,51 @@ final class UpdateFlowTests: XCTestCase {
 
     func testPanelLinesMatchTheDesign() {
         let offer = UpdateOffer(version: "0.6.0-rr.1-beta.10", notes: nil, downloaded: false, userInitiated: false)
-        XCTAssertEqual(UpdateFlowText.line(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "beta.10 ready · Install")
+        XCTAssertEqual(UpdateFlowText.line(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "Beta 10 ready · Install")
         XCTAssertEqual(
             UpdateFlowText.line(.ready(version: "0.6.0-rr.1-beta.10"), currentVersion: "0.6.0-rr.1-beta.9"),
-            "beta.10 ready · Restart to update"
+            "Beta 10 ready · Restart to update"
         )
         var downloaded = offer
         downloaded.downloaded = true
-        XCTAssertEqual(UpdateFlowText.line(.available(downloaded), currentVersion: "0.6.0-rr.1-beta.9"), "beta.10 ready · Restart to update")
+        XCTAssertEqual(UpdateFlowText.line(.available(downloaded), currentVersion: "0.6.0-rr.1-beta.9"), "Beta 10 ready · Restart to update")
+        let first = UpdateOffer(version: "1.0.0-beta.1", notes: nil, downloaded: false, userInitiated: false)
+        XCTAssertEqual(UpdateFlowText.line(.available(first), currentVersion: "0.11.0-rr.1-beta.3"), "1.0 Beta 1 ready · Install")
         XCTAssertNil(UpdateFlowText.detail(.available(offer)), "the panel card no longer says Install now, or later from Settings")
     }
 
     func testSettingsNamesTheFullVersionOnce() {
         let offer = UpdateOffer(version: "0.6.0-rr.1-beta.10", notes: nil, downloaded: false, userInitiated: true)
-        XCTAssertEqual(UpdateFlowText.settingsTitle(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "0.6.0-rr.1-beta.10 is ready")
-        XCTAssertEqual(UpdateFlowText.settingsDetail(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "You have beta.9")
-        XCTAssertEqual(UpdateFlowText.settingsTitle(.idle, currentVersion: "0.6.0-rr.1-beta.9"), "Bridgey 0.6.0-rr.1-beta.9")
+        XCTAssertEqual(UpdateFlowText.settingsTitle(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "0.6.0-rr.1 Beta 10 is ready")
+        XCTAssertEqual(UpdateFlowText.settingsDetail(.available(offer), currentVersion: "0.6.0-rr.1-beta.9"), "You have Beta 9")
+        XCTAssertEqual(UpdateFlowText.settingsTitle(.idle, currentVersion: "0.6.0-rr.1-beta.9"), "Bridgey 0.6.0-rr.1 Beta 9")
+        let stable = UpdateOffer(version: "1.0.0", notes: nil, downloaded: false, userInitiated: true)
+        XCTAssertEqual(UpdateFlowText.settingsTitle(.available(stable), currentVersion: "1.0.0-beta.3"), "1.0 is ready")
+        XCTAssertEqual(UpdateFlowText.settingsDetail(.available(stable), currentVersion: "1.0.0-beta.3"), "You have Beta 3")
+        XCTAssertEqual(UpdateFlowText.settingsTitle(.idle, currentVersion: "1.0.0-beta.2"), "Bridgey 1.0 Beta 2")
         XCTAssertEqual(UpdateFlowText.settingsDetail(.ready(version: "0.6.0-rr.1-beta.10"), currentVersion: "0.6.0-rr.1-beta.9"),
                        "Downloaded. Restart Bridgey to finish.")
     }
 
     func testShortVersionKeepsOnlyWhatDiffers() {
-        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1-beta.10", comparedTo: "0.6.0-rr.1-beta.9"), "beta.10")
-        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1-nightly.20261026", comparedTo: "0.6.0-rr.1-beta.9"), "nightly.20261026")
-        XCTAssertEqual(UpdateFlowText.shortVersion("0.7.0-rr.1-beta.1", comparedTo: "0.6.0-rr.1-beta.9"), "0.7.0-rr.1-beta.1")
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1-beta.10", comparedTo: "0.6.0-rr.1-beta.9"), "Beta 10")
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1-nightly.20261026", comparedTo: "0.6.0-rr.1-beta.9"), "Nightly 26 Oct")
+        XCTAssertEqual(UpdateFlowText.shortVersion("0.7.0-rr.1-beta.1", comparedTo: "0.6.0-rr.1-beta.9"), "0.7.0-rr.1 Beta 1")
         XCTAssertEqual(UpdateFlowText.shortVersion("0.6.0-rr.1", comparedTo: "0.6.0-rr.1-beta.9"), "0.6.0-rr.1")
+        XCTAssertEqual(UpdateFlowText.shortVersion("1.0.0-beta.2", comparedTo: "1.0.0-beta.1"), "Beta 2")
+        XCTAssertEqual(UpdateFlowText.shortVersion("1.0.0-beta.1", comparedTo: "0.11.0-rr.1-beta.3"), "1.0 Beta 1")
+        XCTAssertEqual(UpdateFlowText.shortVersion("1.0.1", comparedTo: "1.0.0"), "1.0.1")
+        XCTAssertEqual(UpdateFlowText.shortVersion("1.0.0-dev", comparedTo: "1.0.0-beta.1"), "1.0.0-dev")
+    }
+
+    func testLabelsAreShortAndAboutIsFull() {
+        XCTAssertEqual(VersionNames.label("1.0.0-beta.1"), "1.0 Beta 1")
+        XCTAssertEqual(VersionNames.label("1.0.0"), "1.0")
+        XCTAssertEqual(VersionNames.label("1.1.0-nightly.20261116"), "1.1 Nightly 16 Nov")
+        XCTAssertEqual(VersionNames.label("1.0.0-beta.2", words: VersionWords(beta: "Бета")), "1.0 Бета 2")
+        XCTAssertEqual(VersionNames.full("1.0.0-beta.1", build: "263201200"), "1.0.0-beta.1 (263201200)")
+        XCTAssertNil(VersionNames.parse("1.0.0-nightly.2026"))
+        XCTAssertNil(VersionNames.parse("1.0.0-rc.1"))
     }
 
     func testIdleDetailSaysWhenAndWhatWaits() {
@@ -61,9 +81,9 @@ final class UpdateFlowTests: XCTestCase {
         XCTAssertTrue(detail(now.addingTimeInterval(-60)).hasPrefix("Up to date · checked "))
         XCTAssertEqual(detail(nil), "Not checked yet")
         XCTAssertEqual(detail(now, available: false), "Updates work only in the installed app.")
-        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .later)), "beta.10 is available")
-        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .skipped)), "You skipped beta.10")
-        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .onQuit)), "beta.10 installs when Bridgey quits")
+        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .later)), "Beta 10 is available")
+        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .skipped)), "You skipped Beta 10")
+        XCTAssertEqual(detail(now, UpdateDeferral(version: "0.6.0-rr.1-beta.10", kind: .onQuit)), "Beta 10 installs when Bridgey quits")
     }
 
     func testDeferralFollowsTheFlow() {

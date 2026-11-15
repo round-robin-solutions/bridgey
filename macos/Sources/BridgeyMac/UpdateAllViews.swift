@@ -368,8 +368,8 @@ struct UpdateAllRunRows: View {
     }
 
     private func version(_ item: UpdateRunItem) -> String {
-        guard let target = item.targetApp, item.step != .upToDate else { return item.fromApp }
-        return "\(item.fromApp) > \(UpdateFlowText.shortVersion(target, comparedTo: item.fromApp))"
+        guard let target = item.targetApp, item.step != .upToDate else { return UpdateFlowText.label(item.fromApp) }
+        return "\(UpdateFlowText.label(item.fromApp)) > \(UpdateFlowText.shortVersion(target, comparedTo: item.fromApp))"
     }
 
     private func detail(_ item: UpdateRunItem) -> String {

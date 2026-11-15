@@ -313,7 +313,7 @@
     <string name="update_error_safety">Загрузка не прошла проверку безопасности, поэтому ничего не установлено.</string>
     <string name="update_error_installer">Android не смог установить обновление. Попробуйте позже.</string>
     <string name="update_error_cancelled">Обновление отменено. Ничего не изменилось.</string>
-    <string name="about_credit">Основан на Bridgey Семёна Михайлова (MIT)</string>
+    <string name="about_credit">Основан на Bridgey %1$s Семёна Михайлова (MIT)</string>
     <string name="about_original">Оригинальный проект Bridgey</string>
 
     <string name="devices_paired">Связанные устройства</string>

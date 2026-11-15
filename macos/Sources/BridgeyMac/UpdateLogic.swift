@@ -75,6 +75,9 @@ struct ChannelFeed: Decodable, Equatable {
     }
 
     struct Android: Decodable, Equatable {
+        /// The version from 1.0 (1.0.0-beta.2). Feeds written before 1.0 have only `versionName`.
+        var version: String? = nil
+        /// The pre-1.0 form that 0.x apps check (1.0.0-rr.1-beta.2); see scripts/rr/versions.py.
         let versionName: String
         let versionCode: Int64
         let url: String
@@ -84,6 +87,8 @@ struct ChannelFeed: Decodable, Equatable {
     }
 
     struct MacOS: Decodable, Equatable {
+        /// The version from 1.0; `shortVersion` keeps the pre-1.0 form, like Android's `versionName`.
+        var version: String? = nil
         let shortVersion: String
         let build: Int64
         let minimumSystemVersion: String
@@ -108,15 +113,10 @@ enum UpdateFeeds {
     static let maxFeedBytes = 64 * 1024
     static let maxAssetBytes: Int64 = 150 * 1024 * 1024
 
-    private static let versionPattern = #"^\d+\.\d+\.\d+-rr\.\d+(-(beta\.\d+|nightly\.\d{8}))?$"#
-
+    /// Version names carry their channel: 1.0.0 for Stable, 1.0.0-beta.N or 1.0.0-nightly.YYYYMMDD otherwise.
+    /// Names from before 1.0 (0.11.0-rr.1-beta.3) are accepted too; see `VersionNames`.
     static func versionName(_ version: String, matches channel: UpdateChannel) -> Bool {
-        guard version.range(of: versionPattern, options: .regularExpression) != nil else { return false }
-        switch channel {
-        case .stable: return !version.contains("-beta.") && !version.contains("-nightly.")
-        case .beta: return version.contains("-beta.")
-        case .nightly: return version.contains("-nightly.")
-        }
+        VersionNames.parse(version)?.channel == channel
     }
 
     static func parse(
@@ -133,12 +133,12 @@ enum UpdateFeeds {
         guard assetURLPrefix.hasPrefix("https://") else { throw UpdateFeedError.insecureURL }
         if let notesURL = feed.notesUrl, !notesURL.isEmpty, !notesURL.hasPrefix("https://") { throw UpdateFeedError.insecureURL }
         if let android = feed.android {
-            guard versionName(android.versionName, matches: expectedChannel) else { throw UpdateFeedError.versionDoesNotMatchChannel }
+            guard versionName(android.version ?? android.versionName, matches: expectedChannel) else { throw UpdateFeedError.versionDoesNotMatchChannel }
             guard android.versionCode > 0, android.versionCode <= Int64(Int32.max) else { throw UpdateFeedError.invalidBuild }
             try validate(Asset(url: android.url, sha256: android.sha256, size: android.size), prefix: assetURLPrefix)
         }
         if let macos = feed.macos {
-            guard versionName(macos.shortVersion, matches: expectedChannel) else { throw UpdateFeedError.versionDoesNotMatchChannel }
+            guard versionName(macos.version ?? macos.shortVersion, matches: expectedChannel) else { throw UpdateFeedError.versionDoesNotMatchChannel }
             guard macos.build > 0 else { throw UpdateFeedError.invalidBuild }
             try validate(macos.dmg, prefix: assetURLPrefix)
             try validate(macos.zip, prefix: assetURLPrefix)
@@ -192,5 +192,106 @@ extension OperatingSystemVersion {
             patchVersion: parts.count > 2 ? parts[2] : 0
         )
         return (majorVersion, minorVersion, patchVersion) >= (required.majorVersion, required.minorVersion, required.patchVersion)
+    }
+}
+
+/// The words of a version label in the app's language.
+struct VersionWords: Equatable {
+    var beta = "Beta"
+    var nightly = "Nightly"
+    var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    static var current: VersionWords {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        let months = (formatter.shortMonthSymbols ?? []).map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+        return VersionWords(
+            beta: L10n.text("version.beta", fallback: "Beta"),
+            nightly: L10n.text("version.nightly", fallback: "Nightly"),
+            months: months.count == 12 ? months : VersionWords().months
+        )
+    }
+}
+
+/// Version names of Bridgey by Round Robin (docs/rr-edition.md, "Versions"; scripts/rr/versions.py and
+/// VersionNames in the Android app follow the same rules). From 1.0: 1.0.0, 1.0.0-beta.2,
+/// 1.0.0-nightly.20261116. Before 1.0: 0.11.0-rr.1, 0.11.0-rr.1-beta.3. Both parse. People see labels
+/// ("1.0 Beta 2"); About shows the full name and the build number.
+enum VersionNames {
+    struct Parsed: Equatable {
+        var major: Int
+        var minor: Int
+        var patch: Int
+        /// The Round Robin count of a name from before 1.0, nil from 1.0.
+        var rr: Int?
+        var channel: UpdateChannel
+        /// Beta number or nightly date (YYYYMMDD); nil for Stable.
+        var number: Int?
+
+        var core: String { "\(major).\(minor).\(patch)" }
+    }
+
+    private static let pattern = try! NSRegularExpression(pattern: #"^(\d+)\.(\d+)\.(\d+)(?:-rr\.(\d+))?(?:-(beta|nightly)\.(\d+))?$"#)
+
+    static func parse(_ name: String) -> Parsed? {
+        let range = NSRange(name.startIndex..., in: name)
+        guard let match = pattern.firstMatch(in: name, range: range) else { return nil }
+        func group(_ index: Int) -> String? {
+            Range(match.range(at: index), in: name).map { String(name[$0]) }
+        }
+        guard let major = group(1).flatMap({ Int($0) }), let minor = group(2).flatMap({ Int($0) }),
+              let patch = group(3).flatMap({ Int($0) }) else { return nil }
+        let pre = group(5)
+        let digits = group(6)
+        let number = digits.flatMap { Int($0) }
+        if digits != nil, number == nil { return nil }
+        if pre == "nightly", digits?.count != 8 { return nil }
+        let channel: UpdateChannel = switch pre {
+        case "beta": .beta
+        case "nightly": .nightly
+        default: .stable
+        }
+        return Parsed(major: major, minor: minor, patch: patch, rr: group(4).flatMap { Int($0) }, channel: channel, number: number)
+    }
+
+    /// "1.0", "1.0.1", "1.0 Beta 2", "1.1 Nightly 16 Nov". A name from before 1.0 keeps its base ("0.11.0-rr.1 Beta 3");
+    /// a name that does not parse (a development build) stays as it is.
+    static func label(_ name: String, words: VersionWords = VersionWords()) -> String {
+        guard let version = parse(name) else { return name }
+        let base: String
+        if let rr = version.rr {
+            base = "\(version.core)-rr.\(rr)"
+        } else {
+            base = version.patch == 0 ? "\(version.major).\(version.minor)" : version.core
+        }
+        return pre(version, words: words).map { "\(base) \($0)" } ?? base
+    }
+
+    /// `label`, or only the pre-release part ("Beta 10") when `other` is a build of the same release.
+    static func short(_ name: String, comparedTo other: String, words: VersionWords = VersionWords()) -> String {
+        guard let version = parse(name) else { return name }
+        if let against = parse(other), against.core == version.core, against.rr == version.rr, let pre = pre(version, words: words) {
+            return pre
+        }
+        return label(name, words: words)
+    }
+
+    /// About: the full name and the build number, "1.0.0-beta.2 (263201200)".
+    static func full(_ name: String, build: String) -> String {
+        build.isEmpty || build == "0" ? name : "\(name) (\(build))"
+    }
+
+    private static func pre(_ version: Parsed, words: VersionWords) -> String? {
+        switch version.channel {
+        case .stable: return nil
+        case .beta: return "\(words.beta) \(version.number ?? 0)"
+        case .nightly:
+            let date = version.number ?? 0
+            let day = date % 100
+            let month = (date / 100) % 100
+            guard (1...12).contains(month), (1...31).contains(day) else { return "\(words.nightly) \(date)" }
+            let name = words.months.indices.contains(month - 1) ? words.months[month - 1] : "\(month)"
+            return "\(words.nightly) \(day) \(name)"
+        }
     }
 }
