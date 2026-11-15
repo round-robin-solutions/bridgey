@@ -2,7 +2,8 @@
 """Update the Homebrew cask for Bridgey by Round Robin after a release.
 
 The cask lives in the public tap round-robin-solutions/homebrew-tap (Casks/bridgey-rr.rb). This script
-rewrites its `version` and `sha256` for a release and, with --push, commits and pushes that change.
+rewrites its `version` and `sha256` for a release (and the livecheck regex, so it matches both the 1.0
+tags and the older -rr.N ones) and, with --push, commits and pushes that change.
 
 Usage:
   bump-cask.py --version V --dmg FILE [--push]       use a DMG already on disk (release.sh does this)
@@ -31,6 +32,9 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import versions  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROPERTIES_PATH = REPO_ROOT / "rr-edition.properties"
 DEFAULT_TAP = "round-robin-solutions/homebrew-tap"
@@ -38,11 +42,12 @@ CASK_PATH_IN_TAP = "Casks/bridgey-rr.rb"
 GIT_AUTHOR_NAME = "Rahul Bansal"
 GIT_AUTHOR_EMAIL = "50016724+rbansal42@users.noreply.github.com"
 
-# Stable (0.6.0-rr.1) or beta (0.6.0-rr.1-beta.3). Nightly builds are never put in the cask.
-VERSION_PATTERN = re.compile(r"^(\d+)\.(\d+)\.(\d+)-rr\.(\d+)(?:-beta\.(\d+))?$")
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 VERSION_LINE = re.compile(r'^(\s*version\s+)"([^"]*)"(\s*)$', re.MULTILINE)
 SHA256_LINE = re.compile(r'^(\s*sha256\s+)"([^"]*)"(\s*)$', re.MULTILINE)
+# livecheck: the release tags it accepts. Tags from 1.0 (v1.0.0, v1.0.0-beta.2) and before it (v0.11.0-rr.1-beta.3).
+LIVECHECK_LINE = re.compile(r'^(\s*regex\()/[^\n]*/i(\)\s*)$', re.MULTILINE)
+LIVECHECK_REGEX = r"/^v?(\d+(?:\.\d+)+(?:-rr\.\d+)?(?:-beta\.\d+)?)$/i"
 
 
 class BumpError(Exception):
@@ -50,13 +55,11 @@ class BumpError(Exception):
 
 
 def version_key(version: str) -> tuple:
-    """Sort key: a beta sorts before the stable release it leads to."""
-    match = VERSION_PATTERN.match(version)
-    if not match:
-        raise BumpError(f"{version!r} is not a stable or beta version (for example 0.6.0-rr.1 or 0.6.0-rr.1-beta.3)")
-    major, minor, patch, rr, beta = match.groups()
-    base = (int(major), int(minor), int(patch), int(rr))
-    return base + ((0, int(beta)) if beta is not None else (1, 0))
+    """Sort key across both schemes: 0.11.0-rr.1-beta.3 < 1.0.0-beta.1 < 1.0.0 < 1.0.1-beta.1. A beta sorts
+    before the stable release it leads to. Nightly builds are never put in the cask."""
+    if versions.channel_of(version) not in ("stable", "beta"):
+        raise BumpError(f"{version!r} is not a stable or beta version (for example 1.0.0 or 1.0.0-beta.3)")
+    return versions.sort_key(version)
 
 
 def current_cask_version(text: str) -> str:
@@ -75,7 +78,11 @@ def rewrite_cask(text: str, version: str, sha256: str) -> str:
         if len(pattern.findall(text)) != 1:
             raise BumpError(f"expected exactly one {name} line in the cask, found {len(pattern.findall(text))}")
     text = VERSION_LINE.sub(lambda m: f'{m.group(1)}"{version}"{m.group(3)}', text)
-    return SHA256_LINE.sub(lambda m: f'{m.group(1)}"{sha256}"{m.group(3)}', text)
+    text = SHA256_LINE.sub(lambda m: f'{m.group(1)}"{sha256}"{m.group(3)}', text)
+    # A livecheck regex from before 1.0 only knew -rr.N tags; widen it (at most one regex line, left alone if absent).
+    if len(LIVECHECK_LINE.findall(text)) == 1:
+        text = LIVECHECK_LINE.sub(lambda m: f"{m.group(1)}{LIVECHECK_REGEX}{m.group(2)}", text)
+    return text
 
 
 def sha256_of(path: Path) -> str:
@@ -164,7 +171,7 @@ def push_to_tap(tap: str, version: str, sha256: str, token: str, force: bool) ->
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Update the bridgey-rr Homebrew cask for a release.")
-    parser.add_argument("--version", help="release version, for example 0.6.0-rr.1")
+    parser.add_argument("--version", help="release version, for example 1.0.0")
     parser.add_argument("--dmg", help="the release's macOS DMG on disk")
     parser.add_argument("--tag", help="a published release tag; its DMG is downloaded")
     parser.add_argument("--cask-file", help="edit this local cask file in place")

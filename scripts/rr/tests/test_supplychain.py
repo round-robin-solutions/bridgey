@@ -18,7 +18,7 @@ from test_rrrelease import ReleaseFixture  # noqa: E402
 
 RR = Path(__file__).resolve().parents[1]
 DATA = RR / "testdata" / "supplychain"
-COMMON = {"app_name": "Bridgey by Round Robin", "app_id": "in.roundrobin.bridgey", "version": "0.6.0-rr.1", "build": "262981315", "timestamp": "2026-10-25T13:15:00Z"}
+COMMON = {"app_name": "Bridgey by Round Robin", "app_id": "in.roundrobin.bridgey", "version": "1.0.0", "build": "262981315", "timestamp": "2026-10-25T13:15:00Z"}
 PURL = re.compile(r"^pkg:[a-z]+/\S+@\S+$")
 
 
@@ -88,7 +88,7 @@ class SbomTests(unittest.TestCase):
         self.assertIn("pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.11.0", graph[root])
         self.assertIn("pkg:github/BLAKE3-team/BLAKE3@1.8.7", graph[root])
         self.assertIn("pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-core@1.11.0", graph["pkg:maven/org.jetbrains.kotlinx/kotlinx-coroutines-android@1.11.0"])
-        self.assertEqual(root, "pkg:generic/in.roundrobin.bridgey@0.6.0-rr.1?platform=android")
+        self.assertEqual(root, "pkg:generic/in.roundrobin.bridgey@1.0.0?platform=android")
 
     def test_macos_sbom(self):
         bom = macos_bom()
@@ -103,7 +103,7 @@ class SbomTests(unittest.TestCase):
         self.assertEqual(blake3["pedigree"]["commits"][0]["uid"], "f3149ec5bb5449af877ba20377a11008ff499fa2")
         self.assertEqual(blake3["licenses"], [{"expression": "CC0-1.0 OR Apache-2.0"}])
         self.assertEqual(len(refs), 3)
-        self.assertEqual(root, "pkg:generic/in.roundrobin.bridgey@0.6.0-rr.1?platform=macos")
+        self.assertEqual(root, "pkg:generic/in.roundrobin.bridgey@1.0.0?platform=macos")
 
     def test_sbom_is_deterministic(self):
         self.assertEqual(supplychain.dump_json(android_bom()), supplychain.dump_json(android_bom()))
@@ -132,8 +132,8 @@ class SbomTests(unittest.TestCase):
 class ProvenanceTests(unittest.TestCase):
     def test_statement_shape(self):
         statement = supplychain.build_provenance(
-            app_id="in.roundrobin.bridgey", repo="o/r", channel="beta", version="0.6.0-rr.1-beta.1", build=262981315,
-            tag="v0.6.0-rr.1-beta.1", built_at="2026-10-25T13:15:00Z",
+            app_id="in.roundrobin.bridgey", repo="o/r", channel="beta", version="1.0.0-beta.1", build=262981315,
+            tag="v1.0.0-beta.1", built_at="2026-10-25T13:15:00Z",
             git={"commit": "a" * 40, "describe": "v0.6.0-3-gaaaaaaa", "dirty": False},
             builds={"android": {"host": "h", "toolchain": {"java": "17"}}}, assembler={"host": "rr-dev-1", "os": "Linux"},
             artifacts={"b.zip": "2" * 64, "a.apk": "1" * 64},
@@ -185,7 +185,7 @@ class AssembleSupplyChainTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def assemble(self, dist, *, apk=True, mac=True, deps=True, version="0.6.0-rr.1-beta.1", tag="v0.6.0-rr.1-beta.1"):
+    def assemble(self, dist, *, apk=True, mac=True, deps=True, version="1.0.0-beta.1", tag="v1.0.0-beta.1"):
         argv = [
             "assemble", "--channel", "beta", "--version", version, "--build", "262981315", "--tag", tag, "--dist", str(dist),
             "--published", "2026-10-25T13:15:00Z", "--ed-key", str(self.fixture.key_file), "--ed-public-key", self.fixture.public,
@@ -203,7 +203,7 @@ class AssembleSupplyChainTests(unittest.TestCase):
         dist = self.root / "dist"
         self.assemble(dist)
         names = sorted(path.name for path in (dist / "release").iterdir())
-        prefix = "Bridgey-RR-0.6.0-rr.1-beta.1"
+        prefix = "Bridgey-RR-1.0.0-beta.1"
         self.assertEqual(
             names,
             sorted([
@@ -222,14 +222,14 @@ class AssembleSupplyChainTests(unittest.TestCase):
         dist = self.root / "dist"
         self.assemble(dist)
         release = dist / "release"
-        provenance = json.loads((release / "Bridgey-RR-0.6.0-rr.1-beta.1-provenance.json").read_text())
+        provenance = json.loads((release / "Bridgey-RR-1.0.0-beta.1-provenance.json").read_text())
         subjects = {s["name"]: s["digest"]["sha256"] for s in provenance["subject"]}
         self.assertEqual(len(subjects), 5)
         for name, digest in subjects.items():
             self.assertEqual(rrrelease.sha256_file(release / name), digest)
-        self.assertEqual(subjects["Bridgey-RR-0.6.0-rr.1-beta.1-Android.apk"], rrrelease.sha256_file(self.fixture.apk))
+        self.assertEqual(subjects["Bridgey-RR-1.0.0-beta.1-Android.apk"], rrrelease.sha256_file(self.fixture.apk))
         parameters = provenance["predicate"]["buildDefinition"]["externalParameters"]
-        self.assertEqual((parameters["version"], parameters["buildNumber"], parameters["tag"]), ("0.6.0-rr.1-beta.1", 262981315, "v0.6.0-rr.1-beta.1"))
+        self.assertEqual((parameters["version"], parameters["buildNumber"], parameters["tag"]), ("1.0.0-beta.1", 262981315, "v1.0.0-beta.1"))
         builds = provenance["predicate"]["buildDefinition"]["internalParameters"]["builds"]
         self.assertEqual(builds["android"]["host"], "ci-android")
         self.assertEqual(builds["android"]["toolchain"]["java"], 'openjdk version "17.0.12"')
@@ -239,7 +239,7 @@ class AssembleSupplyChainTests(unittest.TestCase):
     def test_verify_catches_a_tampered_sbom_and_provenance(self):
         dist = self.root / "dist"
         self.assemble(dist)
-        sbom = dist / "release" / "Bridgey-RR-0.6.0-rr.1-beta.1-macOS.sbom.cdx.json"
+        sbom = dist / "release" / "Bridgey-RR-1.0.0-beta.1-macOS.sbom.cdx.json"
         original = sbom.read_bytes()
         sbom.write_bytes(original.replace(b"2.10.0", b"2.10.1"))
         with self.assertRaises(rrrelease.ReleaseError):
@@ -266,7 +266,7 @@ class AssembleSupplyChainTests(unittest.TestCase):
 
     def test_a_bad_dependency_listing_stops_the_release(self):
         self.deps.write_text("FAILURE: Build failed\n")
-        argv = ["assemble", "--channel", "beta", "--version", "0.6.0-rr.1-beta.1", "--build", "1", "--tag", "t", "--dist", str(self.root / "bad"),
+        argv = ["assemble", "--channel", "beta", "--version", "1.0.0-beta.1", "--build", "1", "--tag", "t", "--dist", str(self.root / "bad"),
                 "--apk", str(self.fixture.apk), "--android-deps", str(self.deps)]
         self.assertEqual(rrrelease.main(argv), 1)
 

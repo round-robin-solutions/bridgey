@@ -14,8 +14,10 @@ Channels follow the in-app rule (docs/rr-edition.md): Stable reads stable releas
 Beta, Nightly reads all three. Obtainium filters a release by its title (falling back to the tag), and our
 titles end in the version name, so the title filters below match that ending:
   Stable   includePrereleases false (beta, nightly, "channels" and "models" releases are all pre-releases)
-  Beta     includePrereleases true, title ends in -rr.N or -rr.N-beta.N
-  Nightly  includePrereleases true, title ends in -rr.N, -rr.N-beta.N or -rr.N-nightly.N
+  Beta     includePrereleases true, title ends in a stable or beta version (1.0.0, 1.0.0-beta.2)
+  Nightly  includePrereleases true, title ends in any version (also 1.0.0-nightly.20261116)
+Titles from before 1.0 (0.11.0-rr.1-beta.3) match too; links made before 1.0 matched only those, so a
+Beta or Nightly Obtainium entry added before 1.0 needs adding again (the in-app updater still works).
 
 Usage:
   obtainium.py links [--format plain|markdown|html] [--channels stable,beta,nightly]
@@ -41,8 +43,8 @@ LABELS = {"stable": "Stable", "beta": "Beta", "nightly": "Nightly"}
 # Obtainium's GitHub source settings: includePrereleases, filterReleaseTitlesByRegEx.
 ADDITIONAL_SETTINGS = {
     "stable": {"includePrereleases": False},
-    "beta": {"includePrereleases": True, "filterReleaseTitlesByRegEx": "-rr[.][0-9]+(-beta[.][0-9]+)?$"},
-    "nightly": {"includePrereleases": True, "filterReleaseTitlesByRegEx": "-rr[.][0-9]+(-(beta|nightly)[.][0-9]+)?$"},
+    "beta": {"includePrereleases": True, "filterReleaseTitlesByRegEx": "[0-9]+[.][0-9]+[.][0-9]+(-rr[.][0-9]+)?(-beta[.][0-9]+)?$"},
+    "nightly": {"includePrereleases": True, "filterReleaseTitlesByRegEx": "[0-9]+[.][0-9]+[.][0-9]+(-rr[.][0-9]+)?(-(beta|nightly)[.][0-9]+)?$"},
 }
 AUTHOR = "Round Robin"
 

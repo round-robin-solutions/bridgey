@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+  <channel>
+    <title>Bridgey by Round Robin</title>
+    <link>https://github.com/round-robin-solutions/bridgey/releases/download/channels/appcast.xml</link>
+    <description>Bridgey by Round Robin updates. Beta and Nightly items carry sparkle:channel.</description>
+    <language>en</language>
+    <item>
+      <title>0.11.0-rr.1-beta.3</title>
+      <pubDate>Sun, 15 Nov 2026 18:50:46 +0000</pubDate>
+      <sparkle:version>263191654</sparkle:version>
+      <sparkle:shortVersionString>0.11.0-rr.1-beta.3</sparkle:shortVersionString>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/v0.11.0-rr.1-beta.3</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.11.0-rr.1-beta.3&lt;/h2&gt;&lt;p&gt;Bridgey by Round Robin 0.11.0-rr.1 Beta 3&lt;/p&gt;&lt;p&gt;New&lt;/p&gt;&lt;p&gt;- Calls window on the Mac: dial, search your phone&amp;#x27;s contacts and see recent calls, choose the SIM, and start a phone or WhatsApp call through your phone. Call audio stays on the phone or its earbuds.&lt;/p&gt;&lt;p&gt;- Off until you turn it on, and each Mac needs your permission on the phone. Ask on this phone first makes every call wait for your tap.&lt;/p&gt;&lt;p&gt;Turn it on in Settings &amp;gt; Calls on both devices.&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/v0.11.0-rr.1-beta.3/Bridgey-RR-0.11.0-rr.1-beta.3-macOS.zip" length="16889475" type="application/octet-stream" sparkle:edSignature="RnenTrprp6shfwhKMnBi4kjmy1VtPX1arAkEe6ZZMHt5vNfeC1ZQKKNi16WCOpRB8jdYt17eUz5LDpxVOi5GDA==" />
+    </item>
+    <item>
+      <title>0.11.0-rr.1-beta.2</title>
+      <pubDate>Sun, 15 Nov 2026 15:01:34 +0000</pubDate>
+      <sparkle:version>263191430</sparkle:version>
+      <sparkle:shortVersionString>0.11.0-rr.1-beta.2</sparkle:shortVersionString>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/v0.11.0-rr.1-beta.2</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.11.0-rr.1-beta.2&lt;/h2&gt;&lt;p&gt;Bridgey by Round Robin 0.11.0-rr.1 Beta 2&lt;/p&gt;&lt;p&gt;Fixes&lt;/p&gt;&lt;p&gt;- Clicking the Bridgey icon in the menu bar closes the panel again (macOS 27 sent the click twice, so it reopened).&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/v0.11.0-rr.1-beta.2/Bridgey-RR-0.11.0-rr.1-beta.2-macOS.zip" length="16571136" type="application/octet-stream" sparkle:edSignature="Rs9ikdA/lZYxL6M52DmLN44dYuorYrFjWrLpFEWXMHPqRGXm/s+10Z2t86ZVRlnJJbSGkpABXamVzIHDH6SxAw==" />
+    </item>
+    <item>
+      <title>0.11.0-rr.1-beta.1</title>
+      <pubDate>Sun, 15 Nov 2026 11:46:52 +0000</pubDate>
+      <sparkle:version>263191059</sparkle:version>
+      <sparkle:shortVersionString>0.11.0-rr.1-beta.1</sparkle:shortVersionString>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/v0.11.0-rr.1-beta.1</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.11.0-rr.1-beta.1&lt;/h2&gt;&lt;p&gt;Bridgey by Round Robin 0.11.0-rr.1 Beta 1&lt;/p&gt;&lt;p&gt;New&lt;/p&gt;&lt;p&gt;- Quiet media during calls: when a call starts, music and videos on your allowed devices pause, or mute if they can&amp;#x27;t pause. After the last call, sound comes back and playback resumes (you can change both in Settings).&lt;/p&gt;&lt;p&gt;- Alerts follow the Mac you&amp;#x27;re using. Other Macs get them quietly. Attach and screen sharing list your devices so you can choose where things go.&lt;/p&gt;&lt;p&gt;- Phone files: right-click to Copy Optimised or Copy Original, and Download Optimised or Download Original. ⌘C copies optimised, ⌥⌘C copies the original. Choose the default in Settings &amp;gt; Files.&lt;/p&gt;&lt;p&gt;- The menu bar panel now opens with a short drop from the icon. Turn it off in Settings &amp;gt; General &amp;gt; Animate the menu bar panel.&lt;/p&gt;&lt;p&gt;- File selection: Shift-click for a range, ⌘-click to add or remove, ⌘A for all.&lt;/p&gt;&lt;p&gt;Fixes&lt;/p&gt;&lt;p&gt;- The send preview, the drop toast with Reduce Motion and the release signer check on newer Android build tools.&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/v0.11.0-rr.1-beta.1/Bridgey-RR-0.11.0-rr.1-beta.1-macOS.zip" length="16569211" type="application/octet-stream" sparkle:edSignature="szZi1l8VfCh5x3qe3kiqzGABNTdOz4BEyWBzmWNy3byyCj1lLXw2SJHkQFyin2QwZt1jHgIEgPXmTwjtpz6SAw==" />
+    </item>
+    <item>
+      <title>0.10.0-rr.1-beta.27</title>
+      <pubDate>Wed, 11 Nov 2026 18:39:18 +0000</pubDate>
+      <sparkle:version>263151815</sparkle:version>
+      <sparkle:shortVersionString>0.10.0-rr.1-beta.27</sparkle:shortVersionString>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/v0.10.0-rr.1-beta.27</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.10.0-rr.1-beta.27&lt;/h2&gt;&lt;p&gt;Share from your phone with one tap: choose Send to device and it goes to the device you are using right now. You get a moment to cancel or pick another device, and the phone tells you when it opened or why it did not. In Settings, When I share can be set to Always ask.&lt;/p&gt;&lt;p&gt;Links from other devices now open right away unless you turned that off. A new link replaces one still waiting instead of being refused.&lt;/p&gt;&lt;p&gt;Each device can stop sharing when it is in use from Settings.&lt;/p&gt;&lt;p&gt;Local agents on a Mac can read new message codes for a few minutes if you turn it on in Settings &amp;gt; Notifications. It starts off.&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/v0.10.0-rr.1-beta.27/Bridgey-RR-0.10.0-rr.1-beta.27-macOS.zip" length="16190023" type="application/octet-stream" sparkle:edSignature="jn9lOZVeYJ9FXm1PMK4Ssxvt2wXyvUEBECkPsfHrg8LPPG2KqTgmEAXdAtCojtbGjf1X8u0Rky09a+i0mS6lDQ==" />
+    </item>
+    <item>
+      <title>0.10.0-rr.1-nightly.20261108</title>
+      <pubDate>Sun, 08 Nov 2026 14:00:24 +0000</pubDate>
+      <sparkle:version>263121312</sparkle:version>
+      <sparkle:shortVersionString>0.10.0-rr.1-nightly.20261108</sparkle:shortVersionString>
+      <sparkle:channel>nightly</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/nightly-20261108.1312</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.10.0-rr.1-nightly.20261108&lt;/h2&gt;&lt;p&gt;Nightly build of rr/main at 70e933c.&lt;/p&gt;&lt;p&gt;Changes since v0.10.0-rr.1-beta.26:&lt;/p&gt;&lt;p&gt;- Android: Play build (no self-updater, no install or SMS permissions) and a test-key QA build (141d6d3)&lt;/p&gt;&lt;p&gt;- Play build: drop READ_CONTACTS (only used by Text messages); check no call-log permissions (4bd29c9)&lt;/p&gt;&lt;p&gt;- CI: rerun (android tasks pass locally) (35fde2c)&lt;/p&gt;&lt;p&gt;- Keep Play permissions unavailable and verify store build isolation (dff22c5)&lt;/p&gt;&lt;p&gt;- Reject unsigned additions in Play bundle verification (9262f06)&lt;/p&gt;&lt;p&gt;- Retain bounded store test reports when verification fails (f229670)&lt;/p&gt;&lt;p&gt;- Gate Play setup and verify final store artifact identity (f4e29fa)&lt;/p&gt;&lt;p&gt;- Enable unit tests for the Play and QA build variants (a2c426e)&lt;/p&gt;&lt;p&gt;- Check Play permission removals before store packaging (469fecb)&lt;/p&gt;&lt;p&gt;- Skip unavailable install permission probes during Play startup (1f1f306)&lt;/p&gt;&lt;p&gt;- Use the UI settings fixture for the startup permission regression (90e77df)&lt;/p&gt;&lt;p&gt;- Merge pull request #8 from round-robin-solutions/rr/play-flavour (70e933c)&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/nightly-20261108.1312/Bridgey-RR-0.10.0-rr.1-nightly.20261108-macOS.zip" length="16095131" type="application/octet-stream" sparkle:edSignature="czFz5bjE3ooEx/k33dhAuYI7KPMGlkzYiJczRyZCiYsc7UOkmCwJJZLPoYLWm8OP0Mm6olgk2qWjhNtg7RUsBw==" />
+    </item>
+    <item>
+      <title>0.10.0-rr.1-beta.26</title>
+      <pubDate>Sat, 07 Nov 2026 19:11:13 +0000</pubDate>
+      <sparkle:version>263111836</sparkle:version>
+      <sparkle:shortVersionString>0.10.0-rr.1-beta.26</sparkle:shortVersionString>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/v0.10.0-rr.1-beta.26</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.10.0-rr.1-beta.26&lt;/h2&gt;&lt;p&gt;Trusted servers get only the permissions you choose on your phone, for the duration you choose. A separate Read your notifications permission lets an agent read the current notifications allowed by your existing forwarding switch and blocked-app list. It starts off and does not allow replies or dismissal.&lt;/p&gt;&lt;p&gt;Revoking or expiring a code or clipboard permission now stops pending delivery. One-time codes remain available to each independently granted server, and their freshness limit includes time while the phone sleeps.&lt;/p&gt;&lt;p&gt;This release also includes the merged menu-panel and Settings improvements, Tailscale setup guidance, and local actions for known copied links, phone numbers and email addresses.&lt;/p&gt;&lt;p&gt;Existing devices, pairings and permission choices are preserved. No permissions are enabled by this update.&lt;/p&gt;&lt;p&gt;Built on Bridgey by Semyon Mikhailov. Built with the assistance of OpenAI Codex.&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/v0.10.0-rr.1-beta.26/Bridgey-RR-0.10.0-rr.1-beta.26-macOS.zip" length="16095092" type="application/octet-stream" sparkle:edSignature="ZXP/+pZT7YdOGe7ElkQsqzSZ9UWztP8lvoI7pqwpiZ0AIQgZGjEmAEvxH+okGeI/zZiWQcTNr7NKpnEkldZrDw==" />
+    </item>
+    <item>
+      <title>0.10.0-rr.1-nightly.20261107</title>
+      <pubDate>Sat, 07 Nov 2026 10:52:48 +0000</pubDate>
+      <sparkle:version>263111023</sparkle:version>
+      <sparkle:shortVersionString>0.10.0-rr.1-nightly.20261107</sparkle:shortVersionString>
+      <sparkle:channel>nightly</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/nightly-20261107.1023</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.10.0-rr.1-nightly.20261107&lt;/h2&gt;&lt;p&gt;Nightly build of rr/main at f820d45.&lt;/p&gt;&lt;p&gt;Changes since v0.10.0-rr.1-beta.25:&lt;/p&gt;&lt;p&gt;- Measure native menu panel openings with synthetic fixtures (006082c)&lt;/p&gt;&lt;p&gt;- Reuse the menu panel and make transitions reversible (72d0661)&lt;/p&gt;&lt;p&gt;- Prepare the menu panel while hidden and refresh after its entrance (7ceac8e)&lt;/p&gt;&lt;p&gt;- Make Settings window lifetime explicit and trace unexpected hiding (7d239e2)&lt;/p&gt;&lt;p&gt;- Share the screen-control capability and session contract in Rust (bbdc5fa)&lt;/p&gt;&lt;p&gt;- Merge pull request #13 from round-robin-solutions/feature/screen-control-core (cc3a89c)&lt;/p&gt;&lt;p&gt;- Merge pull request #10 from round-robin-solutions/perf/menu-panel-open (f820d45)&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/nightly-20261107.1023/Bridgey-RR-0.10.0-rr.1-nightly.20261107-macOS.zip" length="16048484" type="application/octet-stream" sparkle:edSignature="fsHWc4zcjVLK5ZyHemK12bY9u+iKpYAR+MBaqyHDnoThcA7mlcqrT6artw883+xDDLhYfQZGzshdbFPMCLsPAQ==" />
+    </item>
+    <item>
+      <title>0.6.0-rr.1-nightly.20261025</title>
+      <pubDate>Sun, 25 Oct 2026 21:35:56 +0000</pubDate>
+      <sparkle:version>262982130</sparkle:version>
+      <sparkle:shortVersionString>0.6.0-rr.1-nightly.20261025</sparkle:shortVersionString>
+      <sparkle:channel>nightly</sparkle:channel>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/round-robin-solutions/bridgey/releases/tag/nightly-20261025</sparkle:fullReleaseNotesLink>
+      <description>&lt;h2&gt;0.6.0-rr.1-nightly.20261025&lt;/h2&gt;&lt;p&gt;Nightly build of rr/main at 9ba5b14.&lt;/p&gt;&lt;p&gt;Recent changes:&lt;/p&gt;&lt;p&gt;- Bridgey Mac: stay connected to several phones at once (9ba5b14)&lt;/p&gt;&lt;p&gt;- Bridgey Android: stay connected to several devices at once (d4d200f)&lt;/p&gt;&lt;p&gt;- Bridgey Android: clipboard inbox and outbox route per device (f0db5e2)&lt;/p&gt;&lt;p&gt;- Bridgey Android: copy and paste images, files and long text (0982ca4)&lt;/p&gt;&lt;p&gt;- Bridgey Android: clipboard offer model, cache, inbox and outbox (f5229f8)&lt;/p&gt;&lt;p&gt;- Bridgey Mac: tests for clipboard offers (4ccc167)&lt;/p&gt;&lt;p&gt;- Bridgey Mac: clipboard offers for images, files and long text (e19c4bf)&lt;/p&gt;&lt;p&gt;- Protocol: draft clipboard offers for images, files and long text (8a41d26)&lt;/p&gt;&lt;p&gt;- Merge Mac Stream design, settings order and automatic clipboard (c16c18a)&lt;/p&gt;&lt;p&gt;- Merge Android settings order and automatic clipboard (8c1bc13)&lt;/p&gt;&lt;p&gt;- Bridgey: FAQ on why phone clipboard is not fully automatic (4d95a75)&lt;/p&gt;&lt;p&gt;- Bridgey Android: make the Quick Settings tile easy to add (deac2c5)&lt;/p&gt;&lt;p&gt;- Bridgey Android: full-width Send copied text button in the notification (f7ebbe1)&lt;/p&gt;&lt;p&gt;- Bridgey Android: optional background clipboard via READ_LOGS (d5fcc7c)&lt;/p&gt;&lt;p&gt;- Bridgey Android: automatic clipboard (c3edc84)&lt;/p&gt;&lt;p&gt;- Show Release notes once in Mac Settings (b95f277)&lt;/p&gt;&lt;p&gt;- Add Automatic clipboard on the Mac (d1be408)&lt;/p&gt;&lt;p&gt;- Reorder Mac Settings by what people come to change (d2c182b)&lt;/p&gt;&lt;p&gt;- Implement direction B Stream on macOS (5fe35fc)&lt;/p&gt;&lt;p&gt;- Bridgey Android: reorder Settings by feature, drop duplication (2298a53)&lt;/p&gt;</description>
+      <enclosure url="https://github.com/round-robin-solutions/bridgey/releases/download/nightly-20261025/Bridgey-RR-0.6.0-rr.1-nightly.20261025-macOS.zip" length="2791616" type="application/octet-stream" sparkle:edSignature="yjF2nbRu9WLvoq4Ta1HvLECXrMkALcTR5nowOSWtnLme5W2WwGLLYWihzkDa9MDrOxlHsn4GqEoE2Y5lZIyWAw==" />
+    </item>
+  </channel>
+</rss>

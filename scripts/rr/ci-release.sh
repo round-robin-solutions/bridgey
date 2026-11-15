@@ -2,8 +2,9 @@
 # RR CI entry point for Bridgey by Round Robin releases on our own worker (rr-dev-1).
 # Usage: scripts/rr/ci-release.sh nightly   nightly from rr/main (fallback; RR CI builds nightlies on GitHub), notes from release-notes.sh
 #        scripts/rr/ci-release.sh tag       beta or stable from the annotated tag in RR_CI_REF, notes from its message
-#   v0.6.0-rr.1         -> stable 0.6.0-rr.1
-#   v0.6.0-rr.1-beta.2  -> beta 0.6.0-rr.1-beta.2 (betas lead to EDITION_NEXT_VERSION)
+#   v1.0.0         -> stable 1.0.0
+#   v1.0.0-beta.2  -> beta 1.0.0-beta.2 (betas lead to EDITION_NEXT_VERSION)
+# Tags are made by scripts/rr/cut-release.py (beta, promote); see docs/rr-edition.md "Releasing".
 # The revision must be on RELEASE_BRANCH (rr/main). Builds Android here and the Mac app on
 # BRIDGEY_RR_MAC_HOST (default personal) over SSH, then publishes (release.sh --publish).
 # RR CI gives jobs a private HOME, so the keys, the GitHub token and the toolchains come from the
@@ -55,9 +56,9 @@ else
   case "$REF" in refs/tags/v*) ;; *) die "not a release tag: $REF" ;; esac
   TAG=${REF#refs/tags/}
   VERSION=${TAG#v}
-  if echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rr\.[0-9]+-beta\.[0-9]+$'; then CHANNEL=beta
-  elif echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-rr\.[0-9]+$'; then CHANNEL=stable
-  else die "$TAG is neither a stable (v0.6.0-rr.1) nor a beta (v0.6.0-rr.1-beta.2) tag"; fi
+  if echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$'; then CHANNEL=beta
+  elif echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then CHANNEL=stable
+  else die "$TAG is neither a stable (v1.0.0) nor a beta (v1.0.0-beta.2) tag"; fi
   OBJECT=$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq '.object.type + " " + .object.sha')
   [ "${OBJECT%% *}" = tag ] || die "$TAG is a lightweight tag; release tags must be annotated (git tag -a) and carry the notes"
   TAGGED=$(gh api "repos/$REPO/git/tags/${OBJECT#* }" --jq '.object.sha')
