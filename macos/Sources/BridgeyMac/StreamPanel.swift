@@ -41,6 +41,8 @@ struct PanelModel {
     var hasTransferHistory = false
     /// Text messages: unread texts on the target phone; nil when Text messages is not available.
     var messagesUnread: Int?
+    /// The Calls window is on and allowed for the selected phone at both ends.
+    var callsAvailable = false
     var receivedLink: String?
     var ringing: RingingState?
     var call: RemoteCallStatus?
@@ -163,6 +165,7 @@ struct PanelActions {
     var openTransferHistory: () -> Void = {}
     /// Text messages: the Messages window.
     var openMessages: () -> Void = {}
+    var openCalls: () -> Void = {}
     var openTray: () -> Void = {}
     var dropFilesOnDevice: ([URL], String) -> Bool = { _, _ in false }
     var showInFinder: (URL) -> Void = { _ in }
@@ -1492,6 +1495,7 @@ struct BridgeyPanel: View {
         if let target = model.targetDeviceID, pairing.textMessagesAvailable(for: target) {
             model.messagesUnread = pairing.textMessages.unreadCount(target)
         }
+        model.callsAvailable = model.targetDeviceID.map(pairing.callsAvailable(for:)) ?? false
         model.fileTransferActive = pairing.fileTransferActive
         if case let .connected(deviceID, _) = pairing.state {
             model.autoClipboard = pairing.isFeatureAvailable(.clipboard) && settings.isAutoClipboardEnabled(for: deviceID)
@@ -1602,6 +1606,7 @@ struct BridgeyPanel: View {
         actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }
         actions.openTransferHistory = { TransferHistoryWindowController.show(pairing: pairing) }
         actions.openMessages = { MessagesWindowController.show(pairing: pairing, phoneID: model.targetDeviceID) }
+        actions.openCalls = { CallsWindowController.show(pairing: pairing, phoneID: model.targetDeviceID) }
         actions.openTray = { TrayController.show(pairing: pairing) }
         actions.dropFilesOnDevice = { pairing.sendDroppedFiles($0, to: $1) }
         actions.showInFinder = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }

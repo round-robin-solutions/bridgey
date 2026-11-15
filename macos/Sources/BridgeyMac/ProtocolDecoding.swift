@@ -382,7 +382,9 @@ let knownDraftFeatureKeys = ["device_presence_draft1", "share_receive_draft1", c
                              agentFeatureKey, agentNotifyFeatureKey, agentAskFeatureKey, agentClipboardRequestFeatureKey,
                              agentCodesFeatureKey, agentsMirrorFeatureKey,
                              // Detect codes (docs/mesh-and-codes.md), after the agent keys.
-                             codesDetectFeatureKey, callMediaFeatureKey, notificationRoutingFeatureKey]
+                             codesDetectFeatureKey, callMediaFeatureKey, notificationRoutingFeatureKey,
+                             // Calls window (DialerProtocol.swift), last.
+                             dialerFeatureKey]
 
 func decodeFeatureState(_ plaintext: Data) -> FeatureStateDecoding {
     guard isStrictJSONObject(plaintext),

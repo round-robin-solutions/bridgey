@@ -77,6 +77,8 @@ final class MigrationSettingsTests: XCTestCase {
         globals[.macActions] = false
         // Existing call permissions never imply consent to the new call-state/media feature.
         globals[.callQuiet] = false
+        // The Calls window starts off everywhere, and each phone needs its own permission.
+        globals[.dialer] = false
         XCTAssertEqual(settings.globalFeatures, globals, label, file: file, line: line)
         var phoneA: [BridgeyFeature: Bool] = [.notifications: false, .calls: true]
         if release >= 9 { phoneA[.remoteInput] = true }

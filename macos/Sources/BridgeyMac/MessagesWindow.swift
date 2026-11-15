@@ -2180,38 +2180,45 @@ func smsDayTitle(_ day: Date, now: Date) -> String {
 
 // MARK: - Panel entry
 
-/// The menu bar panel's way into the Messages window, while Text messages is available for the phone.
+/// The menu bar panel's way into the Messages and Calls windows, while each is available for the phone.
 struct MessagesPanelEntry: View {
     let model: PanelModel
     let actions: PanelActions
     @Environment(\.brand) private var c
 
     var body: some View {
-        if model.onboardingDone, model.isConnected, let unread = model.messagesUnread {
-            Button(action: actions.openMessages) {
-                HStack(spacing: 6) {
-                    Image(systemName: "message").font(.system(size: 12, weight: .medium))
-                    Text(L10n.text("sms.window", fallback: "Messages")).font(BrandFont.body(12, .medium))
-                    if unread > 0 {
-                        Text("\(unread)")
-                            .font(BrandFont.body(11, .semibold))
-                            .foregroundStyle(c.onpri)
-                            .padding(.horizontal, 6)
-                            .frame(height: 16)
-                            .background(Capsule().fill(c.pri))
-                            .accessibilityLabel(String(format: L10n.text("sms.unreadCount", fallback: "%d unread"), unread))
-                    }
-                }
-                .foregroundStyle(c.on)
-                .frame(maxWidth: .infinity)
-                .frame(height: 30)
-                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(c.s2))
-                .contentShape(Rectangle())
+        if model.onboardingDone, model.isConnected, model.messagesUnread != nil || model.callsAvailable {
+            HStack(spacing: 8) {
+                if let unread = model.messagesUnread { messages(unread) }
+                if model.callsAvailable { CallsPanelButton(action: actions.openCalls) }
             }
-            .buttonStyle(PressScaleStyle())
-            .help(L10n.text("sms.entry.help", fallback: "Read and answer your phone\u{2019}s texts"))
             .padding(.horizontal, 12)
             .padding(.top, 8)
         }
+    }
+
+    private func messages(_ unread: Int) -> some View {
+        Button(action: actions.openMessages) {
+            HStack(spacing: 6) {
+                Image(systemName: "message").font(.system(size: 12, weight: .medium))
+                Text(L10n.text("sms.window", fallback: "Messages")).font(BrandFont.body(12, .medium))
+                if unread > 0 {
+                    Text("\(unread)")
+                        .font(BrandFont.body(11, .semibold))
+                        .foregroundStyle(c.onpri)
+                        .padding(.horizontal, 6)
+                        .frame(height: 16)
+                        .background(Capsule().fill(c.pri))
+                        .accessibilityLabel(String(format: L10n.text("sms.unreadCount", fallback: "%d unread"), unread))
+                }
+            }
+            .foregroundStyle(c.on)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(c.s2))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressScaleStyle())
+        .help(L10n.text("sms.entry.help", fallback: "Read and answer your phone\u{2019}s texts"))
     }
 }

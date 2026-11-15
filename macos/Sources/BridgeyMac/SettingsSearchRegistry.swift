@@ -114,6 +114,7 @@ enum SettingsSearchRegistry {
         case .remoteInput: remote
         case .macActions: ["lock", "sleep", "shortcuts", "заблокировать"]
         case .callQuiet: ["mute", "pause", "call", "sound", "media", "звонок", "звук", "пауза"]
+        case .dialer: ["dialer", "keypad", "contacts", "whatsapp", "sim", "recent", "клавиатура", "контакты", "набор"]
         }
     }
 
@@ -232,6 +233,16 @@ enum SettingsSearchRegistry {
             row("calls.quietRestore", .calls, L10n.text("callMedia.restore", fallback: "After the last call"), nil, calls + media + ["resume", "restore", "продолжить"]),
             row("calls.manual", .calls, L10n.text("callMedia.manual", fallback: "This Mac's call status"), nil, calls + ["manual", "FaceTime", "Zoom", "Teams", "вручную"]),
             row("calls.shortcut", .calls, section: shortcutCard, ShortcutAction.call.displayTitle, nil, shortcut + calls),
+            feature(.dialer, .calls, calls + ["dialer", "keypad", "contacts", "whatsapp", "клавиатура", "контакты"]),
+            row("calls.window.open", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+                L10n.text("calls.window.open", fallback: "Open the Calls window"), L10n.text("calls.window.open.detail", fallback: "Also in the menu bar panel"),
+                calls + ["dialer", "keypad", "open", "открыть"]),
+            row("calls.window.sim", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+                L10n.text("calls.window.sim", fallback: "Call from"), nil, calls + ["sim", "dual sim", "сим"]),
+            row("calls.window.whatsapp", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+                L10n.text("calls.window.whatsapp", fallback: "Show WhatsApp calls"), nil, calls + ["whatsapp", "video", "видео"]),
+            row("calls.window.recents", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+                L10n.text("calls.window.recents", fallback: "Recent calls"), nil, calls + ["history", "recent", "недавние"]),
 
             // Files
             feature(.files, .files, files),
@@ -478,6 +489,11 @@ enum SettingsSearchRegistry {
             out.append(SettingsSearchEntry(id: "remote.device.\(device.id)", pane: .remoteControl,
                                            section: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"),
                                            title: device.name, keywords: remote + ["allow", "разрешить"]))
+            // Calls window: each phone's permission, drawn while the window is on (a Mac or restricted device is not listed).
+            if model.globalFeatures[.dialer] == true, !model.restrictedDevices.contains(device.id), !model.macDevices.contains(device.id) {
+                out.append(SettingsSearchEntry(id: "calls.device.\(device.id)", pane: .calls, section: BridgeyFeature.dialer.title,
+                                               title: device.name, keywords: featureWords(.dialer) + ["allow", "разрешить"]))
+            }
             out.append(SettingsSearchEntry(id: "media.device.\(device.id)", pane: .media,
                                            section: L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"),
                                            title: device.name, keywords: featureWords(.macActions) + ["allow", "разрешить"]))

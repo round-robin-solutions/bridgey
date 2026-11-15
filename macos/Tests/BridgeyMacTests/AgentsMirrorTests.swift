@@ -307,9 +307,9 @@ final class AgentsMirrorTests: XCTestCase {
     }
 
     func testDraftKeysPreserveAgentOrderBeforeCallQuietingAndActivityRouting() {
-        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(10)), [
+        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(11)), [
             "email_codes_draft1", "agent_draft1", "notify_draft1", "ask_draft1", "clipboard_request_draft1", "agent_codes_draft1", "agents_mirror_draft1",
-            "codes_detect_draft1", "call_quiet_draft1", "notification_routing_draft1",
+            "codes_detect_draft1", "call_quiet_draft1", "notification_routing_draft1", "dialer_draft1",
         ])
     }
 }
