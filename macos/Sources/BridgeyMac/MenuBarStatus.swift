@@ -106,15 +106,42 @@ enum MenuBarPanelMover {
     static func reset(_ layer: CALayer?) { layer?.removeAnimation(forKey: key) }
 }
 
-private struct MenuBarIconClick: Equatable {
-    let number: Int
+/// One press, in screen coordinates on NSEvent's clock.
+///
+/// macOS 27 draws status items in MenuBarAgent, so one press on the icon reaches Bridgey twice: the real press
+/// goes to the menu bar (the outside-click monitor sees it, or the panel loses key with no mouse event), then
+/// MenuBarAgent sends the button a new mouse-down, at the icon's centre and with a later timestamp.
+struct MenuBarPress {
+    let location: NSPoint
     let timestamp: TimeInterval
-    let button: Int
-    init?(_ event: NSEvent?) {
+    /// nil when only the pointer is known (the panel lost key without a mouse event).
+    let button: Int?
+
+    /// The forwarded mouse-down came 21 to 79 ms after the press in real clicks on macOS 27.2.
+    static let sameClickWindow: TimeInterval = 0.5
+    /// A press just beside the icon still reaches it (seen 2 pt outside its frame); the next item is further.
+    static let sameClickSlack: CGFloat = 8
+
+    init(location: NSPoint, timestamp: TimeInterval, button: Int?) {
+        self.location = location
+        self.timestamp = timestamp
+        self.button = button
+    }
+
+    init?(mouseDown event: NSEvent?) {
         guard let event, event.type == .leftMouseDown || event.type == .rightMouseDown else { return nil }
-        number = event.eventNumber
+        // A monitor event has no window: its location is already on screen.
+        location = event.window?.convertToScreen(NSRect(origin: event.locationInWindow, size: .zero)).origin ?? event.locationInWindow
         timestamp = event.timestamp
         button = event.buttonNumber
+    }
+
+    /// `click` is the icon's own mouse-down, so this press was on the icon if it lies within the icon around it.
+    func isSameClick(as click: MenuBarPress, iconSize: CGSize) -> Bool {
+        (button == nil || button == click.button)
+            && abs(click.timestamp - timestamp) <= Self.sameClickWindow
+            && abs(click.location.x - location.x) <= iconSize.width / 2 + Self.sameClickSlack
+            && abs(click.location.y - location.y) <= iconSize.height / 2 + Self.sameClickSlack
     }
 }
 
@@ -158,9 +185,11 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
     /// Opened by a hovering drag: it closes again when the drag ends without a drop inside.
     private(set) var openedByDrag = false
     var reduceMotion: () -> Bool = { false }
-    /// Suppress only the very same icon event that already dismissed the panel, never a later click.
-    private var dismissedIconClick: MenuBarIconClick?
+    /// The press that closed the panel from outside: the icon's mouse-down for that same press must not reopen it.
+    private var dismissingPress: MenuBarPress?
     var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
+    var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
+    var now: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     static let openingDuration: TimeInterval = 0.18
     static let closingDuration: TimeInterval = 0.12
     /// The saved entrance style (movement by default).
@@ -227,22 +256,27 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
 
     @objc func togglePanel() {
         if isOpen { close(); return }
-        // The icon click that closed the panel (the outside-click monitor or the panel losing key
-        // runs first) must not open it again: it toggles closed.
-        let suppressed = dismissedIconClick != nil && dismissedIconClick == MenuBarIconClick(currentEvent())
-        dismissedIconClick = nil
-        if suppressed { return }
+        // The icon press that closed the panel (the outside-click monitor or the panel losing key
+        // runs first) must not open it again: it toggles closed. Each press is paired at most once.
+        let press = dismissingPress
+        dismissingPress = nil
+        if let press, let click = MenuBarPress(mouseDown: currentEvent()) {
+            let thickness = NSStatusBar.system.thickness
+            let sameClick = press.isSameClick(as: click, iconSize: iconFrame?.size ?? NSSize(width: thickness, height: thickness))
+            BridgeyLog.line(BridgeyLog.windows, "menu panel icon press after outside close same_click=\(sameClick)")
+            if sameClick { return }
+        }
         open(byDrag: false)
     }
 
-    /// Closes on outside interaction, remembering only a matching icon mouse-down event.
+    /// Closes on outside interaction, remembering the press so the icon's own mouse-down for it is ignored.
     func dismissFromOutside(event: NSEvent? = nil) {
         guard isOpen else { return }
         let event = event ?? currentEvent()
-        if let event, let icon = iconFrame {
-            let point = event.window?.convertToScreen(NSRect(origin: event.locationInWindow, size: .zero)).origin ?? event.locationInWindow
-            dismissedIconClick = icon.contains(point) ? MenuBarIconClick(event) : nil
-        } else { dismissedIconClick = nil }
+        // Not limited to the icon frame: the icon is also drawn in the other display's menu bar, where
+        // iconFrame is stale until that press moves it. A press elsewhere never matches an icon click.
+        dismissingPress = MenuBarPress(mouseDown: event)
+            ?? MenuBarPress(location: pointerLocation(), timestamp: event?.timestamp ?? now(), button: nil)
         close()
     }
 
@@ -263,7 +297,7 @@ final class MenuBarStatusController: NSObject, NSWindowDelegate {
 
     func open(byDrag: Bool) {
         guard !isOpen else { return }
-        dismissedIconClick = nil
+        dismissingPress = nil
         openedByDrag = byDrag
         visibilityGeneration += 1
         let generation = visibilityGeneration
