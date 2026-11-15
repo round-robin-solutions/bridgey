@@ -12,6 +12,7 @@
     <string name="dialer_call_log_access_on">Недавние звонки видны на Mac</string>
     <string name="dialer_call_log_access_off">Mac не показывает недавние звонки</string>
     <string name="dialer_ask_first">Сначала спрашивать на телефоне</string>
+    <string name="dialer_ask_first_needs_notifications">Уведомления выключены, поэтому звонки с Mac отклоняются. Нажмите, чтобы разрешить.</string>
     <string name="dialer_ask_first_detail">Каждый звонок с Mac ждёт вашего нажатия здесь</string>
     <string name="dialer_macs">Mac, которым можно звонить</string>
     <string name="dialer_mac_allowed">Может начинать звонки на этом телефоне</string>

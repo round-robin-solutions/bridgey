@@ -1235,6 +1235,7 @@ private fun BridgeyApp(
                                 contactsBuilt = BuildGates.contacts,
                                 callLogBuilt = BuildGates.callLog,
                                 askFirst = settingsState.dialerAskFirst,
+                                notificationsAllowed = appNotificationsEnabled,
                                 macs = trustedDevices.filterNot { it.isAgent }.map {
                                     dev.bridgey.android.ui.DialerMac(it.id, it.name, settingsState.deviceFeatures[it.id]?.get(BridgeyFeature.DIALER) == true)
                                 },
@@ -1371,7 +1372,10 @@ private fun BridgeyApp(
                                 setAskFirst = { on ->
                                     settings.setDialerAskFirst(on)
                                     pairing.dialerPermissionsChanged()
+                                    // Each call then waits on a notification: ask for them now, not after a refused call.
+                                    if (on && !appNotificationsEnabled) permissionPrompt = PermissionPrompt.BridgeyNotifications
                                 },
+                                allowNotifications = { permissionPrompt = PermissionPrompt.BridgeyNotifications },
                                 setMacAllowed = { id, on -> settings.setForDevice(id, BridgeyFeature.DIALER, on) },
                             ),
                             messages = dev.bridgey.android.ui.MessagesSettingsActions(

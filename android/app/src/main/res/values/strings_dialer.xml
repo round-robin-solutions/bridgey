@@ -12,6 +12,7 @@
     <string name="dialer_call_log_access_on">Recent calls show on your Mac</string>
     <string name="dialer_call_log_access_off">Your Mac shows no recent calls</string>
     <string name="dialer_ask_first">Ask on this phone first</string>
+    <string name="dialer_ask_first_needs_notifications">Notifications are off, so calls from a Mac are refused. Tap to allow.</string>
     <string name="dialer_ask_first_detail">Every call from a Mac waits for your tap here</string>
     <string name="dialer_macs">Macs that can call</string>
     <string name="dialer_mac_allowed">Can start calls on this phone</string>
