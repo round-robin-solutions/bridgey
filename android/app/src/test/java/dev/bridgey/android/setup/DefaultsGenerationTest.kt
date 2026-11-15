@@ -61,7 +61,8 @@ class DefaultsGenerationTest {
         context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE).edit().putBoolean("global.files", false).putBoolean("global.remote_input_draft1", true).commit()
         // New call-state sharing requires explicit consent; existing Screen/SMS defaults stay off.
         val before = BridgeyFeature.entries.associateWith {
-            it != BridgeyFeature.FILES && it != BridgeyFeature.SCREEN && it != BridgeyFeature.SMS && it != BridgeyFeature.CALL_QUIET
+            it != BridgeyFeature.FILES && it != BridgeyFeature.SCREEN && it != BridgeyFeature.SMS && it != BridgeyFeature.CALL_QUIET &&
+                it != BridgeyFeature.DIALER
         }
         val settings = launch()
         assertEquals(before, settings.state.value.globalFeatures)
@@ -70,7 +71,8 @@ class DefaultsGenerationTest {
         context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE).edit().clear().commit()
         val reset = launch()
         assertTrue(BridgeyFeature.entries.filter {
-            it != BridgeyFeature.REMOTE_INPUT && it != BridgeyFeature.SCREEN && it != BridgeyFeature.SMS && it != BridgeyFeature.CALL_QUIET
+            it != BridgeyFeature.REMOTE_INPUT && it != BridgeyFeature.SCREEN && it != BridgeyFeature.SMS && it != BridgeyFeature.CALL_QUIET &&
+                it != BridgeyFeature.DIALER
         }.all { reset.state.value.globalFeatures.getValue(it) })
         assertTrue(reset.state.value.globalFeatures.getValue(BridgeyFeature.SMS) == false)
         assertFalse(reset.state.value.globalFeatures.getValue(BridgeyFeature.CALL_QUIET))

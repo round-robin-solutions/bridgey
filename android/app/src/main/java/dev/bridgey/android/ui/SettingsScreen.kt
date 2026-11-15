@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.bridgey.android.BridgeyFeature
+import dev.bridgey.android.needsDeviceGrant
 import dev.bridgey.android.LoggingPolicy
 import dev.bridgey.android.R
 import dev.bridgey.android.ReleaseNotesList
@@ -128,6 +129,8 @@ data class SettingsState(
     val updateAll: UpdateAllUiState = UpdateAllUiState(),
     /** Text messages: permissions and how replies are sent. */
     val messages: MessagesSettingsState = MessagesSettingsState(),
+    /** Calls > Calls window: permissions, Ask on this phone first and the Macs allowed. */
+    val dialer: DialerSettingsState = DialerSettingsState(),
     /** Connect away from home (Connect anywhere). */
     val connect: ConnectSettingsState = ConnectSettingsState(),
     /** External Tailscale package availability; never sign-in or VPN connection state. */
@@ -140,7 +143,8 @@ data class SettingsState(
     val callQuiet: CallQuietSettingsState = CallQuietSettingsState(),
     val smartRouting: SmartRoutingSettingsState = SmartRoutingSettingsState(),
 ) {
-    fun featureOn(feature: BridgeyFeature): Boolean = if (feature == BridgeyFeature.CALL_QUIET) globalFeatures[feature] == true else globalFeatures[feature] != false
+    fun featureOn(feature: BridgeyFeature): Boolean =
+        if (feature.needsDeviceGrant) globalFeatures[feature] == true else globalFeatures[feature] != false
 }
 
 class SettingsActions(
@@ -200,6 +204,7 @@ class SettingsActions(
     val sync: SyncSettingsActions = SyncSettingsActions(),
     val updateAll: UpdateAllActions = UpdateAllActions(),
     val messages: MessagesSettingsActions = MessagesSettingsActions(),
+    val dialer: DialerSettingsActions = DialerSettingsActions(),
     val connect: ConnectSettingsActions = ConnectSettingsActions(),
     val tailscale: dev.bridgey.android.tailscale.TailscaleSetupActions = dev.bridgey.android.tailscale.TailscaleSetupActions(),
     val callQuiet: CallQuietSettingsActions = CallQuietSettingsActions(),
@@ -534,6 +539,20 @@ private fun CallsPage(state: SettingsState, actions: SettingsActions, listState:
                     }
                 }
             }
+        }
+        val dialerOn = state.featureOn(BridgeyFeature.DIALER)
+        item(key = "dialer") {
+            RowGroup(Modifier.padding(top = 16.dp)) {
+                featureRows(BridgeyFeature.DIALER, state, actions)
+                if (dialerOn) dialerRows(state.dialer, actions.dialer)
+            }
+        }
+        if (dialerOn && state.dialer.macs.isNotEmpty()) {
+            item(key = "dialer.macs.label") { SectionLabel(stringResource(R.string.dialer_macs), Modifier.padding(top = 20.dp)) }
+            item(key = "dialer.macs") { RowGroup { dialerMacRows(state.dialer, actions.dialer) } }
+        }
+        item(key = "dialer.note") {
+            Note(stringResource(R.string.dialer_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp))
         }
         item(key = "call-quiet") {
             RowGroup(Modifier.padding(top = 16.dp)) {
@@ -899,7 +918,10 @@ private fun sectionVisual(section: SettingsSection, state: SettingsState): Pair<
         SettingsSection.CLIPBOARD -> feature(BridgeyFeature.CLIPBOARD)
         SettingsSection.NOTIFICATIONS -> feature(BridgeyFeature.NOTIFICATIONS)
         SettingsSection.MESSAGES -> feature(BridgeyFeature.SMS)
-        SettingsSection.CALLS -> feature(BridgeyFeature.CALLS, state.featureOn(BridgeyFeature.CALLS) || state.featureOn(BridgeyFeature.CALL_QUIET))
+        SettingsSection.CALLS -> feature(
+            BridgeyFeature.CALLS,
+            state.featureOn(BridgeyFeature.CALLS) || state.featureOn(BridgeyFeature.CALL_QUIET) || state.featureOn(BridgeyFeature.DIALER),
+        )
         SettingsSection.FILES -> feature(BridgeyFeature.FILES)
         SettingsSection.MEDIA -> feature(BridgeyFeature.MEDIA, MediaSectionFeatures.any(state::featureOn))
         SettingsSection.REMOTE_CONTROL -> feature(BridgeyFeature.REMOTE_INPUT)
@@ -952,6 +974,7 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
         }
         SettingsSection.CALLS -> SectionSummary(
             when {
+                state.featureOn(BridgeyFeature.DIALER) -> stringResource(R.string.settings_summary_calls_window)
                 state.featureOn(BridgeyFeature.CALL_QUIET) -> stringResource(
                     if (state.notificationAccessEnabled) R.string.call_quiet_title else R.string.call_quiet_summary_access)
                 featureOff(BridgeyFeature.CALLS) -> off
@@ -1180,6 +1203,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.SCREEN -> R.string.settings_screen_detail
         BridgeyFeature.SMS -> R.string.feature_sms_detail
         BridgeyFeature.CALL_QUIET -> R.string.call_quiet_detail
+        BridgeyFeature.DIALER -> R.string.dialer_detail
     },
 )
 

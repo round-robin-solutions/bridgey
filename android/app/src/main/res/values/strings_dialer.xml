@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Calls window (dialer_draft1): the Mac's keypad, contacts and recent calls, placed through this phone. -->
+<resources>
+    <string name="dialer_title">Calls window</string>
+    <string name="dialer_detail">Call from your Mac with its keypad, your contacts and recent calls</string>
+    <string name="dialer_device_detail">%1$s can see your contacts and recent calls and start calls on this phone</string>
+    <string name="dialer_place_access">Start calls</string>
+    <string name="dialer_place_access_on">Calls start straight away, on the SIM your Mac picks</string>
+    <string name="dialer_place_access_off">Each call waits for a tap on this phone</string>
+    <string name="dialer_contacts_access_on">Search on your Mac, and WhatsApp calls</string>
+    <string name="dialer_contacts_access_off">Your Mac can only dial numbers</string>
+    <string name="dialer_call_log_access_on">Recent calls show on your Mac</string>
+    <string name="dialer_call_log_access_off">Your Mac shows no recent calls</string>
+    <string name="dialer_ask_first">Ask on this phone first</string>
+    <string name="dialer_ask_first_detail">Every call from a Mac waits for your tap here</string>
+    <string name="dialer_macs">Macs that can call</string>
+    <string name="dialer_mac_allowed">Can start calls on this phone</string>
+    <string name="dialer_mac_not_allowed">Off until you allow it</string>
+    <string name="dialer_note">Call audio stays on this phone or its earbuds. Android doesn\'t let apps send it to a Mac.</string>
+    <string name="settings_summary_calls_window">Calls window on</string>
+    <string name="perm_call_log_name">Call history</string>
+    <string name="perm_call_log_why">Calls window: shows your recent calls on your Mac.</string>
+    <string name="perm_call_log_without">Your Mac shows no recent calls.</string>
+    <string name="dialer_channel">Calls from your Mac</string>
+    <string name="dialer_channel_detail">Calls a Mac asked for that wait for your tap</string>
+    <string name="dialer_notification_title">Call requested from %1$s</string>
+    <string name="dialer_notification_whatsapp_voice">WhatsApp call requested from %1$s</string>
+    <string name="dialer_notification_whatsapp_video">WhatsApp video call requested from %1$s</string>
+    <string name="dialer_notification_whatsapp_contact">A WhatsApp contact</string>
+    <string name="dialer_notification_call">Call</string>
+    <string name="dialer_notification_failed">Couldn\'t start the call</string>
+    <string name="stream_whatsapp_call_title">WhatsApp call from %1$s</string>
+    <string name="stream_whatsapp_call_detail">Opened in WhatsApp on this phone</string>
+    <string name="stream_call_waiting_title">Call requested from %1$s</string>
+    <string name="stream_call_waiting_detail">Tap the notification to start it</string>
+</resources>

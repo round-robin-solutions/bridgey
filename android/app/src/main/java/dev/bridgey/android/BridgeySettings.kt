@@ -52,12 +52,22 @@ enum class BridgeyFeature(val key: String, val title: String) {
 
     /** Optional, per-device call state and local media quieting. Never enabled for old peers. */
     CALL_QUIET("call_quiet_draft1", "Quiet media during calls"),
+
+    /**
+     * Draft, edition only: the Mac's Calls window (keypad, contact search, recent calls, calls through this
+     * phone and its WhatsApp). Off by default, and each Mac needs its own permission.
+     */
+    DIALER("dialer_draft1", "Calls window"),
 }
+
+/** Off for a device until it is allowed there: the global switch alone allows nothing. */
+val BridgeyFeature.needsDeviceGrant: Boolean get() = this == BridgeyFeature.CALL_QUIET || this == BridgeyFeature.DIALER
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
         BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS, BridgeyFeature.CALL_QUIET,
+        BridgeyFeature.DIALER,
     )
 
 /** Features that start off until the person turns them on. */
@@ -65,7 +75,7 @@ internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
 const val CONNECT_AWAY_DEFAULT = true
 
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
-    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS && feature != BridgeyFeature.CALL_QUIET
+    feature !in setOf(BridgeyFeature.REMOTE_INPUT, BridgeyFeature.SCREEN, BridgeyFeature.SMS, BridgeyFeature.CALL_QUIET, BridgeyFeature.DIALER)
 
 data class BridgeySettingsState(
     val deviceName: String,
@@ -143,6 +153,8 @@ data class BridgeySettingsState(
     val updatesAutoAll: Boolean? = null,
     /** Text messages > Send replies as SMS: answers to SMS notifications skip the messaging app's own reply. Off by default. */
     val smsReplyAsSms: Boolean = false,
+    /** Calls > Calls window > Ask on this phone first: every call from a Mac waits for a tap here. Off by default. */
+    val dialerAskFirst: Boolean = false,
     /**
      * Connect away from home (draft connect_draft1): reach paired devices off the local network
      * through the QUIC tunnel, directly or through a Round Robin relay. The person's choice (or a
@@ -241,7 +253,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun isEnabled(feature: BridgeyFeature, deviceId: String?): Boolean {
         val snapshot = mutableState.value
         if (!BuildGates.featureBuilt(feature)) return false
-        if (feature == BridgeyFeature.CALL_QUIET && deviceId != null) {
+        if (feature.needsDeviceGrant && deviceId != null) {
             return snapshot.globalFeatures[feature] == true && snapshot.deviceFeatures[deviceId]?.get(feature) == true
         }
         return effectiveFeatureEnabled(
@@ -370,6 +382,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun setFocusFollow(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_FOCUS_FOLLOW, enabled).apply()
         mutableState.value = mutableState.value.copy(focusFollow = enabled)
+    }
+
+    fun setDialerAskFirst(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_DIALER_ASK_FIRST, enabled).apply()
+        mutableState.value = mutableState.value.copy(dialerAskFirst = enabled)
     }
 
     fun setSmsReplyAsSms(enabled: Boolean) {
@@ -559,6 +576,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
             updatesAutoAll = if (preferences.contains(KEY_UPDATES_AUTO_ALL)) preferences.getBoolean(KEY_UPDATES_AUTO_ALL, false) else null,
             smsReplyAsSms = preferences.getBoolean(KEY_SMS_REPLY_AS_SMS, false),
+            dialerAskFirst = preferences.getBoolean(KEY_DIALER_ASK_FIRST, false),
             connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
             emailCodesChoice = if (preferences.contains(KEY_EMAIL_CODES)) preferences.getBoolean(KEY_EMAIL_CODES, true) else null,
             cloudCodes = preferences.getBoolean(KEY_CLOUD_CODES, false),
@@ -601,6 +619,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
         private const val KEY_UPDATES_AUTO_ALL = "updates.auto_all"
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
+        private const val KEY_DIALER_ASK_FIRST = "dialer.ask_first"
         internal const val KEY_CONNECT_AWAY = "connect.away"
         internal const val KEY_EMAIL_CODES = "codes.email"
         private const val KEY_CLOUD_CODES = "codes.cloud_when_no_mac"

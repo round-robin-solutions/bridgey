@@ -122,6 +122,8 @@ class SharedPrefsMigrationTest(private val release: Int) {
             .plus(BridgeyFeature.SMS to false)
             // Old call permissions do not opt a device into the new call-state/media feature.
             .plus(BridgeyFeature.CALL_QUIET to false)
+            // The Calls window starts off on every install, and each Mac needs its own permission.
+            .plus(BridgeyFeature.DIALER to false)
         assertEquals(globals, state.globalFeatures)
 
         val macA = mutableMapOf(BridgeyFeature.NOTIFICATIONS to false, BridgeyFeature.CALLS to true)

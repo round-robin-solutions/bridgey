@@ -567,6 +567,7 @@ fun permissionVisual(feature: BridgeyFeature): Pair<ImageVector, Tint> = when (f
     BridgeyFeature.SCREEN -> BridgeyIcons.ScreenShare to Tint.PURPLE
     BridgeyFeature.SMS -> BridgeyIcons.Sms to Tint.GREEN
     BridgeyFeature.CALL_QUIET -> BridgeyIcons.MusicNote to Tint.BLUE
+    BridgeyFeature.DIALER -> BridgeyIcons.Call to Tint.GREEN
 }
 
 @Composable
@@ -586,6 +587,7 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.SCREEN -> R.string.feature_screen
         BridgeyFeature.SMS -> R.string.feature_sms
         BridgeyFeature.CALL_QUIET -> R.string.call_quiet_title
+        BridgeyFeature.DIALER -> R.string.dialer_title
     },
 )
 
@@ -609,6 +611,7 @@ private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): Strin
     BridgeyFeature.SCREEN -> stringResource(R.string.feature_screen_detail, state.ring.name)
     BridgeyFeature.SMS -> stringResource(R.string.feature_sms_device_detail, state.ring.name)
     BridgeyFeature.CALL_QUIET -> stringResource(R.string.call_quiet_device_detail, state.ring.name)
+    BridgeyFeature.DIALER -> stringResource(R.string.dialer_device_detail, state.ring.name)
 }
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */

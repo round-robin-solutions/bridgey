@@ -141,7 +141,7 @@ fun ActivityKind.visual(): Pair<ImageVector, Tint> = when (this) {
     ActivityKind.FILE_FAILED -> BridgeyIcons.Error to Tint.NEUTRAL
     ActivityKind.LINK_SENT, ActivityKind.LINK_RECEIVED -> BridgeyIcons.Link to Tint.BLUE
     ActivityKind.NOTIFICATIONS_SHOWN -> BridgeyIcons.Notifications to Tint.PURPLE
-    ActivityKind.CALL_SHOWN, ActivityKind.CALL_STARTED -> BridgeyIcons.Call to Tint.GREEN
+    ActivityKind.CALL_SHOWN, ActivityKind.CALL_STARTED, ActivityKind.WHATSAPP_CALL_STARTED, ActivityKind.CALL_WAITING -> BridgeyIcons.Call to Tint.GREEN
     ActivityKind.PING_SENT, ActivityKind.PING_RECEIVED -> BridgeyIcons.Sensors to Tint.BLUE
     ActivityKind.FIND_MAC, ActivityKind.FIND_PHONE -> BridgeyIcons.MyLocation to Tint.BLUE
     ActivityKind.PAIRED -> BridgeyIcons.Devices to Tint.PURPLE
@@ -283,6 +283,8 @@ private fun itemTitleWithoutPreview(item: ActivityItem, device: String): String 
         pluralStringResource(R.plurals.stream_calls_title, item.count, item.count)
     }
     ActivityKind.CALL_STARTED -> stringResource(R.string.stream_call_started_title, device)
+    ActivityKind.WHATSAPP_CALL_STARTED -> stringResource(R.string.stream_whatsapp_call_title, device)
+    ActivityKind.CALL_WAITING -> stringResource(R.string.stream_call_waiting_title, device)
     ActivityKind.PING_SENT -> stringResource(R.string.stream_ping_sent_title, device)
     ActivityKind.PING_RECEIVED -> stringResource(R.string.stream_ping_received_title, device)
     ActivityKind.FIND_MAC -> stringResource(R.string.stream_find_mac_title, device)
@@ -317,6 +319,8 @@ fun itemDetail(item: ActivityItem, device: String): String = when (item.kind) {
     ActivityKind.LINK_RECEIVED -> stringResource(R.string.stream_link_received_detail)
     ActivityKind.NOTIFICATIONS_SHOWN, ActivityKind.CALL_SHOWN -> stringResource(R.string.stream_shown_on, device)
     ActivityKind.CALL_STARTED -> stringResource(R.string.stream_call_started_detail)
+    ActivityKind.WHATSAPP_CALL_STARTED -> stringResource(R.string.stream_whatsapp_call_detail)
+    ActivityKind.CALL_WAITING -> stringResource(R.string.stream_call_waiting_detail)
     ActivityKind.PING_SENT, ActivityKind.PING_RECEIVED -> stringResource(R.string.stream_ping_detail)
     ActivityKind.FIND_MAC, ActivityKind.FIND_PHONE -> stringResource(R.string.stream_find_detail)
     ActivityKind.PAIRED -> stringResource(R.string.stream_paired_detail)

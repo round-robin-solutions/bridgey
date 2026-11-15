@@ -8,6 +8,12 @@ object BuildGates {
     val selfUpdate: Boolean get() = BuildConfig.UPDATE_FEED_BASE_URL.startsWith("https://")
     val sms: Boolean get() = BuildConfig.SMS_AVAILABLE
 
+    /** READ_CONTACTS for the Calls window (Text messages uses it too, under [sms]). Off in the Play build. */
+    val contacts: Boolean get() = BuildConfig.CONTACTS_AVAILABLE
+
+    /** READ_CALL_LOG for the Calls window's recent calls. Off in the Play build. */
+    val callLog: Boolean get() = BuildConfig.CALL_LOG_AVAILABLE
+
     /** False for a feature this build does not have, whatever the saved or synced setting says. */
     fun featureBuilt(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.SMS || sms
 }

@@ -325,6 +325,7 @@ class BridgeyApplication : Application() {
     /** Block on phone, from a Mac's Messages window (sms.blocked_numbers). */
     private fun startBlockedNumbers() {
         pairing.openBlockedNumbers = { address -> dev.bridgey.android.sms.BlockedNumbers.open(this, address, startedActivityCount > 0) }
+        pairing.dialerInFront = { startedActivityCount > 0 }
     }
 
     private fun startUpdateAll() {

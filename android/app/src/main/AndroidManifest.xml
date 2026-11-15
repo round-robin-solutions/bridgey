@@ -54,6 +54,9 @@
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Calls window (off by default, asked for only when it is turned on): the Mac lists the phone's recent
+         calls. Contacts (above) are searched there too. Calls start through Telecom (CALL_PHONE, above). -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- The widget's Glance library brings WorkManager, which asks to start at boot. Bridgey's widget
          redraws when the app starts, so that permission is removed from the merged manifest. -->
@@ -66,6 +69,9 @@
     <queries>
         <!-- Guided external setup only; installation does not imply Tailscale is signed in or connected. -->
         <package android:name="com.tailscale.ipn" />
+        <!-- Calls window: WhatsApp calls through WhatsApp's own contact rows, when it is installed. -->
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
         <intent>
             <action android:name="android.telecom.InCallService" />
         </intent>
@@ -199,6 +205,10 @@
         </service>
         <activity android:name=".ConfirmCallActivity" android:exported="false"
             android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity="" />
+        <!-- Calls window: a call from a Mac that waits for a tap on Bridgey's notification. -->
+        <activity android:name=".dialer.DialerConfirmActivity" android:exported="false"
+            android:excludeFromRecents="true" android:noHistory="true" android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <!-- Text messages: sent and delivered results of Bridgey's own SMS (its PendingIntents only). -->
         <receiver android:name=".sms.SmsResultReceiver" android:exported="false" />
         <service

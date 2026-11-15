@@ -508,6 +508,8 @@ class MainActivity : ComponentActivity() {
         dndAccess = getSystemService(NotificationManager::class.java).isNotificationPolicyAccessGranted
         // Text messages: a permission changed in App info reaches the Macs' status.
         if (::pairing.isInitialized) pairing.smsPermissionsChanged()
+        // Calls window: the same for contacts, call history, Phone and the SIM list.
+        if (::pairing.isInitialized) pairing.dialerPermissionsChanged()
         // Settings sync: a permission given just now ends "waiting for permission" on the Macs too.
         (application as? BridgeyApplication)?.syncPermissionsChanged()
         if (
@@ -628,6 +630,7 @@ internal val PermissionOrder = listOf(
     listOf(BridgeyFeature.SMS),
     listOf(BridgeyFeature.CALLS),
     listOf(BridgeyFeature.CALL_QUIET),
+    listOf(BridgeyFeature.DIALER),
     listOf(BridgeyFeature.MEDIA),
     listOf(BridgeyFeature.REMOTE_INPUT),
     listOf(BridgeyFeature.MAC_ACTIONS),
@@ -1160,6 +1163,7 @@ private fun BridgeyApp(
                         dualSim = remember { dev.bridgey.android.sms.isDualSim(context) },
                         onChanged = pairing::smsPermissionsChanged,
                     )
+                    val dialerPermissions = dev.bridgey.android.ui.rememberDialerPermissions(onChanged = pairing::dialerPermissionsChanged)
                     val developerMenu = remember { DeveloperMenu(context) }
                     val developerOn by developerMenu.enabled.collectAsStateWithLifecycle()
                     val transferPaths = remember(connections, developerOn) { if (developerOn) pairing.transferPaths() else emptyList() }
@@ -1224,6 +1228,17 @@ private fun BridgeyApp(
                             sync = syncUi,
                             updateAll = updateAllState,
                             messages = messagesPermissions.state,
+                            dialer = dev.bridgey.android.ui.DialerSettingsState(
+                                placeAllowed = dialerPermissions.placeAllowed,
+                                contactsAllowed = dialerPermissions.contactsAllowed,
+                                callLogAllowed = dialerPermissions.callLogAllowed,
+                                contactsBuilt = BuildGates.contacts,
+                                callLogBuilt = BuildGates.callLog,
+                                askFirst = settingsState.dialerAskFirst,
+                                macs = trustedDevices.filterNot { it.isAgent }.map {
+                                    dev.bridgey.android.ui.DialerMac(it.id, it.name, settingsState.deviceFeatures[it.id]?.get(BridgeyFeature.DIALER) == true)
+                                },
+                            ),
                             connect = connectSettingsState(settingsState.connectAway, connectStatus),
                             tailscale = tailscaleState,
                             developerMenu = developerOn,
@@ -1268,6 +1283,8 @@ private fun BridgeyApp(
                                 onSetGlobalFeature(feature, on)
                                 // Text messages asks for SMS and contacts only now, when it is turned on.
                                 if (feature == BridgeyFeature.SMS && on && BuildGates.sms) messagesPermissions.askAll()
+                                // The Calls window asks for Phone, contacts and call history only now, when it is turned on.
+                                if (feature == BridgeyFeature.DIALER && on) dialerPermissions.askAll()
                             },
                             smartRouting = dev.bridgey.android.ui.SmartRoutingSettingsActions(
                                 setEnabled = settings::setSmartNotificationRouting,
@@ -1346,6 +1363,16 @@ private fun BridgeyApp(
                                     if (on && !dndAccess) onOpenDndAccess()
                                 },
                                 openAccess = onOpenDndAccess,
+                            ),
+                            dialer = dev.bridgey.android.ui.DialerSettingsActions(
+                                allowPlace = dialerPermissions.askPlace,
+                                allowContacts = dialerPermissions.askContacts,
+                                allowCallLog = dialerPermissions.askCallLog,
+                                setAskFirst = { on ->
+                                    settings.setDialerAskFirst(on)
+                                    pairing.dialerPermissionsChanged()
+                                },
+                                setMacAllowed = { id, on -> settings.setForDevice(id, BridgeyFeature.DIALER, on) },
                             ),
                             messages = dev.bridgey.android.ui.MessagesSettingsActions(
                                 setReplyAsSms = settings::setSmsReplyAsSms,

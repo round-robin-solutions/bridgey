@@ -186,6 +186,8 @@ internal fun recordPeerEvent(log: ActivityLog, event: PeerEvent, previews: Boole
         PeerActivity.CLIPBOARD_RECEIVE_FAILED -> ActivityKind.CLIPBOARD_RECEIVE_FAILED
         PeerActivity.PING_RECEIVED -> ActivityKind.PING_RECEIVED
         PeerActivity.CALL_STARTED -> ActivityKind.CALL_STARTED
+        PeerActivity.WHATSAPP_CALL_STARTED -> ActivityKind.WHATSAPP_CALL_STARTED
+        PeerActivity.CALL_WAITING -> ActivityKind.CALL_WAITING
         PeerActivity.PING_SENT -> ActivityKind.PING_SENT
         PeerActivity.FIND_REMOTE_STARTED -> ActivityKind.FIND_MAC
         PeerActivity.FIND_PHONE_STARTED -> ActivityKind.FIND_PHONE
