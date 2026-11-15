@@ -1203,6 +1203,7 @@ private fun BridgeyApp(
                             activityCount = activity.size,
                             update = updateState,
                             installedVersion = updater.installedVersionName,
+                            installedBuild = updater.installedVersionCode,
                             now = now,
                             remotePointerSpeed = remotePrefs.pointerSpeed,
                             remoteVolumeKeys = remotePrefs.volumeKeysChangeSlides,

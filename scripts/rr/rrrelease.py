@@ -27,6 +27,7 @@ import html
 import json
 import plistlib
 import re
+import shlex
 import shutil
 import sys
 import urllib.error
@@ -35,6 +36,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import supplychain
+import versions
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PROPERTIES_PATH = REPO_ROOT / "rr-edition.properties"
@@ -53,12 +55,8 @@ DC_NS = "http://purl.org/dc/elements/1.1/"
 ET.register_namespace("sparkle", SPARKLE_NS)
 ET.register_namespace("dc", DC_NS)
 
-STABLE_VERSION = re.compile(r"^\d+\.\d+\.\d+-rr\.\d+$")
-VERSION_BY_CHANNEL = {
-    "stable": STABLE_VERSION,
-    "beta": re.compile(r"^\d+\.\d+\.\d+-rr\.\d+-beta\.\d+$"),
-    "nightly": re.compile(r"^\d+\.\d+\.\d+-rr\.\d+-nightly\.\d{8}$"),
-}
+# Version names (versions.py): new releases use 1.0.0, 1.0.0-beta.2, 1.0.0-nightly.YYYYMMDD; feeds and the
+# appcast also hold items from before 1.0 (0.11.0-rr.1-beta.3), which stay valid.
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -103,8 +101,8 @@ def resolve_version(channel: str, next_version: str, requested: str | None, mome
     """Return (version name, tag) for a channel."""
     if channel not in CHANNELS:
         raise ReleaseError(f"Unknown channel {channel!r}; use one of {', '.join(CHANNELS)}")
-    if not STABLE_VERSION.match(next_version):
-        raise ReleaseError(f"EDITION_NEXT_VERSION {next_version!r} must look like 0.6.0-rr.1")
+    if not versions.NEXT_VERSION.match(next_version):
+        raise ReleaseError(f"EDITION_NEXT_VERSION {next_version!r} must look like 1.0.0")
     if channel == "nightly":
         if requested:
             raise ReleaseError("Nightly versions are generated; do not pass --version")
@@ -116,9 +114,10 @@ def resolve_version(channel: str, next_version: str, requested: str | None, mome
     version = requested or (next_version if channel == "stable" else None)
     if not version:
         raise ReleaseError(f"Pass --version for {channel}, for example {next_version}-beta.1")
-    if not VERSION_BY_CHANNEL[channel].match(version):
-        raise ReleaseError(f"{version!r} is not a valid {channel} version")
-    if not version.startswith(next_version):
+    if not versions.CURRENT[channel].match(version):
+        example = next_version if channel == "stable" else f"{next_version}-beta.1"
+        raise ReleaseError(f"{version!r} is not a valid {channel} version (for example {example})")
+    if versions.parse(version).core != next_version:
         raise ReleaseError(f"{version!r} must build towards EDITION_NEXT_VERSION {next_version!r}")
     return version, f"v{version}"
 
@@ -184,8 +183,15 @@ def iso(moment: dt.datetime) -> str:
 # ---------------------------------------------------------------- feed validation
 
 
+def entry_version(entry: dict, legacy_key: str) -> str:
+    """The version of a feed's platform entry: `version`, or for entries written before 1.0 the legacy field."""
+    return str(entry.get("version") or entry.get(legacy_key, ""))
+
+
 def validate_feed(feed: dict, channel: str, app_id: str, asset_prefix: str) -> None:
-    """Same rules as the Android and macOS parsers (UpdateLogic.kt / UpdateLogic.swift)."""
+    """Same rules as the Android and macOS parsers (UpdateLogic.kt / UpdateLogic.swift), plus one more:
+    every entry stays readable by the 0.x apps, whose parsers check `versionName` / `shortVersion`
+    against the legacy pattern (versions.legacy_name)."""
 
     def require(condition: bool, message: str) -> None:
         if not condition:
@@ -202,14 +208,21 @@ def validate_feed(feed: dict, channel: str, app_id: str, asset_prefix: str) -> N
     require(asset_prefix.startswith("https://"), "asset prefix must use HTTPS")
     notes_url = feed.get("notesUrl") or ""
     require(not notes_url or notes_url.startswith("https://"), "release notes must use HTTPS")
+    def check_names(entry: dict, legacy_key: str, label: str) -> None:
+        version = entry_version(entry, legacy_key)
+        require(versions.matches_channel(version, channel), f"{label} version does not match channel")
+        legacy = str(entry.get(legacy_key, ""))
+        require(bool(versions.LEGACY[channel].match(legacy)), f"{label} {legacy_key} {legacy!r} is not readable by 0.x apps")
+        require(legacy == versions.legacy_name(version), f"{label} {legacy_key} {legacy!r} does not match version {version!r}")
+
     android = feed.get("android")
     if android is not None:
-        require(bool(VERSION_BY_CHANNEL[channel].match(android.get("versionName", ""))), "Android version does not match channel")
+        check_names(android, "versionName", "Android")
         require(isinstance(android.get("versionCode"), int) and 0 < android["versionCode"] <= 2**31 - 1, "Android versionCode is invalid")
         check_asset(android, "APK")
     macos = feed.get("macos")
     if macos is not None:
-        require(bool(VERSION_BY_CHANNEL[channel].match(macos.get("shortVersion", ""))), "macOS version does not match channel")
+        check_names(macos, "shortVersion", "macOS")
         require(isinstance(macos.get("build"), int) and macos["build"] > 0, "macOS build is invalid")
         check_asset(macos.get("dmg", {}), "DMG")
         check_asset(macos.get("zip", {}), "ZIP")
@@ -319,7 +332,7 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     build = int(args.build)
     tag = args.tag
     dist = Path(args.dist)
-    if not VERSION_BY_CHANNEL[channel].match(version):
+    if not versions.CURRENT[channel].match(version):
         raise ReleaseError(f"{version!r} is not a valid {channel} version")
     if not args.apk and not args.zip:
         raise ReleaseError("Nothing to release: pass --apk and/or --dmg and --zip")
@@ -384,7 +397,9 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     if args.apk:
         _, digest, size = stage(args.apk, f"{prefix}-{version}-Android.apk")
         feed["android"] = {
-            "versionName": version,
+            "version": version,
+            # What 0.x apps read (versions.legacy_name); 1.0 and later read "version".
+            "versionName": versions.legacy_name(version),
             "versionCode": build,
             "url": download_base + f"{prefix}-{version}-Android.apk",
             "sha256": digest,
@@ -392,7 +407,7 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
             "minSdk": ANDROID_MIN_SDK,
         }
     elif previous_feed and previous_feed.get("android"):
-        print(f"note: no APK in this release; {channel}.json keeps Android {previous_feed['android']['versionName']}", file=sys.stderr)
+        print(f"note: no APK in this release; {channel}.json keeps Android {entry_version(previous_feed['android'], 'versionName')}", file=sys.stderr)
         feed["android"] = previous_feed["android"]
 
     new_item = None
@@ -407,7 +422,9 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
         zip_path, zip_digest, zip_size = stage(args.zip, f"{prefix}-{version}-macOS.zip")
         signature = ed_sign(private_key, zip_path)
         feed["macos"] = {
-            "shortVersion": version,
+            "version": version,
+            # The legacy form, like Android's versionName. The appcast carries the real name.
+            "shortVersion": versions.legacy_name(version),
             "build": build,
             "minimumSystemVersion": MACOS_MINIMUM_SYSTEM_VERSION,
             "dmg": {"url": download_base + f"{prefix}-{version}-macOS.dmg", "sha256": dmg_digest, "size": dmg_size},
@@ -428,7 +445,7 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
             "edSignature": signature,
         }
     elif previous_feed and previous_feed.get("macos"):
-        print(f"note: no macOS build in this release; {channel}.json keeps macOS {previous_feed['macos']['shortVersion']}", file=sys.stderr)
+        print(f"note: no macOS build in this release; {channel}.json keeps macOS {entry_version(previous_feed['macos'], 'shortVersion')}", file=sys.stderr)
         feed["macos"] = previous_feed["macos"]
 
     validate_feed(feed, channel, app_id, asset_prefix)
@@ -539,7 +556,7 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
         if builds != sorted(builds, reverse=True):
             raise ReleaseError("appcast items are not sorted newest first")
         for item in items:
-            if item["channel"] not in CHANNELS or not VERSION_BY_CHANNEL[item["channel"]].match(item["shortVersion"]):
+            if item["channel"] not in CHANNELS or not versions.matches_channel(item["shortVersion"], item["channel"]):
                 raise ReleaseError(f"appcast item {item['shortVersion']} has a bad channel or version")
             if not item["url"].startswith(asset_prefix):
                 raise ReleaseError(f"appcast item {item['shortVersion']} points outside the release repository")
@@ -666,6 +683,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"BUILD_NUMBER={build_number(moment)}")
             print(f"TAG={tag}")
             print(f"PRERELEASE={'false' if args.channel == 'stable' else 'true'}")
+            print(f"STORE_VERSION={versions.store_version(name)}")
+            print(f"DISPLAY_VERSION={shlex.quote(versions.display(name))}")
         elif args.command == "assemble":
             dist = assemble(args, props)
             print(f"assembled {dist}")

@@ -22,11 +22,11 @@ object Obtainium {
     const val INSTALL_URL = "https://github.com/ImranR98/Obtainium"
     const val WEB_REDIRECT = "https://apps.obtainium.imranr.dev/redirect?r="
 
-    /** Beta reads Stable and Beta, as the in-app Beta channel does. */
-    const val BETA_FILTER = "-rr[.][0-9]+(-beta[.][0-9]+)?$"
+    /** Beta reads Stable and Beta, as the in-app Beta channel does: titles ending in 1.0.0 or 1.0.0-beta.2 (or a pre-1.0 -rr.N name). */
+    const val BETA_FILTER = "[0-9]+[.][0-9]+[.][0-9]+(-rr[.][0-9]+)?(-beta[.][0-9]+)?$"
 
     /** Nightly reads every channel. */
-    const val NIGHTLY_FILTER = "-rr[.][0-9]+(-(beta|nightly)[.][0-9]+)?$"
+    const val NIGHTLY_FILTER = "[0-9]+[.][0-9]+[.][0-9]+(-rr[.][0-9]+)?(-(beta|nightly)[.][0-9]+)?$"
 
     fun additionalSettings(channel: UpdateChannel): String = when (channel) {
         UpdateChannel.STABLE -> """{"includePrereleases":false}"""

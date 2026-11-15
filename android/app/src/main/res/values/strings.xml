@@ -303,7 +303,7 @@
     <string name="update_error_safety">The download failed its safety check, so nothing was installed.</string>
     <string name="update_error_installer">Android couldn\'t install the update. Try again later.</string>
     <string name="update_error_cancelled">The update was cancelled. Nothing changed.</string>
-    <string name="about_credit">Built on Bridgey by Semyon Mikhailov (MIT)</string>
+    <string name="about_credit">Built on Bridgey %1$s by Semyon Mikhailov (MIT)</string>
     <string name="about_original">Original Bridgey project</string>
 
     <string name="devices_paired">Paired devices</string>

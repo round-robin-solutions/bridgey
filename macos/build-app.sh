@@ -43,6 +43,8 @@ cp ".build/$CONFIGURATION/BridgeyMac" "$APP_PATH/Contents/MacOS/BridgeyMac"
 cp "Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
 PLIST_BUDDY=/usr/libexec/PlistBuddy
 "$PLIST_BUDDY" -c "Add :SUFeedURL string $FEED_BASE_URL/appcast.xml" "$APP_PATH/Contents/Info.plist"
+# About: the upstream Bridgey release this edition is built on.
+"$PLIST_BUDDY" -c "Add :BridgeyUpstreamBase string $(edition_value EDITION_UPSTREAM_BASE)" "$APP_PATH/Contents/Info.plist"
 # Codes from messages: the relay (services/otp-proxy). Empty means the switch says "not available".
 CODE_RELAY_URL=$(sed -n "s/^OTP_PROXY_URL=//p" ../rr-edition.properties | tail -n 1)
 if [ -n "$CODE_RELAY_URL" ]; then
@@ -61,9 +63,8 @@ ASSET_URL_PREFIX=$(edition_value UPDATE_ASSET_URL_PREFIX)
 "$PLIST_BUDDY" -c "Add :BridgeyAssetURLPrefix string $ASSET_URL_PREFIX" "$APP_PATH/Contents/Info.plist"
 test "$("$PLIST_BUDDY" -c "Print :CFBundleIdentifier" "$APP_PATH/Contents/Info.plist")" = "$EDITION_APP_ID"
 # Release builds get their version from scripts/rr (see docs/rr-edition.md).
-if [ -n "${BRIDGEY_VERSION_NAME:-}" ]; then
-  "$PLIST_BUDDY" -c "Set :CFBundleShortVersionString $BRIDGEY_VERSION_NAME" "$APP_PATH/Contents/Info.plist"
-fi
+# Local builds are "<EDITION_NEXT_VERSION>-dev" with build 1, so any published build counts as newer.
+"$PLIST_BUDDY" -c "Set :CFBundleShortVersionString ${BRIDGEY_VERSION_NAME:-$(edition_value EDITION_NEXT_VERSION)-dev}" "$APP_PATH/Contents/Info.plist"
 if [ -n "${BRIDGEY_BUILD_NUMBER:-}" ]; then
   "$PLIST_BUDDY" -c "Set :CFBundleVersion $BRIDGEY_BUILD_NUMBER" "$APP_PATH/Contents/Info.plist"
 fi

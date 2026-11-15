@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "app": "in.roundrobin.bridgey",
+  "channel": "beta",
+  "version": "0.11.0-rr.1-beta.3",
+  "build": 263191654,
+  "published": "2026-11-15T18:50:46Z",
+  "tag": "v0.11.0-rr.1-beta.3",
+  "notesUrl": "https://github.com/round-robin-solutions/bridgey/releases/tag/v0.11.0-rr.1-beta.3",
+  "notes": "Bridgey by Round Robin 0.11.0-rr.1 Beta 3\n\nNew\n- Calls window on the Mac: dial, search your phone's contacts and see recent calls, choose the SIM, and start a phone or WhatsApp call through your phone. Call audio stays on the phone or its earbuds.\n- Off until you turn it on, and each Mac needs your permission on the phone. Ask on this phone first makes every call wait for your tap.\n\nTurn it on in Settings > Calls on both devices.",
+  "android": {
+    "versionName": "0.11.0-rr.1-beta.3",
+    "versionCode": 263191654,
+    "url": "https://github.com/round-robin-solutions/bridgey/releases/download/v0.11.0-rr.1-beta.3/Bridgey-RR-0.11.0-rr.1-beta.3-Android.apk",
+    "sha256": "5a0dea46b6218a97f88e704af22f50fd7810e5c2b0f640006a653c4228465a0f",
+    "size": 13324335,
+    "minSdk": 26
+  },
+  "macos": {
+    "shortVersion": "0.11.0-rr.1-beta.3",
+    "build": 263191654,
+    "minimumSystemVersion": "13.0",
+    "dmg": {
+      "url": "https://github.com/round-robin-solutions/bridgey/releases/download/v0.11.0-rr.1-beta.3/Bridgey-RR-0.11.0-rr.1-beta.3-macOS.dmg",
+      "sha256": "873febfcf1924da6deea89a9e6759ef222a607dbb26df6cfab4f2ab392d45792",
+      "size": 20076586
+    },
+    "zip": {
+      "url": "https://github.com/round-robin-solutions/bridgey/releases/download/v0.11.0-rr.1-beta.3/Bridgey-RR-0.11.0-rr.1-beta.3-macOS.zip",
+      "sha256": "9b84b8495d72b532f528416693c875ef12e042d2f77f946230f6d3c9afd90060",
+      "size": 16889475
+    },
+    "edSignature": "RnenTrprp6shfwhKMnBi4kjmy1VtPX1arAkEe6ZZMHt5vNfeC1ZQKKNi16WCOpRB8jdYt17eUz5LDpxVOi5GDA=="
+  }
+}

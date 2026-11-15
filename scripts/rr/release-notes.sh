@@ -1,6 +1,6 @@
 #!/bin/sh
-# Prints nightly release notes: the commit subjects on the release branch since the newest nightly
-# or beta release (whichever came last), newest last. Reads GitHub through gh (GH_TOKEN).
+# Prints nightly release notes: the commit subjects on the release branch since the newest nightly,
+# beta or stable release (whichever came last), newest last. Reads GitHub through gh (GH_TOKEN).
 # Usage: scripts/rr/release-notes.sh <revision>
 set -eu
 . "$(dirname -- "$0")/common.sh"
@@ -10,9 +10,10 @@ REPO=$(edition_value GITHUB_REPO)
 BRANCH=$(edition_value RELEASE_BRANCH)
 SHORT=$(printf '%.7s' "$HEAD")
 
-# Newest nightly or beta release by creation time (nightly-YYYYMMDD[.HHMM], v<x>-rr.N-beta.M).
+# Newest nightly, beta or stable release by creation time (nightly-YYYYMMDD[.HHMM], v1.0.0-beta.2, v1.0.0,
+# and the tags from before 1.0 such as v0.11.0-rr.1-beta.3).
 PREVIOUS=$(gh release list -R "$REPO" --limit 100 --json tagName,createdAt \
-  --jq '[.[] | select(.tagName | test("^nightly-[0-9]{8}([.][0-9]{4})?$|^v[0-9.]+-rr[.][0-9]+-beta[.][0-9]+$"))] | sort_by(.createdAt) | last | .tagName // ""')
+  --jq '[.[] | select(.tagName | test("^nightly-[0-9]{8}([.][0-9]{4})?$|^v[0-9]+[.][0-9]+[.][0-9]+([-]rr[.][0-9]+)?([-]beta[.][0-9]+)?$"))] | sort_by(.createdAt) | last | .tagName // ""')
 
 printf 'Nightly build of %s at %s.\n\n' "$BRANCH" "$SHORT"
 if [ -n "$PREVIOUS" ]; then

@@ -10,6 +10,9 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** The build of 0.11.0-rr.1 Beta 3, on every device when the 1.0 versions started. */
+private const val BETA3_BUILD = 263_191_654L
+
 class UpdateLogicTest {
     private val appId = "in.roundrobin.bridgey"
     private val prefix = "https://github.com/round-robin-solutions/bridgey/releases/download/"
@@ -109,6 +112,14 @@ class UpdateLogicTest {
         assertFalse(UpdateFeeds.versionNameMatchesChannel("0.6.0-rr.2-beta.3", UpdateChannel.STABLE))
         assertFalse(UpdateFeeds.versionNameMatchesChannel("0.6.0-rc.2", UpdateChannel.STABLE))
         assertFalse(UpdateFeeds.versionNameMatchesChannel("0.6.0-rr.2-nightly.2026", UpdateChannel.NIGHTLY))
+        // From 1.0 the edition has its own semver; the names from before it stay valid.
+        assertTrue(UpdateFeeds.versionNameMatchesChannel("1.0.0", UpdateChannel.STABLE))
+        assertTrue(UpdateFeeds.versionNameMatchesChannel("1.0.0-beta.2", UpdateChannel.BETA))
+        assertTrue(UpdateFeeds.versionNameMatchesChannel("1.1.0-nightly.20261116", UpdateChannel.NIGHTLY))
+        assertFalse(UpdateFeeds.versionNameMatchesChannel("1.0.0-beta.2", UpdateChannel.STABLE))
+        assertFalse(UpdateFeeds.versionNameMatchesChannel("1.0.0", UpdateChannel.BETA))
+        assertFalse(UpdateFeeds.versionNameMatchesChannel("1.0.0-rc.1", UpdateChannel.STABLE))
+        assertFalse(UpdateFeeds.versionNameMatchesChannel("1.0.0-dev", UpdateChannel.STABLE))
     }
 
     @Test fun neverOffersADowngradeOrTheInstalledBuild() {
@@ -160,12 +171,78 @@ class UpdateLogicTest {
         assertFalse(UpdateFeeds.signersMatch(emptySet(), emptySet()))
     }
 
-    /** Fixture written by scripts/rr/rrrelease.py; keeps the Python generator and the app parser in step. */
-    @Test fun parsesTheCommittedGeneratorFixture() {
+    private fun fixture(name: String): String {
         val repoRoot = File(requireNotNull(System.getProperty("bridgey.repoRoot")))
-        val fixture = File(repoRoot, "scripts/rr/testdata/feed-sample/beta.json").readText()
-        val parsed = UpdateFeeds.parseAndroid(fixture, UpdateChannel.BETA, appId, prefix)!!
-        assertTrue(parsed.versionCode > 0)
+        return File(repoRoot, "scripts/rr/testdata/feed-sample/$name").readText()
+    }
+
+    /** Fixtures written by scripts/rr/rrrelease.py; keep the Python generator and the app parser in step. */
+    @Test fun parsesTheCommittedGeneratorFixtures() {
+        val expected = mapOf(
+            UpdateChannel.STABLE to ("1.0.0" to 263_241_200L),
+            UpdateChannel.BETA to ("1.0.0-beta.1" to 263_201_200L),
+            UpdateChannel.NIGHTLY to ("1.0.0-nightly.20261116" to 263_200_900L),
+        )
+        expected.forEach { (channel, version) ->
+            val parsed = UpdateFeeds.parseAndroid(fixture("${channel.key}.json"), channel, appId, prefix)!!
+            assertEquals(version.first, parsed.versionName)
+            assertEquals(version.second, parsed.versionCode)
+        }
+        // The feed as it was published for 0.11.0-rr.1 Beta 3 (no "version" field) still parses.
+        val legacy = UpdateFeeds.parseAndroid(fixture("legacy-0.11-beta.json"), UpdateChannel.BETA, appId, prefix)!!
+        assertEquals("0.11.0-rr.1-beta.3", legacy.versionName)
+        assertEquals(BETA3_BUILD, legacy.versionCode)
+    }
+
+    /**
+     * Every device ran 0.11.0-rr.1 Beta 3 when 1.0 started. [Beta3Feeds] is its parser, copied from
+     * UpdateLogic.kt at v0.11.0-rr.1-beta.3: it checks `versionName` against the pre-1.0 pattern, skips a
+     * feed that fails (AppUpdater.fetchCandidates) and installs the highest versionCode.
+     */
+    @Test fun aBeta3PhoneSeesAndInstallsThe1_0Releases() {
+        val beta3OnBeta = listOf(UpdateChannel.STABLE, UpdateChannel.BETA).mapNotNull { channel ->
+            runCatching { Beta3Feeds.parseAndroid(fixture("${channel.key}.json"), channel, appId, prefix) }.getOrNull()
+        }
+        assertEquals(listOf("1.0.0-rr.1", "1.0.0-rr.1-beta.1"), beta3OnBeta.map { it.first })
+        assertEquals(263_241_200L, Beta3Feeds.selectUpdate(BETA3_BUILD, beta3OnBeta.map { it.second }))
+        val nightly = Beta3Feeds.parseAndroid(fixture("nightly.json"), UpdateChannel.NIGHTLY, appId, prefix)!!
+        assertEquals("1.0.0-rr.1-nightly.20261116" to 263_200_900L, nightly)
+        // The plain 1.0 name in versionName would have been skipped: that is why the feeds keep the old form there.
+        val plain = JSONObject(fixture("beta.json")).apply { getJSONObject("android").put("versionName", "1.0.0-beta.1") }.toString()
+        assertThrows(UpdateFeedException::class.java) { Beta3Feeds.parseAndroid(plain, UpdateChannel.BETA, appId, prefix) }
+        // The 1.0 app reads the real name from "version" in the same feed.
+        assertEquals("1.0.0-beta.1", UpdateFeeds.parseAndroid(fixture("beta.json"), UpdateChannel.BETA, appId, prefix)!!.versionName)
+    }
+
+    private object Beta3Feeds {
+        private val versionPattern = Regex("""^\d+\.\d+\.\d+-rr\.\d+(-(beta\.\d+|nightly\.\d{8}))?$""")
+
+        fun versionNameMatchesChannel(versionName: String, channel: UpdateChannel): Boolean {
+            if (!versionPattern.matches(versionName)) return false
+            return when (channel) {
+                UpdateChannel.STABLE -> !versionName.contains("-beta.") && !versionName.contains("-nightly.")
+                UpdateChannel.BETA -> versionName.contains("-beta.")
+                UpdateChannel.NIGHTLY -> versionName.contains("-nightly.")
+            }
+        }
+
+        /** (versionName, versionCode) as Beta 3's parseAndroid accepts them. */
+        fun parseAndroid(json: String, expectedChannel: UpdateChannel, appId: String, assetUrlPrefix: String): Pair<String, Long>? {
+            val root = JSONObject(json)
+            if (root.getInt("schema") != 1 || root.getString("app") != appId || root.getString("channel") != expectedChannel.key) {
+                throw UpdateFeedException("Wrong feed")
+            }
+            val android = root.optJSONObject("android") ?: return null
+            val versionName = android.getString("versionName")
+            if (!versionNameMatchesChannel(versionName, expectedChannel)) throw UpdateFeedException("Version $versionName does not belong to ${expectedChannel.title}")
+            val versionCode = android.getLong("versionCode")
+            if (versionCode <= 0 || versionCode > Int.MAX_VALUE) throw UpdateFeedException("Invalid version code")
+            if (!android.getString("url").startsWith(assetUrlPrefix)) throw UpdateFeedException("APK URL is outside the release repository")
+            if (!Regex("^[0-9a-f]{64}$").matches(android.getString("sha256").lowercase())) throw UpdateFeedException("Invalid SHA-256")
+            return versionName to versionCode
+        }
+
+        fun selectUpdate(installed: Long, codes: List<Long>): Long? = codes.filter { it > installed }.maxOrNull()
     }
 
     /**

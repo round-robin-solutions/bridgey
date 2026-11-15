@@ -183,7 +183,7 @@ final class UpdateAllTests: XCTestCase {
         XCTAssertEqual(UpdateAllText.summary(result), "Updates 2 connected phones and this Mac")
         XCTAssertEqual(UpdateAllText.channelNote(result), "Each device stays on its own channel: OnePlus 11 on Beta, Xperia on Beta, this Mac on Stable.")
         XCTAssertEqual(UpdateAllText.help(result).components(separatedBy: "\n"),
-                       ["OnePlus 11: 0.9.0-rr.3-beta.2 > beta.3", "Xperia: 0.9.0-rr.3-beta.2 > newest Beta, if newer", "This Mac: 0.9.0-rr.2 > 0.9.0-rr.3, restarts last"])
+                       ["OnePlus 11: 0.9.0-rr.3 Beta 2 > Beta 3", "Xperia: 0.9.0-rr.3 Beta 2 > newest Beta, if newer", "This Mac: 0.9.0-rr.2 > 0.9.0-rr.3, restarts last"])
     }
 
     func testPlanIsHiddenWithoutAKnownUpdate() {

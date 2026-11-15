@@ -19,11 +19,11 @@ class ObtainiumTest {
     fun linksMatchTheReleaseScript() {
         assertEquals(prefix + "%7B%5C%22includePrereleases%5C%22%3Afalse%7D%22%7D", Obtainium.link(UpdateChannel.STABLE))
         assertEquals(
-            prefix + "%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22-rr%5B.%5D%5B0-9%5D%2B(-beta%5B.%5D%5B0-9%5D%2B)%3F%24%5C%22%7D%22%7D",
+            prefix + "%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5B0-9%5D%2B%5B.%5D%5B0-9%5D%2B%5B.%5D%5B0-9%5D%2B(-rr%5B.%5D%5B0-9%5D%2B)%3F(-beta%5B.%5D%5B0-9%5D%2B)%3F%24%5C%22%7D%22%7D",
             Obtainium.link(UpdateChannel.BETA),
         )
         assertEquals(
-            prefix + "%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22-rr%5B.%5D%5B0-9%5D%2B(-(beta%7Cnightly)%5B.%5D%5B0-9%5D%2B)%3F%24%5C%22%7D%22%7D",
+            prefix + "%7B%5C%22includePrereleases%5C%22%3Atrue%2C%5C%22filterReleaseTitlesByRegEx%5C%22%3A%5C%22%5B0-9%5D%2B%5B.%5D%5B0-9%5D%2B%5B.%5D%5B0-9%5D%2B(-rr%5B.%5D%5B0-9%5D%2B)%3F(-(beta%7Cnightly)%5B.%5D%5B0-9%5D%2B)%3F%24%5C%22%7D%22%7D",
             Obtainium.link(UpdateChannel.NIGHTLY),
         )
     }
@@ -31,7 +31,7 @@ class ObtainiumTest {
     @Test
     fun webLinkMatchesTheReleaseScript() {
         assertEquals(
-            "https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522-rr%255B.%255D%255B0-9%255D%252B%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D",
+            "https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522%255B0-9%255D%252B%255B.%255D%255B0-9%255D%252B%255B.%255D%255B0-9%255D%252B%28-rr%255B.%255D%255B0-9%255D%252B%29%253F%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D",
             Obtainium.webLink(UpdateChannel.BETA),
         )
     }
@@ -55,14 +55,18 @@ class ObtainiumTest {
     @Test
     fun filtersMatchEachChannelsReleaseTitles() {
         val titles = mapOf(
-            "stable" to "Bridgey by Round Robin 0.6.0-rr.1",
-            "beta" to "Bridgey by Round Robin 0.6.0-rr.1-beta.13",
-            "nightly" to "Bridgey by Round Robin 0.6.0-rr.1-nightly.20261025",
+            "stable" to "Bridgey by Round Robin 1.0.0",
+            "beta" to "Bridgey by Round Robin 1.0.0-beta.2",
+            "nightly" to "Bridgey by Round Robin 1.0.0-nightly.20261116",
+            "stable-0.x" to "Bridgey by Round Robin 0.6.0-rr.1",
+            "beta-0.x" to "Bridgey by Round Robin 0.11.0-rr.1-beta.3",
+            "nightly-0.x" to "Bridgey by Round Robin 0.10.0-rr.1-nightly.20261108",
             "models" to "Bridgey code model (on-device)",
             "channels" to "Update channels",
+            "cli" to "bridgey 0.3.0 (agent command)",
         )
         fun matching(filter: String) = titles.filterValues { Regex(filter).containsMatchIn(it) }.keys
-        assertEquals(setOf("stable", "beta"), matching(Obtainium.BETA_FILTER))
-        assertEquals(setOf("stable", "beta", "nightly"), matching(Obtainium.NIGHTLY_FILTER))
+        assertEquals(setOf("stable", "beta", "stable-0.x", "beta-0.x"), matching(Obtainium.BETA_FILTER))
+        assertEquals(setOf("stable", "beta", "nightly", "stable-0.x", "beta-0.x", "nightly-0.x"), matching(Obtainium.NIGHTLY_FILTER))
     }
 }

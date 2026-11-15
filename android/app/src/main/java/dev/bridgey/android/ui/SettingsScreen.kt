@@ -67,6 +67,7 @@ import dev.bridgey.android.UpdateCardPhase
 import dev.bridgey.android.UpdateChannel
 import dev.bridgey.android.UpdateFeeds
 import dev.bridgey.android.UpdateUiState
+import dev.bridgey.android.VersionNames
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 import dev.bridgey.android.ui.theme.OnBand
@@ -142,6 +143,8 @@ data class SettingsState(
     val transferPaths: List<dev.bridgey.android.TransferPath> = emptyList(),
     val callQuiet: CallQuietSettingsState = CallQuietSettingsState(),
     val smartRouting: SmartRoutingSettingsState = SmartRoutingSettingsState(),
+    /** The installed build number (versionCode), shown next to the version in About. */
+    val installedBuild: Long = 0,
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean =
         if (feature.needsDeviceGrant) globalFeatures[feature] == true else globalFeatures[feature] != false
@@ -763,7 +766,7 @@ private fun AboutPage(state: SettingsState, actions: SettingsActions, listState:
             RowGroup(Modifier.padding(top = 8.dp)) {
                 row { shape ->
                     ListRow(
-                        shape, stringResource(R.string.settings_version), state.installedVersion, BridgeyIcons.Info, Tint.BLUE,
+                        shape, stringResource(R.string.settings_version), VersionNames.full(state.installedVersion, state.installedBuild), BridgeyIcons.Info, Tint.BLUE,
                         // Five taps turn on the Developer and experimental menu; once on, a tap opens it.
                         onClick = actions.versionTapped,
                     )
@@ -1015,7 +1018,7 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
             state.reduceMotion -> SectionSummary(stringResource(R.string.settings_summary_general_reduced))
             else -> SectionSummary(stringResource(R.string.settings_summary_general_background))
         }
-        SettingsSection.ABOUT -> SectionSummary(stringResource(R.string.settings_summary_version, state.installedVersion))
+        SettingsSection.ABOUT -> SectionSummary(stringResource(R.string.settings_summary_version, versionLabel(state.installedVersion)))
         SettingsSection.DEVELOPER -> SectionSummary(stringResource(R.string.settings_summary_developer))
     }
 }
@@ -1024,7 +1027,8 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
 @Composable
 private fun updatesSummary(state: SettingsState): SectionSummary {
     val channel = channelTitle(state.update.channel)
-    val short = { version: String -> UpdateFeeds.shortVersion(version, state.installedVersion) }
+    val words = versionWords()
+    val short = { version: String -> VersionNames.short(version, state.installedVersion, words) }
     val phase = updateCardPhase(state.update)
     val (status, warning) = when (phase) {
         is UpdateCardPhase.Current -> stringResource(
@@ -1340,16 +1344,18 @@ fun UpdatesCard(
 private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, now: Long, actions: SettingsActions, modifier: Modifier) {
     val colors = BridgeyTheme.colors
     val context = LocalContext.current
-    val short = { version: String -> UpdateFeeds.shortVersion(version, installedVersion) }
+    val words = versionWords()
+    val short = { version: String -> VersionNames.short(version, installedVersion, words) }
+    val label = { version: String -> VersionNames.label(version, words) }
     val title = when (phase) {
-        is UpdateCardPhase.Current, is UpdateCardPhase.Waiting, is UpdateCardPhase.Skipped -> stringResource(R.string.updates_current, installedVersion)
+        is UpdateCardPhase.Current, is UpdateCardPhase.Waiting, is UpdateCardPhase.Skipped -> stringResource(R.string.updates_current, label(installedVersion))
         UpdateCardPhase.Checking -> stringResource(R.string.updates_checking)
-        is UpdateCardPhase.Available -> stringResource(R.string.updates_is_ready, phase.update.versionName)
-        is UpdateCardPhase.Confirming -> stringResource(R.string.updates_is_ready, phase.update.versionName)
-        is UpdateCardPhase.Downloading -> stringResource(R.string.updates_downloading, phase.update.versionName)
+        is UpdateCardPhase.Available -> stringResource(R.string.updates_is_ready, label(phase.update.versionName))
+        is UpdateCardPhase.Confirming -> stringResource(R.string.updates_is_ready, label(phase.update.versionName))
+        is UpdateCardPhase.Downloading -> stringResource(R.string.updates_downloading, label(phase.update.versionName))
         is UpdateCardPhase.Failed -> stringResource(R.string.updates_failed)
-        is UpdateCardPhase.Ready -> stringResource(R.string.updates_is_ready, phase.update.versionName)
-        is UpdateCardPhase.Installing -> stringResource(R.string.updates_installing, phase.update.versionName)
+        is UpdateCardPhase.Ready -> stringResource(R.string.updates_is_ready, label(phase.update.versionName))
+        is UpdateCardPhase.Installing -> stringResource(R.string.updates_installing, label(phase.update.versionName))
         is UpdateCardPhase.NotApplied -> stringResource(R.string.updates_not_applied_title)
     }
     val detail: String? = when (phase) {
@@ -1361,7 +1367,7 @@ private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, n
         is UpdateCardPhase.Waiting -> stringResource(R.string.updates_waiting, short(phase.update.versionName))
         is UpdateCardPhase.Skipped -> stringResource(R.string.updates_skipped, short(phase.versionName))
         UpdateCardPhase.Checking -> null
-        is UpdateCardPhase.Available -> stringResource(R.string.updates_you_have, UpdateFeeds.shortVersion(installedVersion, phase.update.versionName))
+        is UpdateCardPhase.Available -> stringResource(R.string.updates_you_have, VersionNames.short(installedVersion, phase.update.versionName, words))
         is UpdateCardPhase.Confirming -> stringResource(R.string.updates_confirm)
         is UpdateCardPhase.Downloading -> stringResource(
             R.string.updates_downloading_detail,
@@ -1371,7 +1377,7 @@ private fun UpdateStatusCard(phase: UpdateCardPhase, installedVersion: String, n
         is UpdateCardPhase.Failed -> updateErrorText(phase.error)
         is UpdateCardPhase.Ready -> stringResource(R.string.updates_ready_detail)
         is UpdateCardPhase.Installing -> stringResource(R.string.updates_installing_detail)
-        is UpdateCardPhase.NotApplied -> stringResource(R.string.updates_not_applied_detail, phase.versionName, installedVersion)
+        is UpdateCardPhase.NotApplied -> stringResource(R.string.updates_not_applied_detail, label(phase.versionName), label(installedVersion))
     }
     val (icon, tint) = when (phase) {
         is UpdateCardPhase.Current -> if (phase.lastCheckedAt > 0) BridgeyIcons.CheckCircle to Tint.GREEN else BridgeyIcons.Refresh to Tint.NEUTRAL
@@ -1521,7 +1527,7 @@ private fun ChannelPicker(selected: UpdateChannel, onSelect: (UpdateChannel) -> 
 private fun Credit(actions: SettingsActions) {
     Column(Modifier.fillMaxWidth().padding(top = 16.dp, start = 24.dp, end = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            stringResource(R.string.about_credit),
+            stringResource(R.string.about_credit, dev.bridgey.android.BuildConfig.UPSTREAM_BASE),
             style = BridgeyType.small.copy(lineHeight = BridgeyType.itemBody.lineHeight),
             color = BridgeyTheme.colors.onSurfaceVariant,
             textAlign = TextAlign.Center,

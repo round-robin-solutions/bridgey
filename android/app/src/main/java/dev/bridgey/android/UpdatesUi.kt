@@ -74,7 +74,7 @@ fun UpdatePrompts(updater: AppUpdater) {
             title = { Text("Update available") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Bridgey by Round Robin ${update.versionName} (${update.channel.title}) is ready to install.")
+                    Text("Bridgey by Round Robin ${VersionNames.label(update.versionName)} is ready to install.")
                     if (update.notes.isNotBlank()) ReleaseNotesList(update.notes, update.versionName)
                     if (update.notesUrl.isNotEmpty()) {
                         TextButton(onClick = { uriHandler.openUri(update.notesUrl) }) { Text("Read release notes") }

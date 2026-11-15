@@ -77,9 +77,25 @@ class UpdateCardPhaseTest {
     }
 
     @Test fun shortVersionKeepsOnlyWhatDiffers() {
-        assertEquals("beta.10", UpdateFeeds.shortVersion("0.6.0-rr.1-beta.10", "0.6.0-rr.1-beta.9"))
-        assertEquals("nightly.20261026", UpdateFeeds.shortVersion("0.6.0-rr.1-nightly.20261026", "0.6.0-rr.1-beta.9"))
-        assertEquals("0.7.0-rr.1-beta.1", UpdateFeeds.shortVersion("0.7.0-rr.1-beta.1", "0.6.0-rr.1-beta.9"))
+        assertEquals("Beta 10", UpdateFeeds.shortVersion("0.6.0-rr.1-beta.10", "0.6.0-rr.1-beta.9"))
+        assertEquals("Nightly 26 Oct", UpdateFeeds.shortVersion("0.6.0-rr.1-nightly.20261026", "0.6.0-rr.1-beta.9"))
+        assertEquals("0.7.0-rr.1 Beta 1", UpdateFeeds.shortVersion("0.7.0-rr.1-beta.1", "0.6.0-rr.1-beta.9"))
         assertEquals("0.6.0-rr.1", UpdateFeeds.shortVersion("0.6.0-rr.1", "0.6.0-rr.1-beta.9"))
+        // 1.0 and later, and across the change from the pre-1.0 names.
+        assertEquals("Beta 2", UpdateFeeds.shortVersion("1.0.0-beta.2", "1.0.0-beta.1"))
+        assertEquals("1.0 Beta 1", UpdateFeeds.shortVersion("1.0.0-beta.1", "0.11.0-rr.1-beta.3"))
+        assertEquals("1.0", UpdateFeeds.shortVersion("1.0.0", "1.0.0-beta.3"))
+        assertEquals("1.0.1", UpdateFeeds.shortVersion("1.0.1", "1.0.0"))
+        assertEquals("1.0.0-dev", UpdateFeeds.shortVersion("1.0.0-dev", "1.0.0-beta.1"))
+        assertEquals("Бета 2", UpdateFeeds.shortVersion("1.0.0-beta.2", "1.0.0-beta.1", VersionWords(beta = "Бета")))
+    }
+
+    @Test fun labelsAreShortAndAboutIsFull() {
+        assertEquals("1.0 Beta 1", VersionNames.label("1.0.0-beta.1"))
+        assertEquals("1.0", VersionNames.label("1.0.0"))
+        assertEquals("1.1 Nightly 16 Nov", VersionNames.label("1.1.0-nightly.20261116"))
+        assertEquals("0.11.0-rr.1 Beta 3", VersionNames.label("0.11.0-rr.1-beta.3"))
+        assertEquals("1.0.0-beta.1 (263201200)", VersionNames.full("1.0.0-beta.1", 263_201_200))
+        assertEquals("1.0.0-dev", VersionNames.full("1.0.0-dev", 0))
     }
 }

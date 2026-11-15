@@ -93,6 +93,13 @@ final class UpdateLogicTests: XCTestCase {
         XCTAssertTrue(UpdateFeeds.versionName("0.6.0-rr.2-nightly.20261025", matches: .nightly))
         XCTAssertFalse(UpdateFeeds.versionName("0.6.0-rr.2-beta.1", matches: .stable))
         XCTAssertFalse(UpdateFeeds.versionName("0.6.0-rc.2", matches: .stable))
+        // From 1.0 the edition has its own semver; the names from before it stay valid.
+        XCTAssertTrue(UpdateFeeds.versionName("1.0.0", matches: .stable))
+        XCTAssertTrue(UpdateFeeds.versionName("1.0.0-beta.2", matches: .beta))
+        XCTAssertTrue(UpdateFeeds.versionName("1.1.0-nightly.20261116", matches: .nightly))
+        XCTAssertFalse(UpdateFeeds.versionName("1.0.0", matches: .beta))
+        XCTAssertFalse(UpdateFeeds.versionName("1.0.0-rc.1", matches: .stable))
+        XCTAssertFalse(UpdateFeeds.versionName("1.0.0-dev", matches: .stable))
     }
 
     func testNeverOffersADowngrade() throws {
@@ -134,13 +141,60 @@ final class UpdateLogicTests: XCTestCase {
         XCTAssertFalse(Edition.identityKeychainService.hasPrefix("dev.bridgey"))
     }
 
-    /// Fixture written by scripts/rr/rrrelease.py so the generator and parser stay in step.
-    func testParsesTheCommittedGeneratorFixture() throws {
+    private func fixture(_ name: String) throws -> Data {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let data = try Data(contentsOf: repoRoot.appendingPathComponent("scripts/rr/testdata/feed-sample/beta.json"))
-        let feed = try UpdateFeeds.parse(data, expectedChannel: .beta, appID: appID, assetURLPrefix: prefix)
-        XCTAssertNotNil(feed.macos)
+        return try Data(contentsOf: repoRoot.appendingPathComponent("scripts/rr/testdata/feed-sample/\(name)"))
+    }
+
+    /// Fixtures written by scripts/rr/rrrelease.py so the generator and parser stay in step.
+    func testParsesTheCommittedGeneratorFixtures() throws {
+        let expected: [(UpdateChannel, String, Int64)] = [
+            (.stable, "1.0.0", 263_241_200), (.beta, "1.0.0-beta.1", 263_201_200), (.nightly, "1.0.0-nightly.20261116", 263_200_900),
+        ]
+        for (channel, version, build) in expected {
+            let feed = try UpdateFeeds.parse(fixture("\(channel.rawValue).json"), expectedChannel: channel, appID: appID, assetURLPrefix: prefix)
+            XCTAssertEqual(feed.macos?.version, version)
+            XCTAssertEqual(feed.android?.version, version)
+            XCTAssertEqual(feed.macos?.build, build)
+        }
+        // The feed as it was published for 0.11.0-rr.1 Beta 3 (no "version" in the entries) still parses.
+        let legacy = try UpdateFeeds.parse(fixture("legacy-0.11-beta.json"), expectedChannel: .beta, appID: appID, assetURLPrefix: prefix)
+        XCTAssertNil(legacy.macos?.version)
+        XCTAssertEqual(legacy.macos?.shortVersion, "0.11.0-rr.1-beta.3")
+        XCTAssertEqual(legacy.macos?.build, Self.beta3Build)
+    }
+
+    /// The build of 0.11.0-rr.1 Beta 3, on every Mac when the 1.0 versions started.
+    private static let beta3Build: Int64 = 263_191_654
+
+    /// Beta 3's feed check, copied from UpdateLogic.swift at v0.11.0-rr.1-beta.3. Sparkle (the appcast) does
+    /// the real updates and compares builds; this keeps the JSON feeds readable by the old parser too.
+    private static func beta3Accepts(_ version: String, _ channel: UpdateChannel) -> Bool {
+        guard version.range(of: #"^\d+\.\d+\.\d+-rr\.\d+(-(beta\.\d+|nightly\.\d{8}))?$"#, options: .regularExpression) != nil else { return false }
+        switch channel {
+        case .stable: return !version.contains("-beta.") && !version.contains("-nightly.")
+        case .beta: return version.contains("-beta.")
+        case .nightly: return version.contains("-nightly.")
+        }
+    }
+
+    func testABeta3ClientReadsThe1_0Feeds() throws {
+        for channel in UpdateChannel.allCases {
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: fixture("\(channel.rawValue).json")) as? [String: Any])
+            let macos = try XCTUnwrap(object["macos"] as? [String: Any])
+            let android = try XCTUnwrap(object["android"] as? [String: Any])
+            XCTAssertTrue(Self.beta3Accepts(try XCTUnwrap(macos["shortVersion"] as? String), channel), channel.rawValue)
+            XCTAssertTrue(Self.beta3Accepts(try XCTUnwrap(android["versionName"] as? String), channel), channel.rawValue)
+            XCTAssertFalse(Self.beta3Accepts(try XCTUnwrap(macos["version"] as? String), channel), "the plain name alone would be skipped")
+            XCTAssertGreaterThan(try XCTUnwrap(macos["build"] as? Int64), Self.beta3Build)
+        }
+        // And the newest build wins across the boundary, as Sparkle orders by CFBundleVersion.
+        let feeds = try UpdateChannel.allCases.map {
+            try UpdateFeeds.parse(fixture("\($0.rawValue).json"), expectedChannel: $0, appID: appID, assetURLPrefix: prefix)
+        } + [UpdateFeeds.parse(fixture("legacy-0.11-beta.json"), expectedChannel: .beta, appID: appID, assetURLPrefix: prefix)]
+        let system = OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+        XCTAssertEqual(UpdateFeeds.newestMacUpdate(installedBuild: Self.beta3Build, feeds: feeds, systemVersion: system)?.macos?.version, "1.0.0")
     }
 
     /// End-to-end dry run: BRIDGEY_RR_FEED_DIR=<dist>/<tag>/channels swift test --filter UpdateLogicTests

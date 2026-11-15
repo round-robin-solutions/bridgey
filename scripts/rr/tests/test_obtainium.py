@@ -21,11 +21,15 @@ PROPS = {
 }
 # Release titles as publish.sh writes them: "<display name> <version>".
 TITLES = {
-    "stable": "Bridgey by Round Robin 0.6.0-rr.1",
-    "beta": "Bridgey by Round Robin 0.6.0-rr.1-beta.13",
-    "nightly": "Bridgey by Round Robin 0.6.0-rr.1-nightly.20261025",
+    "stable": "Bridgey by Round Robin 1.0.0",
+    "beta": "Bridgey by Round Robin 1.0.0-beta.2",
+    "nightly": "Bridgey by Round Robin 1.0.0-nightly.20261116",
+    "stable-0.x": "Bridgey by Round Robin 0.6.0-rr.1",
+    "beta-0.x": "Bridgey by Round Robin 0.11.0-rr.1-beta.3",
+    "nightly-0.x": "Bridgey by Round Robin 0.10.0-rr.1-nightly.20261108",
     "models": "Bridgey code model (on-device)",
     "channels": "Update channels",
+    "cli": "bridgey 0.3.0 (agent command)",
 }
 
 
@@ -72,10 +76,10 @@ class FilterTests(unittest.TestCase):
         return {name for name, title in TITLES.items() if pattern.search(title)}
 
     def test_beta_takes_stable_and_beta(self):
-        self.assertEqual(self.matching("beta"), {"stable", "beta"})
+        self.assertEqual(self.matching("beta"), {"stable", "beta", "stable-0.x", "beta-0.x"})
 
     def test_nightly_takes_every_build_but_nothing_else(self):
-        self.assertEqual(self.matching("nightly"), {"stable", "beta", "nightly"})
+        self.assertEqual(self.matching("nightly"), {"stable", "beta", "nightly", "stable-0.x", "beta-0.x", "nightly-0.x"})
 
     def test_stable_has_no_title_filter_and_excludes_prereleases(self):
         settings = json.loads(decode(obtainium.deep_link("stable", PROPS))["additionalSettings"])

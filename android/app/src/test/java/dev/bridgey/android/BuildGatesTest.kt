@@ -51,6 +51,17 @@ class BuildGatesTest {
         }
     }
 
+    /** Google Play gets plain numbers (1.0.0-beta.3 is 1.0.0 there); the build number stays the versionCode. */
+    @Test
+    fun playVersionNameIsPlainNumbers() {
+        if (play) {
+            assertTrue(BuildConfig.VERSION_NAME, Regex("""^\d+\.\d+\.\d+$""").matches(BuildConfig.VERSION_NAME))
+        } else {
+            assertTrue(BuildConfig.VERSION_NAME, BuildConfig.VERSION_NAME.matches(Regex("""^\d+\.\d+\.\d+.*""")))
+        }
+        assertTrue(BuildConfig.VERSION_CODE > 0)
+    }
+
     @Test
     fun smsCannotBeEnabledByAnUpgradeOrPairedDeviceInPlay() {
         context.getSharedPreferences("bridgey.settings", Context.MODE_PRIVATE).edit()

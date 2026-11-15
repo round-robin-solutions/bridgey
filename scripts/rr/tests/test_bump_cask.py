@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import io
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -38,19 +39,28 @@ end
 
 
 class RewriteTests(unittest.TestCase):
-    def test_rewrites_version_and_sha_only(self):
-        out = bump_cask.rewrite_cask(CASK, "0.6.0-rr.1", NEW_SHA)
-        self.assertIn('  version "0.6.0-rr.1"\n', out)
+    def test_rewrites_version_sha_and_livecheck_only(self):
+        out = bump_cask.rewrite_cask(CASK, "1.0.0", NEW_SHA)
+        self.assertIn('  version "1.0.0"\n', out)
         self.assertIn(f'  sha256 "{NEW_SHA}"\n', out)
-        # Nothing else changed, including the url and livecheck lines that mention versions.
-        self.assertEqual(out.splitlines()[3:], CASK.splitlines()[3:])
+        # The livecheck regex learns the 1.0 tags; nothing else changes, including the url line.
+        self.assertIn(f"    regex({bump_cask.LIVECHECK_REGEX})\n", out)
+        old_lines, new_lines = CASK.splitlines()[3:], out.splitlines()[3:]
+        self.assertEqual([a for a, b in zip(old_lines, new_lines) if a != b], ["    regex(/^v?(\\d+(?:\\.\\d+)+-rr\\.\\d+(?:-beta\\.\\d+)?)$/i)"])
+
+    def test_livecheck_regex_takes_both_tag_schemes(self):
+        pattern = re.compile(bump_cask.LIVECHECK_REGEX[1:-2], re.IGNORECASE)
+        for tag, version in (("v1.0.0", "1.0.0"), ("v1.0.0-beta.2", "1.0.0-beta.2"), ("v0.11.0-rr.1-beta.3", "0.11.0-rr.1-beta.3")):
+            self.assertEqual(pattern.match(tag).group(1), version)
+        for tag in ("nightly-20261116.0900", "cli-v0.3.0", "channels", "models", "v1.0.0-nightly.20261116"):
+            self.assertIsNone(pattern.match(tag), tag)
 
     def test_idempotent(self):
         once = bump_cask.rewrite_cask(CASK, "0.6.0-rr.1-beta.14", NEW_SHA)
         self.assertEqual(bump_cask.rewrite_cask(once, "0.6.0-rr.1-beta.14", NEW_SHA), once)
 
     def test_rejects_bad_input(self):
-        for version in ("1.0", "0.6.0-rr.1-nightly.20261025", "v0.6.0-rr.1", "0.6.0-rr.1-beta", ""):
+        for version in ("1.0", "0.6.0-rr.1-nightly.20261025", "1.0.0-nightly.20261116", "v0.6.0-rr.1", "v1.0.0", "0.6.0-rr.1-beta", "1.0.0-rc.1", ""):
             with self.assertRaises(bump_cask.BumpError, msg=version):
                 bump_cask.rewrite_cask(CASK, version, NEW_SHA)
         for sha in ("", "A" * 64, "b" * 63, "g" * 64):
@@ -66,10 +76,21 @@ class RewriteTests(unittest.TestCase):
 
 class VersionOrderTests(unittest.TestCase):
     def test_order(self):
-        order = ["0.6.0-rr.1-beta.2", "0.6.0-rr.1-beta.13", "0.6.0-rr.1", "0.6.0-rr.2-beta.1", "0.6.1-rr.1-beta.1", "0.10.0-rr.1-beta.1"]
+        order = ["0.6.0-rr.1-beta.2", "0.6.0-rr.1-beta.13", "0.6.0-rr.1", "0.6.0-rr.2-beta.1", "0.6.1-rr.1-beta.1", "0.10.0-rr.1-beta.1",
+                 "0.11.0-rr.1-beta.3", "1.0.0-beta.1", "1.0.0-beta.2", "1.0.0-beta.10", "1.0.0", "1.0.1-beta.1", "1.0.1", "1.1.0-beta.1", "1.1.0"]
         keys = [bump_cask.version_key(v) for v in order]
         self.assertEqual(keys, sorted(keys))
         self.assertEqual(len(set(keys)), len(keys))
+
+    def test_the_1_0_boundary(self):
+        # The cask still names a pre-1.0 beta: the first 1.0 beta and the 1.0 stable move it forward ...
+        self.assertIn('version "1.0.0-beta.1"', bump_cask.apply_to_text(CASK, "1.0.0-beta.1", NEW_SHA, force=False))
+        on_stable = bump_cask.apply_to_text(CASK, "1.0.0", NEW_SHA, force=False)
+        self.assertIn('version "1.0.0"', on_stable)
+        # ... and nothing older (a 1.0 beta, or the last 0.x beta) can move it back without --force.
+        for older in ("1.0.0-beta.3", "0.11.0-rr.1-beta.3"):
+            with self.assertRaises(bump_cask.BumpError, msg=older):
+                bump_cask.apply_to_text(on_stable, older, OLD_SHA, force=False)
 
     def test_apply_refuses_older_unless_forced(self):
         with self.assertRaises(bump_cask.BumpError):
@@ -77,7 +98,10 @@ class VersionOrderTests(unittest.TestCase):
         self.assertIn("beta.12", bump_cask.apply_to_text(CASK, "0.6.0-rr.1-beta.12", NEW_SHA, force=True))
 
     def test_apply_returns_none_when_unchanged(self):
-        self.assertIsNone(bump_cask.apply_to_text(CASK, "0.6.0-rr.1-beta.13", OLD_SHA, force=False))
+        # The first run still widens the old livecheck regex; after that the same release changes nothing.
+        widened = bump_cask.apply_to_text(CASK, "0.6.0-rr.1-beta.13", OLD_SHA, force=False)
+        self.assertIn(bump_cask.LIVECHECK_REGEX, widened)
+        self.assertIsNone(bump_cask.apply_to_text(widened, "0.6.0-rr.1-beta.13", OLD_SHA, force=False))
 
     def test_stable_replaces_beta(self):
         self.assertIn('version "0.6.0-rr.1"', bump_cask.apply_to_text(CASK, "0.6.0-rr.1", NEW_SHA, force=False))

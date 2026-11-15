@@ -1,5 +1,6 @@
 /* Bridgey by Round Robin: user-visible text. Russian is in ru.lproj. */
 "about.credit" = "Built on Bridgey by Semyon Mikhailov (MIT)";
+"about.credit.base" = "Built on Bridgey %@ by Semyon Mikhailov (MIT)";
 "about.credit.short" = "Built on Bridgey by Semyon Mikhailov (MIT)";
 "about.fonts" = "Fonts";
 "about.fonts.detail" = "Space Grotesk and Inter, under the SIL Open Font License 1.1.";
@@ -561,6 +562,8 @@
 "updates.releaseNotes" = "Release notes";
 "updates.unavailable" = "Updates work only in the installed app.";
 "updates.version" = "Version %@";
+"version.beta" = "Beta";
+"version.nightly" = "Nightly";
 "welcome.body" = "Keep both devices on the same local network. Choose a device, compare the pairing code, and confirm it on both devices. Optional permissions are requested only when you use the related feature.";
 "welcome.continue" = "Get started";
 "welcome.continue.hint" = "Closes the welcome guide and starts device discovery";

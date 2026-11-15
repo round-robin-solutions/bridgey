@@ -52,7 +52,20 @@ with Hardened Runtime and a secure timestamp, submits the DMG through
 Release notes should retain the acknowledgement: “Built with the assistance of
 OpenAI Codex.”
 
-## Bridgey by Round Robin: Update all
+## Bridgey by Round Robin
+
+Versions: 1.0.0, 1.0.0-beta.2, 1.0.0-nightly.YYYYMMDD ([rr-edition.md](rr-edition.md#versions)). Every beta
+and stable release is in [CHANGELOG.md](../CHANGELOG.md).
+
+```sh
+python3 scripts/rr/cut-release.py beta --notes-file notes.md --push   # next beta of EDITION_NEXT_VERSION
+python3 scripts/rr/cut-release.py promote --push                      # Stable, only when Rahul says so
+```
+
+Leave out `--push` to see the tag, the notes and the changelog entry first. Pushing the tag starts the RR CI
+release, which builds, publishes and updates the feeds ([rr-edition.md](rr-edition.md#releasing)).
+
+### Update all
 
 The edition releases with `scripts/rr/release.sh` (see [rr-edition.md](rr-edition.md#releasing)).
 Update all on a device starts each connected device's own updater, so a release reaches it only

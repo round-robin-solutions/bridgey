@@ -16,6 +16,17 @@ enum Edition {
     /// belongs to upstream Bridgey, so this edition never reads it.
     static let legacyPreferencesSuite: String? = nil
     static let upstreamProjectURL = URL(string: "https://github.com/singeol/bridgey")!
+    /// The upstream release this edition is built on (rr-edition.properties EDITION_UPSTREAM_BASE, put in
+    /// Info.plist by build-app.sh); nil in `swift run` builds.
+    static var upstreamBase: String? {
+        (Bundle.main.object(forInfoDictionaryKey: "BridgeyUpstreamBase") as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// About's credit line: "Built on Bridgey 0.6.0-rc.2 by Semyon Mikhailov (MIT)".
+    static var credit: String {
+        guard let upstreamBase else { return L10n.text("about.credit", fallback: "Built on Bridgey by Semyon Mikhailov (MIT)") }
+        return String(format: L10n.text("about.credit.base", fallback: "Built on Bridgey %@ by Semyon Mikhailov (MIT)"), upstreamBase)
+    }
 }
 
 /// A throwaway second Bridgey on a Mac that already runs one, for live tests (Connect anywhere over the public
