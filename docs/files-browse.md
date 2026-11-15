@@ -29,6 +29,15 @@ media and documents the way Telegram shows them, and media from the phone that f
   - Download (to Received files), drag out to Finder (file promises; each item downloads into the
     folder Finder names), drag in from Finder (upload into the open folder), Show in Finder.
     Remembers the last phone, section, place, path and sort.
+  - Copy and Download come as Optimised or Original. Command-C and the Download button use the default
+    from Settings > Files > Copy and download from the phone (Optimised unless changed); Option-Command-C,
+    the Download button's menu and the item menu (hold Option to swap each pair) pick the other. Copy puts
+    file URLs on the pasteboard, as Finder does, once every item has arrived; Automatic clipboard does not
+    send them back. Optimised fetches the verified original into the private cache, then runs the send
+    optimiser with the Before sending settings (2048 px JPEG 80 and 1080p where those keep originals,
+    folders never zipped); a copy that is not smaller, documents and folders stay the original. Download
+    Original, and a Download of documents only, is the usual resumable download. The phone's
+    `media.preview` is not used: it is an unverified display image of at most 1 MiB.
   - The grid is an AppKit collection view and the thumbnails a small pipeline (parallel requests that
     follow the screen, retries, a "No preview" or "Couldn't load" mark instead of a blank cell, bounded
     memory). Why and how: [files-browse-performance.md](files-browse-performance.md).
@@ -37,6 +46,8 @@ media and documents the way Telegram shows them, and media from the phone that f
 - **Send to device** sheet (replaces the system panel for Send Files or Folders): recent files
   from Downloads, Desktop and Documents, recent screenshots, drop anywhere, **Browse…** as the
   fallback, target chips, the optimisation chip.
+  File selection uses Shift-click ranges, modifier-click toggles and scoped keyboard navigation
+  in both apps. [Selection shortcuts and limits](file-selection.md).
 - **Menu-bar drops** (Settings › Files › "When I drop on the menu-bar icon"): show devices and
   Tray (default; tiles after 0.5 s of hover, a quick drop sends to the last device with a 5 s
   Undo toast and Send to…), always collect in the Tray, or always send at once.
@@ -160,6 +171,8 @@ names). On the phone, Perfetto or `adb logcat` around opening the attach sheet.
 - Deleting, renaming and New Folder from the Phone files window.
 - Hover prefetch on relay and metered routes (off until routes are classified).
 - Several downloads in a row are asked one at a time.
+- Copy and Download Optimised fetch like Quick Look (private cache, no resume after a disconnect;
+  Retry is offered). At most 100 items per Copy, as for downloads.
 
 ## 6. Device checklist (OnePlus 11 with the personal Mac)
 
@@ -176,4 +189,5 @@ names). On the phone, Perfetto or `adb logcat` around opening the attach sheet.
 | 9 | Menu-bar drop modes, Tray across a restart, Undo | As in section 1 |
 | 10 | Optimised send of an iPhone photo (1280 px WebP) | WebP on the phone, no location |
 | 11 | History search and Show in Finder; Forget device | Entries found; Forget removes that phone's entries |
-| 12 | `adb logcat` and Console during 1 to 11 | No file names, paths or place labels |
+| 12 | Select three photos and a video, Command-C, paste in Finder, Mail and Messages; Option-Command-C, paste again | Smaller copies first, then the originals; nothing appears on the phone's clipboard |
+| 13 | `adb logcat` and Console during 1 to 12 | No file names, paths or place labels |

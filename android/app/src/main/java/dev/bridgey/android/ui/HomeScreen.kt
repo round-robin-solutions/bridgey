@@ -89,6 +89,7 @@ data class HomeState(
     val rediscovering: Boolean = false,
     /** Files can go to the target: the attach button opens the attach sheet. */
     val canAttach: Boolean = false,
+    val targetDetail: String? = null,
 )
 
 class HomeActions(
@@ -359,7 +360,7 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
                     DeviceGlyph(RingStyle.OFFLINE, BridgeyIcons.LaptopMac, 36.dp, iconSize = 16.dp)
                 }
                 Column(Modifier.weight(1f, fill = false)) {
-                    Text(stringResource(R.string.composer_send_to), style = BridgeyType.tinyLabel, color = colors.onSurfaceVariant)
+                    Text(state.targetDetail ?: stringResource(R.string.composer_send_to), style = BridgeyType.tinyLabel, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         target?.name ?: stringResource(R.string.composer_no_device),
                         style = BridgeyType.label,
@@ -376,7 +377,7 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
                 containerColor = colors.surface2,
                 shape = RoundedCornerShape(20.dp),
             ) {
-                state.rings.filter { it.trusted && it.deviceId != null }.forEach { ring ->
+                state.rings.filter { it.trusted && it.deviceId != null && !it.isAgent }.forEach { ring ->
                     DropdownMenuItem(
                         text = {
                             Column {

@@ -148,16 +148,32 @@ enum MediaResolution: Equatable {
     }
 }
 
+typealias MediaOperationResult = (state: (snapshot: MediaSnapshot, commandOK: Bool, readOK: Bool),
+                                 name: String, shown: String?, fallback: MediaPlayer?)
+/// The default runner uses a serial queue. Tests can finish operations explicitly without
+/// sending Apple events or media commands to an app running on the test machine.
+typealias MediaOperationRunner = @MainActor (
+    _ player: MediaPlayer, _ command: (action: String, value: String)?, _ previous: MediaSnapshot,
+    _ work: @escaping @Sendable (MediaSnapshot) -> MediaOperationResult,
+    _ completion: @escaping @MainActor (MediaOperationResult) -> Void
+) -> Void
+
 @MainActor
 final class MediaController: ObservableObject {
     @Published var player: MediaPlayer {
         didSet {
-            UserDefaults.standard.set(player.rawValue, forKey: "media.player")
-            generation += 1; shown = nil; scriptedFallback = nil; updateChoices(); refresh()
+            defaults.set(player.rawValue, forKey: "media.player")
+            generation += 1; shown = nil; scriptedFallback = nil
+            pendingPause = callActive && pauseForCalls && player != .off
+            updateChoices()
+            if busy { pendingRefresh = true } else { refresh() }
         }
     }
     @Published var pauseForCalls: Bool {
-        didSet { UserDefaults.standard.set(pauseForCalls, forKey: "media.pauseForCalls") }
+        didSet {
+            defaults.set(pauseForCalls, forKey: "media.pauseForCalls")
+            if pauseForCalls != oldValue { requestCallPause() }
+        }
     }
     @Published private(set) var snapshot = MediaSnapshot()
     /// The player menu: Off, Automatic, Music, Spotify, then other apps on this Mac or seen in Now Playing.
@@ -170,18 +186,32 @@ final class MediaController: ObservableObject {
     private var generation = 0
     private var callActive = false
     private var pendingPause = false
+    private var pendingRefresh = false
     /// The Now Playing app last shown, so a command only reaches the app the phone was showing.
     private var shown: String?
     /// Automatic fell back to this AppleScript player on the last read.
     private var scriptedFallback: MediaPlayer?
     private var choicesUpdated = Date.distantPast
-    private let queue = DispatchQueue(label: "\(Edition.identifier).media")
+    private let defaults: UserDefaults
+    private let isRunning: @Sendable (MediaPlayer) -> Bool
+    private let runOperation: MediaOperationRunner
     private static let seenKey = "media.seenPlayers"
 
-    init() {
+    init(defaults: UserDefaults = .standard,
+         isRunning: (@Sendable (MediaPlayer) -> Bool)? = nil,
+         runOperation: MediaOperationRunner? = nil) {
+        self.defaults = defaults
+        self.isRunning = isRunning ?? { Self.running($0) }
+        let queue = DispatchQueue(label: "\(Edition.identifier).media")
+        self.runOperation = runOperation ?? { _, _, previous, work, completion in
+            queue.async {
+                let result = work(previous)
+                DispatchQueue.main.async { completion(result) }
+            }
+        }
         // Saved choices from before the picker (`off`, `music`, `spotify`) read the same; anything unreadable is Off.
-        player = MediaPlayer(rawValue: UserDefaults.standard.string(forKey: "media.player") ?? "") ?? .off
-        pauseForCalls = UserDefaults.standard.bool(forKey: "media.pauseForCalls")
+        player = MediaPlayer(rawValue: defaults.string(forKey: "media.player") ?? "") ?? .off
+        pauseForCalls = defaults.bool(forKey: "media.pauseForCalls")
         updateChoices()
     }
 
@@ -194,28 +224,44 @@ final class MediaController: ObservableObject {
         perform((action, value), completion: completion)
     }
     func callChanged(active: Bool) {
-        let shouldPause = active && !callActive && pauseForCalls
+        let started = active && !callActive
         callActive = active
         if !active { pendingPause = false }
-        if shouldPause {
-            if busy { pendingPause = true }
-            else { command(action: "pause", value: "", completion: { _ in }) }
-        }
+        if started { requestCallPause() }
     }
-    func reset() { generation += 1; pendingPause = false; shown = nil; scriptedFallback = nil; snapshot = MediaSnapshot(); playingName = "" }
+    func reset() { generation += 1; pendingPause = false; pendingRefresh = false; shown = nil; scriptedFallback = nil; snapshot = MediaSnapshot(); playingName = "" }
+
+    private func requestCallPause() {
+        guard callActive, pauseForCalls, player != .off else { pendingPause = false; return }
+        pendingPause = true
+        // Automatic needs to know its target first. Resolve it once, then use the same
+        // expected-app check as an ordinary media command; never send a blind Play/Pause key.
+        if !busy, player == .automatic, shown == nil, scriptedFallback == nil { refresh() }
+        else { finishPendingWork() }
+    }
+
+    private func finishPendingWork() {
+        guard !busy else { return }
+        // A player change during an old read invalidates that result. Read the new player
+        // before pausing, especially Automatic whose target is supplied by the read.
+        if pendingRefresh { pendingRefresh = false; refresh(); return }
+        guard pendingPause else { return }
+        pendingPause = false
+        if callActive && pauseForCalls { command(action: "pause", value: "", completion: { _ in }) }
+    }
 
     func updateChoices() {
         choicesUpdated = Date()
-        let seen = UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? []
+        let seen = defaults.stringArray(forKey: Self.seenKey) ?? []
         let updated = MediaApps.choices(current: player, seen: seen, onMac: MediaApps.onMac)
         if updated != choices { choices = updated }
     }
 
     private func remember(_ bundleID: String) {
-        let seen = UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? []
+        let seen = defaults.stringArray(forKey: Self.seenKey) ?? []
         let updated = MediaApps.remember(bundleID, in: seen)
         guard updated != seen else { return }
-        UserDefaults.standard.set(updated, forKey: Self.seenKey)
+        defaults.set(updated, forKey: Self.seenKey)
         updateChoices()
     }
 
@@ -234,7 +280,7 @@ final class MediaController: ObservableObject {
         let selected = player
         if selected.scripted || (selected == .automatic && scriptedFallback != nil && command != nil) {
             let target = selected.scripted ? selected : scriptedFallback ?? selected
-            guard Self.running(target) else {
+            guard isRunning(target) else {
                 snapshot = MediaSnapshot(detail: "Open \(target.title) on your Mac")
                 onState(snapshot.payload(player: target.title)); completion(false); return
             }
@@ -243,7 +289,7 @@ final class MediaController: ObservableObject {
             }
             return
         }
-        if case .app = selected, !Self.running(selected) {
+        if case .app = selected, !isRunning(selected) {
             snapshot = MediaSnapshot(detail: "Open \(selected.title) on your Mac")
             onState(snapshot.payload(player: selected.title)); completion(false); return
         }
@@ -258,36 +304,27 @@ final class MediaController: ObservableObject {
     /// One read (and command) on the media queue. `work` returns the state, the name the phone shows,
     /// the Now Playing app shown and the AppleScript player Automatic fell back to.
     private func run(_ selected: MediaPlayer, command: (action: String, value: String)?, completion: @escaping (Bool) -> Void,
-                     work: @escaping @Sendable (MediaSnapshot) -> (state: (snapshot: MediaSnapshot, commandOK: Bool, readOK: Bool),
-                                                                 name: String, shown: String?, fallback: MediaPlayer?)) {
+                     work: @escaping @Sendable (MediaSnapshot) -> MediaOperationResult) {
         busy = true
         let epoch = generation
         let previous = snapshot
-        queue.async {
-            let result = work(previous)
-            DispatchQueue.main.async {
-                self.busy = false
-                defer {
-                    if self.pendingPause && self.callActive && self.pauseForCalls {
-                        self.pendingPause = false
-                        self.command(action: "pause", value: "", completion: { _ in })
-                    }
-                }
-                guard epoch == self.generation, self.allowed(), self.player == selected else {
-                    completion(false)
-                    return
-                }
-                if command != nil { completion(result.state.commandOK) }
-                self.shown = result.shown
-                if selected == .automatic {
-                    self.scriptedFallback = result.fallback
-                    self.playingName = result.state.snapshot.detail.isEmpty ? result.name : ""
-                }
-                if let shown = result.shown { self.remember(shown) }
-                self.snapshot = result.state.snapshot
-                self.onState(result.state.snapshot.payload(player: result.name))
-                if command == nil { completion(result.state.readOK) }
+        runOperation(selected, command, previous, work) { result in
+            self.busy = false
+            defer { self.finishPendingWork() }
+            guard epoch == self.generation, self.allowed(), self.player == selected else {
+                completion(false)
+                return
             }
+            if command != nil { completion(result.state.commandOK) }
+            self.shown = result.shown
+            if selected == .automatic {
+                self.scriptedFallback = result.fallback
+                self.playingName = result.state.snapshot.detail.isEmpty ? result.name : ""
+            }
+            if let shown = result.shown { self.remember(shown) }
+            self.snapshot = result.state.snapshot
+            self.onState(result.state.snapshot.payload(player: result.name))
+            if command == nil { completion(result.state.readOK) }
         }
     }
 

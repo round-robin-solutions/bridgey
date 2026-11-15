@@ -38,10 +38,12 @@ enum BridgeyWindows {
     }
 
     /// Runs one fade; `completion` may run late or never (tests replace it).
-    static var animateAlpha: (_ window: NSWindow, _ alpha: CGFloat, _ duration: TimeInterval, _ completion: @escaping @Sendable () -> Void) -> Void = {
-        window, alpha, duration, completion in
+    static var animateAlpha: (_ window: NSWindow, _ alpha: CGFloat, _ duration: TimeInterval, _ timing: CAMediaTimingFunction?,
+                              _ completion: @escaping @Sendable () -> Void) -> Void = {
+        window, alpha, duration, timing, completion in
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = duration
+            context.timingFunction = timing
             window.animator().alphaValue = alpha
         }, completionHandler: completion)
     }
@@ -75,25 +77,26 @@ enum BridgeyWindows {
     /// Fades `window` out, then orders it out. The window always ends ordered out: on a locked or
     /// sleeping screen at once, otherwise when the fade ends or at the deadline, whichever is first.
     /// A show (`cancelFade`) or another fade in between wins.
-    static func fadeOut(_ window: NSWindow?, duration: TimeInterval = 0.15) {
+    static func fadeOut(_ window: NSWindow?, duration: TimeInterval = 0.15, timing: CAMediaTimingFunction? = nil) {
         guard let window else { return }
         guard window.isVisible, duration > 0, !screenUnavailable() else {
             orderOut(window)
             return
         }
         detachTransients(of: window)
-        fade(window, to: 0, duration: duration) { [weak window] in orderOut(window) }
+        fade(window, to: 0, duration: duration, timing: timing) { [weak window] in orderOut(window) }
     }
 
     /// Fades `window` in from where it is; it is fully shown at the deadline even if the fade stalls.
-    static func fadeIn(_ window: NSWindow, duration: TimeInterval = 0.15, completion: (() -> Void)? = nil) {
+    static func fadeIn(_ window: NSWindow, duration: TimeInterval = 0.15, timing: CAMediaTimingFunction? = nil,
+                       completion: (() -> Void)? = nil) {
         guard duration > 0, !screenUnavailable() else {
             cancelFade(window)
             window.alphaValue = 1
             completion?()
             return
         }
-        fade(window, to: 1, duration: duration) { [weak window] in
+        fade(window, to: 1, duration: duration, timing: timing) { [weak window] in
             guard let window else { return }
             window.alphaValue = 1
             completion?()
@@ -107,7 +110,8 @@ enum BridgeyWindows {
         pendingFades.removeValue(forKey: key)
     }
 
-    private static func fade(_ window: NSWindow, to alpha: CGFloat, duration: TimeInterval, then finish: @escaping () -> Void) {
+    private static func fade(_ window: NSWindow, to alpha: CGFloat, duration: TimeInterval, timing: CAMediaTimingFunction?,
+                             then finish: @escaping () -> Void) {
         let key = ObjectIdentifier(window)
         let generation = fadeGenerations[key, default: 0] + 1
         fadeGenerations[key] = generation
@@ -115,7 +119,7 @@ enum BridgeyWindows {
         DispatchQueue.main.asyncAfter(deadline: .now() + fadeDeadline) {
             MainActor.assumeIsolated { finishFade(key, generation) }
         }
-        animateAlpha(window, alpha, duration) {
+        animateAlpha(window, alpha, duration, timing) {
             DispatchQueue.main.async { MainActor.assumeIsolated { finishFade(key, generation) } }
         }
     }

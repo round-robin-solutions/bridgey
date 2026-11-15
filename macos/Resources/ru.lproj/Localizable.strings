@@ -386,6 +386,7 @@
 "settings.quickActions" = "Быстрые действия";
 "settings.receivedFiles" = "Полученные файлы";
 "settings.reduceMotion" = "Меньше движения";
+"settings.panelMotion" = "Анимировать панель в строке меню";
 "settings.reduceMotion.detail" = "Плавная смена экранов без движения и отскоков";
 "settings.remoteControl" = "Удалённое управление";
 "settings.shortcut" = "Сочетание клавиш";
@@ -807,6 +808,10 @@
 "settings.folders.conflict.newFolder" = "Сохранить как новую папку";
 "settings.files.tag" = "Помечать полученные файлы в Finder";
 "settings.files.tag.detail" = "Добавляет тег Bridgey, чтобы Finder мог показать всё полученное с других устройств.";
+"settings.phoneFiles.quality" = "Копирование и загрузка с телефона";
+"settings.phoneFiles.quality.note" = "Оптимизация берёт размеры из «Перед отправкой». Если там выбран исходный размер, фото уменьшаются до 2048 пикс., а видео до 1080p. Файлы, которые не станут меньше, остаются как есть.";
+"settings.phoneFiles.quality.optimized" = "Оптимизированное";
+"settings.phoneFiles.quality.original" = "Оригинал";
 
 /* Files 2.0: transfer engine (Mac engine agent adds below) */
 "folders.upload.items" = "%1$@ и ещё %2$@";
@@ -864,7 +869,6 @@
 "phonefiles.day.unknown" = "Раньше";
 "phonefiles.day.yesterday" = "Вчера";
 "phonefiles.download" = "Загрузить";
-"phonefiles.download.help" = "Сохранить в «Полученные файлы»";
 "phonefiles.drop.add" = "Отпустите, чтобы добавить в %1$@ на %2$@";
 "phonefiles.entry" = "Файлы телефона";
 "phonefiles.entry.help" = "Фото, документы и папки на телефоне";
@@ -937,6 +941,16 @@
 "phonefiles.sort.name" = "Имя";
 "phonefiles.sort.size" = "Размер";
 "phonefiles.window" = "Файлы телефона";
+"phonefiles.activity.copy" = "Копирование: %@";
+"phonefiles.copied" = "%@: скопировано в буфер обмена";
+"phonefiles.copy" = "Скопировать";
+"phonefiles.copy.optimized" = "Скопировать оптимизированное";
+"phonefiles.copy.original" = "Скопировать оригинал";
+"phonefiles.download.choose" = "Выбрать вариант загрузки";
+"phonefiles.download.help.optimized" = "Сохранить уменьшенные копии в «Полученные файлы»";
+"phonefiles.download.help.original" = "Сохранить оригиналы в «Полученные файлы»";
+"phonefiles.download.optimized" = "Загрузить оптимизированное";
+"phonefiles.download.original" = "Загрузить оригинал";
 
 /* Files 2.0: send sheet, Tray, menu-bar drops, send options (send UX agent adds below) */
 "sendsheet.window" = "Отправить на устройство";
@@ -969,7 +983,7 @@
 "tray.title" = "Лоток";
 "drop.tiles.collect" = "Собрать и отправить позже";
 "drop.tiles.trayCount" = "Ждут отправки: %d";
-"settings.drop.note" = "Если при перетаскивании задержаться над значком, откроется панель с плиткой для каждого устройства и лотка.";
+"settings.drop.note" = "Наведите файл на значок, чтобы выбрать устройство. Быстрое перетаскивание использует последнее подключённое устройство, на которое вы отправляли файлы, затем выбранное, затем первое подключённое. Перетащите на плитку с именем, чтобы изменить последнее устройство, или выберите сбор в лоток, чтобы решить позже.";
 "settings.drop" = "Перетаскивание на значок в строке меню";
 "settings.drop.spring" = "Показать устройства и лоток";
 "settings.drop.tray" = "Всегда собирать в лоток";
@@ -1706,6 +1720,44 @@
 "tailscale.action.install" = "Установить Tailscale";
 "tailscale.action.check" = "Проверить снова";
 "tailscale.action.help" = "Инструкция";
+"callMedia.counts" = "Приостановлено: %d, без звука: %d";
+"callMedia.detail" = "При начале звонка приостанавливать поддерживаемые плееры на разрешённых устройствах. Запуск вручную остаётся доступен.";
+"callMedia.grant" = "Разрешить статус звонков и приглушение медиа";
+"callMedia.limited" = "Некоторыми приложениями нельзя управлять";
+"callMedia.limits" = "Разрешите каждое устройство в разделе «Устройства». Music и Spotify управляются отдельно; другие приложения могут иметь ограничения. Звук звонка защищён. Для звонков Mac без интеграции используйте отметку ниже.";
+"callMedia.manual" = "Статус звонка на этом Mac";
+"callMedia.manual.detail" = "Ручная отметка для FaceTime, Zoom и звонков в браузере. Она никогда не отвечает на настоящий звонок и не завершает его.";
+"callMedia.manual.short" = "Звонок на этом Mac";
+"callMedia.mode" = "Во время звонка";
+"callMedia.mode.mute" = "Только без звука";
+"callMedia.mode.pause" = "Только пауза";
+"callMedia.mode.pauseMute" = "Пауза, затем без звука, если пауза недоступна";
+"callMedia.notAllowed" = "Не включено на обоих устройствах или нет разрешения на этом Mac";
+"callMedia.off" = "Приглушение медиа во время звонков выключено";
+"callMedia.offCall" = "Я закончил звонок";
+"callMedia.onCall" = "Я на звонке";
+"callMedia.ownership" = "Восстанавливаются только изменения Bridgey. Выбранные позже воспроизведение, громкость и выход не меняются.";
+"callMedia.restore" = "После последнего звонка";
+"callMedia.restore.manual" = "Звук и воспроизведение вернуть вручную";
+"callMedia.restore.resume" = "Вернуть звук и продолжить воспроизведение";
+"callMedia.restore.sound" = "Вернуть звук, оставить на паузе";
+"callMedia.title" = "Приглушать медиа во время звонков";
+"callMedia.waiting" = "Ожидание результата воспроизведения с этого устройства";
+
+"callMedia.recovery" = "Откройте %@, верните громкость (раньше %d%%), затем проверьте восстановление звука или повторите полный сброс.";
+"callMedia.recovery.check" = "Проверить восстановление звука";
+"callMedia.reset.failed" = "Не удалось проверить восстановление звука. Данные восстановления сохранены. Проверьте громкость Music и Spotify и доступ к автоматизации, затем повторите полный сброс.";
+"callMedia.reset.fix" = "Верните звук в %@ или исправьте доступ к автоматизации, затем повторите полный сброс. Данные восстановления сохранены.";
+"callMedia.reset.restoring" = "Восстанавливаем звук медиа перед полным сбросом…";
+
+"files.selection.help" = "Shift + щелчок: выбрать диапазон. ⌘ + щелчок: выбрать или снять выбор файла. ⌘A: выбрать все. Esc: снять выбор.";
+
+"sendsheet.selection" = "Файлы для отправки";
+"callMedia.restore.macManual" = "Вернуть звук, продолжить вручную";
+"callMedia.recovery.temporary" = "Bridgey не удалось завершить восстановление звука %@. Нажмите «Вернуть звук».";
+"callMedia.restore.backup" = "Вернуть звук";
+"callMedia.restore.backup.detail" = "Снять временное отключение звука Bridgey без запуска воспроизведения. Работает и во время звонка.";
+"callMedia.audioAccess" = "Для отключения звука на Mac нужна macOS 14.2 или новее и доступ к записи системного аудио. Звук обрабатывается в памяти и сразу удаляется; ничего не записывается и не отправляется.";
 
 /* Local-only agent code access */
 "localCodes.title" = "Коды для локальных агентов";

@@ -176,13 +176,16 @@ final class PhoneMediaGridController: NSObject, NSCollectionViewDataSource, NSCo
         if firstModel || model.mediaRevision != revision {
             revision = model.mediaRevision
             sections = PhoneMediaSections.make(model.listing(.media).entries, now: model.displayNow ?? Date())
+            applyingSelection = true
             collectionView.reloadData()
+            applyingSelection = false
             scheduleReport()
             if firstModel {
                 // Space, Return and the arrows work at once, without clicking into the grid first.
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        guard let view = self?.collectionView, let window = view.window, !(window.firstResponder is NSTextView) else { return }
+                        guard let view = self?.collectionView, let window = view.window,
+                              !(window.firstResponder is NSTextView), !(window.firstResponder is NSControl) else { return }
                         window.makeFirstResponder(view)
                     }
                 }
@@ -285,13 +288,23 @@ final class PhoneMediaGridController: NSObject, NSCollectionViewDataSource, NSCo
             }
             return true
         }
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "a" {
+            guard model.selectAll() else { return false }
+            applySelection(model.selection)
+            return true
+        }
         switch event.keyCode {
         case 49 where flags.isEmpty:
             model.togglePreview()
             return true
         case 36, 76:
+            guard flags.isEmpty else { return false }
             if let first = collectionView.selectionIndexPaths.sorted().first, let entry = sections.entry(at: first) { model.activate(entry) }
             return true
+        case 53 where flags.isEmpty:
+            let changed = model.clearSelection()
+            applySelection(model.selection)
+            return changed
         default:
             return false
         }
@@ -348,7 +361,8 @@ final class PhoneGridCollectionView: NSCollectionView {
     var onKey: ((NSEvent) -> Bool)?
 
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2, let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
+        if event.clickCount == 2, event.modifierFlags.intersection([.command, .shift]).isEmpty,
+           let indexPath = indexPathForItem(at: convert(event.locationInWindow, from: nil)) {
             onActivate?(indexPath)
             return
         }
@@ -367,6 +381,12 @@ final class PhoneGridCollectionView: NSCollectionView {
     override func keyDown(with event: NSEvent) {
         if onKey?(event) == true { return }
         super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder === self else { return false }
+        if onKey?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
     }
 
     override var acceptsFirstResponder: Bool { true }

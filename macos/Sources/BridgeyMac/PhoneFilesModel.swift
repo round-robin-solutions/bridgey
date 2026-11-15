@@ -11,6 +11,8 @@ enum PhoneFilesSection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum PhoneFileSelectionMove { case previous, next, first, last }
+
 /// One listing (a section, or the open folder) with paging.
 struct PhoneListing: Equatable {
     var entries: [PhoneFileEntry] = []
@@ -50,15 +52,17 @@ struct PhonePreviewState: Equatable {
 
 /// A download or upload running from this window, shown in the status strip.
 struct PhoneFilesActivity: Identifiable, Equatable {
-    enum Kind { case download, upload, quickLook }
+    enum Kind { case download, upload, quickLook, copy }
     let id: String
     let kind: Kind
     let title: String
     var progress: PhoneTransferProgress
     var cancellable: PhoneFilesCancellable?
+    /// Shown instead of the transfer progress once the bytes are in ("Optimising 1 of 3").
+    var stage: String?
 
     static func == (lhs: PhoneFilesActivity, rhs: PhoneFilesActivity) -> Bool {
-        lhs.id == rhs.id && lhs.title == rhs.title && lhs.progress == rhs.progress
+        lhs.id == rhs.id && lhs.title == rhs.title && lhs.progress == rhs.progress && lhs.stage == rhs.stage
     }
 }
 
@@ -76,6 +80,7 @@ final class PhoneFilesModel: ObservableObject {
     @Published private(set) var listings: [PhoneFilesSection: PhoneListing] = [:] {
         didSet {
             if oldValue[.media]?.entries != listings[.media]?.entries { mediaRevision &+= 1 }
+            if oldValue[section]?.entries != listings[section]?.entries { pruneSelection() }
         }
     }
     /// Bumps whenever the Photos and Videos entries change: the grid rebuilds its day sections only then.
@@ -85,6 +90,8 @@ final class PhoneFilesModel: ObservableObject {
     @Published private(set) var sort: PhoneFileSort = .name
     @Published private(set) var descending = false
     @Published var selection: Set<String> = []
+    @Published private(set) var selectionFocus: String?
+    @Published private(set) var keyboardSelection = false
     @Published private(set) var saved: [String: URL] = [:]
     @Published private(set) var activities: [PhoneFilesActivity] = []
     @Published var preview: PhonePreviewState?
@@ -104,9 +111,17 @@ final class PhoneFilesModel: ObservableObject {
     private let listingCache: PhoneListingCache
     private let receivedFolder: () -> URL
     private let previewFolder: URL
+    private let pasteboard: NSPasteboard
+    private let sendOptimization: @MainActor () -> SendOptimization
+    private let optimizedCache: URL
+    /// Entries whose `saved` URL is a smaller copy, never an original for Quick Look or Copy Original.
+    private var optimizedSaves: Set<String> = []
+    /// Only the latest Copy writes the pasteboard.
+    private var copyGeneration = 0
     private var generation = 0
     private var noticeClear: DispatchWorkItem?
     private var lastAnchor: String?
+    private var additiveRangeBase: Set<String>?
     /// The viewer's preview on the wire: replaced when the viewer moves on, so arrows never queue work.
     private var previewRequest: PhoneFilesCancellable?
     private var previewDelay: DispatchWorkItem?
@@ -116,13 +131,17 @@ final class PhoneFilesModel: ObservableObject {
 
     init(service: PhoneFilesService, cache: PhoneThumbnailCache = .shared, defaults: UserDefaults = .standard,
          listingCache: PhoneListingCache = .shared, receivedFolder: @escaping () -> URL = PhoneFilesPaths.receivedFolder,
-         previewFolder: URL = PhoneFilesPaths.previewFolder()) {
+         previewFolder: URL = PhoneFilesPaths.previewFolder(), pasteboard: NSPasteboard = .general,
+         sendOptimization: (@MainActor () -> SendOptimization)? = nil, optimizedCache: URL = SendOptimizer.cacheDirectory()) {
         self.service = service
         self.cache = cache
         self.defaults = defaults
         self.listingCache = listingCache
         self.receivedFolder = receivedFolder
         self.previewFolder = previewFolder
+        self.pasteboard = pasteboard
+        self.sendOptimization = sendOptimization ?? { SendPreferences.shared.optimization }
+        self.optimizedCache = optimizedCache
         thumbnails = PhoneThumbnailScheduler(service: service, cache: cache)
         prefetch = PhoneHoverPrefetcher(service: service, cache: cache)
         sort = PhoneFileSort(rawValue: defaults.string(forKey: Keys.sort) ?? "") ?? .name
@@ -161,8 +180,9 @@ final class PhoneFilesModel: ObservableObject {
         info = nil
         infoError = nil
         listings = [:]
-        selection = []
+        clearSelection()
         saved = [:]
+        optimizedSaves = []
         preview = nil
         guard let id, phone?.browsable == true else { return }
         placeID = defaults.string(forKey: Keys.place(id))
@@ -201,6 +221,8 @@ final class PhoneFilesModel: ObservableObject {
                 if self.placeID != nil, !info.places.contains(where: { $0.id == self.placeID }) {
                     self.placeID = nil
                     self.path = []
+                    self.clearSelection()
+                    self.listings[.folders] = nil
                 }
             case let .failure(error):
                 self.infoError = error
@@ -221,7 +243,7 @@ final class PhoneFilesModel: ObservableObject {
 
     private func sectionChanged() {
         defaults.set(section.rawValue, forKey: Keys.section)
-        selection = []
+        clearSelection()
         thumbnails.stop()
         if listings[section]?.loaded != true { loadSection(section, reset: true) }
         thumbnails.setOrder(currentEntries)
@@ -242,6 +264,7 @@ final class PhoneFilesModel: ObservableObject {
     func loadSection(_ section: PhoneFilesSection, reset: Bool) {
         guard let phoneID, phone?.browsable == true else { return }
         if section == .folders, placeID == nil { return }
+        if reset, section == self.section { resetSelectionNavigation() }
         var listing = reset ? PhoneListing() : (listings[section] ?? PhoneListing())
         let cacheKey = listingKey(section)
         if reset, let cached = listingCache.load(cacheKey) {
@@ -308,7 +331,7 @@ final class PhoneFilesModel: ObservableObject {
         path = []
         section = .folders
         rememberLocation()
-        selection = []
+        clearSelection()
         if id == nil {
             listings[.folders] = nil
         } else {
@@ -321,7 +344,7 @@ final class PhoneFilesModel: ObservableObject {
         guard depth < path.count - 1 || depth == -1 else { return }
         path = depth < 0 ? [] : Array(path.prefix(depth + 1))
         rememberLocation()
-        selection = []
+        clearSelection()
         loadSection(.folders, reset: true)
     }
 
@@ -331,11 +354,12 @@ final class PhoneFilesModel: ObservableObject {
         path = (folder.isEmpty ? [] : folder.split(separator: "/").map(String.init)) + [name]
         section = .folders
         rememberLocation()
-        selection = []
+        clearSelection()
         loadSection(.folders, reset: true)
     }
 
     func setSort(_ next: PhoneFileSort) {
+        clearSelection()
         if next == sort { descending.toggle() } else {
             sort = next
             descending = next == .modified || next == .size
@@ -356,16 +380,112 @@ final class PhoneFilesModel: ObservableObject {
     var selectedEntries: [PhoneFileEntry] { currentEntries.filter { selection.contains($0.id) } }
 
     func click(_ entry: PhoneFileEntry, command: Bool, shift: Bool) {
-        if command {
-            if selection.contains(entry.id) { selection.remove(entry.id) } else { selection.insert(entry.id) }
-            lastAnchor = entry.id
-        } else if shift, let anchor = lastAnchor, let from = currentEntries.firstIndex(where: { $0.id == anchor }),
-                  let to = currentEntries.firstIndex(where: { $0.id == entry.id }) {
-            selection = Set(currentEntries[min(from, to)...max(from, to)].map(\.id))
+        guard currentEntries.contains(where: { $0.id == entry.id }) else { return }
+        keyboardSelection = false
+        select(entry.id, command: command, shift: shift)
+    }
+
+    private func select(_ id: String, command: Bool, shift: Bool) {
+        let entries = currentEntries
+        if shift, let anchor = lastAnchor, let from = entries.firstIndex(where: { $0.id == anchor }),
+           let to = entries.firstIndex(where: { $0.id == id }) {
+            let range = Set(entries[min(from, to)...max(from, to)].map(\.id))
+            if command {
+                if additiveRangeBase == nil { additiveRangeBase = selection }
+                selection = (additiveRangeBase ?? []).union(range)
+            } else {
+                additiveRangeBase = nil
+                selection = range
+            }
+        } else if command && !shift {
+            additiveRangeBase = nil
+            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+            lastAnchor = id
         } else {
-            selection = [entry.id]
-            lastAnchor = entry.id
+            additiveRangeBase = nil
+            selection = [id]
+            lastAnchor = id
         }
+        selectionFocus = id
+    }
+
+    @discardableResult
+    func selectAll() -> Bool {
+        let entries = currentEntries
+        guard !entries.isEmpty else { return false }
+        selection = Set(entries.map(\.id))
+        lastAnchor = entries.first?.id
+        // Select All must not scroll to the last row and accidentally request the next page.
+        if selectionFocus.map({ id in !entries.contains { $0.id == id } }) ?? true {
+            selectionFocus = entries.first?.id
+        }
+        additiveRangeBase = nil
+        keyboardSelection = true
+        return true
+    }
+
+    @discardableResult
+    func clearSelection() -> Bool {
+        let changed = !selection.isEmpty
+        selection = []
+        resetSelectionNavigation()
+        return changed
+    }
+
+    func moveSelection(_ move: PhoneFileSelectionMove, extend: Bool) {
+        let entries = currentEntries
+        guard !entries.isEmpty else { return }
+        let current = selectionFocus.flatMap { id in entries.firstIndex { $0.id == id } }
+            ?? entries.firstIndex { selection.contains($0.id) }
+        let index: Int
+        switch move {
+        case .first: index = 0
+        case .last: index = entries.count - 1
+        case .previous: index = current.map { max(0, $0 - 1) } ?? entries.count - 1
+        case .next: index = current.map { min(entries.count - 1, $0 + 1) } ?? 0
+        }
+        if extend, lastAnchor == nil, let current { lastAnchor = entries[current].id }
+        select(entries[index].id, command: false, shift: extend)
+        keyboardSelection = true
+    }
+
+    func activateSelection() {
+        if let focused = currentEntries.first(where: { $0.id == selectionFocus }) ?? selectedEntries.first { activate(focused) }
+    }
+
+    /// Called only while the file list owns the first responder; text fields keep their normal keys.
+    func selectionKey(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "a" { return selectAll() }
+        guard flags.isEmpty || flags == .shift else { return false }
+        switch event.keyCode {
+        case 53 where flags.isEmpty: return clearSelection()
+        case 36, 76:
+            guard flags.isEmpty else { return false }
+            activateSelection()
+        case 125: moveSelection(.next, extend: flags.contains(.shift))
+        case 126: moveSelection(.previous, extend: flags.contains(.shift))
+        case 115: moveSelection(.first, extend: flags.contains(.shift))
+        case 119: moveSelection(.last, extend: flags.contains(.shift))
+        default: return false
+        }
+        return true
+    }
+
+    private func resetSelectionNavigation() {
+        lastAnchor = nil
+        selectionFocus = nil
+        additiveRangeBase = nil
+        keyboardSelection = false
+    }
+
+    private func pruneSelection() {
+        let ids = Set(currentEntries.map(\.id))
+        selection.formIntersection(ids)
+        if let lastAnchor, !ids.contains(lastAnchor) { self.lastAnchor = nil; additiveRangeBase = nil }
+        if let selectionFocus, !ids.contains(selectionFocus) { self.selectionFocus = nil }
+        additiveRangeBase?.formIntersection(ids)
     }
 
     /// Double click or Return: a folder opens, a file previews.
@@ -400,6 +520,8 @@ final class PhoneFilesModel: ObservableObject {
         let entry = entries[next]
         selection = [entry.id]
         lastAnchor = entry.id
+        selectionFocus = entry.id
+        additiveRangeBase = nil
         openPreview(entry)
         if next >= entries.count - 10 { loadMore() }
     }
@@ -585,7 +707,7 @@ final class PhoneFilesModel: ObservableObject {
     func isFetchingOriginal(_ entry: PhoneFileEntry) -> Bool { originalWaiters["ql-" + entry.id] != nil }
 
     func savedOriginal(_ entry: PhoneFileEntry) -> URL? {
-        if let url = saved[entry.id], FileManager.default.fileExists(atPath: url.path) { return url }
+        if !optimizedSaves.contains(entry.id), let url = saved[entry.id], FileManager.default.fileExists(atPath: url.path) { return url }
         guard phoneID != nil, !isFetchingOriginal(entry) else { return nil }
         let folder = previewFolder.appendingPathComponent(thumbnails.cacheKey(entry), isDirectory: true)
         let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
@@ -594,10 +716,196 @@ final class PhoneFilesModel: ObservableObject {
 
     // MARK: Downloads and uploads
 
-    /// Download button: Received files, with a transfer row, history and Finder metadata.
-    func downloadSelection() {
-        let entries = selectedEntries.isEmpty ? (preview.map { [$0.entry] } ?? []) : selectedEntries
-        download(entries, into: receivedFolder(), purpose: .save) { _ in }
+    /// Settings > Files > Copy and download from the phone.
+    var preferredQuality: PhoneFetchQuality { PhoneFetchQuality.preferred(defaults) }
+
+    /// The item in the viewer while it is open, else the selection.
+    private var actionEntries: [PhoneFileEntry] {
+        preview.map { [$0.entry] } ?? selectedEntries
+    }
+
+    /// Download button: Received files. nil is the preferred quality.
+    func downloadSelection(_ quality: PhoneFetchQuality? = nil) {
+        download(actionEntries, quality: quality ?? preferredQuality)
+    }
+
+    /// Command-C, Option-Command-C and the menus. nil is the preferred quality.
+    func copySelection(_ quality: PhoneFetchQuality? = nil) {
+        copy(actionEntries, quality: quality ?? preferredQuality)
+    }
+
+    /// Original, or nothing worth optimising, goes the usual way (transfer row, history, resume); Optimized
+    /// fetches into the private cache, optimises, then places the copies in Received files.
+    func download(_ entries: [PhoneFileEntry], quality: PhoneFetchQuality) {
+        guard !entries.isEmpty else { return }
+        guard quality == .optimized, entries.contains(where: PhoneFilesOptimization.applies) else {
+            download(entries, into: receivedFolder(), purpose: .save) { _ in }
+            return
+        }
+        let folder = receivedFolder()
+        let phoneID = self.phoneID
+        fetch(entries, kind: .download, optimize: true, place: folder) { [weak self] pairs in
+            guard let self else { return }
+            for (entry, url, optimized) in pairs {
+                self.saved[entry.id] = url
+                if optimized { self.optimizedSaves.insert(entry.id) } else { self.optimizedSaves.remove(entry.id) }
+            }
+            guard !pairs.isEmpty else { return }
+            if let phoneID { self.service.savedCopies(pairs.map(\.url), phoneID: phoneID) }
+            // A partial download keeps the error notice (with Retry) in view.
+            guard pairs.count == entries.count else { return }
+            self.show(String(format: L10n.text("phonefiles.saved", fallback: "Saved %@ to Received files"), Self.title(pairs.map(\.entry))))
+        }
+    }
+
+    /// Puts the files on the pasteboard as Finder's Copy does, once every one has arrived.
+    func copy(_ entries: [PhoneFileEntry], quality: PhoneFetchQuality) {
+        guard !entries.isEmpty else { return }
+        copyGeneration += 1
+        let generation = copyGeneration
+        let phoneID = self.phoneID
+        fetch(entries, kind: .copy, optimize: quality == .optimized, place: nil) { [weak self] pairs in
+            guard let self, generation == self.copyGeneration, pairs.count == entries.count else { return }
+            let changeCount = PhoneFilesPasteboard.write(pairs.map(\.url), to: self.pasteboard)
+            if let phoneID { self.service.copiedToPasteboard(phoneID: phoneID, changeCount: changeCount) }
+            self.show(String(format: L10n.text("phonefiles.copied", fallback: "Copied %@ to the clipboard"), Self.title(entries)))
+        }
+    }
+
+    private static func title(_ entries: [PhoneFileEntry]) -> String {
+        entries.count == 1 ? entries[0].name : String(format: L10n.text("phonefiles.items", fallback: "%d items"), entries.count)
+    }
+
+    /// Originals into the private cache (one transfer, one status row), then the smaller copies off the main
+    /// thread, then (for a download) copies in `place`. `finish` runs only for a fetch that was not cancelled.
+    private func fetch(_ entries: [PhoneFileEntry], kind: PhoneFilesActivity.Kind, optimize: Bool, place: URL?,
+                       finish: @escaping ([(entry: PhoneFileEntry, url: URL, optimized: Bool)]) -> Void) {
+        let id = UUID().uuidString
+        let job = PhoneFetchJob()
+        activities.append(PhoneFilesActivity(id: id, kind: kind, title: Self.title(entries), progress: PhoneTransferProgress(),
+                                             cancellable: PhoneFilesCancellable { job.cancel() }))
+        loadOriginals(entries, job: job, activity: id) { [weak self] originals, failure in
+            guard let self, !job.cancelled else { return }
+            if let failure, failure != .cancelled {
+                if PhoneFilesText.isTransient(failure) {
+                    self.show(failure, retry: { [weak self] in
+                        guard let self else { return }
+                        if kind == .copy { self.copy(entries, quality: optimize ? .optimized : .original) } else { self.download(entries, quality: .optimized) }
+                    })
+                } else {
+                    self.show(failure)
+                }
+                if entries.count == 1, failure == .code(FolderCode.notFound) { self.forget(entries[0]) }
+            }
+            let arrived = zip(entries, originals).compactMap { entry, url in url.map { (entry, $0) } }
+            guard !arrived.isEmpty, failure == nil || kind == .download else {
+                self.finishActivity(id)
+                return
+            }
+            let sources = arrived.map(\.1)
+            let options = PhoneFilesOptimization.options(from: self.sendOptimization())
+            let cache = self.optimizedCache
+            let cancel = job.optimizer
+            Task.detached(priority: .userInitiated) { [self] in
+                let outputs = optimize
+                    ? await PhoneFilesOptimization.lighter(sources, options: options, cache: cache, cancel: cancel) { done, total in
+                        await MainActor.run {
+                            self.setStage(id, String(format: L10n.text("optimize.row.progress", fallback: "Optimising %d of %d"), min(done + 1, total), total))
+                        }
+                    }
+                    : sources
+                let placed: [URL?] = place.map { cancel.isCancelled ? [] : PhoneFilesOptimization.place(outputs, into: $0) } ?? outputs.map { $0 }
+                await MainActor.run {
+                    self.finishActivity(id)
+                    guard !job.cancelled else { return }
+                    finish(zip(arrived, zip(outputs, placed)).compactMap { pair, result in
+                        result.1.map { (entry: pair.0, url: $0, optimized: result.0 != pair.1) }
+                    })
+                }
+            }
+        }
+    }
+
+    /// The originals of `entries`, in order (nil for those that did not arrive): what the cache has at once, a
+    /// running Quick Look download joined, the rest in one transfer whose files then move to their cache-key
+    /// folders, so Quick Look and the next Copy reuse them.
+    private func loadOriginals(_ entries: [PhoneFileEntry], job: PhoneFetchJob, activity: String,
+                               completion: @escaping ([URL?], PhoneFilesError?) -> Void) {
+        var results = [URL?](repeating: nil, count: entries.count)
+        var failure: PhoneFilesError?
+        var pending = 0
+        var missing: [PhoneFileEntry] = []
+        let resolve: (Int) -> (Result<URL, PhoneFilesError>) -> Void = { index in
+            { result in
+                switch result {
+                case let .success(url): results[index] = url
+                case let .failure(error): if failure == nil || failure == .cancelled { failure = error }
+                }
+                pending -= 1
+                if pending == 0 { completion(results, failure) }
+            }
+        }
+        for (index, entry) in entries.enumerated() {
+            if let url = savedOriginal(entry) {
+                results[index] = url
+            } else if originalWaiters["ql-" + entry.id] != nil {
+                pending += 1
+                originalWaiters["ql-" + entry.id]?.append(resolve(index))
+            } else {
+                pending += 1
+                missing.append(entry)
+                originalWaiters["ql-" + entry.id] = [resolve(index)]
+            }
+        }
+        guard pending > 0 else {
+            completion(results, nil)
+            return
+        }
+        guard !missing.isEmpty else { return }
+        let settle: (PhoneFileEntry, Result<URL, PhoneFilesError>) -> Void = { [weak self] entry, result in
+            let waiters = self?.originalWaiters.removeValue(forKey: "ql-" + entry.id) ?? []
+            if case let .success(url) = result, self?.preview?.entry.id == entry.id { self?.preview?.originalURL = url }
+            waiters.forEach { $0(result) }
+        }
+        guard let phoneID else {
+            missing.forEach { settle($0, .failure(.notConnected)) }
+            return
+        }
+        let staging = previewFolder.appendingPathComponent(".fetch-" + UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        job.transfer = service.download(phoneID: phoneID, refs: missing.map(\.ref), into: staging, purpose: .preview, progress: { [weak self] progress in
+            self?.updateActivity(activity, progress)
+        }, completion: { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case let .success(urls):
+                for (offset, entry) in missing.enumerated() {
+                    guard offset < urls.count, let url = self.adopt(urls[offset], for: entry) else {
+                        settle(entry, .failure(.code(FolderCode.notFound)))
+                        continue
+                    }
+                    settle(entry, .success(url))
+                }
+            case let .failure(error):
+                missing.forEach { settle($0, .failure(error)) }
+            }
+            try? FileManager.default.removeItem(at: staging)
+        })
+    }
+
+    /// Moves a fetched original into its cache-key folder, where savedOriginal finds it.
+    private func adopt(_ url: URL, for entry: PhoneFileEntry) -> URL? {
+        let folder = previewFolder.appendingPathComponent(thumbnails.cacheKey(entry), isDirectory: true)
+        let manager = FileManager.default
+        try? manager.removeItem(at: folder)
+        guard (try? manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])) != nil else { return nil }
+        let target = folder.appendingPathComponent(url.lastPathComponent)
+        return (try? manager.moveItem(at: url, to: target)) != nil ? target : nil
+    }
+
+    private func setStage(_ id: String, _ stage: String) {
+        guard let index = activities.firstIndex(where: { $0.id == id }) else { return }
+        activities[index].stage = stage
     }
 
     /// Downloads into `directory`; the saved URLs come back in order.
@@ -619,7 +927,10 @@ final class PhoneFilesModel: ObservableObject {
             self.finishActivity(id)
             switch result {
             case let .success(urls):
-                for (entry, url) in zip(entries, urls) { self.saved[entry.id] = url }
+                for (entry, url) in zip(entries, urls) {
+                    self.saved[entry.id] = url
+                    self.optimizedSaves.remove(entry.id)
+                }
                 if purpose == .save {
                     self.show(String(format: L10n.text("phonefiles.saved", fallback: "Saved %@ to Received files"), title))
                 }

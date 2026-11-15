@@ -201,6 +201,30 @@ class AttachScreenshotTest {
     @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi")
     fun clipboardContextDark() = clipboardContextNotifications()
 
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun smartScreenDestinations() {
+        capture("smart-screen-devices-${theme()}") {
+            ScreenDestinationSheet(listOf(
+                DeviceDestination("personal", "Personal Mac", true, "Active on this Mac", true),
+                DeviceDestination("work", "Work MacBook Pro", true, "Connected"),
+                DeviceDestination("offline", "MacBook Pro", false, "Offline · reconnect to send here"),
+            ), "offline", true, {}, {}, {})
+        }
+    }
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun smartNotificationRoutingSettings() {
+        capture("smart-notification-routing-${theme()}") {
+            SettingsScreen(
+                state = sampleSettingsState(now).copy(smartRouting = SmartRoutingSettingsState(
+                    preferredId = "work", devices = listOf(PreferredRoutingDevice("personal", "Personal Mac"), PreferredRoutingDevice("work", "Work MacBook Pro")),
+                    destinationId = "personal", reason = dev.bridgey.android.routing.RoutingReason.ACTIVE,
+                )), actions = SettingsActions(), section = SettingsSection.NOTIFICATIONS,
+            )
+        }
+    }
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun smartScreenDestinationsDark() = smartScreenDestinations()
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun smartNotificationRoutingSettingsDark() = smartNotificationRoutingSettings()
+
     /** Photo-like gradients instead of real photos: every cell already cached, as on a reopened sheet. */
     private object SampleThumbnails : MediaThumbnails {
         private val palettes = listOf(
@@ -289,6 +313,12 @@ class AttachScreenshotTest {
     @Test fun mediaLight() = sheet("android-attach-media", base.copy(selection = picked))
 
     @Test @Config(qualifiers = "+night") fun mediaDark() = sheet("android-attach-media", base.copy(selection = picked))
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-xxhdpi") fun selectionRangeLight() =
+        sheet("android-attach-selection-range", base.copy(selection = media.subList(1, 7).map(AttachKeys::media)))
+
+    @Test @Config(qualifiers = "w390dp-h844dp-port-night-xxhdpi") fun selectionRangeDark() =
+        sheet("android-attach-selection-range", base.copy(selection = media.subList(1, 7).map(AttachKeys::media)))
 
     @Test fun partialLight() = sheet("android-attach-partial", base.copy(mediaAccess = MediaAccess.PARTIAL, media = media.take(7)))
 

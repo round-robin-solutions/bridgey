@@ -22,10 +22,9 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.telecom.InCallService
 import android.telecom.TelecomManager
-import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Base64
-import androidx.annotation.RequiresApi
+import androidx.core.app.NotificationCompat
 import java.io.ByteArrayOutputStream
 import dev.bridgey.android.codes.EmailNotificationContent
 import dev.bridgey.android.codes.StyleMessage
@@ -44,7 +43,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val pendingCallPosts = mutableMapOf<String, Runnable>()
     private val forwardedNotificationIds = mutableSetOf<String>()
-    private var telephonyCallback: TelephonyCallback? = null
+    private val phoneCallStateObserver = PhoneCallStateObserver(this, ::onPhoneCallStateChanged)
     private val callLifecycle = CallLifecycle(
         scheduler = { delayMs, task ->
             val runnable = Runnable(task)
@@ -58,6 +57,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     )
 
     override fun onDestroy() {
+        runCatching { (application as BridgeyApplication).pairing.callQuietNotificationsDisconnected() }
         unregisterTelephonyCallback()
         callLifecycle.clear()
         pendingCallPosts.values.forEach(mainHandler::removeCallbacks)
@@ -70,6 +70,12 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         super.onListenerConnected()
         activeService = java.lang.ref.WeakReference(this)
         val active = activeNotifications.orEmpty().filterNot { it.packageName == packageName }
+        val bridgey = application as BridgeyApplication
+        if (bridgey.isPrimaryUser && bridgey.isBridgeyEnabled && bridgey.settings.state.value.globalFeatures[BridgeyFeature.CALL_QUIET] == true) {
+            bridgey.pairing.callQuietNotificationsConnected(active.map {
+                it to (it.notification.category == Notification.CATEGORY_CALL && isTelephonyCallSource(it.packageName))
+            })
+        }
         // A tracked call keeps its own id even when the dialer re-posted it under a new key.
         active.filterNot { callLifecycle.isTracked(it.key) }
             .forEach { forwardedNotifications.record(notificationToken(it.key), it.key, it.packageName) }
@@ -82,6 +88,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        runCatching { (application as BridgeyApplication).pairing.callQuietNotificationsDisconnected() }
         unregisterTelephonyCallback()
         if (activeService?.get() === this) activeService = null
         super.onListenerDisconnected()
@@ -95,6 +102,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         BridgeyLogging.d(LogCategory.NOTIFICATIONS, "PLUGIN notification observed package=${sbn.packageName}")
         val bridgey = application as BridgeyApplication
         if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled || sbn.packageName == packageName) return
+        if (bridgey.settings.state.value.globalFeatures[BridgeyFeature.CALL_QUIET] == true) {
+            bridgey.pairing.callQuietNotificationPosted(sbn,
+                sbn.notification.category == Notification.CATEGORY_CALL && isTelephonyCallSource(sbn.packageName))
+        }
 
         // An update that is no longer forwardable retracts any earlier mirrored state for the same key,
         // except a call: its card stays until the call ends (see CallLifecycle).
@@ -168,9 +179,9 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
         forwardedNotifications.record(notificationId, sbn.key, sbn.packageName)
         // Detect codes: when no Mac reads codes, an agent the user allowed may read this text message for its code.
-        if (smsDefaultApp && !groupSummary && redacted != true) {
-            bridgey.pairing.offerSmsCodeCandidate(notificationId, title, applicationName, text, sbn.postTime)
-        }
+        val detectSmsCodeCandidate = smsDefaultApp && !groupSummary && redacted != true
+        val alertEventId = notificationMessageEventId(notificationId, sbn.packageName, notification, title, text,
+            smsDefaultApp, emailApp)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         val callType = if (isCall) resolvedNotificationCallType(notification, telephonyCallType, isTelephonyCall) else null
         val actions = storeActions(
@@ -226,6 +237,8 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
                 smsThreadId = smsThreadId,
                 emailApp = emailApp,
                 preview = mailPreview,
+                detectSmsCodeCandidate = detectSmsCodeCandidate,
+                alertEventId = if (callType == null) alertEventId else null,
             )
             if (callType != null) {
                 callLifecycle.forwarded(notificationId, sbn.key, sbn.packageName, isTelephonyCall)
@@ -257,19 +270,23 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         super.onNotificationRemoved(sbn)
+        runCatching { (application as BridgeyApplication).pairing.callQuietNotificationRemoved(sbn) }
         // A call's card waits for the call to end; a re-posted call continues it.
         callLifecycle.notificationRemoved(sbn.key)?.let { callId ->
             pendingCallPosts.remove(callId)?.let(mainHandler::removeCallbacks)
             return
         }
-        val notificationId = forwardedNotifications.removeSystemKey(sbn.key) ?: return
+        // Routing ownership outlives the bounded forwarding indexes. Android still reports a real
+        // removal for an evicted entry, whose stable ordinary ID can be derived from its system key.
+        val notificationId = forwardedNotifications.removedBySystem(sbn.key)
         pendingCallPosts.remove(notificationId)?.let(mainHandler::removeCallbacks)
         removeActions(notificationId)
         dev.bridgey.android.sms.SmsNotificationTargets.remove(notificationId)
-        if (!forwardedNotificationIds.remove(notificationId)) return
+        val wasForwarded = forwardedNotificationIds.remove(notificationId)
         val bridgey = application as BridgeyApplication
-        if (!bridgey.isPrimaryUser || !bridgey.isBridgeyEnabled) return
-        bridgey.pairing.sendNotificationRemoved(notificationId)
+        if (!wasForwarded && !bridgey.pairing.hasNotificationRoute(notificationId)) return
+        if (bridgey.isPrimaryUser && bridgey.isBridgeyEnabled) bridgey.pairing.sendNotificationRemoved(notificationId)
+        else bridgey.pairing.forgetNotificationRoute(notificationId)
     }
 
     private fun dismissForwardedNotification(notificationId: String): Boolean {
@@ -473,7 +490,10 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     private fun currentTelephonyCallType(): String? {
         if (!isCallIntegrationEnabled()) return null
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return null
-        return telephonyCallType(getSystemService(TelephonyManager::class.java).callState)
+        // The grant can be revoked between the permission check and this binder call.
+        return runCatching {
+            telephonyCallType(getSystemService(TelephonyManager::class.java).callState)
+        }.getOrNull()
     }
 
     private fun canControlSystemCalls(): Boolean =
@@ -507,23 +527,16 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
     }.getOrDefault(false)
 
     private fun updateTelephonyCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         unregisterTelephonyCallback()
         if (!isCallIntegrationEnabled()) return
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return
-        val callback = BridgeyCallStateCallback()
         runCatching {
-            getSystemService(TelephonyManager::class.java).registerTelephonyCallback(mainExecutor, callback)
-            telephonyCallback = callback
+            phoneCallStateObserver.start()
         }.onFailure { BridgeyLogging.w(LogCategory.CALLS, "CALL phone-state listener registration failed", it) }
     }
 
     private fun unregisterTelephonyCallback() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        telephonyCallback?.let { callback ->
-            runCatching { getSystemService(TelephonyManager::class.java).unregisterTelephonyCallback(callback) }
-        }
-        telephonyCallback = null
+        phoneCallStateObserver.stop()
     }
 
     private fun refreshActiveCallNotifications() {
@@ -538,6 +551,7 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
 
     private fun retractStaleForwardedNotifications(activeNotificationIds: Set<String>) {
         val bridgey = application as BridgeyApplication
+        bridgey.pairing.reconcileNotificationRoutes(activeNotificationIds, callLifecycle::isTrackedId)
         val tracked = forwardedNotificationIds + pendingCallPosts.keys
         staleForwardedNotificationIds(tracked, activeNotificationIds).forEach { notificationId ->
             // A call's id stays after a re-key, so compare its current key; its end is decided by the lifecycle.
@@ -593,16 +607,13 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.S)
-    private inner class BridgeyCallStateCallback : TelephonyCallback(), TelephonyCallback.CallStateListener {
-        override fun onCallStateChanged(state: Int) {
-            BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
-            callLifecycle.telephonyChanged(telephonyCallType(state))
-            when (state) {
-                TelephonyManager.CALL_STATE_RINGING,
-                TelephonyManager.CALL_STATE_OFFHOOK,
-                -> refreshActiveCallNotifications()
-            }
+    private fun onPhoneCallStateChanged(state: Int) {
+        BridgeyLogging.d(LogCategory.CALLS, "CALL phone state=${telephonyCallType(state) ?: "idle"}")
+        callLifecycle.telephonyChanged(telephonyCallType(state))
+        when (state) {
+            TelephonyManager.CALL_STATE_RINGING,
+            TelephonyManager.CALL_STATE_OFFHOOK,
+            -> refreshActiveCallNotifications()
         }
     }
 
@@ -696,8 +707,20 @@ class BridgeyNotificationListenerService : NotificationListenerService() {
         }
 
         fun callPermissionsChanged() {
+            dev.bridgey.android.media.CallQuietSources.permissionsChanged()
             activeService?.get()?.mainHandler?.post {
                 activeService?.get()?.updateTelephonyCallback()
+            }
+        }
+
+        fun refreshCallQuietSources() {
+            activeService?.get()?.let { service ->
+                service.mainHandler.post {
+                    val active = service.activeNotifications.orEmpty().filterNot { it.packageName == service.packageName }
+                    (service.application as BridgeyApplication).pairing.callQuietNotificationsConnected(
+                        active.map { it to (it.notification.category == Notification.CATEGORY_CALL && service.isTelephonyCallSource(it.packageName)) },
+                    )
+                }
             }
         }
 
@@ -941,6 +964,10 @@ internal class ForwardedNotificationRegistry(
         return notificationId
     }
 
+    /** Android removals remain useful after this bounded index evicts an ordinary notification. */
+    @Synchronized
+    fun removedBySystem(systemKey: String): String = removeSystemKey(systemKey) ?: notificationToken(systemKey)
+
     @Synchronized
     fun removePackage(packageName: String): List<String> {
         val notificationIds = entriesByNotificationId.filterValues { it.packageName == packageName }.keys.toList()
@@ -957,6 +984,28 @@ internal fun staleForwardedNotificationIds(
 internal fun notificationToken(systemKey: String): String = MessageDigest.getInstance("SHA-256")
     .digest(systemKey.toByteArray(Charsets.UTF_8))
     .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+/** A conversation may reuse its notification key for many messages. Reposts retain their event ID;
+ * a new message changes it without putting message text or sender names in a routing identifier. */
+@Suppress("DEPRECATION")
+internal fun notificationMessageEventId(
+    notificationId: String, packageName: String, notification: Notification, title: String, text: String,
+    sms: Boolean, email: Boolean,
+): String? {
+    if (notification.category == Notification.CATEGORY_CALL) return null
+    val latest = runCatching { NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)?.messages?.lastOrNull() }.getOrNull()
+    if (latest == null && !sms && !email && notification.category !in setOf(Notification.CATEGORY_MESSAGE, Notification.CATEGORY_EMAIL)) return null
+    val timestamp = (latest?.timestamp ?: 0).coerceAtLeast(0)
+    // Generic post/when clocks can change on a repost. Without message metadata, use content;
+    // identical messages from such an app cannot be distinguished safely from a repost.
+    // A null metadata sender means the current user, not the rendered conversation title.
+    // Presentation changes must not turn that same message into a new routing event.
+    val sender = if (latest == null) title else latest.sender?.toString().orEmpty()
+    val message = if (latest == null) text else latest.text?.toString().orEmpty()
+    val identity = org.json.JSONArray(listOf(notificationId, packageName, timestamp,
+        sender.take(1_024), message.take(8_192))).toString()
+    return notificationToken(identity)
+}
 
 internal fun notificationActionToken(notificationId: String, index: Int): String = notificationToken("$notificationId\u0000$index")
 

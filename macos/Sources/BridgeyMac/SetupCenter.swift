@@ -595,6 +595,24 @@ final class SetupCenter: ObservableObject {
     }
 
     func performReset(_ choice: ResetChoice) {
+        guard choice == .everything, let pairing else { performResetAfterMedia(choice); return }
+        resetMessage = L10n.text("callMedia.reset.restoring", fallback: "Restoring media sound before Reset Everything…")
+        pairing.callMedia.prepareForReset { [weak self, weak pairing] restored in
+            guard let self else { return }
+            guard restored else {
+                let players = pairing?.callMedia.recoveryItems.map { "\($0.appName) (\($0.originalVolume)%)" }.joined(separator: ", ") ?? ""
+                if players.isEmpty {
+                    self.resetMessage = L10n.text("callMedia.reset.failed", fallback: "Sound recovery could not be verified. Recovery data has been kept. Check Music and Spotify volumes and Automation access, then try Reset Everything again.")
+                } else {
+                    self.resetMessage = String(format: L10n.text("callMedia.reset.fix", fallback: "Restore sound in %@, or fix Automation access, then try Reset Everything again. Recovery data has been kept."), players)
+                }
+                return
+            }
+            self.performResetAfterMedia(choice)
+        }
+    }
+
+    private func performResetAfterMedia(_ choice: ResetChoice) {
         let reset = LocalDataReset(defaults: store.defaults)
         switch choice {
         case .activity:
@@ -668,6 +686,11 @@ final class SetupCenter: ObservableObject {
         actions.setPlayer = { [weak self] player in
             guard let self, player != .off else { return setPlayer(player) }
             self.explainThen(.automation) { setPlayer(player) }
+        }
+        let setGlobal = base.setGlobal
+        actions.setGlobal = { [weak self] feature, enabled in
+            guard feature == .callQuiet, enabled, let self else { return setGlobal(feature, enabled) }
+            self.explainThen(.automation) { setGlobal(feature, enabled) }
         }
         actions.setup.showPane = showPane
         actions.setup.managePermission = { [weak self] in self?.manage($0) }

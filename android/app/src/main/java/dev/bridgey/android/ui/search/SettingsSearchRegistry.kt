@@ -195,6 +195,13 @@ object SettingsSearchRegistry {
         // Calls
         feature("calls.switch", SearchPage.CALLS, R.string.feature_calls, R.string.settings_calls_detail, BridgeyFeature.CALLS, CALL_WORDS),
         SettingsSearchEntry("calls.direct", SearchPage.CALLS, null, R.string.devices_direct_calls, R.string.devices_direct_calls_detail, CALL_WORDS + listOf("answer", "decline", "ответить")),
+        feature("calls.quiet", SearchPage.CALLS, R.string.call_quiet_title, R.string.call_quiet_detail, BridgeyFeature.CALL_QUIET, CALL_WORDS + MEDIA_WORDS + listOf("mute", "pause", "без звука")),
+        SettingsSearchEntry("calls.quiet.mode", SearchPage.CALLS, null, R.string.call_quiet_mode, null, CALL_WORDS + MEDIA_WORDS),
+        SettingsSearchEntry("calls.quiet.after", SearchPage.CALLS, null, R.string.call_quiet_after, null, CALL_WORDS + listOf("resume", "restore", "возобновить")),
+        SettingsSearchEntry("calls.quiet.phone", SearchPage.CALLS, null, R.string.call_quiet_phone_state, null, CALL_WORDS),
+        SettingsSearchEntry("calls.quiet.access", SearchPage.CALLS, null, R.string.call_quiet_access, null, MEDIA_WORDS),
+        SettingsSearchEntry("calls.quiet.status", SearchPage.CALLS, null, R.string.call_quiet_status, null, CALL_WORDS + MEDIA_WORDS),
+        SettingsSearchEntry("calls.quiet.peers", SearchPage.CALLS, null, R.string.call_quiet_peers, null, CALL_WORDS + MEDIA_WORDS),
 
         // Files
         feature("files.switch", SearchPage.FILES, R.string.feature_files, R.string.feature_files_detail, BridgeyFeature.FILES, FILE_WORDS),
@@ -206,6 +213,9 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("files.hidden", SearchPage.FILES, null, R.string.settings_folder_hidden, R.string.settings_folder_hidden_detail, listOf("dotfiles", "hidden", "скрытые"), syncKey = SyncKey.FOLDER_INCLUDE_HIDDEN),
         SettingsSearchEntry("files.system", SearchPage.FILES, null, R.string.settings_folder_system, R.string.settings_folder_system_detail, listOf("ds_store", "thumbs.db", "системные"), syncKey = SyncKey.FOLDER_INCLUDE_SYSTEM),
         SettingsSearchEntry("files.places", SearchPage.FILES, null, R.string.settings_places, null, listOf("storage", "sd card", "folders", "места")),
+
+        SettingsSearchEntry("notifications.smartRouting", SearchPage.NOTIFICATIONS, null, R.string.smart_routing_title, R.string.smart_routing_detail, listOf("active Mac", "situational awareness", "duplicate alerts", "notification routing")),
+        SettingsSearchEntry("notifications.preferredMac", SearchPage.NOTIFICATIONS, null, R.string.smart_routing_preferred, null, listOf("default Mac", "preferred device", "fallback", "destination")),
 
         // Media and quick actions
         feature("media.media", SearchPage.MEDIA, R.string.feature_media, R.string.settings_media_detail, BridgeyFeature.MEDIA, MEDIA_WORDS),
@@ -303,6 +313,7 @@ object SettingsSearchRegistry {
         R.string.feature_remote_input to listOf(BridgeyFeature.REMOTE_INPUT),
         R.string.feature_mac_actions to listOf(BridgeyFeature.MAC_ACTIONS),
         R.string.feature_camera to listOf(BridgeyFeature.CAMERA),
+        R.string.call_quiet_title to listOf(BridgeyFeature.CALL_QUIET),
         R.string.feature_screen to listOf(BridgeyFeature.SCREEN),
         R.string.feature_find_ping to listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
         R.string.feature_links to listOf(BridgeyFeature.LINKS),
@@ -316,6 +327,7 @@ object SettingsSearchRegistry {
             BridgeyFeature.NOTIFICATIONS -> NOTIFICATION_WORDS
             BridgeyFeature.SMS -> SMS_WORDS
             BridgeyFeature.CALLS -> CALL_WORDS
+            BridgeyFeature.CALL_QUIET -> CALL_WORDS + MEDIA_WORDS
             BridgeyFeature.FILES -> FILE_WORDS
             BridgeyFeature.MEDIA -> MEDIA_WORDS
             BridgeyFeature.FIND_DEVICE -> FIND_WORDS

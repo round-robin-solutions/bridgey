@@ -133,12 +133,8 @@ class SettingsSearchDriftTest {
 
     private fun deviceState(): DeviceState {
         val ring = deviceRings(listOf(work), emptyList(), PairingState.Connected("work", "Work MacBook")).first()
-        val order = listOf(
-            listOf(BridgeyFeature.CLIPBOARD), listOf(BridgeyFeature.FILES), listOf(BridgeyFeature.NOTIFICATIONS), listOf(BridgeyFeature.SMS),
-            listOf(BridgeyFeature.CALLS), listOf(BridgeyFeature.MEDIA), listOf(BridgeyFeature.REMOTE_INPUT), listOf(BridgeyFeature.MAC_ACTIONS),
-            listOf(BridgeyFeature.CAMERA), listOf(BridgeyFeature.SCREEN), listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
-            listOf(BridgeyFeature.LINKS), listOf(BridgeyFeature.BATTERY),
-        )
+        val order = dev.bridgey.android.PermissionOrder
+
         return DeviceState(
             ring = ring, battery = null, connected = true, available = emptySet(), ringing = false,
             permissions = order.map { PermissionRow(it, checked = true, globallyOff = false, remotelyOff = false) },

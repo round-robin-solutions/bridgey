@@ -143,12 +143,19 @@ struct SettingsModel {
     var mediaPlayer: MediaPlayer = .off
     var mediaChoices: [MediaPlayer] = MediaPlayer.fixed
     var pauseForCalls = false
+    var callMediaMode: CallMediaMode = .pauseThenMute
+    var callMediaRestoration: CallMediaRestoration = .restoreAndResume
+    var callMediaManual = false
+    var callMediaStatuses: [String: String] = [:]
+    var callMediaRecovery: [CallMediaRecoveryItem] = []
+    var callMediaCanRestoreSound = false
     var ringForCalls = true
     var otherAppCallPolicy: MacOtherAppCallPolicy = .ask
     var logging = LoggingPolicy()
     var mediaDetail = ""
     var showPreviews = true
     var reduceMotion = false
+    var panelMoves = true
     var activityCount = 0
     var channel: UpdateChannel = .stable
     var automaticallyChecks = false
@@ -220,7 +227,7 @@ struct SettingsModel {
     }
 
     func isEnabled(_ feature: BridgeyFeature, for deviceID: String) -> Bool {
-        if feature.needsDeviceGrant { return globalFeatures[feature] == true && remoteGrant(for: deviceID) }
+        if feature.needsDeviceGrant { return globalFeatures[feature] == true && deviceFeatures[deviceID]?[feature] == true }
         return globalFeatures[feature] != false && deviceFeatures[deviceID]?[feature] != false
     }
 
@@ -300,6 +307,11 @@ struct SettingsActions {
     var setShortcutShift: (Bool) -> Void = { _ in }
     var setPlayer: (MediaPlayer) -> Void = { _ in }
     var setPauseForCalls: (Bool) -> Void = { _ in }
+    var setCallMediaMode: (CallMediaMode) -> Void = { _ in }
+    var setCallMediaRestoration: (CallMediaRestoration) -> Void = { _ in }
+    var setManualCall: (Bool) -> Void = { _ in }
+    var checkCallMediaRecovery: () -> Void = {}
+    var restoreCallMediaSound: () -> Void = {}
     var setRingForCalls: (Bool) -> Void = { _ in }
     var setOtherAppCallPolicy: (MacOtherAppCallPolicy) -> Void = { _ in }
     var setLogging: (LoggingPolicy) -> Void = { _ in }
@@ -309,6 +321,7 @@ struct SettingsActions {
     var clearActivity: () -> Void = {}
     var exportDiagnostics: () -> Void = {}
     var setReduceMotion: (Bool) -> Void = { _ in }
+    var setPanelMoves: (Bool) -> Void = { _ in }
     var usePhoneLinks: () -> Void = {}
     var setChannel: (UpdateChannel) -> Void = { _ in }
     var setAutomaticallyChecks: (Bool) -> Void = { _ in }
@@ -979,6 +992,7 @@ private struct CallsPane: View {
             RingForCallsToggle(model: model, actions: actions)
             PauseForCallsToggle(model: model, actions: actions)
         }
+        CallMediaSettingsCard(model: model, actions: actions)
         ShortcutsCard(model: model, actions: actions, only: [.call])
     }
 }
@@ -1030,6 +1044,7 @@ private struct FilesPane: View {
                            subtitle: L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"),
                            divider: false, isOn: model.cameraCopyToClipboard, set: actions.setCameraCopyToClipboard)
         }
+        PhoneFilesQualitySettingsCard()
         // Send options (Before sending, menu-bar drops): SendOptionsSettings.swift.
         SendOptionsSettingsSection()
     }
@@ -1089,6 +1104,8 @@ private struct GeneralPane: View {
                            subtitle: L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"),
                            synced: model.syncs(.reduceMotion), isOn: model.reduceMotion, set: actions.setReduceMotion)
             SyncStatusLine(key: .reduceMotion, model: model, actions: actions)
+            SettingsToggle(title: L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"),
+                           isOn: model.panelMoves, set: actions.setPanelMoves)
             SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"),
                            isOn: model.shortcutShift, set: actions.setShortcutShift)
         }
@@ -1218,6 +1235,7 @@ extension BridgeyFeature {
         case .links: L10n.text("feature.links.detail", fallback: "Open links in either direction")
         case .media: L10n.text("feature.media.detail", fallback: "Control this Mac\u{2019}s music from the phone")
         case .calls: L10n.text("feature.calls.detail", fallback: "Start calls on the phone from this Mac")
+        case .callQuiet: L10n.text("callMedia.detail", fallback: "Quiet supported media on allowed devices when a call starts. Later manual playback stays allowed.")
         case .remoteInput: L10n.text("feature.remoteInput.detail", fallback: "Let a phone you allow move the pointer, type and change slides")
         case .macActions: L10n.text("feature.macActions.detail", fallback: "Lock, sleep, volume, apps and Shortcuts from a phone you allow")
         }
@@ -1320,6 +1338,7 @@ struct DeviceCard: View {
             RemoteControlGrantToggle(device: device, model: model, actions: actions)
             // The same for Mac actions; see Settings > Media and actions.
             MacActionsGrantToggle(device: device, model: model, actions: actions)
+            CallMediaGrantToggle(device: device, model: model, actions: actions)
             SettingsSyncDeviceToggle(device: device, model: model, actions: actions)
         }
         // Rows here have the same titles in every device's card: search tells them apart by device.
@@ -2044,12 +2063,19 @@ struct LiveSettingsView: View {
         model.mediaPlayer = media.player
         model.mediaChoices = media.choices
         model.pauseForCalls = media.pauseForCalls
+        model.callMediaMode = settings.callMediaMode
+        model.callMediaRestoration = settings.callMediaRestoration
+        model.callMediaManual = pairing.callMedia.manualActive
+        model.callMediaStatuses = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, pairing.callMedia.resultSummary($0.id)) })
+        model.callMediaRecovery = pairing.callMedia.recoveryItems
+        model.callMediaCanRestoreSound = pairing.callMedia.canRestoreSound
         model.ringForCalls = settings.ringForIncomingCalls
         model.otherAppCallPolicy = settings.otherAppCallPolicy
         model.logging = settings.logging
         model.mediaDetail = media.snapshot.detail
         model.showPreviews = settings.showActivityPreviews
         model.reduceMotion = settings.reduceMotion
+        model.panelMoves = settings.panelMotion == .move
         model.activityCount = activity.items.count
         model.channel = updater.channel
         model.automaticallyChecks = updater.automaticallyChecks
@@ -2237,6 +2263,11 @@ struct LiveSettingsView: View {
         actions.setShortcutShift = { shortcuts.setShift($0) }
         actions.setPlayer = { media.player = $0 }
         actions.setPauseForCalls = { media.pauseForCalls = $0 }
+        actions.setCallMediaMode = { settings.setCallMediaMode($0) }
+        actions.setCallMediaRestoration = { settings.setCallMediaRestoration($0) }
+        actions.setManualCall = { pairing.callMedia.setManualCall($0) }
+        actions.checkCallMediaRecovery = { pairing.callMedia.checkSoundRecovery() }
+        actions.restoreCallMediaSound = { pairing.callMedia.restoreSoundNow() }
         actions.setRingForCalls = { enabled in
             settings.setRingForIncomingCalls(enabled)
             pairing.refreshCallRinging()
@@ -2249,6 +2280,7 @@ struct LiveSettingsView: View {
         actions.clearActivity = { pairing.clearActivity() }
         actions.exportDiagnostics = { pairing.exportDiagnostics() }
         actions.setReduceMotion = { settings.setReduceMotion($0) }
+        actions.setPanelMoves = { settings.setPanelMotion($0 ? .move : .fade) }
         actions.usePhoneLinks = { makeDefaultPhoneLinkHandler() }
         actions.setChannel = { updater.setChannel($0) }
         actions.setAutomaticallyChecks = { updater.setAutomaticallyChecks($0) }

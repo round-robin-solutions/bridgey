@@ -47,10 +47,14 @@ class AttachModelTest {
     }
 
     @Test
-    fun targetFallsBackToTheFirstDevice() {
+    fun explicitTargetNeverFallsBackToAnotherDevice() {
         val targets = listOf(AttachTarget("a", "MacBook Pro"), AttachTarget("b", "Personal Mac"))
         assertEquals("b", AttachState(targets = targets, targetId = "b").target?.deviceId)
-        assertEquals("a", AttachState(targets = targets, targetId = "gone").target?.deviceId)
+        assertTrue("a missing explicit destination must never select another device", AttachState(targets = targets, targetId = "gone").target == null)
         assertTrue(AttachState().target == null)
+        assertTrue(AttachState(targets = targets).target == null)
+        val offline = targets[1].copy(available = false, detail = "Offline")
+        assertEquals("b", AttachState(targets = listOf(targets[0], offline), targetId = "b").target?.deviceId)
+        assertTrue(AttachState(targets = listOf(offline), targetId = "b").target?.available == false)
     }
 }

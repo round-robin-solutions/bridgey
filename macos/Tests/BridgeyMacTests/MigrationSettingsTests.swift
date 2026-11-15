@@ -75,6 +75,8 @@ final class MigrationSettingsTests: XCTestCase {
         globals[.remoteInput] = release >= 9
         // v0.9 automation: Mac actions is off until the person turns it on, and no older release stored it.
         globals[.macActions] = false
+        // Existing call permissions never imply consent to the new call-state/media feature.
+        globals[.callQuiet] = false
         XCTAssertEqual(settings.globalFeatures, globals, label, file: file, line: line)
         var phoneA: [BridgeyFeature: Bool] = [.notifications: false, .calls: true]
         if release >= 9 { phoneA[.remoteInput] = true }

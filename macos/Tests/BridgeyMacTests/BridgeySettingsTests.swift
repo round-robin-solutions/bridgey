@@ -6,7 +6,7 @@ final class BridgeySettingsTests: XCTestCase {
     /// `BridgeySettings()` reads and settles keys in the test runner's own defaults; put them back afterwards.
     private let connectAwayKey = "settings.connect.away"
     private let codesEmailKey = "settings.codes.email"
-    private lazy var touchedKeys = [otherAppsKey, "settings.codes.engine", connectAwayKey, codesEmailKey]
+    private lazy var touchedKeys = [otherAppsKey, "settings.codes.engine", connectAwayKey, codesEmailKey, "settings.presence.share"]
     private var savedValues: [String: Any] = [:]
 
     override func setUp() {
@@ -14,6 +14,7 @@ final class BridgeySettingsTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: otherAppsKey)
         UserDefaults.standard.removeObject(forKey: connectAwayKey)
         UserDefaults.standard.removeObject(forKey: codesEmailKey)
+        UserDefaults.standard.removeObject(forKey: "settings.presence.share")
     }
 
     override func tearDown() {
@@ -21,6 +22,16 @@ final class BridgeySettingsTests: XCTestCase {
             if let value = savedValues[key] { UserDefaults.standard.set(value, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
         }
         BridgeyLog.policy = LoggingPolicy()
+    }
+
+    @MainActor
+    func testActivitySharingDefaultsOnAndAnExplicitOffSurvivesReload() {
+        let settings = BridgeySettings()
+        XCTAssertTrue(settings.shareActivityStatus)
+        settings.setShareActivityStatus(false)
+        XCTAssertFalse(BridgeySettings().shareActivityStatus)
+        settings.setShareActivityStatus(true)
+        XCTAssertTrue(BridgeySettings().shareActivityStatus)
     }
 
     func testGlobalSwitchOverridesDeviceSetting() {

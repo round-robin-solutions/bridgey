@@ -318,10 +318,14 @@ struct DropToastView: View {
 final class DropToastController {
     private(set) var panel: NSPanel?
     private var hideWork: DispatchWorkItem?
+    /// Reduce Motion (Bridgey's own setting or the system's): no fades either way. Tests pin it.
+    var reduceMotion: () -> Bool = {
+        UserDefaults.standard.bool(forKey: "settings.reduceMotion") || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
 
     func show(_ model: DropToastModel, near icon: NSRect?, seconds: TimeInterval = DropRouter.undoSeconds) {
         hideWork?.cancel()
-        let reduce = UserDefaults.standard.bool(forKey: "settings.reduceMotion") || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let reduce = reduceMotion()
         let host = NSHostingView(rootView: BrandRoot(reduceMotion: reduce) {
             DropToastView(model: model) { [weak self] in self?.hide() }
         })
@@ -347,7 +351,9 @@ final class DropToastController {
     func hide() {
         hideWork?.cancel()
         guard let panel, panel.isVisible else { return }
-        BridgeyWindows.fadeOut(panel)
+        // With Reduce Motion the show does not fade in, so a fade-out still running from a quick
+        // hide would end on the new toast and leave it on screen at alpha 0. No fade-out either.
+        if reduceMotion() { BridgeyWindows.orderOut(panel) } else { BridgeyWindows.fadeOut(panel) }
     }
 
     private func makePanel() -> NSPanel {

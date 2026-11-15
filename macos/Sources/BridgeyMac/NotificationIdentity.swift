@@ -40,20 +40,40 @@ struct AlertedNotificationIdentifiers {
     private let capacity: Int
     private var order: [String] = []
     private var members = Set<String>()
+    private var events: [String: String] = [:]
+    private var devices: [String: String] = [:]
 
     init(capacity: Int = 512) {
         self.capacity = capacity
     }
 
-    mutating func insert(_ identifier: String) -> Bool {
-        guard members.insert(identifier).inserted else { return false }
+    /// Last-alerted message identity has the sound cache's lifetime, independent of session tickets.
+    mutating func insert(_ identifier: String, eventID: String? = nil, deviceID: String? = nil) -> Bool {
+        if let deviceID { devices[identifier] = deviceID }
+        guard members.insert(identifier).inserted else {
+            guard let eventID else { return false }
+            let previous = events.updateValue(eventID, forKey: identifier)
+            // Adopting the first event identity for a legacy alert cannot replay that old alert.
+            return previous.map { $0 != eventID } ?? false
+        }
+        if let eventID { events[identifier] = eventID }
         order.append(identifier)
-        if order.count > capacity { members.remove(order.removeFirst()) }
+        if order.count > capacity {
+            let evicted = order.removeFirst()
+            members.remove(evicted); events.removeValue(forKey: evicted); devices.removeValue(forKey: evicted)
+        }
         return true
     }
 
     mutating func remove(_ identifier: String) {
         guard members.remove(identifier) != nil else { return }
         order.removeAll { $0 == identifier }
+        events.removeValue(forKey: identifier)
+        devices.removeValue(forKey: identifier)
+    }
+
+    mutating func remove(deviceID: String) {
+        let identifiers = devices.filter { $0.value == deviceID }.map(\.key)
+        for identifier in identifiers { remove(identifier) }
     }
 }

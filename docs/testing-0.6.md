@@ -1,5 +1,38 @@
 # Bridgey 0.6 complete acceptance test
 
+## Edition follow-up — 2026-11-04
+
+The current edition is v0.10 Beta. The original 0.6 checklist below remains a record of
+its feature scope, not a claim that every current feature or OEM has passed. The sequential
+roadmap run starts by closing call lifecycle/media gaps before later feature work.
+
+The first fix batch adds an Android 8–11 phone-state observer and reconciles the existing Mac
+pause policy when enabled or changed during a call. Automated regression cases are separate
+from physical-device acceptance; they do not certify a phone maker's background behavior.
+The new [linked-device call/media feature](call-media.md) is still being implemented.
+
+| Acceptance | Required evidence | Current status |
+| --- | --- | --- |
+| API 26/30/31/35 call end after dialer notification disappears | Registered platform callback reaches the debounced lifecycle; no stale call remains | Regression tests added; owned RR CI pending |
+| Queued callback after stop, permission revoke or listener replacement | Stale observer cannot alter the new lifecycle | Regression tests added; owned RR CI pending |
+| Enable legacy Pause during an active call; change player during a slow read | The newly selected target is resolved and paused once; metadata refreshes do not starve it | Eleven deterministic Mac tests added; owned RR CI pending |
+| New call/media modes and all three restoration choices | Observed pause/mute, last-call restoration, no toggle commands or pre-existing paused-player autoplay | Implementation/tests in progress |
+| Two calls/devices, one ends | No restoration while another authorized call remains, including mixed legacy/new peers | Implementation/tests in progress |
+| Notifications Off, source grant Off, restricted agent and old peer | New feature's independent permission works; no unauthorized action or implied capability | Implementation/tests in progress |
+| Source joins mid-call, route change, disconnect, lease expiry | Fresh bounded state; loss releases owned sound without autoplay | Implementation/tests in progress |
+| Manual playback, seek, volume/route change, process replacement | Quiet once; later choices remain owned by the person | Implementation/tests in progress |
+| Kill/restart while an owned mute exists | Minimal private journal recovers only a matching owned sound change; never autoplays | Implementation/tests in progress |
+| Call audio and platform limits | A call stays audible; unsupported media is reported rather than falsely called quiet | Real-device acceptance pending |
+| OnePlus, physical Pixel, Samsung, another OEM and secondary SIM | Exact phone/OS/build, reconnect, call waiting, listener loss and call-end results | Broader physical-device acceptance pending |
+| Mac remote input/presentations and Accessibility after upgrade | Actual pointer, stop paths, permission retention and no stuck input | [0.7 device checklist](testing-remote-input.md) remains open |
+
+Use offline fakes and isolated fixtures for automated tests. Never initiate calls/messages on
+production accounts or change real media playback merely to exercise a test. Record any
+owner-supplied natural-call observations with exact device/build and scope. An emulator pass
+does not close an OEM, real network or call-audio row.
+
+## Original 0.6 candidate checklist
+
 Test both clients from the same 0.6 release candidate. This is one complete
 feature candidate, not a sequence of partial alpha builds. A stable 0.6.0 tag
 should follow device acceptance, not precede it.

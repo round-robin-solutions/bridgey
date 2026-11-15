@@ -70,6 +70,15 @@ protocol PhoneFilesHost: AnyObject {
     /// Starts an upload; false when it could not start (the completion has run).
     func startUpload(_ upload: UploadRequest) -> String?
     func cancelUpload(_ id: String)
+    /// Copy wrote the pasteboard (PhoneFilesService.copiedToPasteboard).
+    func phoneFilesCopied(phoneID: String, changeCount: Int)
+    /// Download Optimized saved copies (PhoneFilesService.savedCopies).
+    func phoneFilesSavedCopies(_ urls: [URL], phoneID: String)
+}
+
+extension PhoneFilesHost {
+    func phoneFilesCopied(phoneID: String, changeCount: Int) {}
+    func phoneFilesSavedCopies(_ urls: [URL], phoneID: String) {}
 }
 
 @MainActor
@@ -635,6 +644,14 @@ final class PhoneFilesController: PhoneFilesService {
                                     progress: progress, completion: completion)
         guard let id = host?.startUpload(request) else { return .none }
         return PhoneFilesCancellable { [weak self] in self?.host?.cancelUpload(id) }
+    }
+
+    func copiedToPasteboard(phoneID: String, changeCount: Int) {
+        host?.phoneFilesCopied(phoneID: phoneID, changeCount: changeCount)
+    }
+
+    func savedCopies(_ urls: [URL], phoneID: String) {
+        host?.phoneFilesSavedCopies(urls, phoneID: phoneID)
     }
 }
 

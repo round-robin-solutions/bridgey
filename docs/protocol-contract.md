@@ -163,8 +163,10 @@ the tables at the end of this page are generated from it with
 | `agents_mirror_draft1` | edition-draft | no | false |
 | `codes_detect_draft1` | edition-draft | no | false |
 | `agent_notifications_draft1` | edition-draft | no | false |
+| `call_quiet_draft1` | edition-draft | no | false |
 | `device_presence_draft1` | edition-draft | no | false |
 | `share_receive_draft1` | edition-draft | no | false |
+| `notification_routing_draft1` | edition-draft | no | false |
 
 ### Envelope fields
 
@@ -191,7 +193,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-176 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+178 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -421,8 +423,10 @@ Idempotent.
 - `preview`: string, optional, edition extension (email_codes_draft1), only with emailApp true: the expanded text (subject and body start), at most 600 UTF-16 units, cut only at whitespace; sent only when it looks like it holds a code. Never logged
 - `smsReply`: boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId
 - `smsThreadId`: integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it
+- `presentation`: optional alert | quiet, only when both peers advertise notification_routing_draft1; missing means alert. Quiet retains history/call state/code extraction but forbids banners, sound, call overlays, code floats and automatic code copying
+- `eventId`: optional 64 lowercase hexadecimal SHA-256 characters, notification_routing_draft1 only, never with callType: opaque logical-message identity. Reposts retain ownership; a new message in a reused conversation notification chooses the current active/preferred Mac and may alert again.
 
-Content is sensitive and never logged.
+Content is sensitive and never logged. Smart routing chooses one alert recipient on the phone; compatible other Macs receive quiet history. Legacy peers receive content only if chosen, since they cannot honor quiet. Alert ownership sticks per logical message; a new message event may choose the current Mac. Calls and non-message updates stay pinned until removal; call/media state uses its independent all-device protocol.
 
 `notifications.remove`
 
@@ -790,6 +794,8 @@ messageId is the request's ID. Senders time out after five seconds.
 | `calls.started` | upstream-v1 | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
 | `calls.confirmation_required` | upstream-v1 | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
 | `calls.rejected` | upstream-v1 | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
+| `calls.quiet_state` | edition-draft | either | call_quiet_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `calls.quiet_result` | edition-draft | either | call_quiet_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `calls.request`
 
@@ -798,6 +804,28 @@ messageId is the request's ID. Senders time out after five seconds.
 Answered by `calls.started`, `calls.confirmation_required`, `calls.rejected`.
 
 At most one request every three seconds.
+
+`calls.quiet_state`
+
+- `version`: integer, 1
+- `revision`: integer, 1..2147483647; monotonic within the authenticated session
+- `calls`: 0..16 distinct opaque ASCII IDs, [A-Za-z0-9_-]{1,64}; empty with uncertain false is explicit end
+- `uncertain`: boolean; a previously advertised active local source was lost without verified end; clears only after that source is freshly observed
+
+Answered by `calls.quiet_result`.
+
+Exactly these keys; no origin or caller/media content. Source identity comes from the authenticated session. Equal revisions renew only identical sets and uncertainty; older revisions ignored. Active or uncertain snapshots renew every 25 s and expire after 75 s monotonic time. Uncertainty prevents autoplay when the last known call disappears. Expiry/revoke/session loss releases owned sound without autoplay; normal last-call end follows local restoration choice. Requires both feature maps and local per-device permission; no transitive forwarding.
+
+`calls.quiet_result`
+
+- `version`: integer, 1
+- `revision`: integer, 1..2147483647; echoes the current source revision
+- `paused`: integer, 0..64 observed owned pauses
+- `muted`: integer, 0..64 observed owned mutes
+- `limited`: integer, 0..64 limited or unsupported targets
+- `issues`: 0..16 unique fixed reason keys; no content metadata; docs/call-media.md
+
+Exactly these keys. Reports observed local results and capability limits, not success inferred from delivery. Match authenticated current peer/session and the latest sent revision; coalesce unchanged results. Policy/restoration are local settings and never supplied by a remote peer.
 
 #### `input.*`
 

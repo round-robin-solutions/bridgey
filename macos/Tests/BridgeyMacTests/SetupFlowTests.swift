@@ -477,14 +477,14 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(DefaultsGeneration.globalFeatures(defaults)[.clipboard], true)
     }
 
-    func testAnUpgradeFromBeta1KeepsEveryFeatureExactlyAsItWas() {
+    func testAnUpgradeFromBeta1KeepsExistingFeaturesAndLeavesNewCallQuietingOff() {
         // 0.10 beta 1: a device ID, some switches stored, most never touched (their defaults).
         defaults.set(UUID().uuidString, forKey: "deviceID")
         defaults.set("local", forKey: "settings.codes.engine")
         defaults.set(false, forKey: "settings.global.files")
         defaults.set(true, forKey: "settings.global.media")
         let before: [BridgeyFeature: Bool] = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-            ($0, defaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput && $0 != .macActions))
+            ($0, defaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput && $0 != .macActions && $0 != .callQuiet))
         })
         let generation = DefaultsGeneration.settle(defaults, priorInstall: SetupLaunch.hasStoredState(keys: defaults.dictionaryRepresentation().keys,
                                                                                                          trustFileExists: false))
@@ -493,6 +493,7 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(DefaultsGeneration.globalFeatures(defaults)[.clipboard], true)
         XCTAssertEqual(DefaultsGeneration.globalFeatures(defaults)[.files], false)
         XCTAssertEqual(DefaultsGeneration.globalFeatures(defaults)[.remoteInput], false)
+        XCTAssertEqual(DefaultsGeneration.globalFeatures(defaults)[.callQuiet], false, "a new call-state grant must require explicit consent")
     }
 
     func testTheStoredGenerationWinsAndSurvivesASettingsReset() {

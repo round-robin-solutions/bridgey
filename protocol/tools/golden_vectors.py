@@ -92,7 +92,7 @@ drafts_none = {"device_presence_draft1":False,"share_receive_draft1":False,"clip
                "agent_draft1":False,"notify_draft1":False,"ask_draft1":False,"clipboard_request_draft1":False,
                "agent_codes_draft1":False,"agents_mirror_draft1":False,
                # Detect codes (docs/mesh-and-codes.md), after the agent keys.
-               "codes_detect_draft1":False}
+               "codes_detect_draft1":False,"call_quiet_draft1":False,"notification_routing_draft1":False}
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -100,6 +100,10 @@ fe("edition Mac", {"version":1,"features":{**features_all,"clipboard_files_draft
    {"features":features_all,"drafts":{**drafts_none,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":False,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":False}})
 fe("edition phone serving Files 2.0 browsing", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"clipboard_files_draft1":True,"folders_draft1":True,"places_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,"files_browse_draft1":True}})
+fe("smart notification routing and coarse activity", {"version":1,"features":{**features_all,"device_presence_draft1":True,"notification_routing_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"device_presence_draft1":True,"notification_routing_draft1":True}})
+fe("smart routing draft keys are strict booleans", {"version":1,"features":{**features_all,"device_presence_draft1":1,"notification_routing_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
 # Automation (v0.9): mac_actions_draft1 and camera_draft1 are switches in the apps but draft keys on the wire, pinned under drafts.
 automation_mac = {"mac_actions_draft1":True,"links_open_draft1":True,"focus_sync_draft1":True,"camera_draft1":True}
 fe("v0.9 Mac with Mac actions granted, links open, Focus and camera", {"version":1,"features":{**features_all,"clipboard_files_draft1":True,"folders_draft1":True,"sms_codes_draft1":True,"folders_receive_draft1":True,**automation_mac}},
@@ -127,6 +131,11 @@ fe("screen_draft1 that is not a boolean counts as false", {"version":1,"features
 fe("Mac and phone with Text messages on", {"version":1,"features":{**features_all,"sms_codes_draft1":True,"sms_draft1":True}},
    {"features":features_all,"drafts":{**drafts_none,"sms_codes_draft1":True,"sms_draft1":True}})
 fe("sms_draft1 that is not a boolean counts as false", {"version":1,"features":{**features_all,"sms_draft1":"true"}},
+   {"features":features_all,"drafts":drafts_none})
+# Call quieting is negotiated independently of notification mirroring.
+fe("call quieting key is negotiated", {"version":1,"features":{**features_all,"call_quiet_draft1":True}},
+   {"features":features_all,"drafts":{**drafts_none,"call_quiet_draft1":True}})
+fe("call quieting key rejects nonboolean", {"version":1,"features":{**features_all,"call_quiet_draft1":"true"}},
    {"features":features_all,"drafts":drafts_none})
 # Settings sync (v0.10): settings_sync_draft1 is a draft key on both sides, true only for JSON true.
 fe("v0.10 device with settings sync on", {"version":1,"features":{**features_all,"settings_sync_draft1":True}},

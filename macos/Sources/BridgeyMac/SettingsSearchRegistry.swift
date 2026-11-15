@@ -113,6 +113,7 @@ enum SettingsSearchRegistry {
         case .calls: calls
         case .remoteInput: remote
         case .macActions: ["lock", "sleep", "shortcuts", "заблокировать"]
+        case .callQuiet: ["mute", "pause", "call", "sound", "media", "звонок", "звук", "пауза"]
         }
     }
 
@@ -226,6 +227,10 @@ enum SettingsSearchRegistry {
             row("calls.otherApps", .calls, L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"), nil, calls),
             row("calls.ring", .calls, L10n.text("settings.calls.ring", fallback: "Ring for incoming calls"), nil, calls + ["ringtone", "sound", "звук"]),
             row("calls.pause", .calls, L10n.text("settings.media.pauseForCalls", fallback: "Pause media during phone calls"), nil, calls + media),
+            feature(.callQuiet, .calls, calls + media + ["mute", "all devices", "без звука"]),
+            row("calls.quietMode", .calls, L10n.text("callMedia.mode", fallback: "During a call"), nil, calls + media + ["pause", "mute", "пауза"]),
+            row("calls.quietRestore", .calls, L10n.text("callMedia.restore", fallback: "After the last call"), nil, calls + media + ["resume", "restore", "продолжить"]),
+            row("calls.manual", .calls, L10n.text("callMedia.manual", fallback: "This Mac's call status"), nil, calls + ["manual", "FaceTime", "Zoom", "Teams", "вручную"]),
             row("calls.shortcut", .calls, section: shortcutCard, ShortcutAction.call.displayTitle, nil, shortcut + calls),
 
             // Files
@@ -245,6 +250,8 @@ enum SettingsSearchRegistry {
                 L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."), ["finder", "tag", "метка"]),
             row("files.camera", .files, L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
                 L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"), ["camera", "photo", "take photo", "камера", "фото"]),
+            row("files.phoneQuality", .files, L10n.text("settings.phoneFiles.quality", fallback: "Copy and download from the phone"), nil,
+                ["phone files", "copy", "download", "optimize", "optimise", "original", "compress", "копировать", "загрузить", "оригинал", "сжать"]),
             row("files.photos", .files, section: beforeSending, L10n.text("optimize.images", fallback: "Photos"), nil, ["resize", "compress", "optimise", "optimize", "сжать"]),
             row("files.format", .files, section: beforeSending, L10n.text("optimize.format", fallback: "Format"), nil, ["webp", "jpeg", "heic"], visible: optimizing),
             row("files.quality", .files, section: beforeSending, L10n.text("optimize.quality", fallback: "Quality"), nil, ["compress", "качество"], visible: optimizing),
@@ -343,6 +350,8 @@ enum SettingsSearchRegistry {
             row("general.login", .general, L10n.text("settings.launchAtLogin", fallback: "Launch at login"), nil, login),
             row("general.reduceMotion", .general, L10n.text("settings.reduceMotion", fallback: "Reduce motion"),
                 L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"), motion, sync: .reduceMotion),
+            row("general.panelMotion", .general, L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"), nil,
+                motion + ["menu bar", "panel", "animation", "панель", "анимация"]),
             row("general.shift", .general, L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"), nil, shortcut),
             row("general.sync", .general, L10n.text("settings.sync", fallback: "Sync settings with paired devices"),
                 L10n.text("settings.sync.detail", fallback: "Keeps settings and features the same on your devices. Permissions, pairing and folders stay on each device."), sync),
@@ -406,6 +415,7 @@ enum SettingsSearchRegistry {
         }
         rows.append((L10n.text("remote.grant", fallback: "Allow remote control"), remote))
         rows.append((L10n.text("actions.grant", fallback: "Allow Mac actions"), featureWords(.macActions)))
+        rows.append((L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"), featureWords(.callQuiet)))
         rows.append((L10n.text("settings.sync.device", fallback: "Sync settings with this device"), sync))
         return rows
     }

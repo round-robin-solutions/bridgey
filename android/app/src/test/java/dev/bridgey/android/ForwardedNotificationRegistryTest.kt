@@ -7,6 +7,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ForwardedNotificationRegistryTest {
+    @Test fun evictedSystemRemovalsReleaseRoutingCapacityAcrossRepeatedTurnover() {
+        val registry = ForwardedNotificationRegistry(limit = 2)
+        val routes = dev.bridgey.android.routing.NotificationAlertRoutes(capacity = 4)
+        repeat(20) { turn ->
+            val keys = (0..2).map { "system-$turn-$it" }
+            val tickets = keys.map { key ->
+                val id = notificationToken(key)
+                registry.record(id, key, "app")
+                routes.plan(id) { "active-mac" }!!
+            }
+            assertTrue(registry.systemKey(tickets.first().notificationId) == null)
+            // Actual Android removal has the system key even when both forwarding indexes
+            // have evicted it. Use the same stable-ID recovery as the listener callback.
+            keys.forEach { key -> assertTrue(routes.remove(registry.removedBySystem(key))) }
+            tickets.forEach { assertFalse(routes.current(it)) }
+        }
+        assertTrue(routes.plan("fresh-after-turnover") { "active-mac" }?.owner == "active-mac")
+    }
+
     @Test fun callActionsNeedCallsOnForTheAskingMac() {
         assertFalse("answer or hang up with Calls off", notificationActionAllowed(isCallAction = true, callsEnabled = false))
         assertTrue(notificationActionAllowed(isCallAction = true, callsEnabled = true))

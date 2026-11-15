@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Quick Settings "Share screen": active while this phone shares its screen (a tap stops it); otherwise a tap
- * opens Android's consent dialog for the selected Mac, or the only Mac screen sharing is available with.
+ * shows the device list before Android's consent dialog.
  */
 class ScreenShareTileService : TileService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -30,17 +30,17 @@ class ScreenShareTileService : TileService() {
         listening = scope.launch {
             combine(app.pairing.state, app.pairing.connections, app.screenShare.state, app.settings.state) { _, _, share, _ -> share }.collect { share ->
                 qsTile?.apply {
-                    val target = if (app.isBridgeyEnabled) app.pairing.screenTarget() else null
+                    val hasTargets = app.isBridgeyEnabled && app.pairing.screenTargets().isNotEmpty()
                     state = when {
                         share.active -> Tile.STATE_ACTIVE
-                        target != null -> Tile.STATE_INACTIVE
+                        hasTargets -> Tile.STATE_INACTIVE
                         else -> Tile.STATE_UNAVAILABLE
                     }
                     label = getString(R.string.tile_screen_label)
                     if (Build.VERSION.SDK_INT >= 29) {
                         subtitle = when {
                             share.active -> share.macName
-                            target != null -> target.second
+                            hasTargets -> getString(R.string.destination_choose)
                             else -> getString(R.string.tile_screen_unavailable)
                         }
                     }
@@ -64,9 +64,8 @@ class ScreenShareTileService : TileService() {
             return
         }
         unlockAndRun {
-            val (deviceId, macName) = app.pairing.screenTarget() ?: return@unlockAndRun
-            app.screenShare.markAsking(deviceId, macName)
-            val intent = ScreenConsentActivity.intent(this, deviceId, macName, null)
+            if (!app.isBridgeyEnabled || app.pairing.screenTargets().isEmpty()) return@unlockAndRun
+            val intent = ScreenConsentActivity.chooseIntent(this)
             if (Build.VERSION.SDK_INT >= 34) {
                 startActivityAndCollapse(PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             } else {

@@ -120,6 +120,8 @@ class SharedPrefsMigrationTest(private val release: Int) {
             .plus(BridgeyFeature.PING to !pingOff)
             // Text messages is off on every install until chosen, even with the old defaults.
             .plus(BridgeyFeature.SMS to false)
+            // Old call permissions do not opt a device into the new call-state/media feature.
+            .plus(BridgeyFeature.CALL_QUIET to false)
         assertEquals(globals, state.globalFeatures)
 
         val macA = mutableMapOf(BridgeyFeature.NOTIFICATIONS to false, BridgeyFeature.CALLS to true)
@@ -128,6 +130,8 @@ class SharedPrefsMigrationTest(private val release: Int) {
         assertFalse(settings.isEnabled(BridgeyFeature.NOTIFICATIONS, MAC_A))
         assertTrue(settings.isEnabled(BridgeyFeature.NOTIFICATIONS, MAC_B))
         assertFalse(settings.isEnabled(BridgeyFeature.FILES, MAC_B))
+        assertFalse(settings.isEnabled(BridgeyFeature.CALL_QUIET, MAC_A))
+        assertFalse(settings.isEnabled(BridgeyFeature.CALL_QUIET, MAC_B))
 
         assertEquals(mapOf("com.example.chat" to "Chat App", "com.example.mail" to "Mail App"), state.notificationApplications)
         assertEquals(setOf("com.example.mail"), state.disabledNotificationPackages)

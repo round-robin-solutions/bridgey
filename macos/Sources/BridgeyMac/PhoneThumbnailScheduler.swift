@@ -644,7 +644,8 @@ final class PhoneHoverPrefetcher {
     private let service: PhoneFilesService
     private let cache: PhoneThumbnailCache
     private let clock: () -> Date
-    private var pending: (entry: PhoneFileEntry, timer: DispatchWorkItem)?
+    private let scheduler: ReconnectClock
+    private var pending: (entry: PhoneFileEntry, timer: ScheduledTask)?
     private var fetches: [String: Fetch] = [:]
     /// Previews opened while their prefetch was still on the wire wait for it instead of asking again.
     private var waiters: [String: [(PhoneDecodedImage?) -> Void]] = [:]
@@ -655,10 +656,12 @@ final class PhoneHoverPrefetcher {
     private(set) var started = 0
     private(set) var cancelled = 0
 
-    init(service: PhoneFilesService, cache: PhoneThumbnailCache, clock: @escaping () -> Date = Date.init) {
+    init(service: PhoneFilesService, cache: PhoneThumbnailCache, clock: @escaping () -> Date = Date.init,
+         scheduler: ReconnectClock = MainQueueClock()) {
         self.service = service
         self.cache = cache
         self.clock = clock
+        self.scheduler = scheduler
     }
 
     var inFlight: Int { fetches.count }
@@ -666,9 +669,10 @@ final class PhoneHoverPrefetcher {
     func hoverBegan(_ entry: PhoneFileEntry) {
         pending?.timer.cancel()
         guard route == .lan, entry.hasThumbnail, phoneID != nil else { return }
-        let timer = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.fire(entry) } }
+        let timer = scheduler.schedule(after: Self.delay) { [weak self] in
+            MainActor.assumeIsolated { self?.fire(entry) }
+        }
         pending = (entry, timer)
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.delay, execute: timer)
     }
 
     func hoverEnded(_ entry: PhoneFileEntry) {

@@ -1,6 +1,9 @@
 package dev.bridgey.android
 
 import android.content.Context
+import dev.bridgey.android.media.CallMediaMode
+import dev.bridgey.android.media.CallMediaPolicy
+import dev.bridgey.android.media.CallMediaRestoration
 import dev.bridgey.android.folders.ConflictPolicy
 import dev.bridgey.android.folders.DEFAULT_PLACE_ID
 import dev.bridgey.android.folders.DestinationMode
@@ -46,12 +49,15 @@ enum class BridgeyFeature(val key: String, val title: String) {
      * notifications. Off by default on every install, including ones from before off-until-chosen.
      */
     SMS("sms_draft1", "Text messages"),
+
+    /** Optional, per-device call state and local media quieting. Never enabled for old peers. */
+    CALL_QUIET("call_quiet_draft1", "Quiet media during calls"),
 }
 
 internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
-        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS,
+        BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS, BridgeyFeature.CALL_QUIET,
     )
 
 /** Features that start off until the person turns them on. */
@@ -59,7 +65,7 @@ internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
 const val CONNECT_AWAY_DEFAULT = true
 
 internal fun featureOnByDefault(feature: BridgeyFeature): Boolean =
-    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS
+    feature != BridgeyFeature.REMOTE_INPUT && feature != BridgeyFeature.SCREEN && feature != BridgeyFeature.SMS && feature != BridgeyFeature.CALL_QUIET
 
 data class BridgeySettingsState(
     val deviceName: String,
@@ -117,6 +123,9 @@ data class BridgeySettingsState(
     val recentFolderDestinations: List<FolderDestination> = emptyList(),
     /** Privacy > Logging: what reaches Logcat and exported diagnostics. On this phone only. */
     val logging: LoggingPolicy = LoggingPolicy(),
+    /** Local notification routing preference; never synced as another device's identity. */
+    val smartNotificationRouting: Boolean = true,
+    val preferredNotificationDeviceId: String? = null,
     /** Notifications > Share Do Not Disturb with Macs (focus_sync_draft1). Off by default. */
     val focusShare: Boolean = false,
     /** Notifications > Follow the Mac's Focus: Do Not Disturb follows the Macs. Off by default. */
@@ -152,6 +161,8 @@ data class BridgeySettingsState(
      * synced. Text messages only; email previews never go to the cloud.
      */
     val cloudCodes: Boolean = false,
+    /** Local call/media behavior; the feature and every peer still need explicit permission. */
+    val callMediaPolicy: CallMediaPolicy = CallMediaPolicy(),
     val shareAlwaysAsk: Boolean = false,
     val lastSharedMac: String? = null,
 ) {
@@ -230,6 +241,9 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun isEnabled(feature: BridgeyFeature, deviceId: String?): Boolean {
         val snapshot = mutableState.value
         if (!BuildGates.featureBuilt(feature)) return false
+        if (feature == BridgeyFeature.CALL_QUIET && deviceId != null) {
+            return snapshot.globalFeatures[feature] == true && snapshot.deviceFeatures[deviceId]?.get(feature) == true
+        }
         return effectiveFeatureEnabled(
             globalEnabled = snapshot.globalFeatures[feature] != false,
             deviceEnabled = deviceId?.let { snapshot.deviceFeatures[it]?.get(feature) },
@@ -266,6 +280,16 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun setDirectCallsEnabled(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_DIRECT_CALLS_ENABLED, enabled).apply()
         mutableState.value = mutableState.value.copy(directCallsEnabled = enabled)
+    }
+
+    fun setCallMediaMode(mode: CallMediaMode) {
+        preferences.edit().putString(KEY_CALL_MEDIA_MODE, mode.key).apply()
+        mutableState.value = mutableState.value.copy(callMediaPolicy = mutableState.value.callMediaPolicy.copy(mode = mode))
+    }
+
+    fun setCallMediaRestoration(restoration: CallMediaRestoration) {
+        preferences.edit().putString(KEY_CALL_MEDIA_RESTORATION, restoration.key).apply()
+        mutableState.value = mutableState.value.copy(callMediaPolicy = mutableState.value.callMediaPolicy.copy(restoration = restoration))
     }
 
     fun setAutoClipboardGlobal(enabled: Boolean) {
@@ -314,6 +338,17 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     fun setKeepWifiAwake(enabled: Boolean) {
         preferences.edit().putBoolean(KEY_KEEP_WIFI_AWAKE, enabled).apply()
         mutableState.value = mutableState.value.copy(keepWifiAwake = enabled)
+    }
+
+    fun setSmartNotificationRouting(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_SMART_NOTIFICATIONS, enabled).apply()
+        mutableState.value = mutableState.value.copy(smartNotificationRouting = enabled)
+    }
+
+    fun setPreferredNotificationDeviceId(deviceId: String?) {
+        val id = deviceId?.takeIf { it.isNotBlank() && it.length <= 128 }
+        preferences.edit().apply { if (id == null) remove(KEY_PREFERRED_NOTIFICATION_DEVICE) else putString(KEY_PREFERRED_NOTIFICATION_DEVICE, id) }.apply()
+        mutableState.value = mutableState.value.copy(preferredNotificationDeviceId = id)
     }
 
     fun setFocusShare(enabled: Boolean) {
@@ -459,6 +494,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     }
 
     fun removeDevice(deviceId: String) {
+        if (mutableState.value.preferredNotificationDeviceId == deviceId) setPreferredNotificationDeviceId(null)
         val editor = preferences.edit()
         BridgeyFeature.entries.forEach { editor.remove("device.$deviceId.${it.key}") }
         editor.remove("$KEY_AUTO_CLIPBOARD_DEVICE_PREFIX$deviceId")
@@ -516,6 +552,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
+            smartNotificationRouting = preferences.getBoolean(KEY_SMART_NOTIFICATIONS, true),
+            preferredNotificationDeviceId = preferences.getString(KEY_PREFERRED_NOTIFICATION_DEVICE, null)?.takeIf { it.isNotBlank() && it.length <= 128 },
             focusShare = preferences.getBoolean(KEY_FOCUS_SHARE, false),
             focusFollow = preferences.getBoolean(KEY_FOCUS_FOLLOW, false),
             updatesRemoteStart = preferences.getBoolean(KEY_UPDATES_REMOTE_START, true),
@@ -524,6 +562,10 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             connectAwayChoice = if (preferences.contains(KEY_CONNECT_AWAY)) preferences.getBoolean(KEY_CONNECT_AWAY, true) else null,
             emailCodesChoice = if (preferences.contains(KEY_EMAIL_CODES)) preferences.getBoolean(KEY_EMAIL_CODES, true) else null,
             cloudCodes = preferences.getBoolean(KEY_CLOUD_CODES, false),
+            callMediaPolicy = CallMediaPolicy(
+                mode = CallMediaMode.entries.firstOrNull { it.key == preferences.getString(KEY_CALL_MEDIA_MODE, null) } ?: CallMediaMode.PAUSE_THEN_MUTE,
+                restoration = CallMediaRestoration.entries.firstOrNull { it.key == preferences.getString(KEY_CALL_MEDIA_RESTORATION, null) } ?: CallMediaRestoration.RESTORE_AND_RESUME,
+            ),
             shareAlwaysAsk = preferences.getBoolean("share.alwaysAsk", false),
             lastSharedMac = preferences.getString("share.lastMac", null),
         )
@@ -534,6 +576,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         private const val KEY_NOTIFICATION_APPLICATION_PREFIX = "notification.application."
         private const val KEY_DISABLED_NOTIFICATION_PACKAGES = "notification.disabled_packages"
         private const val KEY_DIRECT_CALLS_ENABLED = "calls.direct_enabled"
+        private const val KEY_CALL_MEDIA_MODE = "calls.quiet.mode"
+        private const val KEY_CALL_MEDIA_RESTORATION = "calls.quiet.restoration"
         internal const val KEY_AUTO_CLIPBOARD_GLOBAL = "clipboard.auto.global"
         private const val KEY_AUTO_CLIPBOARD_DEVICE_PREFIX = "clipboard.auto.device."
         private const val KEY_BACKGROUND_CLIPBOARD = "clipboard.background.enabled"
@@ -550,6 +594,8 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_FOLDER_INCLUDE_SYSTEM = "files.folder_include_system"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
+        private const val KEY_SMART_NOTIFICATIONS = "notifications.smart_routing"
+        private const val KEY_PREFERRED_NOTIFICATION_DEVICE = "notifications.preferred_device"
         internal const val KEY_FOCUS_SHARE = "focus.share"
         internal const val KEY_FOCUS_FOLLOW = "focus.follow"
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"

@@ -306,10 +306,10 @@ final class AgentsMirrorTests: XCTestCase {
         XCTAssertEqual(agents.first?.activity.first?.action, "codes.detect")
     }
 
-    func testDraftKeysEndWithTheSixAgentKeysInOrder() {
-        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(8)), [
+    func testDraftKeysPreserveAgentOrderBeforeCallQuietingAndActivityRouting() {
+        XCTAssertEqual(Array(knownDraftFeatureKeys.suffix(10)), [
             "email_codes_draft1", "agent_draft1", "notify_draft1", "ask_draft1", "clipboard_request_draft1", "agent_codes_draft1", "agents_mirror_draft1",
-            "codes_detect_draft1",
+            "codes_detect_draft1", "call_quiet_draft1", "notification_routing_draft1",
         ])
     }
 }

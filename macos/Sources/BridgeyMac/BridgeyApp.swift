@@ -83,6 +83,7 @@ enum MenuBarHost {
         }))
         Task { @MainActor [weak controller] in controller?.prepareContent() }
         controller.reduceMotion = { settings.reduceMotion || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+        controller.panelMotion = { settings.panelMotion }
         controller.onWillOpen = { pairing.activity.prune() }
         controller.onDidOpen = { [weak controller] in
             pairing.refreshNotificationAuthorization()

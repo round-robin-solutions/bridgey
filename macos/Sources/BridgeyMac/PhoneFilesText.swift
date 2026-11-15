@@ -199,6 +199,15 @@ enum PhoneFilesText {
         case .download: String(format: L10n.text("phonefiles.activity.download", fallback: "Downloading %@"), activity.title)
         case .upload: String(format: L10n.text("phonefiles.activity.upload", fallback: "Adding %@"), activity.title)
         case .quickLook: String(format: L10n.text("phonefiles.activity.open", fallback: "Opening %@"), activity.title)
+        case .copy: String(format: L10n.text("phonefiles.activity.copy", fallback: "Copying %@"), activity.title)
+        }
+    }
+
+    static func activitySymbol(_ activity: PhoneFilesActivity) -> String {
+        switch activity.kind {
+        case .upload: "arrow.up.circle"
+        case .copy: "doc.on.doc"
+        case .download, .quickLook: "arrow.down.circle"
         }
     }
 }

@@ -43,15 +43,17 @@ enum PhoneFilesWindowController {
             model.togglePreview()
         }
         window.onEscape = {
-            guard model.preview != nil else { return false }
-            model.closePreview()
-            return true
+            if model.preview != nil { model.closePreview(); return true }
+            return model.clearSelection()
         }
+        window.onSelectionKey = { event in model.selectionKey(event) }
+        window.previewActive = { model.preview != nil }
         window.onArrow = { step in
             guard model.preview != nil else { return false }
             model.showAdjacent(step)
             return true
         }
+        window.onCopy = { other in model.copySelection(other ? model.preferredQuality.other : nil) }
         window.onQuickLook = { [weak window] in
             let entries = model.preview.map { [$0.entry] } ?? model.selectedEntries
             quickLook(entries.filter(PhoneFilesText.quickLookable), model: model, window: window)

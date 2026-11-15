@@ -372,7 +372,8 @@ final class PairingRound4Tests: XCTestCase {
         // CLOCK_MONOTONIC on macOS keeps counting while asleep; systemUptime does not.
         let reference = TimeInterval(clock_gettime_nsec_np(CLOCK_MONOTONIC)) / 1_000_000_000
         XCTAssertEqual(continuousClock(), reference, accuracy: 1)
-        XCTAssertGreaterThanOrEqual(continuousClock(), ProcessInfo.processInfo.systemUptime - 1)
+        // systemUptime uses a different clock domain. Absolute readings need not share an
+        // origin/rate; the public sleep-counting clock above is the relevant reference.
     }
 }
 

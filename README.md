@@ -38,11 +38,12 @@ how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
 The apps check for updates themselves on the channel you pick in Settings (Stable, Beta or Nightly).
 More in the [user guide](docs/user-guide.md#install).
 
-**Current milestone: v0.10, stabilisation.** The [roadmap below](#roadmap) tracks what this
-edition has implemented and what still needs work. As of 2026-11-04, the latest published app
-release is [0.10.0-rr.1 Beta 22](https://github.com/round-robin-solutions/bridgey/releases/tag/v0.10.0-rr.1-beta.22)
+**Current milestone: v0.11.** It adds call-aware media quieting, alerts that follow the Mac you are
+using, Copy and Download Optimised or Original in Phone files and a new menu bar panel entrance, on top
+of the v0.10 stabilisation work. The [roadmap below](#roadmap) tracks what this edition has implemented
+and what still needs work. The latest v0.10 release is
+[0.10.0-rr.1 Beta 27](https://github.com/round-robin-solutions/bridgey/releases/tag/v0.10.0-rr.1-beta.27)
 and the agent command is [0.2.0](https://github.com/round-robin-solutions/bridgey/releases/tag/cli-v0.2.0).
-Settings search is merged and tagged for Beta 23; its app release is still pending.
 
 Guides:
 
@@ -154,6 +155,8 @@ experimental plugins do not block it. Device coverage is recorded in the
 - [x] Control Music/Spotify on macOS from Android: play/pause, previous/next, seek, and player volume
 - [x] Show bounded now-playing metadata and local Music artwork when exposed by the player
 - [x] Optionally pause the selected player while a phone call is ringing or active
+- [ ] Quiet media on permitted linked devices during calls: pause with safe mute fallback,
+      configurable restoration and a manual Mac call action ([in progress](docs/call-media.md))
 - [x] Send and explicitly open web links in either direction
 - [x] Add a lightweight Ping action separate from Find Device
 - [x] Show Mac battery status on Android
