@@ -2,6 +2,12 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 1 (1.0.0-beta.1), 15 November 2026
+
+Bridgey by Round Robin now has its own version numbers, starting at 1.0. Betas are 1.0.0-beta.N; Stable comes later.
+
+Also: a CHANGELOG, a shorter version label in the apps, and an updated README.
+
 ## 0.11.0-rr.1 Beta 3, 15 November 2026
 
 - Calls window on the Mac: dial, search your phone's contacts, see recent calls, choose the SIM and start a phone or WhatsApp call through your phone. Call audio stays on the phone.
