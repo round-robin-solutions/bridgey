@@ -396,25 +396,74 @@ in [sms-call-policy.md](sms-call-policy.md).
 
 ## Versions
 
-- **Version name** (shown to people): `0.6.0-rr.1` for Stable, `0.6.0-rr.2-beta.1` for Beta,
-  `0.6.0-rr.2-nightly.20261025` for Nightly. The first part is the upstream version the
-  edition is based on; `rr.N` counts our releases on it. Betas and nightlies carry the
-  number of the stable release they lead to (`EDITION_NEXT_VERSION`).
-- **Nightly tags**: one per build, `nightly-YYYYMMDD.HHMM` (the UTC minute of the build, the same
-  minute as the build number), for example `nightly-20261026.0905`. Several nightlies a day share
-  the version name `...-nightly.YYYYMMDD`, because the apps accept only that form; the build number
-  tells them apart and orders them (Android snoozes and installs by `versionCode`, Sparkle compares
-  `CFBundleVersion`). A per-build version name needs the apps' version pattern in
-  `UpdateLogic.kt` and `UpdateLogic.swift` widened first.
+The edition has its own semver from 1.0 (Rahul, 15 November 2026). It no longer carries the upstream
+version; the upstream base is in `EDITION_UPSTREAM_BASE` and shows in About and the README.
+
+- **Version name**: `1.0.0` for Stable, `1.0.0-beta.2` for Beta, `1.0.0-nightly.20261116` for Nightly.
+  Betas and nightlies carry the number of the stable release they lead to (`EDITION_NEXT_VERSION`).
+  After a stable release, new features take the next minor version (1.1.0) and fixes the next patch
+  (1.0.1).
+- **Tags**: `v1.0.0-beta.2` and `v1.0.0`, made by `scripts/rr/cut-release.py` (see [Releasing](#releasing)).
+  Nightly tags are one per build, `nightly-YYYYMMDD.HHMM` (the UTC minute of the build, the same minute as
+  the build number). Several nightlies a day share the version name `...-nightly.YYYYMMDD`; the build
+  number tells them apart and orders them.
+- **What people see**: a short label, "1.0 Beta 2", "1.0", "1.0.1", "1.1 Nightly 16 Nov", next to updates,
+  in Settings and in What's new. About shows the full version and the build, "1.0.0-beta.2 (263201200)".
+  `VersionNames` in `UpdateLogic.kt` and `UpdateLogic.swift` make the labels; `scripts/rr/versions.py` has the
+  same rules for the release scripts.
 - **Build number** (Android `versionCode`, macOS `CFBundleVersion`): the UTC build time as
   `YYDDDHHMM` (two-digit year, day of year, hour, minute). 25 October 2026 13:15 UTC is
   `262981315`. It grows with time on every channel, so one number orders all builds, and it
-  stays below Android's limit of 2,100,000,000 until 2099.
+  stays below Android's limit of 2,100,000,000 until 2099. Updaters compare only this number.
 - Local builds (Android Studio, `swift run`, `./build-app.sh`) are `<next>-dev` with build 1,
   so any published build counts as newer.
+- **Before 1.0** the names were `0.11.0-rr.1`, `0.11.0-rr.1-beta.3` and `0.10.0-rr.1-nightly.20261108`: the
+  upstream roadmap milestone the release contained and a Round Robin count. Those tags and releases stay as they are, and every parser still
+  reads them.
 
-The release script computes both, and refuses to publish a build that is not newer than the
-one already on that channel.
+The release script computes the version and build, and refuses to publish a build that is not newer than
+the one already on that channel.
+
+### From 0.11 Beta 3 to 1.0
+
+Every device ran 0.11.0-rr.1 Beta 3 when the scheme changed. Its Android updater checks each feed's
+`android.versionName` against the old pattern (`x.y.z-rr.N` with an optional `-beta.N` or `-nightly.YYYYMMDD`)
+and quietly skips a feed that does not match, so a feed saying `1.0.0-beta.1` there would never be offered.
+So the feeds carry two names:
+
+- `version`: the real name (`1.0.0-beta.1`). 1.0 and later read this.
+- `android.versionName` and `macos.shortVersion`: the old form of the same version, `-rr.1` after the
+  numbers (`1.0.0-rr.1-beta.1`, `1.0.0-rr.1`, `1.0.0-rr.1-nightly.20261116`). Beta 3 reads these. It only
+  shows that name; it checks the APK's package, `versionCode` and signing certificate, and installs by
+  `versionCode`, so it installs the real 1.0 build. `rrrelease.py` refuses a feed whose old-form name is
+  missing or does not match `version`.
+
+No bridge release was needed. On the Mac, Sparkle reads the appcast, whose items carry the real name in
+`sparkle:shortVersionString` and the build in `sparkle:version`; Sparkle compares only the build, so Beta 3
+Macs take 1.0 builds as they are. The Mac app does not read the JSON feeds to update. While Beta 3 devices
+remain, Update all may show the old-form name for them ("0.11.0-rr.1 Beta 3 > 1.0.0-rr.1 Beta 1"); that
+ends once they are on 1.0. Tests for all of this: `Beta3CompatibilityTests` in
+`scripts/rr/tests/test_rrrelease.py`, `aBeta3PhoneSeesAndInstallsThe1_0Releases` in `UpdateLogicTest.kt`
+and `testABeta3ClientReadsThe1_0Feeds` in `UpdateLogicTests.swift`, each with a copy of Beta 3's parser.
+
+Keep writing the old-form names until no supported build older than 1.0 is left; then the feeds can drop
+them (and the parsers' legacy branch) in one change.
+
+### Store versions
+
+Google Play and the Mac App Store get plain numbers made from the same release:
+
+| Release | GitHub, feeds, Homebrew | Google Play (`play` build) | Mac App Store (`build-store.sh`) |
+| --- | --- | --- | --- |
+| `1.0.0-beta.3`, build 263201200 | `1.0.0-beta.3` (263201200) | versionName `1.0.0`, versionCode 263201200 | CFBundleShortVersionString `1.0.0`, CFBundleVersion 263201200 |
+| `1.0.0`, build 263241200 | `1.0.0` (263241200) | `1.0.0`, 263241200 | `1.0.0`, 263241200 |
+
+Play needs a versionCode that grows with every upload (the build number does) and accepts any versionName;
+the App Store needs up to three numbers in CFBundleShortVersionString and a CFBundleVersion that grows within
+it. `android/app/build.gradle.kts` sets the Play versionName (`editionStoreVersionName`),
+`scripts/rr/build-android-store.sh` checks it, and `macos/build-store.sh` and `scripts/rr/check-macos-store.py`
+do the same for the App Store bundle. A beta goes to the store's own test track (Play internal or closed
+testing, TestFlight) under the plain number.
 
 ## Channels and feeds
 
@@ -571,7 +620,7 @@ signature checks, and a device whose "Let paired devices start updates" is off i
   with the setting on that reports a newer build. No device starts a run while one is going, or while
   it updates because another device asked. An automatic run asks devices that said "up to date" before
   the build was found to check again.
-- **Honest.** The activity stream gets "Updated automatically to 0.10.0-rr.1-beta.11", "Waiting: call
+- **Honest.** The activity stream gets "Updated automatically to 1.0 Beta 2", "Waiting: call
   in progress", "Skipped Work Mac: updates from other devices are off", "Update started automatically
   by Work Mac" and "Automatic update didn't finish on ...". Settings > Updates shows what the setting is
   doing now (checking every 30 minutes, waiting, put off until, which device starts) and the last
@@ -629,22 +678,50 @@ The RR CI project `bridgey` (policy in `rbansal42/rr-ci` `examples/app_policies.
 - **Nightly** on every push to `rr/main`, once that revision's checks have passed, built and
   published on GitHub-hosted runners by `.github/workflows/rr-ci-nightly.yml`: Android on Ubuntu,
   the Mac app on macOS 15, then appcast signing and publishing. Notes are the commit subjects since
-  the previous nightly or beta (`scripts/rr/release-notes.sh`). RR CI builds one nightly at a time
+  the previous nightly, beta or stable release (`scripts/rr/release-notes.sh`). RR CI builds one nightly at a time
   and only the newest revision: a queued nightly for an older revision is dropped when a newer
   push passes, and a revision that already has a beta or stable tag gets no nightly.
   Its secrets are environment secrets of `rr-ci-release` (deployment rule: `rr/main` only), read
   by name only in the jobs that need them; publishing uses the run's `GITHUB_TOKEN`
   (`contents: write`). `scripts/rr/ci-release.sh nightly` on rr-dev-1 remains as a fallback.
-- **Releases** from annotated tags on `rr/main`: push `v0.6.0-rr.1` for Stable or
-  `v0.6.0-rr.1-beta.2` for Beta (betas lead to `EDITION_NEXT_VERSION`); the tag message is the
-  release notes. RR CI checks the tag is on `rr/main` before starting.
-  `scripts/rr/ci-release.sh tag` checks the tag (annotated, on `rr/main`, pointing at the build)
-  and runs `release.sh` with that version; `publish.sh` uses the existing tag.
+- **Releases** from annotated tags on `rr/main`: `v1.0.0-beta.2` for Beta, `v1.0.0` for Stable (betas lead to
+  `EDITION_NEXT_VERSION`); the tag message is the release notes. RR CI checks the tag is on `rr/main`
+  before starting. `scripts/rr/ci-release.sh tag` checks the tag (annotated, on `rr/main`, pointing at the
+  build) and runs `release.sh` with that version; `publish.sh` uses the existing tag. RR CI starts the
+  release task for tags matching the project's `release_tags` in rr-ci (`examples/app_policies.py`).
+
+Make the tags with `scripts/rr/cut-release.py`. Without `--push` it only prints the plan, the tag message
+and the changelog entry.
 
 ```sh
-git tag -a v0.6.0-rr.1 -m "Release notes for people, in plain words"
-git push origin v0.6.0-rr.1
+# A beta: the next number of EDITION_NEXT_VERSION (v1.0.0-beta.N) on the head of rr/main.
+python3 scripts/rr/cut-release.py beta --notes-file notes.md --push
+
+# Stable, only when Rahul says so: the newest published beta becomes v1.0.0, then
+# EDITION_NEXT_VERSION moves to 1.1.0 (--next patch gives 1.0.1).
+python3 scripts/rr/cut-release.py promote --push
 ```
+
+**Promotion rebuilds the beta's commit as 1.0.0.** The tag goes on the exact commit of the beta (work merged
+since then is not in it), and RR CI builds it with a new build number. Relabelling the beta's own files
+would not work: a build carries its version inside it (the Android app's lab-only parts are switched off at
+compile time in a stable build, and About, What's new and the Mac's CFBundleShortVersionString come from the
+build), so the beta's APK and DMG on Stable would keep saying "1.0 Beta 3". Because the rebuild's build number
+is newer, Beta users also move to "1.0" (the Beta channel reads the Stable feed too), and the Homebrew cask
+moves to it. `--from v1.0.0-beta.2` promotes an older beta; `--notes-file` replaces the default notes (the
+beta's notes, introduced as "The same code as 1.0 Beta 3, now on Stable").
+
+**CHANGELOG.md** at the repository root lists every beta and stable release, newest first. `cut-release.py`
+adds the entry (the notes, under "## 1.0 Beta 2 (1.0.0-beta.2), 16 November 2026") in a commit on `rr/main`
+after pushing the tag, so the tagged build is the commit that passed its checks. If a release is abandoned,
+remove its entry by hand. Nightlies are not listed.
+
+Write the notes for people: short, plain British English, what changed and where to find it.
+
+The Releases page holds only published releases and the fixed `channels`, `models` and `cli-*` releases.
+Test and QA builds stay where RR CI keeps them (`rrci artifact --attempt <id> --name <file>`) or in the task's
+output folder; do not upload them as draft releases. (Twenty `ci-*` drafts from QA runs on 5 to 8 November
+2026 were made that way by hand; the ones for merged work were deleted on 15 November.)
 
 Failures of the nightly or a release reach Rahul on Telegram. Beta and stable releases run only on
 rr-dev-1, where the keys are, and need `~/.config/bridgey-rr/github-token` there (a token with
@@ -653,11 +730,11 @@ write access to the fork's releases).
 ```sh
 # Dry run into dist/<tag>/ (builds both apps, checksums, feeds, signed appcast; publishes nothing)
 scripts/rr/release.sh nightly --mac-host personal
-scripts/rr/release.sh beta --version 0.6.0-rr.1-beta.1 --mac-host personal --notes-file notes.md
+scripts/rr/release.sh beta --version 1.0.0-beta.1 --mac-host personal --notes-file notes.md
 scripts/rr/release.sh stable --mac-host personal --notes-file notes.md
 
 # Publish what the dry run produced (needs gh with write access; HEAD must be pushed)
-scripts/rr/publish.sh dist/v0.6.0-rr.1
+scripts/rr/publish.sh dist/v1.0.0
 
 # Or build and publish in one go
 scripts/rr/release.sh stable --mac-host personal --notes-file notes.md --publish
@@ -719,19 +796,24 @@ releases are built.
   release is out: always for Stable, for Beta only with `--bump-cask` (or `BRIDGEY_RR_BUMP_CASK=1`),
   never for Nightly. A failure prints a warning and leaves the release published; run it again with
   `python3 scripts/rr/bump-cask.py --tag v<version> --push`. It refuses to move the cask to an older
-  version unless `--force` is given. Until the first Stable release, the cask points at the newest Beta.
+  version unless `--force` is given; the order runs across the 1.0 change (0.11.0-rr.1-beta.3 < 1.0.0-beta.1
+  < 1.0.0). It also widens the cask's livecheck regex to the 1.0 tags the first time it runs. Until the
+  first Stable release, the cask points at a Beta.
 - **Obtainium** links, built by `scripts/rr/obtainium.py` as `obtainium://app/<URL-encoded JSON>` and,
   for README and website, through the redirect page
   `https://apps.obtainium.imranr.dev/redirect?r=...` (GitHub does not link custom schemes). The JSON is
   `{"id","url","author","name","additionalSettings"}` with `additionalSettings` as a JSON string: Stable
   `{"includePrereleases":false}`; Beta and Nightly `{"includePrereleases":true,"filterReleaseTitlesByRegEx":...}`
-  where the regex matches the end of our release titles (Beta: `-rr.N` or `-rr.N-beta.N`; Nightly adds
-  `-rr.N-nightly.N`), which keeps the `channels` and `models` releases out. The Android app builds the
+  where the regex matches the version at the end of our release titles (Beta: `1.0.0` or `1.0.0-beta.N`;
+  Nightly adds `1.0.0-nightly.N`; titles from before 1.0 match too), which keeps the `channels`, `models` and
+  `cli-*` releases out. Beta and Nightly entries added to Obtainium before 1.0 only know the `-rr.N` titles;
+  re-adding from Settings > About fixes them, and Bridgey's own updater keeps those phones up to date anyway. The Android app builds the
   same links and must match this builder. Regenerate the links in `README.md`, `docs/user-guide.md`
   and `website/index.html` with `python3 scripts/rr/obtainium.py update README.md docs/user-guide.md website/index.html`;
   a test fails when they are out of date.
 
-After a Stable release, bump `EDITION_NEXT_VERSION` (for example to `0.6.0-rr.2`) and commit.
+`cut-release.py promote` moves `EDITION_NEXT_VERSION` on after a Stable release (to the next minor version by
+default).
 
 Checks:
 
@@ -776,7 +858,8 @@ tests.
 
 After a merge: search for new hardcoded `dev.bridgey` identifiers that store state (Keychain
 services, support folders, task affinities, suites) and move them to the edition namespace;
-then set `EDITION_NEXT_VERSION` to the new upstream base (for example `0.7.0-rr.1`).
+then set `EDITION_UPSTREAM_BASE` to the upstream release the merge brings in (for example `0.7.0`).
+`EDITION_NEXT_VERSION` stays the edition's own number.
 
 
 ### In development: smart device routing

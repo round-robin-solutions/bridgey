@@ -1,60 +1,73 @@
 # Bridgey by Round Robin
 
-This repository is **Bridgey by Round Robin**, Round Robin's edition of
-[Bridgey](https://github.com/singeol/bridgey). Built on Bridgey by Semyon Mikhailov,
-under the same [MIT licence](LICENSE).
+Bridgey connects an Android phone and a Mac: copy on one and paste on the other, get the phone's
+notifications, calls and texts on the Mac, and move files either way. It is Round Robin's edition of
+[Bridgey](https://github.com/singeol/bridgey) by Semyon Mikhailov, a separate app
+(`in.roundrobin.bridgey`) that installs next to upstream Bridgey.
 
-- A separate app (`in.roundrobin.bridgey` on Android and macOS) that installs next to upstream
-  Bridgey. New pairing requires protocol 2 on both peers; see
-  [pairing compatibility](docs/compatibility.md#pairing-with-other-bridgey-versions).
-- In-app updates with three channels, Stable, Beta and Nightly, chosen in Settings.
-- Downloads: [releases of round-robin-solutions/bridgey](https://github.com/round-robin-solutions/bridgey/releases).
-  Each release has the Android APK, a macOS DMG and ZIP, `SHA256SUMS`, an SBOM per platform and a
-  provenance file.
-
-What differs from upstream, how releases and channels work, where the signing keys live and
-how to merge upstream changes: [docs/rr-edition.md](docs/rr-edition.md).
+The current version is 0.11.0-rr.1 Beta 3, from 15 November 2026. The next releases are 1.0 Beta 1,
+1.0 Beta 2 and so on, then 1.0. From 1.0 the edition has its own version numbers. Every release is in the
+[changelog](CHANGELOG.md).
 
 ## Install
 
-- **Mac, Homebrew:** `brew install --cask round-robin-solutions/tap/bridgey-rr`. The cask comes from
-  [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap) and
-  installs the newest Stable release (until the first Stable release exists, the newest Beta). The app
-  is ad-hoc signed because Round Robin has no Apple Developer membership yet, so the cask clears the
-  quarantine flag on the installed app. The app then updates itself.
-- **Mac, DMG:** download `Bridgey-RR-<version>-macOS.dmg` from the
+Needs macOS 13 or later and Android 8 or later.
+
+- Mac, Homebrew: `brew install --cask round-robin-solutions/tap/bridgey-rr` from
+  [round-robin-solutions/homebrew-tap](https://github.com/round-robin-solutions/homebrew-tap). The app is
+  ad-hoc signed (Round Robin has no Apple Developer membership yet), so the cask clears the quarantine
+  flag. After that the app updates itself.
+- Mac, DMG: download `Bridgey-RR-<version>-macOS.dmg` from the
   [releases page](https://github.com/round-robin-solutions/bridgey/releases), drag the app to
-  Applications and, the first time, right-click it and choose **Open**.
-- **Android, APK:** download `Bridgey-RR-<version>-Android.apk` from the same page and open it.
-  Android asks once to allow installs from your browser or Files.
-- **Android, Obtainium:** open one of the links below on the phone with
-  [Obtainium](https://obtainium.imranr.dev) installed. Obtainium then installs and updates the APK from
-  GitHub Releases. There is no Stable release yet, so use the Beta link for now.
+  Applications, then right-click it and choose **Open** the first time.
+- Android, APK: download `Bridgey-RR-<version>-Android.apk` from the same page and open it. Android
+  asks once to allow installs from your browser or Files.
+- Android, Obtainium: open a link below on the phone with [Obtainium](https://obtainium.imranr.dev)
+  installed. Until 1.0 is out on Stable, use Beta.
 
 <!-- obtainium:start markdown -->
-[Stable](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Afalse%257D%2522%257D) | [Beta](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522-rr%255B.%255D%255B0-9%255D%252B%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D)
+[Stable](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Afalse%257D%2522%257D) | [Beta](https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522in.roundrobin.bridgey%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fround-robin-solutions%252Fbridgey%2522%252C%2522author%2522%253A%2522Round%2520Robin%2522%252C%2522name%2522%253A%2522Bridgey%2520by%2520Round%2520Robin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522includePrereleases%255C%2522%253Atrue%252C%255C%2522filterReleaseTitlesByRegEx%255C%2522%253A%255C%2522%255B0-9%255D%252B%255B.%255D%255B0-9%255D%252B%255B.%255D%255B0-9%255D%252B%28-rr%255B.%255D%255B0-9%255D%252B%29%253F%28-beta%255B.%255D%255B0-9%255D%252B%29%253F%2524%255C%2522%257D%2522%257D)
 <!-- obtainium:end -->
 
-The apps check for updates themselves on the channel you pick in Settings (Stable, Beta or Nightly).
-More in the [user guide](docs/user-guide.md#install).
+Each release has the APK, a DMG and ZIP, `SHA256SUMS`, an SBOM per platform and a provenance file.
 
-**Current milestone: v0.11.** It adds call-aware media quieting, alerts that follow the Mac you are
-using, Copy and Download Optimised or Original in Phone files and a new menu bar panel entrance, on top
-of the v0.10 stabilisation work. The [roadmap below](#roadmap) tracks what this edition has implemented
-and what still needs work. The latest v0.10 release is
-[0.10.0-rr.1 Beta 27](https://github.com/round-robin-solutions/bridgey/releases/tag/v0.10.0-rr.1-beta.27)
-and the agent command is [0.2.0](https://github.com/round-robin-solutions/bridgey/releases/tag/cli-v0.2.0).
+Choose the update channel, Stable, Beta or Nightly, in Settings > Updates. Beta also gets Stable releases
+when they are newer, and Nightly gets everything. The apps check and install updates themselves, and
+**Update all** updates every connected device from one button. More in the
+[user guide](docs/user-guide.md#install).
 
-Guides:
+## What it does
 
-- [User guide](docs/user-guide.md): install, pair, send, notifications, calls, codes, remote
-  control, updates, permissions, reset, uninstall, troubleshooting.
-- [Compatibility](docs/compatibility.md): which phones and Macs have been tested, and how to
-  report a result.
-- [Diagnostics](docs/diagnostics.md): how to export, what is inside, what is never included.
-- [Developer guide](#developer-guide): checks to run, protocol contract, tests, releases.
+- Clipboard: Mac to phone is automatic; phone to Mac is automatic while Bridgey is open, otherwise one
+  tap. Images, files and long text work too.
+- Notifications: the phone's notifications appear on the Mac you're using; your other Macs get them
+  quietly.
+- Calls: a call card on the Mac for incoming calls, and a Calls window to dial, search contacts and
+  choose the SIM. Music and videos pause or mute while you're on a call and come back afterwards.
+- Texts and codes: read and reply to text messages on the Mac. One-time codes from texts and email
+  show as a Copy code card.
+- Files: send files and folders either way, browse the phone's photos and folders from the Mac, and
+  copy or download them Optimised or Original.
+- Control: use the phone as a touchpad, keyboard or slide clicker for the Mac, see the phone's screen
+  on the Mac, run Mac actions and control whatever is playing.
+- Away from home: phone and Mac stay connected on different networks through an encrypted relay (the
+  phone needs no VPN) or over Tailscale.
+- Several devices: one phone with several Macs, settings that sync between them, and agent servers
+  paired through the `bridgey` command.
 
-### Why can't copying on the phone sync automatically like O+ Connect or Phone Link?
+Most features are off until you turn them on in setup or Settings, and each asks for its permission only
+then. The [user guide](docs/user-guide.md) covers each one.
+
+## Roadmap and docs
+
+- [Roadmap](#roadmap): upstream's milestones and this edition's progress on them. Milestone numbers
+  (v0.2 to v1.0) are not app versions.
+- [User guide](docs/user-guide.md), [compatibility](docs/compatibility.md) (tested phones and Macs) and
+  [diagnostics](docs/diagnostics.md).
+- [Edition notes](docs/rr-edition.md): what differs from upstream, versions, channels, releases, keys and
+  merging upstream. [Developer guide](#developer-guide): checks, protocol and tests.
+
+## Why can't copying on the phone sync automatically like O+ Connect or Phone Link?
 
 Since Android 10, an app can read the clipboard only while it is on screen, or if it is the
 keyboard ([Android 10 clipboard changes](https://developer.android.com/about/versions/10/privacy/changes#clipboard-data)).
@@ -66,6 +79,12 @@ otherwise one tap on "Send copied item" in the notification or on the Quick Sett
 optional "Background clipboard (advanced)" uses the same one-time ADB setup as
 [KDE Connect](https://userbase.kde.org/KDEConnect) (it grants READ_LOGS, reading system logs) and
 is off by default.
+
+## Credit and licence
+
+Built on [Bridgey](https://github.com/singeol/bridgey) by Semyon Mikhailov. This edition includes upstream
+up to 0.6.0-rc.2; upstream's latest release is 0.5.0. Same [MIT licence](LICENSE); third-party licences
+are in [licences](licences) and [NOTICE](NOTICE).
 
 The project overview below is adapted from upstream. The roadmap records this edition's
 progress; [upstream's roadmap](https://github.com/singeol/bridgey#roadmap) remains separate.
@@ -113,8 +132,9 @@ app releases through Beta 22 and CLI 0.2.0. Checked items are implemented in thi
 they do not imply upstream acceptance or certification on every device. Beta 23 items are
 identified separately until the release publishes.
 
-Milestones describe direction, without fixed dates. **v0.10 is the current stabilisation
-milestone; v1.0 has not shipped.** A stable, secure Android–macOS companion defines v1.0;
+Milestones describe direction, without fixed dates. They are upstream's roadmap numbers, not app
+versions (the app's own versions are in the [changelog](CHANGELOG.md)). **The v0.10 stabilisation
+milestone is current; the v1.0 milestone below has not been reached.** A stable, secure Android–macOS companion defines v1.0;
 experimental plugins do not block it. Device coverage is recorded in the
 [compatibility matrix](docs/compatibility.md), separately from automated checks.
 
@@ -219,7 +239,7 @@ distributed APK; this does not claim approval for a store distribution. Neither 
 capability blocks v1.0. See [automation](docs/automation.md),
 [screen sharing](docs/screen-sharing.md) and [SMS policy](docs/sms-call-policy.md).
 
-### v0.10.0 — stabilisation and edition extensions (current Beta)
+### v0.10.0 — stabilisation and edition extensions (current milestone)
 
 - [x] Draft the protocol contract and machine-readable message list; add strict decoding,
       fuzz cases, cross-platform golden vectors and upgrade/migration tests
