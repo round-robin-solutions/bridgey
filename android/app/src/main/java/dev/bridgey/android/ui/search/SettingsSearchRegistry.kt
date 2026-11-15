@@ -123,6 +123,7 @@ object SettingsSearchRegistry {
     private val NOTIFICATION_WORDS = listOf("alerts", "mirror", "уведомления", "оповещения")
     private val SMS_WORDS = listOf("sms", "texts", "mms", "смс", "сообщения")
     private val CALL_WORDS = listOf("phone", "dial", "звонок", "вызов")
+    private val DIALER_WORDS = CALL_WORDS + listOf("dialer", "keypad", "whatsapp", "contacts", "sim", "клавиатура", "контакты", "набор")
     private val FILE_WORDS = listOf("send file", "airdrop", "share", "transfer", "folder", "файлы", "передача")
     private val MEDIA_WORDS = listOf("music", "spotify", "play", "pause", "volume", "музыка", "громкость")
     private val FIND_WORDS = listOf("ring", "lost", "locate", "найти")
@@ -202,6 +203,11 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("calls.quiet.access", SearchPage.CALLS, null, R.string.call_quiet_access, null, MEDIA_WORDS),
         SettingsSearchEntry("calls.quiet.status", SearchPage.CALLS, null, R.string.call_quiet_status, null, CALL_WORDS + MEDIA_WORDS),
         SettingsSearchEntry("calls.quiet.peers", SearchPage.CALLS, null, R.string.call_quiet_peers, null, CALL_WORDS + MEDIA_WORDS),
+        feature("calls.window", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_detail, BridgeyFeature.DIALER, DIALER_WORDS),
+        SettingsSearchEntry("calls.window.place", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_place_access, null, DIALER_WORDS),
+        SettingsSearchEntry("calls.window.callLog", SearchPage.CALLS, R.string.dialer_title, R.string.perm_call_log_name, null, DIALER_WORDS + listOf("recent", "history", "недавние")),
+        SettingsSearchEntry("calls.window.askFirst", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_ask_first, R.string.dialer_ask_first_detail, DIALER_WORDS + listOf("confirm", "tap", "подтвердить")),
+        SettingsSearchEntry("calls.window.contacts", SearchPage.CALLS, R.string.dialer_title, R.string.perm_contacts_name, null, DIALER_WORDS + listOf("names", "имена")),
 
         // Files
         feature("files.switch", SearchPage.FILES, R.string.feature_files, R.string.feature_files_detail, BridgeyFeature.FILES, FILE_WORDS),
@@ -287,6 +293,7 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("permissions.install", SearchPage.PERMISSIONS, null, R.string.perm_install_packages_name, R.string.perm_install_packages_why, UPDATE_WORDS),
         SettingsSearchEntry("permissions.sms", SearchPage.PERMISSIONS, null, R.string.perm_sms_name, R.string.perm_sms_why, SMS_WORDS),
         SettingsSearchEntry("permissions.contacts", SearchPage.PERMISSIONS, null, R.string.perm_contacts_name, R.string.perm_contacts_why),
+        SettingsSearchEntry("permissions.callLog", SearchPage.PERMISSIONS, null, R.string.perm_call_log_name, R.string.perm_call_log_why, DIALER_WORDS + listOf("recent", "history", "недавние")),
         SettingsSearchEntry("permissions.logs", SearchPage.PERMISSIONS, null, R.string.perm_logs_name, R.string.perm_logs_why, listOf("adb")),
 
         // Privacy › Reset Bridgey on this device
@@ -314,6 +321,7 @@ object SettingsSearchRegistry {
         R.string.feature_mac_actions to listOf(BridgeyFeature.MAC_ACTIONS),
         R.string.feature_camera to listOf(BridgeyFeature.CAMERA),
         R.string.call_quiet_title to listOf(BridgeyFeature.CALL_QUIET),
+        R.string.dialer_title to listOf(BridgeyFeature.DIALER),
         R.string.feature_screen to listOf(BridgeyFeature.SCREEN),
         R.string.feature_find_ping to listOf(BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING),
         R.string.feature_links to listOf(BridgeyFeature.LINKS),
@@ -328,6 +336,7 @@ object SettingsSearchRegistry {
             BridgeyFeature.SMS -> SMS_WORDS
             BridgeyFeature.CALLS -> CALL_WORDS
             BridgeyFeature.CALL_QUIET -> CALL_WORDS + MEDIA_WORDS
+            BridgeyFeature.DIALER -> DIALER_WORDS
             BridgeyFeature.FILES -> FILE_WORDS
             BridgeyFeature.MEDIA -> MEDIA_WORDS
             BridgeyFeature.FIND_DEVICE -> FIND_WORDS

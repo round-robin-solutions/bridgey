@@ -67,6 +67,26 @@ class BuildGatesTest {
         assertTrue(settings.isEnabled(BridgeyFeature.CLIPBOARD, "mac"))
     }
 
+    /** The Play build's Calls window has the keypad and SIM choice only: no contacts, no call log, never asked for. */
+    @Test
+    fun callsWindowLeavesContactsAndTheCallLogOutOfPlay() {
+        assertEquals(!play, BuildGates.contacts)
+        assertEquals(!play, BuildGates.callLog)
+        val facts = PermissionFacts(sdkInt = 35, labBuild = false, granted = emptySet(), dialerOn = true)
+        val kinds = PermissionCatalog.entries(facts).map { it.kind }
+        assertEquals(!play, PermissionKind.CALL_LOG in kinds)
+        assertEquals(!play, PermissionKind.CONTACTS in kinds)
+        assertTrue(PermissionKind.PHONE_CALLS in kinds)
+        // The feature itself is in every build, off by default and needing each Mac's own permission.
+        val settings = BridgeySettings(context, "Phone", dev.bridgey.android.setup.DefaultsGeneration.FEATURES_ON)
+        assertFalse(settings.state.value.globalFeatures[BridgeyFeature.DIALER] == true)
+        settings.setGlobal(BridgeyFeature.DIALER, enabled = true)
+        assertFalse("on, but this Mac is not allowed yet", settings.isEnabled(BridgeyFeature.DIALER, "mac"))
+        settings.setForDevice("mac", BridgeyFeature.DIALER, true)
+        assertTrue(settings.isEnabled(BridgeyFeature.DIALER, "mac"))
+        assertFalse("another Mac still needs its own", settings.isEnabled(BridgeyFeature.DIALER, "other"))
+    }
+
     @Test
     fun setupAndSettingsOnlyOfferBuiltFeatures() {
         assertEquals(!play, SetupFeatures.all.any { it.id == "messages" })

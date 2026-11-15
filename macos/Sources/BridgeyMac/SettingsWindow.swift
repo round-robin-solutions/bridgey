@@ -203,6 +203,10 @@ struct SettingsModel {
     var smsEnabled = false
     var smsKeepOnMac = true
     var smsPhone: SmsPhoneDisplay = .noPhone
+    /// Settings > Calls > Calls window (draft dialer_draft1).
+    var callsWindow = CallsWindowSettings()
+    /// Paired devices known to be Macs (they cannot place calls).
+    var macDevices: Set<String> = []
     /// General > Sync settings with paired devices, and each phone's own switch (missing is on).
     var settingsSyncEnabled = true
     var settingsSyncDevices: [String: Bool] = [:]
@@ -353,6 +357,11 @@ struct SettingsActions {
     var deleteMessages: () -> Void = {}
     /// The Messages window, on a phone and conversation when given (the history's Reply).
     var openMessages: (String?, Int?) -> Void = { _, _ in }
+    /// Settings > Calls > Calls window.
+    var setCallsSim: (CallsSimPreference) -> Void = { _ in }
+    var setCallsShowWhatsApp: (Bool) -> Void = { _ in }
+    var setCallsRecentCount: (Int) -> Void = { _ in }
+    var openCalls: () -> Void = {}
     var setSettingsSync: (Bool) -> Void = { _ in }
     var setSettingsSyncForDevice: (String, Bool) -> Void = { _, _ in }
     /// Choose what syncs.
@@ -992,6 +1001,7 @@ private struct CallsPane: View {
             RingForCallsToggle(model: model, actions: actions)
             PauseForCallsToggle(model: model, actions: actions)
         }
+        CallsWindowCard(model: model, actions: actions)
         CallMediaSettingsCard(model: model, actions: actions)
         ShortcutsCard(model: model, actions: actions, only: [.call])
     }
@@ -1238,6 +1248,7 @@ extension BridgeyFeature {
         case .callQuiet: L10n.text("callMedia.detail", fallback: "Quiet supported media on allowed devices when a call starts. Later manual playback stays allowed.")
         case .remoteInput: L10n.text("feature.remoteInput.detail", fallback: "Let a phone you allow move the pointer, type and change slides")
         case .macActions: L10n.text("feature.macActions.detail", fallback: "Lock, sleep, volume, apps and Shortcuts from a phone you allow")
+        case .dialer: L10n.text("calls.window.detail", fallback: "A keypad, your phone\u{2019}s contacts and recent calls. Calls go through the phone.")
         }
     }
 }
@@ -2108,6 +2119,10 @@ struct LiveSettingsView: View {
         model.smsEnabled = settings.smsEnabled
         model.smsKeepOnMac = settings.smsKeepOnMac
         model.smsPhone = pairing.textMessagesDisplay
+        model.callsWindow = CallsWindowSettings(sim: settings.callsSim, showWhatsApp: settings.callsShowWhatsApp,
+                                                recentCount: settings.callsRecentCount, whatsAppOnMac: WhatsAppOnMac.isInstalled)
+        model.macDevices = Set(model.rings.filter { $0.platform == "macos" }.compactMap(\.deviceID))
+            .union(pairing.connectedPhones.filter { $0.state.remoteHandoffTakeover }.map(\.id))
         model.settingsSyncEnabled = settingsSync.enabled
         model.settingsSyncDevices = settingsSync.devices
         model.syncExcluded = settingsSync.excluded
@@ -2179,6 +2194,10 @@ struct LiveSettingsView: View {
         actions.setSmsKeepOnMac = { pairing.setTextMessagesKeepOnMac($0) }
         actions.deleteMessages = { pairing.deleteTextMessagesOnMac() }
         actions.openMessages = { phoneID, threadID in MessagesWindowController.show(pairing: pairing, phoneID: phoneID, threadID: threadID) }
+        actions.setCallsSim = { settings.setCallsSim($0) }
+        actions.setCallsShowWhatsApp = { settings.setCallsShowWhatsApp($0) }
+        actions.setCallsRecentCount = { settings.setCallsRecentCount($0) }
+        actions.openCalls = { CallsWindowController.show(pairing: pairing) }
         actions.setSettingsSync = { settingsSync.setEnabled($0) }
         actions.setSettingsSyncForDevice = { id, on in settingsSync.setEnabled(on, for: id) }
         actions.setSyncs = { key, on in settingsSync.setSyncs(key, on) }

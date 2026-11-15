@@ -33,6 +33,15 @@ class PairingCoordinatorCrossedTest {
     private val loopback = InetAddress.getByName("127.0.0.1")
     private val spooferAddress = InetAddress.getByName("127.0.0.2")
 
+    /**
+     * The spoofer needs a second loopback address. Linux routes all of 127/8 to loopback; macOS has only
+     * 127.0.0.1 unless lo0 gets an alias, so on a Mac host (RR CI runs Android there) these tests are skipped.
+     */
+    private fun assumeSecondLoopback() {
+        val bindable = runCatching { java.net.Socket().use { it.bind(InetSocketAddress(spooferAddress, 0)) } }.isSuccess
+        org.junit.Assume.assumeTrue("127.0.0.2 is not a loopback address on this host", bindable)
+    }
+
     @Before
     fun keystore() = FakeAndroidKeyStore.install()
 
@@ -134,6 +143,7 @@ class PairingCoordinatorCrossedTest {
      */
     @Test
     fun aSpoofedCrossedOfferDuringTheAllowWaitLeavesTheUsersPairingAlone() {
+        assumeSecondLoopback()
         val macId = "00000000-0000-4000-8000-00000000000a"
         val lower = "00000000-0000-4000-8000-000000000001"
         ServerSocket(0, 8, loopback).use { mac ->
@@ -181,6 +191,7 @@ class PairingCoordinatorCrossedTest {
      */
     @Test
     fun aSpoofedOfferWhileArmedDuringTheAllowWaitIsBusyAndTheUsersPairingGoesOn() {
+        assumeSecondLoopback()
         val macId = "00000000-0000-4000-8000-00000000000a"
         ServerSocket(0, 8, loopback).use { mac ->
             val phone = phone("ffffffff-ffff-4fff-bfff-ffffffffffff")

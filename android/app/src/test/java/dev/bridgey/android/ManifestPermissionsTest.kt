@@ -44,6 +44,8 @@ class ManifestPermissionsTest {
                 "android.permission.READ_SMS",
                 "android.permission.SEND_SMS",
                 "android.permission.READ_CONTACTS",
+                // Calls window (off by default, asked for when it is turned on): recent calls on the Mac.
+                "android.permission.READ_CALL_LOG",
             ),
             declared,
         )

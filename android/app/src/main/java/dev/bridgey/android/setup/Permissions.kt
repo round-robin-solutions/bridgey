@@ -18,8 +18,10 @@ enum class PermissionKind(val key: String) {
     INSTALL_PACKAGES("install_packages"),
     /** Text messages (READ_SMS and SEND_SMS); the lab Code reader test reads the inbox with it too. */
     SMS("sms"),
-    /** Text messages: names for numbers and contact search (READ_CONTACTS). Optional. */
+    /** Text messages and the Calls window: names for numbers and contact search (READ_CONTACTS). Optional. */
     CONTACTS("contacts"),
+    /** Calls window: recent calls on the Mac (READ_CALL_LOG). Optional. */
+    CALL_LOG("call_log"),
     LOGS("logs"),
 }
 
@@ -46,6 +48,8 @@ data class PermissionFacts(
     val smsOn: Boolean = false,
     /** Two SIM slots: Text messages lists the SIMs (Phone and calls) so the Mac can pick one. */
     val dualSim: Boolean = false,
+    /** Calls window (off by default): Phone and calls, contacts and call history. */
+    val dialerOn: Boolean = false,
 )
 
 data class PermissionEntry(val kind: PermissionKind, val state: PermissionState) {
@@ -62,7 +66,9 @@ object PermissionCatalog {
 
     /** A build cannot request permissions removed from its manifest. */
     fun built(kind: PermissionKind): Boolean = when (kind) {
-        PermissionKind.SMS, PermissionKind.CONTACTS -> dev.bridgey.android.BuildGates.sms
+        PermissionKind.SMS -> dev.bridgey.android.BuildGates.sms
+        PermissionKind.CONTACTS -> dev.bridgey.android.BuildGates.sms || dev.bridgey.android.BuildGates.contacts
+        PermissionKind.CALL_LOG -> dev.bridgey.android.BuildGates.callLog
         PermissionKind.INSTALL_PACKAGES -> dev.bridgey.android.BuildGates.selfUpdate
         else -> true
     }
@@ -72,13 +78,15 @@ object PermissionCatalog {
         if (kind in facts.granted) return PermissionState.ALLOWED
         val needed = when (kind) {
             PermissionKind.NOTIFICATION_ACCESS, PermissionKind.COMPANION_LINK -> facts.notificationsOn
-            PermissionKind.PHONE_CALLS -> facts.callsOn || (facts.smsOn && facts.dualSim)
+            PermissionKind.PHONE_CALLS -> facts.callsOn || (facts.smsOn && facts.dualSim) || facts.dialerOn
             PermissionKind.PHOTOS -> facts.screenshotOn || facts.mediaOn
             PermissionKind.CAMERA -> facts.cameraOn
             PermissionKind.DO_NOT_DISTURB -> facts.focusFollowOn
             PermissionKind.LOGS -> facts.backgroundClipboardOn
             // Text messages; the lab Code reader test also asks, when it starts.
-            PermissionKind.SMS, PermissionKind.CONTACTS -> facts.smsOn
+            PermissionKind.SMS -> facts.smsOn
+            PermissionKind.CONTACTS -> facts.smsOn || facts.dialerOn
+            PermissionKind.CALL_LOG -> facts.dialerOn
             PermissionKind.POST_NOTIFICATIONS, PermissionKind.BATTERY, PermissionKind.INSTALL_PACKAGES -> true
         }
         return if (needed) PermissionState.NOT_ALLOWED else PermissionState.NOT_NEEDED_YET

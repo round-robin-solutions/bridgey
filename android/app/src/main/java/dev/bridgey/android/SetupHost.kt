@@ -399,6 +399,7 @@ internal fun SetupRoute(
             BridgeyNotificationListenerService.callPermissionsChanged()
         }
         if (result.keys.any { it in SmsPermissionNames }) (context.applicationContext as BridgeyApplication).pairing.smsPermissionsChanged()
+        if (result.keys.any { it in DialerPermissionNames }) (context.applicationContext as BridgeyApplication).pairing.dialerPermissionsChanged()
         nextInQueue()
     }
 
@@ -420,6 +421,7 @@ internal fun SetupRoute(
             PermissionKind.CAMERA -> listOf(Manifest.permission.CAMERA)
             PermissionKind.SMS -> listOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS)
             PermissionKind.CONTACTS -> listOf(Manifest.permission.READ_CONTACTS)
+            PermissionKind.CALL_LOG -> listOf(Manifest.permission.READ_CALL_LOG)
             else -> emptyList()
         }
     }.distinct().toTypedArray()
@@ -513,6 +515,7 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         if (BuildGates.selfUpdate && context.packageManager.canRequestPackageInstalls()) add(PermissionKind.INSTALL_PACKAGES)
         if (granted(Manifest.permission.READ_SMS) && granted(Manifest.permission.SEND_SMS)) add(PermissionKind.SMS)
         if (granted(Manifest.permission.READ_CONTACTS)) add(PermissionKind.CONTACTS)
+        if (granted(Manifest.permission.READ_CALL_LOG)) add(PermissionKind.CALL_LOG)
         if (granted(Manifest.permission.READ_LOGS)) add(PermissionKind.LOGS)
     }
     return PermissionFacts(
@@ -528,11 +531,17 @@ internal fun permissionFacts(context: Context, settings: SettingsState): Permiss
         focusFollowOn = settings.focus.follow,
         smsOn = settings.featureOn(BridgeyFeature.SMS),
         dualSim = settings.messages.dualSim,
+        dialerOn = settings.featureOn(BridgeyFeature.DIALER),
     )
 }
 
 /** The runtime permissions behind Text messages. */
 internal val SmsPermissionNames = setOf(Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS, Manifest.permission.READ_CONTACTS)
+
+/** Calls window: what its status on the Macs depends on. */
+internal val DialerPermissionNames = setOf(
+    Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG,
+)
 
 /** Route.Permissions: Manage opens the system screen, or the explainer then the request. */
 @Composable
@@ -563,7 +572,13 @@ internal fun PermissionsRoute(
             PermissionKind.BATTERY -> if (allowed) start(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) else actions.requestBatteryExemption()
             PermissionKind.INSTALL_PACKAGES -> start(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
             // Text messages asks in its own page; once allowed, or refused for good, App info changes it.
-            PermissionKind.SMS, PermissionKind.CONTACTS -> if (allowed) start(appDetails) else onOpenSection(SettingsSection.MESSAGES)
+            PermissionKind.SMS -> if (allowed) start(appDetails) else onOpenSection(SettingsSection.MESSAGES)
+            PermissionKind.CONTACTS -> when {
+                allowed -> start(appDetails)
+                settings.featureOn(BridgeyFeature.SMS) || !settings.featureOn(BridgeyFeature.DIALER) -> onOpenSection(SettingsSection.MESSAGES)
+                else -> onOpenSection(SettingsSection.CALLS)
+            }
+            PermissionKind.CALL_LOG -> if (allowed) start(appDetails) else onOpenSection(SettingsSection.CALLS)
             PermissionKind.LOGS -> onOpenSection(SettingsSection.CLIPBOARD)
         }
     }

@@ -56,6 +56,9 @@ android {
         buildConfigField("String", "CONNECT_CONTROL_URL", "\"${edition.getProperty("CONNECT_CONTROL_URL").orEmpty()}\"")
         // Text messages (READ_SMS/SEND_SMS). Off only in the Play build.
         buildConfigField("boolean", "SMS_AVAILABLE", "true")
+        // Calls window: contact search (READ_CONTACTS) and recent calls (READ_CALL_LOG). Off only in the Play build.
+        buildConfigField("boolean", "CONTACTS_AVAILABLE", "true")
+        buildConfigField("boolean", "CALL_LOG_AVAILABLE", "true")
     }
 
     signingConfigs {
@@ -81,7 +84,8 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("release")
         }
-        // Google Play: no self-update (Play updates the app), no SMS, no Code reader test.
+        // Google Play: no self-update (Play updates the app), no SMS, no Code reader test, and the Calls
+        // window without contacts or the call log (keypad and SIM choice only).
         // src/play/AndroidManifest.xml removes the matching permissions.
         create("play") {
             initWith(getByName("release"))
@@ -91,6 +95,8 @@ android {
             buildConfigField("String", "UPDATE_ASSET_URL_PREFIX", "\"\"")
             buildConfigField("boolean", "SMS_AVAILABLE", "false")
             buildConfigField("boolean", "CODE_TEST_AVAILABLE", "false")
+            buildConfigField("boolean", "CONTACTS_AVAILABLE", "false")
+            buildConfigField("boolean", "CALL_LOG_AVAILABLE", "false")
         }
         create("qa") {
             initWith(getByName("release"))

@@ -271,7 +271,8 @@ internal sealed interface FeatureStateDecoding {
  * updates_draft1. Screen sharing (v0.9): screen_draft1, a switch here like the camera. Text messages: sms_draft1
  * (a switch here too). Settings sync (v0.10): settings_sync_draft1. Connect anywhere: connect_draft1. Fast transfers:
  * files_fast_draft1. Codes from email: email_codes_draft1. Agent devices: agent_draft1, notify_draft1, ask_draft1,
- * clipboard_request_draft1, agent_codes_draft1, agents_mirror_draft1, then codes_detect_draft1, last. Connection health has no key (no wire
+ * clipboard_request_draft1, agent_codes_draft1, agents_mirror_draft1, then codes_detect_draft1, call_quiet_draft1,
+ * notification_routing_draft1 and dialer_draft1 (the Calls window), last. Connection health has no key (no wire
  * change). The Mac has the same list in the same order.
  */
 internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
@@ -299,6 +300,8 @@ internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     dev.bridgey.android.agents.CODES_DETECT_FEATURE_KEY,
     dev.bridgey.android.media.CALL_QUIET_FEATURE_KEY,
     dev.bridgey.android.routing.NOTIFICATION_ROUTING_FEATURE_KEY,
+    // Calls window (docs/protocol.md "Draft: Calls window"), last.
+    dev.bridgey.android.dialer.DIALER_FEATURE_KEY,
 )
 
 internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {

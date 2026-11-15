@@ -58,7 +58,7 @@
     <string name="perm_post_notifications_why">Lets Bridgey show transfers, find-my-phone, call prompts and screen sharing.</string>
     <string name="perm_post_notifications_without">You will not see progress, requests from the Mac, or the Stop button for Find Device and screen sharing.</string>
     <string name="perm_phone_calls_name">Phone and calls</string>
-    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone. With Text messages on a dual-SIM phone, lists the SIMs.</string>
+    <string name="perm_phone_calls_why">Lets the Mac answer, decline and place calls through this phone, and lists the SIMs for Text messages and the Calls window.</string>
     <string name="perm_phone_calls_without">Calls from the Mac open the dialer for you to confirm; Answer and Decline do not work.</string>
     <string name="perm_photos_name">Photos and videos</string>
     <string name="perm_photos_why">Shows your recent photos and videos when you send files, lets your Macs browse them, and sends a screenshot you just took with \"Send copied item\".</string>

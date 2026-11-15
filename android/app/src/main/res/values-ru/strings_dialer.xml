@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Calls window (dialer_draft1): the Mac's keypad, contacts and recent calls, placed through this phone. -->
+<resources>
+    <string name="dialer_title">Окно звонков</string>
+    <string name="dialer_detail">Звоните с Mac: клавиатура, ваши контакты и недавние звонки</string>
+    <string name="dialer_device_detail">%1$s видит ваши контакты и недавние звонки и начинает звонки на этом телефоне</string>
+    <string name="dialer_place_access">Начинать звонки</string>
+    <string name="dialer_place_access_on">Звонок начинается сразу, с SIM-карты, выбранной на Mac</string>
+    <string name="dialer_place_access_off">Каждый звонок ждёт нажатия на этом телефоне</string>
+    <string name="dialer_contacts_access_on">Поиск на Mac и звонки в WhatsApp</string>
+    <string name="dialer_contacts_access_off">Mac может только набирать номера</string>
+    <string name="dialer_call_log_access_on">Недавние звонки видны на Mac</string>
+    <string name="dialer_call_log_access_off">Mac не показывает недавние звонки</string>
+    <string name="dialer_ask_first">Сначала спрашивать на телефоне</string>
+    <string name="dialer_ask_first_needs_notifications">Уведомления выключены, поэтому звонки с Mac отклоняются. Нажмите, чтобы разрешить.</string>
+    <string name="dialer_ask_first_detail">Каждый звонок с Mac ждёт вашего нажатия здесь</string>
+    <string name="dialer_macs">Mac, которым можно звонить</string>
+    <string name="dialer_mac_allowed">Может начинать звонки на этом телефоне</string>
+    <string name="dialer_mac_not_allowed">Выключено, пока вы не разрешите</string>
+    <string name="dialer_note">Звук звонка остаётся на телефоне или в его наушниках. Android не даёт приложениям передавать его на Mac.</string>
+    <string name="settings_summary_calls_window">Окно звонков включено</string>
+    <string name="perm_call_log_name">Журнал звонков</string>
+    <string name="perm_call_log_why">Окно звонков: показывает недавние звонки на Mac.</string>
+    <string name="perm_call_log_without">Mac не показывает недавние звонки.</string>
+    <string name="dialer_channel">Звонки с Mac</string>
+    <string name="dialer_channel_detail">Звонки, запрошенные с Mac, которые ждут вашего нажатия</string>
+    <string name="dialer_notification_title">%1$s просит позвонить</string>
+    <string name="dialer_notification_whatsapp_voice">%1$s просит позвонить в WhatsApp</string>
+    <string name="dialer_notification_whatsapp_video">%1$s просит начать видеозвонок в WhatsApp</string>
+    <string name="dialer_notification_whatsapp_contact">Контакт WhatsApp</string>
+    <string name="dialer_notification_call">Позвонить</string>
+    <string name="dialer_notification_failed">Не удалось начать звонок</string>
+    <string name="stream_whatsapp_call_title">Звонок в WhatsApp с %1$s</string>
+    <string name="stream_whatsapp_call_detail">Открыт в WhatsApp на этом телефоне</string>
+    <string name="stream_call_waiting_title">%1$s просит позвонить</string>
+    <string name="stream_call_waiting_detail">Нажмите на уведомление, чтобы начать</string>
+</resources>

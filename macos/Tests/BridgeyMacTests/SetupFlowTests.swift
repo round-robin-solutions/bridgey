@@ -484,7 +484,7 @@ final class SetupFlowTests: XCTestCase {
         defaults.set(false, forKey: "settings.global.files")
         defaults.set(true, forKey: "settings.global.media")
         let before: [BridgeyFeature: Bool] = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map {
-            ($0, defaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput && $0 != .macActions && $0 != .callQuiet))
+            ($0, defaults.object(forKey: "settings.global.\($0.rawValue)") as? Bool ?? ($0 != .media && $0 != .remoteInput && $0 != .macActions && $0 != .callQuiet && $0 != .dialer))
         })
         let generation = DefaultsGeneration.settle(defaults, priorInstall: SetupLaunch.hasStoredState(keys: defaults.dictionaryRepresentation().keys,
                                                                                                          trustFileExists: false))

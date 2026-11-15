@@ -128,7 +128,7 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`, `files_fast_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
+`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
 `ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -2140,6 +2140,55 @@ Local effects aggregate all permitted active sources. Only the final confirmed e
 the local restoration setting; expiry, session loss, disable or revoke releases owned sound
 without automatically resuming playback. Already-paused/muted players and later manual
 changes remain the person's own. Shared strict vectors: `protocol/test-vectors/call-media-v1.json`.
+
+## Draft: Calls window (`dialer_draft1`)
+
+Status: **Draft, edition only.** A Calls window on the Mac: a keypad, contact search on the phone,
+the phone's recent calls and a SIM choice. Each contact can be called through the phone, or through
+the phone's WhatsApp (voice or video) using the contact rows WhatsApp adds to Android's contacts.
+Call audio stays on the phone or its earbuds: Android does not let an ordinary app capture call
+audio, so the Mac only starts calls. Upstream peers never see any of it. The full contract is in
+`protocol/messages.json` (`dialer.*`).
+
+**Negotiation.** Optional, off by default, protocol 2 only, never for agent devices. The phone sets
+`dialer_draft1` for a Mac while its Calls window switch is on and that Mac is allowed (Settings >
+Calls, and the Mac's device page); the Mac sets it for a phone while its own Calls window switch is
+on and that phone is allowed. `dialer.*` goes only to a peer whose latest map shows the key, and
+each side checks its own switch and grant again before acting. Messages are encrypted like
+`sms.*` (`messageId` in the replay window, `version: 1`); requests carry a `requestId` (UUID) that
+the answer echoes.
+
+**Permissions.** Asked on the phone only when the Calls window is turned on, each with its reason:
+Phone (`CALL_PHONE` to start a call without a tap, `READ_PHONE_STATE` to list the SIMs), Contacts
+(`READ_CONTACTS`, for search and WhatsApp) and Call history (`READ_CALL_LOG`, for recent calls).
+Refusing one leaves the rest working: without `CALL_PHONE` each call waits for a tap on the phone,
+without contacts the Mac dials numbers only, without call history the recent list stays empty. The
+Play build declares neither contacts nor call history and reports them `unavailable`.
+
+**Placing a call.** `dialer.call` is a remote action. The phone refuses it (`refused`, reason
+`disabled`) unless this Mac is allowed, at most one every 3 seconds and 10 in 10 minutes per Mac
+(`rate_limited`), and refuses emergency numbers (`emergency`). With `via: phone` the phone
+normalises the number as `calls.request` does and, when `CALL_PHONE` is allowed and Ask on this
+phone first is off, starts the call through `TelecomManager.placeCall`, on the chosen SIM's phone
+account when `subId` names one that is active (`no_sim` otherwise); the phone's own call screen
+opens. Otherwise it posts a notification that starts the call when tapped (`confirm`). With
+`whatsapp_voice` or `whatsapp_video` the phone looks up `dataId` in `ContactsContract.Data` and opens
+it only when its MIME type is WhatsApp's (or WhatsApp Business's) voice or video call type
+(`not_found` otherwise), with `ACTION_VIEW` on that row, as Android's Contacts app does. Android
+lets an app open a screen from the background only in a few cases, so when Bridgey is not in front
+the phone posts a notification that opens the call when tapped (`confirm`). Every call started
+from a Mac, by either route, is an entry in the phone's activity stream.
+
+**Contacts and recent calls.** `dialer.contacts` searches by name or number with the provider's own
+filter and answers at most 20 contacts, each with up to 8 numbers and its WhatsApp rows (the row IDs
+the Mac sends back in `dialer.call`, and the WhatsApp number). `dialer.recents` reads the newest
+calls from `CallLog.Calls` (at most 50), with the type, time, duration and the SIM. Both are read
+when the Mac asks; nothing is kept on the phone, and the Mac keeps results only in memory while the
+window is open. Names and numbers are never logged on either side.
+
+**On the Mac.** "Open in WhatsApp on this Mac" opens WhatsApp Desktop's chat for that number
+(`whatsapp://send?phone=`) when an app on the Mac handles that scheme; the call is then started
+there, and its audio is the Mac's. Nothing about it goes to the phone.
 
 ## Activity-aware notification routing (edition draft)
 

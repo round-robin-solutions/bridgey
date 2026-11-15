@@ -19,6 +19,9 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
     /// Draft, edition only: a phone you allow may lock, sleep, change the volume, open listed apps
     /// and run listed Shortcuts (docs/protocol.md, "Mac actions"). Off by default, granted per device.
     case macActions = "mac_actions_draft1"
+    /// Draft, edition only: the Calls window (keypad, contacts, recent calls) through a phone you allow.
+    /// Off by default, granted per phone (docs/protocol.md, "Draft: Calls window").
+    case dialer = "dialer_draft1"
 
     var id: String { rawValue }
     var title: String {
@@ -35,15 +38,16 @@ enum BridgeyFeature: String, CaseIterable, Identifiable {
         case .callQuiet: L10n.text("callMedia.title", fallback: "Quiet media during calls")
         case .remoteInput: L10n.text("settings.remoteControl", fallback: "Remote control")
         case .macActions: L10n.text("settings.macActions", fallback: "Mac actions")
+        case .dialer: L10n.text("calls.window.title", fallback: "Calls window")
         }
     }
 
     /// Off by default and granted per device: the global switch alone allows nothing.
-    var needsDeviceGrant: Bool { self == .remoteInput || self == .macActions || self == .callQuiet }
+    var needsDeviceGrant: Bool { self == .remoteInput || self == .macActions || self == .callQuiet || self == .dialer }
 }
 
 func featureEnabledByLegacyPeer(_ feature: BridgeyFeature) -> Bool {
-    ![.calls, .ping, .links, .media, .remoteInput, .macActions, .callQuiet].contains(feature)
+    ![.calls, .ping, .links, .media, .remoteInput, .macActions, .callQuiet, .dialer].contains(feature)
 }
 
 /// Remote control: on for this Mac and explicitly granted to the device; a missing grant is off.
@@ -144,6 +148,13 @@ final class BridgeySettings: ObservableObject {
     /// Settings > Text messages > Keep conversations on this Mac: the cache is written (0600) so
     /// conversations open instantly. On by default; off keeps them in memory only.
     @Published private(set) var smsKeepOnMac: Bool
+    /// Settings > Calls > Calls window > Call from: Ask each time (default), SIM 1 or SIM 2.
+    @Published private(set) var callsSim: CallsSimPreference
+    /// Settings > Calls > Calls window > Show WhatsApp calls. On by default.
+    @Published private(set) var callsShowWhatsApp: Bool
+    /// Settings > Calls > Calls window > Recent calls: how many the window lists (10, 20 or 50; 20 by default).
+    @Published private(set) var callsRecentCount: Int
+    nonisolated static let callsRecentChoices = [10, 20, 50]
     /// Devices > Connect away from home (draft connect_draft1): what it does now, the choice or on while there
     /// is none (an exception to off until chosen, Rahul 2026-10-30). An explicit off stays off.
     @Published private(set) var connectAway: Bool
@@ -217,6 +228,9 @@ final class BridgeySettings: ObservableObject {
         openLinksRightAway = storedDefaults.object(forKey: "settings.links.openRightAway") as? Bool ?? true
         smsEnabled = storedDefaults.bool(forKey: "settings.sms.enabled")
         smsKeepOnMac = storedDefaults.object(forKey: "settings.sms.keepOnMac") as? Bool ?? true
+        callsSim = CallsSimPreference(rawValue: storedDefaults.string(forKey: "settings.calls.window.sim") ?? "") ?? .ask
+        callsShowWhatsApp = storedDefaults.object(forKey: "settings.calls.window.whatsapp") as? Bool ?? true
+        callsRecentCount = (storedDefaults.object(forKey: "settings.calls.window.recents") as? Int).flatMap { Self.callsRecentChoices.contains($0) ? $0 : nil } ?? 20
         let awayChoice = storedDefaults.object(forKey: "settings.connect.away") as? Bool
         connectAwayChoice = awayChoice
         connectAway = awayChoice ?? Self.connectAwayDefault
@@ -279,6 +293,22 @@ final class BridgeySettings: ObservableObject {
     func setSmsEnabled(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.sms.enabled")
         smsEnabled = enabled
+    }
+
+    func setCallsSim(_ preference: CallsSimPreference) {
+        defaults.set(preference.rawValue, forKey: "settings.calls.window.sim")
+        callsSim = preference
+    }
+
+    func setCallsShowWhatsApp(_ show: Bool) {
+        defaults.set(show, forKey: "settings.calls.window.whatsapp")
+        callsShowWhatsApp = show
+    }
+
+    func setCallsRecentCount(_ count: Int) {
+        guard Self.callsRecentChoices.contains(count) else { return }
+        defaults.set(count, forKey: "settings.calls.window.recents")
+        callsRecentCount = count
     }
 
     func setSmsKeepOnMac(_ keep: Bool) {

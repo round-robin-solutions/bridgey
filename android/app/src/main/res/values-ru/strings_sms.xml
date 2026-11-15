@@ -28,6 +28,6 @@
     <string name="setup_a_messages_sms">Обычными SMS с этого телефона</string>
     <string name="setup_a_messages_sms_detail">Выберите, если ответ из уведомления в вашем приложении не отправляется.</string>
     <string name="perm_contacts_name">Контакты</string>
-    <string name="perm_contacts_why">SMS: Mac показывает имена вместо номеров и находит контакт для нового сообщения.</string>
+    <string name="perm_contacts_why">SMS и окно звонков: имена вместо номеров на Mac и поиск контактов.</string>
     <string name="perm_contacts_without">Mac показывает только номера.</string>
 </resources>

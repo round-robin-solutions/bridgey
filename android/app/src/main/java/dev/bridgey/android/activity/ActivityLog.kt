@@ -30,6 +30,10 @@ enum class ActivityKind(val key: String, val category: ActivityCategory, val mer
     NOTIFICATIONS_SHOWN("notifications_shown", ActivityCategory.ALERTS, mergeWindowMillis = 15 * 60_000L),
     CALL_SHOWN("call_shown", ActivityCategory.CALLS, mergeWindowMillis = 60_000L),
     CALL_STARTED("call_started", ActivityCategory.CALLS),
+    /** Calls window: a WhatsApp call a Mac started through this phone's WhatsApp. */
+    WHATSAPP_CALL_STARTED("whatsapp_call_started", ActivityCategory.CALLS),
+    /** Calls window: a call from a Mac waits for a tap on the phone's notification. */
+    CALL_WAITING("call_waiting", ActivityCategory.CALLS),
     PING_SENT("ping_sent", ActivityCategory.OTHER),
     PING_RECEIVED("ping_received", ActivityCategory.OTHER),
     FIND_MAC("find_mac", ActivityCategory.OTHER),

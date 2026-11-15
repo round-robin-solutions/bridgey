@@ -360,6 +360,8 @@ final class PairingCoordinator: ObservableObject {
     private let phoneScreenWindows = PhoneScreenWindows()
     /// Text messages (draft sms_draft1): each phone's conversations, synced and cached here.
     let textMessages = TextMessages()
+    /// Calls window (draft dialer_draft1): each phone's status, contact search and recent calls, in memory only.
+    let phoneCalls = PhoneCalls()
     /// Connection health per paired phone (no addresses, names or content).
     @Published private(set) var connectionHealth: [String: ConnectionHealthSnapshot] = [:]
     private var healthRecords: [String: DeviceHealthRecord] = [:]
@@ -683,6 +685,12 @@ final class PairingCoordinator: ObservableObject {
         textMessages.isAvailable = { [weak self] id in self?.textMessagesAvailable(for: id) == true }
         textMessages.keepOnDisk = { [weak self] in self?.settings.smsKeepOnMac ?? false }
         textMessages.onReplyFailed = { [weak self] item in self?.postReplyFailed(item) }
+        phoneCalls.send = { [weak self] id, kind, payload in
+            guard let self, self.callsAvailable(for: id), let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
+        phoneCalls.isAvailable = { [weak self] id in self?.callsAvailable(for: id) == true }
+        phoneCalls.recentCount = { [weak self] in self?.settings.callsRecentCount ?? 20 }
         remoteInput.isAllowed = { [weak self] id in self?.isFeatureAvailable(.remoteInput, for: id) == true }
         remoteInput.send = { [weak self] id, kind, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
@@ -773,6 +781,8 @@ final class PairingCoordinator: ObservableObject {
                         self.clearNotificationHistory()
                     }
                     self.sendFeatureState()
+                    // Calls window: a phone no longer allowed here loses what this Mac kept for it.
+                    for id in self.phoneCalls.phones.keys where !self.callsAvailable(for: id) { self.phoneCalls.forget(id) }
                     self.refreshCallMediaPeers()
                     self.callMedia.settingsChanged()
                     self.publishRemoteCall()
@@ -1118,6 +1128,7 @@ final class PairingCoordinator: ObservableObject {
         batteryAlerts.forget(deviceID)
         focusSync.forget(deviceID)
         textMessages.forget(deviceID)
+        phoneCalls.forget(deviceID)
         settingsSync.forget(deviceID)
         reconnect.forget(deviceID)
         connect.store.forget(deviceID)
@@ -1167,6 +1178,7 @@ final class PairingCoordinator: ObservableObject {
         phoneScreen.disconnected(id)
         speedTest.phoneDisconnected(id)
         textMessages.disconnected(id)
+        phoneCalls.disconnected(id)
         settingsSync.sessionEnded(id)
         var record = healthRecords[id] ?? DeviceHealthRecord()
         record.connectedSince = nil
@@ -3043,6 +3055,8 @@ final class PairingCoordinator: ObservableObject {
                 } else {
                     textMessages.phoneTurnedOff(phoneID)
                 }
+                // Calls window: a phone that stops allowing this Mac takes its status and lists with it.
+                if !callsAvailable(for: phoneID) { phoneCalls.forget(phoneID) }
                 // Settings sync: a snapshot once both sides show the key, or the end of syncing when one stops.
                 settingsSync.refresh(phoneID)
                 if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
@@ -3517,6 +3531,8 @@ final class PairingCoordinator: ObservableObject {
                 receiveScreenStream(message, in: current)
             case let kind where kind.hasPrefix("sms."):
                 receiveTextMessage(message, in: current)
+            case let kind where kind.hasPrefix("dialer."):
+                receiveDialerMessage(message, in: current)
             case let kind where kind.hasPrefix("speed."):
                 receiveSpeedMessage(message, in: current)
             case "settings.snapshot", "settings.update", "settings.ack", "settings.error":
@@ -3732,6 +3748,8 @@ final class PairingCoordinator: ObservableObject {
         features[screenFeatureKey] = phoneScreen.enabled
         // Draft, edition only: Text messages, while its switch is on here (off by default).
         features[smsFeatureKey] = settings.smsEnabled
+        // Draft, edition only: the Calls window, while it is on and allowed for this phone, protocol 2 only.
+        features[dialerFeatureKey] = callsAdvertised(to: current)
         // Draft, edition only: settings sync, while the global and this phone's switches are on.
         features[settingsSyncFeatureKey] = settingsSync.advertised(for: current.remoteDeviceID)
         // Draft, edition only: Connect anywhere, while its switch is on and the core runs.
@@ -6786,6 +6804,57 @@ private final class MacIdentity {
     }
 }
 
+
+// MARK: - Calls window (draft dialer_draft1)
+
+extension PairingCoordinator {
+    /// A phone, by this session's own evidence: never a Mac or a restricted device.
+    private func callsSource(_ id: String) -> Bool {
+        guard !settings.isAgent(id), let link = registry.state(for: id), link.featureStateReceived else { return false }
+        return !link.remoteHandoffTakeover && link.smsPlatform != .macos
+    }
+
+    /// What this Mac advertises to `current`: on and allowed for it, on a protocol 2 session.
+    fileprivate func callsAdvertised(to current: Session) -> Bool {
+        settings.isEnabled(.dialer, for: current.remoteDeviceID) && current.remoteProtocol >= 2 && current.envelopeKey != nil
+            && !settings.isAgent(current.remoteDeviceID)
+    }
+
+    /// The Calls window can use `id` now: on and allowed at both ends, connected, protocol 2.
+    func callsAvailable(for id: String) -> Bool {
+        guard callsSource(id), let current = registry.session(for: id), callsAdvertised(to: current) else { return false }
+        return registry.state(for: id)?.remoteFeatures[.dialer] == true
+    }
+
+    /// Connected phones the window can pick from (allowed or not yet).
+    var callsPhones: [PhoneConnection] { connectedPhones.filter { callsSource($0.id) } }
+
+    /// What the window shows for `id`.
+    func callsAvailability(for id: String) -> CallsAvailability {
+        guard let phone = connectedPhones.first(where: { $0.id == id }) else { return .noPhone }
+        if !settings.isEnabled(.dialer, for: id) { return .macOff(phone.name) }
+        if let current = registry.session(for: id), current.remoteProtocol < 2 || current.envelopeKey == nil { return .phoneTooOld(phone.name) }
+        if phone.state.remoteFeatures[.dialer] != true { return .phoneOff(phone.name) }
+        return phoneCalls.data(id).status == nil ? .loading(phone.name) : .ready
+    }
+
+    /// The window's Turn On (and Settings): the switch here, and this phone's permission. Off forgets what was kept.
+    func setCallsWindow(enabled: Bool, for id: String) {
+        if enabled && settings.globalFeatures[.dialer] != true { settings.setGlobal(.dialer, enabled: true) }
+        settings.setForDevice(id, feature: .dialer, enabled: enabled)
+        if !enabled { phoneCalls.forget(id) }
+    }
+
+    fileprivate func receiveDialerMessage(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id,
+              let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
+        let phoneID = current.remoteDeviceID
+        guard callsAvailable(for: phoneID) else { return }
+        phoneCalls.receive(kind: message.kind, data: data, from: phoneID)
+    }
+}
 
 // MARK: - Text messages (draft sms_draft1)
 

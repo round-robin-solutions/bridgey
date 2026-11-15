@@ -187,6 +187,8 @@ sealed interface RediscoverState {
 /** Events reported to the activity stream. Only clipboard events carry text, for the stream's preview. */
 enum class PeerActivity {
     CLIPBOARD_SENT, CLIPBOARD_RECEIVED, CLIPBOARD_RECEIVE_FAILED, PING_RECEIVED, CALL_STARTED,
+    /** Calls window: a WhatsApp call started, or a call waiting for a tap here. */
+    WHATSAPP_CALL_STARTED, CALL_WAITING,
     CLIP_OFFER_SENT, CLIP_OFFER_RECEIVED, CLIP_PASTED, CLIP_PASTE_FAILED,
     PING_SENT, FIND_REMOTE_STARTED, FIND_PHONE_STARTED,
 }
@@ -354,6 +356,35 @@ class PairingCoordinator(
         refreshNotificationTargets = { BridgeyNotificationListenerService.refreshSmsTargets() },
         openBlockedNumbers = { address -> openBlockedNumbers(address) },
     )
+
+    /** Set by the application: an activity of Bridgey is started (WhatsApp calls may open at once). */
+    @Volatile var dialerInFront: () -> Boolean = { false }
+
+    /**
+     * Calls window (draft `dialer_draft1`): contact search, recent calls and calls from each allowed Mac.
+     * Protocol 2 only, never for agents; every call is an entry in the activity stream.
+     */
+    val dialer = dev.bridgey.android.dialer.DialerServer(
+        phone = dev.bridgey.android.dialer.AndroidDialerPhone(appContext, inFront = { dialerInFront() }),
+        scope = scope,
+        localEnabled = { id -> dialerAllowed(id) },
+        peers = { registry.connectedIds().filter(::dialerAvailable) },
+        send = ::sendDialerPayload,
+        askFirst = { settings.state.value.dialerAskFirst },
+        macName = { id -> registry.session(id)?.peerName ?: trust.trustedDevices.value.firstOrNull { it.id == id }?.name ?: "Mac" },
+        record = { id, activity ->
+            val kind = when (activity) {
+                dev.bridgey.android.dialer.DialerActivity.PHONE_STARTED -> PeerActivity.CALL_STARTED
+                dev.bridgey.android.dialer.DialerActivity.WHATSAPP_STARTED -> PeerActivity.WHATSAPP_CALL_STARTED
+                dev.bridgey.android.dialer.DialerActivity.WAITING -> PeerActivity.CALL_WAITING
+            }
+            activityListener?.invoke(PeerEvent(kind, id, registry.session(id)?.peerName ?: trust.trustedDevices.value.firstOrNull { it.id == id }?.name ?: "Mac"))
+        },
+        diagnose = { outcome -> diagnostics.record("dialer", "call", outcome = outcome) },
+    )
+
+    /** Macs that last heard this phone's Calls window status (the feature on at both ends). */
+    private val dialerPeers = java.util.Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     /** Set by the application: opens Android's Blocked numbers screen, or a notification that opens it. */
     @Volatile var openBlockedNumbers: (address: String?) -> dev.bridgey.android.sms.BlockedNumbersResult = { dev.bridgey.android.sms.BlockedNumbersResult.UNAVAILABLE }
@@ -795,6 +826,7 @@ class PairingCoordinator(
                 registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
                 registry.connectedIds().forEach(::screenPolicyChanged)
                 smsAvailabilityChanged()
+                dialerAvailabilityChanged()
                 scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
             }
         }
@@ -1378,6 +1410,7 @@ class PairingCoordinator(
         health.forget(deviceId)
         recordFocus(focusSync.forget(deviceId))
         settingsSync.forget(deviceId)
+        dialer.forget(deviceId)
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
@@ -3493,6 +3526,7 @@ class PairingCoordinator(
         screenListener?.disconnected(deviceId)
         updates?.disconnected(deviceId)
         if (smsPeers.remove(deviceId)) sms.peerGone(deviceId)
+        if (dialerPeers.remove(deviceId)) dialer.peerGone(deviceId)
         health.disconnected(deviceId, reason, System.currentTimeMillis())
         syncConnectPeers()
         // The power state at the moment of the drop: Doze, screen, saver, standby bucket, exemption.
@@ -4085,6 +4119,8 @@ class PairingCoordinator(
             "settings.snapshot", "settings.update", "settings.ack", "settings.error" -> receiveSettingsMessage(current, message)
             "notifications.action" -> receiveNotificationAction(current, message)
             "calls.request" -> receiveCallRequest(current, message)
+            // Every kind in DialerKinds.fromMac (DialerProtocolTest checks this line lists them all).
+            "dialer.contacts", "dialer.recents", "dialer.call" -> receiveDialerMessage(current, message)
             "find.start" -> {
                 if (current.agent && !admitAgentRequest(
                         current, message, dev.bridgey.android.agents.AgentGrant.RING,
@@ -5068,6 +5104,8 @@ class PairingCoordinator(
         }
         featureValues.put(BridgeyFeature.CALL_QUIET.key,
             settings.isEnabled(BridgeyFeature.CALL_QUIET, current.remoteDeviceId) && current.envelopeKey != null)
+        // Calls window: protocol 2 only, like call quieting.
+        featureValues.put(BridgeyFeature.DIALER.key, dialerAllowed(current.remoteDeviceId))
         // Draft, edition only: images, files and long text through clipboard offers.
         featureValues.put(
             CLIPBOARD_FILES_FEATURE_KEY,
@@ -5217,6 +5255,13 @@ class PairingCoordinator(
             sms.peerReady(deviceId)
         } else if (smsPeers.remove(deviceId)) {
             sms.peerGone(deviceId)
+        }
+        // Calls window: each map that shows the key on both sides is answered with the status.
+        if (dialerAvailable(deviceId)) {
+            dialerPeers.add(deviceId)
+            dialer.peerReady(deviceId)
+        } else if (dialerPeers.remove(deviceId)) {
+            dialer.peerGone(deviceId)
         }
         // Connect anywhere: where this phone can be reached, and the pair check, once per map.
         if (connectAvailable(deviceId)) sendConnectAddresses(current)
@@ -5395,6 +5440,60 @@ class PairingCoordinator(
         // A Mac that asks while the switch is off here hears the map again (and the request is refused).
         if (!settings.isEnabled(BridgeyFeature.SMS, current.remoteDeviceId)) sendFeatureState(current)
         sms.receive(current.remoteDeviceId, message.kind, data)
+    }
+
+    // MARK: Calls window (draft dialer_draft1)
+
+    /** This phone allows the Calls window for [deviceId]: switch on, that Mac allowed, protocol 2, not an agent. */
+    private fun dialerAllowed(deviceId: String): Boolean {
+        if (isAgent(deviceId) || !settings.isEnabled(BridgeyFeature.DIALER, deviceId)) return false
+        return registry.session(deviceId)?.envelopeKey != null
+    }
+
+    /** Allowed here, and the Mac's latest map shows the key. */
+    private fun dialerAvailable(deviceId: String): Boolean =
+        dialerAllowed(deviceId) && registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.DIALER) == true
+
+    /** A switch or grant changed: Macs that now have the feature at both ends hear the status; the others stop. */
+    private fun dialerAvailabilityChanged() {
+        val available = registry.connectedIds().filter(::dialerAvailable).toSet()
+        available.filter(dialerPeers::add).forEach(dialer::peerReady)
+        dialerPeers.filter { it !in available }.forEach { id ->
+            dialerPeers.remove(id)
+            dialer.peerGone(id)
+        }
+        dialer.refresh()
+    }
+
+    /** Permissions or SIMs may have changed (the app came to the front): the Macs hear a changed status. */
+    fun dialerPermissionsChanged() = dialer.refresh()
+
+    /** dialer.* to one Mac, only while its latest map shows dialer_draft1. Result pages use the media lane. */
+    private fun sendDialerPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
+        val current = registry.session(deviceId) ?: return false
+        if (current.pairingKey == null || registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.DIALER) != true) return false
+        val data = payload.toString().toByteArray(Charsets.UTF_8)
+        fun write(): Boolean = when (kind) {
+            dev.bridgey.android.dialer.DialerKinds.RECENTS_RESULT, dev.bridgey.android.dialer.DialerKinds.CONTACTS_RESULT -> sendEncryptedLow(current, kind, data)
+            else -> sendEncrypted(current, kind, data)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            scope.launch { write() }
+            return true
+        }
+        return write()
+    }
+
+    /** dialer.* requests from a Mac: decrypted and replay-checked here; malformed or undecryptable ones are dropped. */
+    private fun receiveDialerMessage(current: Session, message: Message) {
+        if (current.agent || !registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        // A Mac that asks while it is not allowed here hears the map again (and the request is refused).
+        if (!dialerAllowed(current.remoteDeviceId)) sendFeatureState(current)
+        dialer.receive(current.remoteDeviceId, message.kind, data)
     }
 
     // MARK: Connect anywhere (draft connect_draft1)

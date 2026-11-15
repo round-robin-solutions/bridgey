@@ -139,6 +139,37 @@ on the Mac (`sms.blocked_numbers`) opens it when Bridgey is in front on the phon
 note naming the number to add, and otherwise posts a notification that opens it (Android stops
 apps in the background from opening screens). The person adds the number there.
 
+## Bridgey by Round Robin: Calls window (2026-11-15)
+
+The edition adds a Calls window on the Mac (draft `dialer_draft1`, see
+[protocol.md](protocol.md#draft-calls-window-dialer_draft1)): a keypad, contact search on the phone,
+the phone's recent calls and a SIM choice, with calls placed through the phone and WhatsApp calls
+through the phone's WhatsApp. Upstream Bridgey's v0.5 decision above is unchanged.
+
+- **Declared:** `READ_CALL_LOG` (recent calls) in GitHub builds. `CALL_PHONE`, `READ_PHONE_STATE`
+  and `READ_CONTACTS` were already declared. No `WRITE_CALL_LOG`, `PROCESS_OUTGOING_CALLS` or default
+  dialer role.
+- **Asked only when chosen.** The Calls window is off by default on both devices and each Mac needs
+  its own permission on the phone (and each phone on the Mac). Phone, Contacts and Call history are
+  asked for when it is turned on, each on its own row; refusing one leaves the others working.
+- **Never silent.** A call from a Mac starts through `TelecomManager.placeCall`, so the phone's own
+  call screen opens; with Ask on this phone first, or without `CALL_PHONE`, it waits for a tap on
+  Bridgey's notification. Every call from a Mac is an entry in the phone's activity stream.
+  Emergency numbers are refused. At most one call every 3 seconds and 10 in 10 minutes per Mac.
+- **WhatsApp.** Bridgey opens only the voice or video call rows WhatsApp (or WhatsApp Business) adds
+  to Android's contacts, checked by MIME type before `ACTION_VIEW`. When Android does not let Bridgey
+  open a screen from the background, the call waits for a tap on a notification.
+- **Call audio stays on the phone.** Android does not let an ordinary app capture call audio, so the
+  Mac only starts calls. The window and both Settings pages say so.
+- **Data path.** Names, numbers and call history travel only inside the encrypted session to the
+  person's own paired Macs, are read on the phone only when a Mac asks, and are kept on the Mac in
+  memory while the window is open. Nothing is logged.
+- **Google Play.** The Play build removes `READ_CONTACTS` and `READ_CALL_LOG` (as it already did for
+  Text messages) and reports them `unavailable`: its Calls window has the keypad and SIM choice only.
+  The Call Log group is restricted on Play to default handlers and listed exceptions; a later Play
+  release with recent calls would need the "Cross-device synchronization or transfer of SMS or calls"
+  exception and its declaration form.
+
 ### Distribution and Google Play
 
 The edition is distributed through GitHub releases, not Google Play, so no Play declaration applies

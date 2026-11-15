@@ -29,6 +29,6 @@
     <string name="setup_a_messages_sms">As plain SMS from this phone</string>
     <string name="setup_a_messages_sms_detail">Use this if your messaging app\'s own reply does not send.</string>
     <string name="perm_contacts_name">Contacts</string>
-    <string name="perm_contacts_why">Text messages: shows names instead of numbers on your Mac and finds a contact for a new message.</string>
+    <string name="perm_contacts_why">Text messages and the Calls window: names instead of numbers on your Mac, and contact search.</string>
     <string name="perm_contacts_without">Your Mac shows numbers only.</string>
 </resources>
