@@ -10,6 +10,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
     [
         new("thisPc", "This PC", "\uE7F4", true),
         new("devices", "Devices", "\uE772", true),
+        new("away", "Away from home", "\uE774", true),
         new("clipboard", "Clipboard", "\uE77F", true),
         new("notifications", "Notifications", "\uEA8F", true),
         new("messages", "Text messages", "\uE8BD", false),
@@ -270,7 +271,69 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         ("device_presence_draft1", settings.Notifications && settings.ShareActivity),
         ("sms_codes_draft1", settings.Notifications),
         ("email_codes_draft1", settings.Notifications && settings.CodesFromMessages && settings.CodesFromEmail),
+        ("links", settings.Links),
+        ("links_open_draft1", settings.Links),
+        ("media", settings.Media),
     ];
+
+    public event Action? LinksChanged;
+    public event Action? MediaChanged;
+    public event Action? ConnectChanged;
+
+    public bool Links
+    {
+        get => settings.Links;
+        set
+        {
+            if (value == settings.Links) return;
+            settings.Links = value;
+            Changed();
+            Raise();
+            FeatureDefaultChanged?.Invoke("links", value);
+            FeatureDefaultChanged?.Invoke("links_open_draft1", value);
+            LinksChanged?.Invoke();
+        }
+    }
+
+    public bool OpenLinksRightAway
+    {
+        get => settings.OpenLinksRightAway;
+        set
+        {
+            if (value == settings.OpenLinksRightAway) return;
+            settings.OpenLinksRightAway = value;
+            Changed();
+            Raise();
+            LinksChanged?.Invoke();
+        }
+    }
+
+    public bool Media
+    {
+        get => settings.Media;
+        set
+        {
+            if (value == settings.Media) return;
+            settings.Media = value;
+            Changed();
+            Raise();
+            FeatureDefaultChanged?.Invoke("media", value);
+            MediaChanged?.Invoke();
+        }
+    }
+
+    public bool ConnectAway
+    {
+        get => settings.ConnectAway;
+        set
+        {
+            if (value == settings.ConnectAway) return;
+            settings.ConnectAway = value;
+            Changed();
+            Raise();
+            ConnectChanged?.Invoke();
+        }
+    }
 
     private void NotificationDefaultsChanged()
     {

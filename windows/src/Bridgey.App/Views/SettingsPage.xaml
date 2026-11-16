@@ -112,6 +112,25 @@
                     </ItemsRepeater>
                 </StackPanel>
 
+                <!-- Away from home -->
+                <StackPanel x:Name="AwaySection" Spacing="8" Tag="away">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Connect away from home" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Your phone and Mac reach this PC on other networks, directly or through Round Robin's relay. Everything stays end-to-end encrypted." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.ConnectAway, Mode=TwoWay}" AutomationProperties.Name="Connect away from home" AutomationProperties.AutomationId="ConnectAway" />
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="{x:Bind Model.ConnectStatus, Mode=OneWay}" Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" Margin="4,0,0,0"
+                               AutomationProperties.AutomationId="ConnectStatus" />
+                </StackPanel>
+
                 <!-- Clipboard -->
                 <StackPanel x:Name="ClipboardSection" Spacing="8" Tag="clipboard">
                     <Border Style="{StaticResource Row}">
@@ -339,6 +358,45 @@
 
                 <!-- Media and actions -->
                 <StackPanel x:Name="MediaSection" Spacing="8" Tag="media">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Links" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Send links to your phone and open the ones it sends." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Links, Mode=TwoWay}" AutomationProperties.Name="Links" AutomationProperties.AutomationId="LinksOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Open links right away" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="A link your phone sends with Open on PC opens in your browser at once. Otherwise it waits on Home." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.OpenLinksRightAway, Mode=TwoWay}" AutomationProperties.Name="Open links right away" AutomationProperties.AutomationId="OpenLinksRightAway" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Media controls" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Your phone can play, pause, skip and seek what's playing on this PC, and shows what it is." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Media, Mode=TwoWay}" AutomationProperties.Name="Media controls" AutomationProperties.AutomationId="MediaOn" />
+                        </Grid>
+                    </Border>
                     <Border Style="{StaticResource Row}">
                         <Grid ColumnSpacing="16">
                             <Grid.ColumnDefinitions>

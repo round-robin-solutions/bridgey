@@ -92,6 +92,7 @@ public sealed partial class AppTests : IDisposable
                     PairWithPeer(window);
                     FilesBatteryAndFind(window);
                     PhoneNotifications(window);
+                    Links(window);
                 }
                 else
                 {
@@ -123,6 +124,9 @@ public sealed partial class AppTests : IDisposable
                 Click(window, "NavSettings");
                 SelectSection(window, "Notifications");
                 Shot(window, $"settings-notifications-{t}");
+                SelectSection(window, "Away from home");
+                Find(window, "ConnectStatus");
+                Shot(window, $"settings-away-{t}");
                 SelectSection(window, "Files");
                 Assert.Equal(_inbox, Find(window, "ReceiveFolder").Name);
                 Shot(window, $"settings-files-{t}");
@@ -291,6 +295,27 @@ public sealed partial class AppTests : IDisposable
         Find(window, "NoNotifications");
     }
 
+    /// <summary>Links from the peer (kept on Home for Open, or opened right away) and Send link to it.</summary>
+    private void Links(Window window)
+    {
+        Click(window, "NavHome");
+        PeerCommand("link https://example.com/kept-for-later");
+        Find(window, "OpenLink");
+        WaitFor(() => Find(window, "LinkBar").FindFirstDescendant(c => c.ByName("Test phone sent a link: https://example.com/kept-for-later")) is not null ? "ok" : null, "the link banner");
+        Shot(window, "home-link-light");
+        Click(window, "OpenLink");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("OpenLink")) is null ? "ok" : null, "the banner closed after Open");
+
+        PeerCommand("link-open https://example.com/right-away");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByName("Link from Test phone")) is not null ? "ok" : null, "the opened link in Activity");
+
+        var draft = Find(window, "Draft").AsTextBox();
+        draft.Text = "https://roundrobin.in/bridgey";
+        Click(window, "SendLink");
+        var link = PeerEvent("link");
+        Assert.Equal("https://roundrobin.in/bridgey", link.GetProperty("url").GetString());
+    }
+
     private void PeerCommand(string line)
     {
         _peer!.StandardInput.WriteLine(line);
@@ -331,6 +356,7 @@ public sealed partial class AppTests : IDisposable
         start.Environment["BRIDGEY_PORT"] = AppPort.ToString();
         start.Environment["BRIDGEY_RECEIVE_DIR"] = _inbox;
         start.Environment["BRIDGEY_SENDTO_DIR"] = _sendTo;
+        start.Environment["BRIDGEY_NO_BROWSER"] = "1";
         _app = Application.Launch(start);
         Window? window = null;
         try { window = _app.GetMainWindow(_automation, Long); }

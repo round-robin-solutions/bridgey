@@ -47,7 +47,7 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private IEnumerable<FrameworkElement> SectionPanels() =>
-        new FrameworkElement[] { ThisPc, DevicesSection, ClipboardSection, NotificationsSection, FilesSection, MediaSection, PrivacySection, GeneralSection, AboutSection };
+        new FrameworkElement[] { ThisPc, DevicesSection, AwaySection, ClipboardSection, NotificationsSection, FilesSection, MediaSection, PrivacySection, GeneralSection, AboutSection };
 
     private void OnOpenReceiveFolder(object sender, RoutedEventArgs e) => ExplorerFiles.OpenFolder(Settings.ReceiveFolder);
 

@@ -53,6 +53,15 @@ internal sealed class FakeClient : IBridgeyClient
     public void CodesLinkRequest(string deviceId) => Calls.Add($"link {deviceId}");
     public void CodesAdvertiseResult(string deviceId, string serviceUuid, bool ok, string? reason) => Calls.Add($"advertised {serviceUuid} {ok} {reason}");
     public void SetPresence(PresenceState state, uint idleSeconds) => Calls.Add($"presence {state} {idleSeconds}");
+    public ulong SendLink(string deviceId, string url)
+    {
+        Calls.Add($"link-send {url}");
+        return ++_next;
+    }
+    public void SetLinksOpen(bool on) => Calls.Add($"links-open {on}");
+    public void MediaResult(string deviceId, string requestId, bool accepted) => Calls.Add($"media-result {requestId} {accepted}");
+    public void SetMediaState(string? json) => Calls.Add($"media-state {(json is null ? "none" : json.Contains("\"title\":\"Song\"") ? "song" : "other")}");
+    public void SetConnect(bool on, string? controlUrl) => Calls.Add($"connect {on} {controlUrl}");
     public void Dispose() { }
 }
 
@@ -272,7 +281,7 @@ public sealed class ViewModelTests
         Assert.Contains("feature  clipboard False", _client.Calls);
         settings.ThemeIndex = 2;
         Assert.Equal(AppTheme.Dark, saved.Theme);
-        Assert.Equal(13, SettingsViewModel.Sections.Count);
+        Assert.Equal(14, SettingsViewModel.Sections.Count);
         Assert.Equal("About", SettingsViewModel.Sections[^1].Title);
         model.Dispose();
     }

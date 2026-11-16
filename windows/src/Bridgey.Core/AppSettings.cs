@@ -60,6 +60,14 @@ public sealed class AppSettings
     public bool CopyCodes { get; set; }
     /// <summary>Tell the phone when this PC is in use, so its alerts come here (activity only: never keys or apps).</summary>
     public bool ShareActivity { get; set; } = true;
+    /// <summary>Links both ways with paired devices.</summary>
+    public bool Links { get; set; } = true;
+    /// <summary>A link a phone sends with Open on PC opens at once (otherwise it waits for Open or Dismiss).</summary>
+    public bool OpenLinksRightAway { get; set; } = true;
+    /// <summary>The phone's media controls for this PC's player. Off until chosen, as on the Mac.</summary>
+    public bool Media { get; set; }
+    /// <summary>Connect away from home: paired devices reach this PC off the local network (on, as on the Mac).</summary>
+    public bool ConnectAway { get; set; } = true;
     /// <summary>Binary frames with devices that have them. Off only for a test (settings.json).</summary>
     public bool FastTransfers { get; set; } = true;
     public bool SetupDone { get; set; }

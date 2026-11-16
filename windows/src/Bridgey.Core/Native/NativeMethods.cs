@@ -114,6 +114,22 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library)]
     public static partial int bridgey_set_presence(ulong handle, int state, uint idleSeconds);
 
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_send_link(ulong handle, string deviceId, string url, ulong* request);
+
+
+    [LibraryImport(Library)]
+    public static partial int bridgey_set_links_open(ulong handle, byte on);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_media_result(ulong handle, string deviceId, string requestId, byte accepted);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_set_media_state(ulong handle, string? state);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_set_connect(ulong handle, byte on, string? controlUrl);
+
     [LibraryImport(Library)]
     public static partial int bridgey_buffer_set(nint buffer, byte* data, nuint length);
 }

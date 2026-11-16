@@ -19,6 +19,7 @@
     <EditionShortName>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^EDITION_SHORT_NAME=([^\r\n]*).*\z', '$1'))</EditionShortName>
     <EditionUpstreamBase>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^EDITION_UPSTREAM_BASE=([^\r\n]*).*\z', '$1'))</EditionUpstreamBase>
     <EditionRepository>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^GITHUB_REPO=([^\r\n]*).*\z', '$1'))</EditionRepository>
+    <EditionConnectControlUrl>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^CONNECT_CONTROL_URL=([^\r\n]*).*\z', '$1'))</EditionConnectControlUrl>
     <EditionVersionName>$(BridgeyVersionName)</EditionVersionName>
     <EditionVersionName Condition="'$(EditionVersionName)' == ''">$(EditionNextVersion)-dev</EditionVersionName>
   </PropertyGroup>
@@ -37,6 +38,7 @@
       <EditionLine Include="    public const string NextVersion = &quot;$(EditionNextVersion)&quot;%3B" />
       <EditionLine Include="    public const string UpstreamBase = &quot;$(EditionUpstreamBase)&quot;%3B" />
       <EditionLine Include="    public const string Repository = &quot;$(EditionRepository)&quot;%3B" />
+      <EditionLine Include="    public const string ConnectControlUrl = &quot;$(EditionConnectControlUrl)&quot;%3B" />
       <EditionLine Include="    public const string VersionName = &quot;$(EditionVersionName)&quot;%3B" />
       <EditionLine Include="    public const string BuildNumber = &quot;$(BridgeyBuildNumber)&quot;%3B" />
       <EditionLine Include="}" />

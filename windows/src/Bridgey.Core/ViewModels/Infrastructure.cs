@@ -53,3 +53,20 @@ public interface IFileService
     void Open(string path);
     void ShowInFolder(string path);
 }
+
+/// <summary>Opens a web link in the default browser; false when Windows could not.</summary>
+public interface ILinkOpener
+{
+    bool Open(string url);
+}
+
+/// <summary>This PC's player (Windows' media controls), for the phone's media buttons.</summary>
+public interface IMediaHost
+{
+    /// <summary>What plays changed (null: nothing plays). Raised on any thread.</summary>
+    event Action<MediaState?>? Changed;
+    void Start();
+    void Stop();
+    /// <summary>toggle, pause, next, previous, seek (seconds) or volume (0 to 100); true when the player did it.</summary>
+    Task<bool> RunAsync(string action, long? value);
+}

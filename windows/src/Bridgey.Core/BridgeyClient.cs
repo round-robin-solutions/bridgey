@@ -34,7 +34,9 @@ public enum BridgeyEventKind : uint
     FileDone = 19,
     /// <summary>Id = transfer, Name, Status = 1 incoming, Text = reason.</summary>
     FileFailed = 20,
+    /// <summary>A link from a device. Text = the link, Status = 1 when it opens now (Open links right away).</summary>
     Link = 21,
+    /// <summary>The answer to a link this device sent. Id = request, Status = SendStatus, Text = "opened" when opened there.</summary>
     LinkSent = 22,
     Battery = 23,
     FindRequested = 24,
@@ -43,6 +45,8 @@ public enum BridgeyEventKind : uint
     NotificationRemoved = 27,
     CodesStatus = 28,
     CodesAdvertise = 29,
+    MediaCommand = 30,
+    ConnectState = 31,
     /// <summary>
     /// Not from the library: BridgeyClient folds the four file events into one per change, with the whole transfer as
     /// <see cref="TransferInfo"/> JSON in Text and its <see cref="TransferState"/> in Status. Id = transfer.
@@ -184,6 +188,12 @@ public interface IBridgeyClient : IDisposable
     void CodesLinkRequest(string deviceId);
     void CodesAdvertiseResult(string deviceId, string serviceUuid, bool ok, string? reason);
     void SetPresence(PresenceState state, uint idleSeconds);
+    ulong SendLink(string deviceId, string url);
+    void SetLinksOpen(bool on);
+    void MediaResult(string deviceId, string requestId, bool accepted);
+    /// <summary>This PC's player as media.state JSON, or null when nothing plays.</summary>
+    void SetMediaState(string? json);
+    void SetConnect(bool on, string? controlUrl);
 }
 
 /// <summary>
@@ -413,6 +423,22 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
 
     public void SetPresence(PresenceState state, uint idleSeconds) => Check(NativeMethods.bridgey_set_presence(_handle, (int)state, idleSeconds));
 
+    public ulong SendLink(string deviceId, string url)
+    {
+        ulong request;
+        Check(NativeMethods.bridgey_send_link(_handle, deviceId, url, &request));
+        return request;
+    }
+
+
+    public void SetLinksOpen(bool on) => Check(NativeMethods.bridgey_set_links_open(_handle, on ? (byte)1 : (byte)0));
+
+    public void MediaResult(string deviceId, string requestId, bool accepted) => Check(NativeMethods.bridgey_media_result(_handle, deviceId, requestId, accepted ? (byte)1 : (byte)0));
+
+    public void SetMediaState(string? json) => Check(NativeMethods.bridgey_set_media_state(_handle, json));
+
+    public void SetConnect(bool on, string? controlUrl) => Check(NativeMethods.bridgey_set_connect(_handle, on ? (byte)1 : (byte)0, controlUrl));
+
     /// <summary>Fast transfers with peers that show them; off sends JSON chunks (a test setting).</summary>
     public void SetFastTransfers(bool on) => Check(NativeMethods.bridgey_set_fast_transfers(_handle, on ? (byte)1 : (byte)0));
 
@@ -512,6 +538,14 @@ public sealed class Snapshot
     public List<SnapshotNearby> Nearby { get; set; } = new();
     public string? ReceiveDir { get; set; }
     public List<TransferInfo> Transfers { get; set; } = new();
+    public SnapshotConnect? Connect { get; set; }
+}
+
+public sealed class SnapshotConnect
+{
+    public string State { get; set; } = "off";
+    public List<string> Online { get; set; } = new();
+    public int Tunnels { get; set; }
 }
 
 public sealed class SnapshotBattery
@@ -571,6 +605,8 @@ public sealed class SnapshotDevice
     public Dictionary<string, bool>? Remote { get; set; }
     public SnapshotBattery? Battery { get; set; }
     public bool Ringing { get; set; }
+    /// <summary>Connect away from home is set up with this device.</summary>
+    public bool Away { get; set; }
 }
 
 public sealed class SnapshotNearby
@@ -589,6 +625,8 @@ public sealed class SnapshotNearby
 [JsonSerializable(typeof(TransferInfo))]
 [JsonSerializable(typeof(PhoneNotification))]
 [JsonSerializable(typeof(List<StoredNotification>))]
+[JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(MediaState))]
 internal sealed partial class BridgeyJson : JsonSerializerContext;
 
 /// <summary>A Notification event's JSON (rust/client/src/notifications.rs, <c>Notification::to_json</c>).</summary>
@@ -627,6 +665,23 @@ public sealed class FoundCode
     public string Code { get; set; } = "";
     public string Service { get; set; } = "";
     public string Channel { get; set; } = "sms";
+}
+
+/// <summary>This PC's player, for media.state (rust/client/src/quick.rs bounds every field).</summary>
+public sealed class MediaState
+{
+    public string Player { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Artist { get; set; } = "";
+    public bool Playing { get; set; }
+    public long Position { get; set; }
+    public long Duration { get; set; }
+    public int Volume { get; set; }
+    public List<string> Controls { get; set; } = new();
+    public string Detail { get; set; } = "";
+    public string? Artwork { get; set; }
+
+    public string ToJson() => JsonSerializer.Serialize(this, BridgeyJson.Default.MediaState);
 }
 
 /// <summary>One row of the notification history file (no codes and no icons are kept).</summary>
