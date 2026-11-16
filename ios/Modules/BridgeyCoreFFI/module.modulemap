@@ -1,0 +1,6 @@
+// The C ABI of bridgey_core (rust/client/include/bridgey_core.h) as a Swift module. The library itself comes
+// from Frameworks/BridgeyCore.xcframework, built by scripts/rr/build-ios.sh.
+module BridgeyCoreFFI {
+    header "../../../rust/client/include/bridgey_core.h"
+    export *
+}

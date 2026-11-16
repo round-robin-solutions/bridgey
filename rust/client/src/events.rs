@@ -39,14 +39,28 @@ pub enum Event {
     Ping { device_id: String },
     PingResult { request: u64, device_id: String, status: SendStatus },
     TrustChanged { device_id: String, name: String, trusted: bool },
+    /// A file is coming in from a device (Files on at both ends); it is saved in the receive folder.
+    FileIncoming { transfer: u64, device_id: String, name: String, size: u64, mime: String },
+    /// How far a transfer has got, at most four times a second. `incoming` tells the two directions apart.
+    FileProgress { transfer: u64, device_id: String, incoming: bool, bytes: u64, total: u64 },
+    /// Saved at `path` (incoming), or saved by the other device (outgoing). `name` is the name it was saved under.
+    FileDone { transfer: u64, device_id: String, incoming: bool, name: String, path: Option<String>, size: u64 },
+    /// `reason`: rejected (Files is off there), cancelled, cancelled_remote, not_accepted, not_confirmed, stalled,
+    /// verification_failed, unreadable, changed, storage, invalid, not_connected, interrupted, stopped.
+    FileFailed { transfer: u64, device_id: String, incoming: bool, name: String, reason: String },
+    /// A link from a device, for the person to open or dismiss. Never opened by the library.
+    Link { device_id: String, url: String },
+    /// The answer to `send_link`: delivered (queued or opened there), rejected (Links is off there or the link was
+    /// refused), timed out or failed. `opened` when the other device opened it at once.
+    LinkSent { request: u64, device_id: String, status: SendStatus, opened: bool },
     Dropped { count: u64 },
     Error { text: String },
 }
 
 impl Event {
-    /// Events a snapshot can replace.
+    /// Events a snapshot or a later event can replace.
     fn replaceable(&self) -> bool {
-        matches!(self, Event::Found { .. } | Event::Lost { .. } | Event::Features { .. })
+        matches!(self, Event::Found { .. } | Event::Lost { .. } | Event::Features { .. } | Event::FileProgress { .. })
     }
 }
 

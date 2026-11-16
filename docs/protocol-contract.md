@@ -346,15 +346,15 @@ Explicit Android share only. Requires Clipboard grants at both ends. Copies with
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `files.offer` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli |
-| `files.accept` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
-| `files.rejected` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
-| `files.chunk` | upstream-v1 | either | files | yes | none | frame | sessionId, transferId, sequence, nonce, ciphertext | android, macos, cli |
-| `files.chunk.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId, sequence | android, macos, cli |
-| `files.complete` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli |
-| `files.complete.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
-| `files.cancel` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
-| `files.cancel.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli |
+| `files.offer` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli, client |
+| `files.accept` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.rejected` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.chunk` | upstream-v1 | either | files | yes | none | frame | sessionId, transferId, sequence, nonce, ciphertext | android, macos, cli, client |
+| `files.chunk.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId, sequence | android, macos, cli, client |
+| `files.complete` | upstream-v1 | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli, client |
+| `files.complete.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.cancel` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.cancel.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
 
 `files.offer`
 
@@ -574,8 +574,8 @@ Never the code.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `quick.request` | upstream-v1 | either | links \| media | yes | sequence | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `quick.result` | upstream-v1 | either | links \| media | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `quick.request` | upstream-v1 | either | links \| media | yes | sequence | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `quick.result` | upstream-v1 | either | links \| media | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `quick.request`
 

@@ -1,0 +1,5 @@
+# Built by scripts/rr/build-ios.sh
+Frameworks/
+out/
+build/
+Config/Signing.local.xcconfig

@@ -37,6 +37,21 @@
 
 #define BRIDGEY_ERR_INTERNAL -99
 
+// The JSON transport's chunk: 24 KiB of file bytes before encryption.
+#define FILE_CHUNK (24 * 1024)
+
+// The largest file either app takes (the Mac's limit).
+#define MAX_FILE (((10 * 1024) * 1024) * 1024)
+
+// A received JSON chunk may be larger than this end's own (peers differ), never larger than a frame allows.
+#define MAX_CHUNK_IN (48 * 1024)
+
+// `quick.request` and `quick.result` plaintexts.
+#define QUICK_MAX (8 * 1024)
+
+// A link's longest form.
+#define LINK_MAX (4 * 1024)
+
 // What an event is. Fields not listed for a kind are empty.
 enum BridgeyEventKind
 #if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
@@ -76,6 +91,20 @@ enum BridgeyEventKind
   BRIDGEY_EVENT_KIND_EVENTS_DROPPED = 15,
   // text = what went wrong.
   BRIDGEY_EVENT_KIND_ERROR = 16,
+  // A file is coming in. id = transfer, device_id, name = file name, extra = MIME type, total = size.
+  BRIDGEY_EVENT_KIND_FILE_INCOMING = 17,
+  // id = transfer, device_id, status = 1 incoming or 0 outgoing, bytes, total. At most four a second.
+  BRIDGEY_EVENT_KIND_FILE_PROGRESS = 18,
+  // id = transfer, device_id, name = the name it was saved under, status = 1 incoming or 0 outgoing,
+  // text = where it was saved (incoming), total = size.
+  BRIDGEY_EVENT_KIND_FILE_DONE = 19,
+  // id = transfer, device_id, name, status = 1 incoming or 0 outgoing, text = reason (`BridgeyEvent` docs in
+  // docs/session-client.md).
+  BRIDGEY_EVENT_KIND_FILE_FAILED = 20,
+  // A link to open or dismiss; never opened by the library. device_id, text = the link.
+  BRIDGEY_EVENT_KIND_LINK = 21,
+  // id = request, device_id, status = BridgeySendStatus, text = `opened` when the device opened it at once.
+  BRIDGEY_EVENT_KIND_LINK_SENT = 22,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -128,6 +157,12 @@ typedef struct BridgeyConfig {
   // Without storage callbacks: keep the identity and trusted devices in owner-only files here. Both NULL:
   // in memory only (tests).
   const char *data_dir;
+  // Read only when struct_size covers it (hosts built before it pass a smaller size). Where received files are
+  // saved; NULL refuses files. bridgey_set_receive_dir changes it later.
+  const char *receive_dir;
+  // 1: connect only to devices named with bridgey_connect, as a share extension does, instead of keeping every
+  // trusted device connected.
+  uint8_t manual_connect;
 } BridgeyConfig;
 
 // Storage the host provides (DPAPI or Credential Locker on Windows, the Keychain on iOS). Keys are short
@@ -154,6 +189,10 @@ typedef struct BridgeyEvent {
   struct BridgeyStr name;
   struct BridgeyStr text;
   struct BridgeyStr extra;
+  // File events: bytes so far.
+  uint64_t bytes;
+  // File events: the file's size.
+  uint64_t total;
 } BridgeyEvent;
 
 #ifdef __cplusplus
@@ -279,6 +318,53 @@ int32_t bridgey_add_discovered(uint64_t handle,
                                const char *platform,
                                const char *host,
                                uint16_t port);
+
+// Sends a file to a connected device with Files on at both ends: hashed, offered, then sent once accepted. Files
+// to one device go one at a time, in order. `name` (the name the other device sees) and `mime` may be NULL.
+// `*out_transfer` identifies the FileProgress, FileDone and FileFailed events.
+//
+// # Safety
+// `device_id` and `path` are NUL-terminated strings; `name` and `mime` are NULL or NUL-terminated; all valid for
+// the call. `out_transfer` is valid.
+int32_t bridgey_send_file(uint64_t handle,
+                          const char *device_id,
+                          const char *path,
+                          const char *name,
+                          const char *mime,
+                          uint64_t *out_transfer);
+
+// Stops a transfer in either direction and tells the other device. A FileFailed event with `cancelled` follows.
+int32_t bridgey_cancel_file(uint64_t handle,
+                            uint64_t transfer);
+
+// Sends an http or https link to a connected device with Links on at both ends. `*out_request` identifies the
+// LinkSent event.
+//
+// # Safety
+// `device_id` and `url` are NUL-terminated strings valid for the call; `out_request` is valid.
+int32_t bridgey_send_link(uint64_t handle,
+                          const char *device_id,
+                          const char *url,
+                          uint64_t *out_request);
+
+// Connects to a trusted device now and keeps it connected (with manual_connect, only these devices are).
+//
+// # Safety
+// `device_id` is a NUL-terminated string valid for the call.
+int32_t bridgey_connect(uint64_t handle,
+                        const char *device_id);
+
+// Where received files are saved from now on; NULL refuses files.
+//
+// # Safety
+// `dir` is NULL or a NUL-terminated string valid for the call.
+int32_t bridgey_set_receive_dir(uint64_t handle, const char *dir);
+
+// A device given with bridgey_add_discovered has gone.
+//
+// # Safety
+// `host` is a NUL-terminated string valid for the call.
+int32_t bridgey_remove_discovered(uint64_t handle, const char *host, uint16_t port);
 
 // The network changed: reconnect to trusted devices from the fast delays again.
 int32_t bridgey_network_changed(uint64_t handle);
