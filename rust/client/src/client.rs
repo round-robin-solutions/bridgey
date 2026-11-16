@@ -374,8 +374,8 @@ impl Client {
         if let Some(d) = self.inner.discovery.lock().unwrap().take() {
             d.stop();
         }
-        // Connect away from home: the node releases its relay allocation.
-        self.inner.stop_connect();
+        // Connect away from home: the node releases its relay allocation. No state event: the queue closes next.
+        self.inner.shutdown_connect();
         self.inner.events.close();
         let sessions: Vec<Handle> = self.inner.state.lock().unwrap().sessions.values().map(|l| l.handle.clone()).collect();
         for h in sessions {
@@ -1951,6 +1951,11 @@ impl Inner {
     }
 
     fn stop_connect(&self) {
+        self.shutdown_connect();
+        self.emit_connect_state();
+    }
+
+    fn shutdown_connect(&self) {
         let node = {
             let mut c = self.connect.lock().unwrap();
             c.presence = "off".into();
@@ -1965,7 +1970,6 @@ impl Inner {
             });
             let _ = wait.recv_timeout(Duration::from_secs(5));
         }
-        self.emit_connect_state();
     }
 
     fn emit_connect_state(&self) {
