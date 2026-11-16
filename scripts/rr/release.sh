@@ -9,6 +9,9 @@
 #   --macos-artifacts D  use an existing <prefix>-macOS.dmg and .zip from D (built by build-macos.sh)
 #   --skip-macos         Android only (the channel feed keeps the previous macOS entry)
 #   --skip-android       macOS only (the channel feed keeps the previous Android entry)
+#   --windows-artifacts D  the Windows x64 and Arm64 zips, release.env, windows.build-info and
+#                        windows-rust-dependencies.txt from D (scripts/rr/ci-release-windows.ps1); without it the
+#                        channel feed keeps the previous Windows entry
 #   --apk FILE           use an existing signed APK instead of building one
 #   --now ISO            UTC time the version, build number and tag derive from (default now; the hosted
 #                        nightly passes one value to its Android, macOS and publish jobs)
@@ -25,7 +28,7 @@ set -eu
 
 CHANNEL=${1:-}
 case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,22p' "$0"; exit 2 ;; esac
-VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0}
+VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0} WIN_ARTIFACTS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
@@ -35,6 +38,7 @@ while [ $# -gt 0 ]; do
     --macos-artifacts) MAC_ARTIFACTS=$2; shift 2 ;;
     --skip-macos) SKIP_MAC=1; shift ;;
     --skip-android) SKIP_ANDROID=1; shift ;;
+    --windows-artifacts) WIN_ARTIFACTS=$2; shift 2 ;;
     --apk) APK_IN=$2; shift 2 ;;
     --now) NOW=$2; shift 2 ;;
     --publish) PUBLISH=1; shift ;;
@@ -44,7 +48,7 @@ while [ $# -gt 0 ]; do
 done
 [ $SKIP_MAC = 1 ] || [ -n "$MAC_HOST" ] || [ -n "$MAC_ARTIFACTS" ] || die "pass --mac-host, --macos-artifacts or --skip-macos"
 ED_KEY=${BRIDGEY_RR_SPARKLE_KEY:-$HOME/.config/bridgey-rr/sparkle_ed25519_private.key}
-[ $SKIP_MAC = 1 ] || [ -f "$ED_KEY" ] || die "Sparkle private key not found at $ED_KEY"
+[ $SKIP_MAC = 1 ] && [ -z "$WIN_ARTIFACTS" ] || [ -f "$ED_KEY" ] || die "Sparkle private key not found at $ED_KEY"
 
 set --
 [ -n "$VERSION" ] && set -- "$@" --version "$VERSION"
@@ -83,11 +87,25 @@ if [ $SKIP_MAC = 0 ]; then
     sh "$RR_ROOT/scripts/rr/build-macos-remote.sh" "$MAC_HOST" "$WORK/macos"
     MAC_ARTIFACTS="$WORK/macos"
   fi
-  set -- "$@" --dmg "$MAC_ARTIFACTS/$PREFIX-macOS.dmg" --zip "$MAC_ARTIFACTS/$PREFIX-macOS.zip" --ed-key "$ED_KEY"
+  set -- "$@" --dmg "$MAC_ARTIFACTS/$PREFIX-macOS.dmg" --zip "$MAC_ARTIFACTS/$PREFIX-macOS.zip"
   [ ! -f "$MAC_ARTIFACTS/mac.build-info" ] || set -- "$@" --mac-build-info "$MAC_ARTIFACTS/mac.build-info"
+fi
+if [ -n "$WIN_ARTIFACTS" ]; then
+  PREFIX=$(edition_value EDITION_ASSET_PREFIX)
+  for arch in x64 arm64; do
+    zip="$WIN_ARTIFACTS/$PREFIX-$VERSION_NAME-windows-$arch.zip"
+    [ -f "$zip" ] || die "the Windows $arch zip for $VERSION_NAME is not in $WIN_ARTIFACTS"
+    set -- "$@" --windows-$arch "$zip"
+  done
+  WIN_BUILD=$(sed -n 's/^BUILD_NUMBER=//p' "$WIN_ARTIFACTS/release.env" 2>/dev/null || true)
+  [ -z "$WIN_BUILD" ] || set -- "$@" --windows-build "$WIN_BUILD"
+  [ ! -f "$WIN_ARTIFACTS/windows.build-info" ] || set -- "$@" --windows-build-info "$WIN_ARTIFACTS/windows.build-info"
+  [ ! -f "$WIN_ARTIFACTS/windows-rust-dependencies.txt" ] || set -- "$@" --windows-deps "$WIN_ARTIFACTS/windows-rust-dependencies.txt"
 fi
 [ -n "$NOTES_FILE" ] && set -- "$@" --notes-file "$NOTES_FILE"
 
+# The Sparkle key signs the Mac zip and the Windows zips (Ed25519; the Windows app checks it against SUPublicEDKey).
+if [ $SKIP_MAC = 0 ] || [ -n "$WIN_ARTIFACTS" ]; then set -- "$@" --ed-key "$ED_KEY"; fi
 python3 "$RR_ROOT/scripts/rr/rrrelease.py" assemble --channel "$CHANNEL" --version "$VERSION_NAME" \
   --build "$BUILD_NUMBER" --tag "$TAG" --dist "$DIST" --fetch-previous "$@"
 python3 "$RR_ROOT/scripts/rr/rrrelease.py" verify --dist "$DIST"

@@ -38,10 +38,14 @@ class ReleaseFixture:
         self.dmg.write_bytes(b"dmg-bytes" * 100)
         self.zip = root / "Bridgey-RR-macOS.zip"
         self.zip.write_bytes(b"zip-bytes" * 100)
+        self.win_x64 = root / "win-x64.zip"
+        self.win_x64.write_bytes(b"win-x64-bytes" * 100)
+        self.win_arm64 = root / "win-arm64.zip"
+        self.win_arm64.write_bytes(b"win-arm64-bytes" * 100)
         self.notes = root / "notes.md"
         self.notes.write_text("Adds update channels.\nFixes <tags> & things.")
 
-    def assemble(self, dist, channel, version, build, tag, previous=None, apk=True, mac=True, published="2026-10-25T13:15:00Z"):
+    def assemble(self, dist, channel, version, build, tag, previous=None, apk=True, mac=True, published="2026-10-25T13:15:00Z", windows=True, windows_build=None):
         argv = [
             "assemble", "--channel", channel, "--version", version, "--build", str(build), "--tag", tag,
             "--dist", str(dist), "--notes-file", str(self.notes), "--published", published,
@@ -51,6 +55,10 @@ class ReleaseFixture:
             argv += ["--apk", str(self.apk)]
         if mac:
             argv += ["--dmg", str(self.dmg), "--zip", str(self.zip)]
+        if windows:
+            argv += ["--windows-x64", str(self.win_x64), "--windows-arm64", str(self.win_arm64)]
+            if windows_build:
+                argv += ["--windows-build", str(windows_build)]
         if previous:
             argv += ["--previous-channels", str(previous)]
         return rrrelease.main(argv)
@@ -121,13 +129,75 @@ class AssembleTests(unittest.TestCase):
         self.assertTrue(feed["android"]["url"].endswith("/v1.0.0-beta.1/Bridgey-RR-1.0.0-beta.1-Android.apk"))
         self.assertEqual(feed["macos"]["zip"]["sha256"], rrrelease.sha256_file(self.fixture.zip))
         sums = (dist / "release" / "SHA256SUMS").read_text().splitlines()
-        self.assertEqual(len(sums), 5)  # APK, DMG, ZIP, the macOS SBOM and the provenance file
+        # APK, DMG, ZIP, the two Windows zips, the macOS and Windows SBOMs and the provenance file
+        self.assertEqual(len(sums), 8)
+        self.assertTrue(any(line.endswith("Bridgey-RR-1.0.0-beta.1-windows-arm64.zip") for line in sums))
+        self.assertTrue(any(line.endswith("Bridgey-RR-1.0.0-beta.1-Windows.sbom.cdx.json") for line in sums))
         items = rrrelease.parse_appcast((dist / "channels" / "appcast.xml").read_bytes())
         self.assertEqual([(i["channel"], i["version"]) for i in items], [("beta", "262981315")])
         self.assertIn("&lt;tags&gt;", items[0]["description"])
         report = rrrelease.verify(dist, self.props, self.fixture.public)
         self.assertIn("SHA256SUMS ok", report)
         self.assertTrue(any("EdDSA ok" in line for line in report))
+
+    def test_windows_entry_is_signed_per_architecture_and_keeps_the_other_fields(self):
+        dist = self.root / "dist"
+        self.fixture.assemble(dist, "beta", "1.0.0-beta.1", 262981315, "v1.0.0-beta.1", windows_build=262981320)
+        feed = json.loads((dist / "channels" / "beta.json").read_text())
+        windows = feed["windows"]
+        self.assertEqual((windows["version"], windows["build"], windows["minimumOsBuild"]), ("1.0.0-beta.1", 262981320, 19041))
+        for arch, source in (("x64", self.fixture.win_x64), ("arm64", self.fixture.win_arm64)):
+            self.assertTrue(windows[arch]["url"].endswith(f"/v1.0.0-beta.1/Bridgey-RR-1.0.0-beta.1-windows-{arch}.zip"))
+            self.assertEqual(windows[arch]["sha256"], rrrelease.sha256_file(source))
+            self.assertTrue(rrrelease.ed_verify(self.fixture.public, source, windows[arch]["edSignature"]))
+        # The Android and Mac entries, and the legacy names 0.x apps read, are unchanged.
+        self.assertEqual(feed["android"]["versionName"], "1.0.0-rr.1-beta.1")
+        self.assertEqual(feed["macos"]["shortVersion"], "1.0.0-rr.1-beta.1")
+        report = rrrelease.verify(dist, self.props, self.fixture.public)
+        self.assertIn("beta: Bridgey-RR-1.0.0-beta.1-windows-x64.zip EdDSA ok", report)
+        self.assertIn("Bridgey-RR-1.0.0-beta.1-Windows.sbom.cdx.json CycloneDX ok", report)
+
+    def test_a_tampered_windows_zip_or_entry_is_refused(self):
+        dist = self.root / "dist"
+        self.fixture.assemble(dist, "beta", "1.0.0-beta.1", 262981315, "v1.0.0-beta.1")
+        feed_path = dist / "channels" / "beta.json"
+        good = json.loads(feed_path.read_text())
+        for change in (
+            lambda f: f["windows"].update(version="1.0.0-rr.1-beta.1"),
+            lambda f: f["windows"].update(build=0),
+            lambda f: f["windows"]["x64"].update(url="https://evil.example/x.zip"),
+            lambda f: f["windows"]["arm64"].update(edSignature="AAAA"),
+            lambda f: f["windows"].pop("x64") and f["windows"].pop("arm64"),
+        ):
+            feed = json.loads(json.dumps(good))
+            change(feed)
+            with self.assertRaises(rrrelease.ReleaseError):
+                rrrelease.validate_feed(feed, "beta", self.props["EDITION_APP_ID"], self.props["UPDATE_ASSET_URL_PREFIX"])
+        (dist / "release" / "Bridgey-RR-1.0.0-beta.1-windows-x64.zip").write_bytes(b"evil")
+        with self.assertRaises(rrrelease.ReleaseError):
+            rrrelease.verify(dist, self.props, self.fixture.public)
+
+    def test_a_release_without_windows_keeps_the_published_windows_entry(self):
+        first = self.root / "first"
+        self.fixture.assemble(first, "beta", "1.0.0-beta.1", 262981315, "v1.0.0-beta.1")
+        published = json.loads((first / "channels" / "beta.json").read_text())["windows"]
+        second = self.root / "second"
+        self.fixture.assemble(second, "beta", "1.0.0-beta.2", 262991315, "v1.0.0-beta.2", previous=first / "channels", windows=False)
+        feed = json.loads((second / "channels" / "beta.json").read_text())
+        self.assertEqual(feed["windows"], published)
+        self.assertEqual(feed["android"]["versionCode"], 262991315)
+        # Rebasing a release without Windows onto the feeds published meanwhile keeps their Windows entry too.
+        report = rrrelease.rebase(second, first / "channels", self.props)
+        self.assertEqual(json.loads((second / "channels" / "beta.json").read_text())["windows"], published)
+        self.assertTrue(report)
+
+    def test_windows_only_release(self):
+        dist = self.root / "dist"
+        self.assertEqual(self.fixture.assemble(dist, "nightly", "1.0.0-nightly.20261116", 263201200, "nightly-20261116-1200", apk=False, mac=False), 0)
+        feed = json.loads((dist / "channels" / "nightly.json").read_text())
+        self.assertNotIn("android", feed)
+        self.assertEqual(feed["windows"]["version"], "1.0.0-nightly.20261116")
+        self.assertIn("SHA256SUMS ok", rrrelease.verify(dist, self.props, self.fixture.public))
 
     def test_tampered_zip_fails_verification(self):
         dist = self.root / "dist"

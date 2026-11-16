@@ -3,7 +3,8 @@
 
 Android: parsed from `./gradlew :app:dependencies --configuration releaseRuntimeClasspath` output, so the
 build itself is untouched (no plugin, no lockfile). macOS: parsed from macos/Package.resolved, the binary
-targets in macos/Package.swift and the vendored BLAKE3 source note. The vendored BLAKE3 C code is listed
+targets in macos/Package.swift and the vendored BLAKE3 source note. Windows: the Rust crates bridgey_core.dll
+is built from (rust/Cargo.lock, from the bridgey-client package down) and the NuGet packages of the app's projects. The vendored BLAKE3 C code is listed
 for both apps. Provenance is an unsigned in-toto statement with a SLSA v1 shaped predicate.
 
 rrrelease.py assemble calls this module; the CLI here is for running a single piece by hand:
@@ -23,10 +24,15 @@ import re
 import socket
 import subprocess
 import sys
+import tomllib
 import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# The Windows app's projects: their PackageReference items are its NuGet dependencies.
+WINDOWS_PROJECTS = ("windows/src/Bridgey.App/Bridgey.App.csproj", "windows/src/Bridgey.Core/Bridgey.Core.csproj")
+WINDOWS_ROOT_CRATE = "bridgey-client"
+PACKAGE_REFERENCE = re.compile(r'<PackageReference\s+Include="(?P<name>[^"]+)"\s+Version="(?P<version>[^"]+)"')
 TOOL_NAME = "bridgey-rr-supplychain"
 BUILD_TYPE = "https://github.com/round-robin-solutions/bridgey/blob/rr/main/docs/rr-edition.md#releases"
 UNKNOWN = "unknown"
@@ -253,7 +259,7 @@ def make_bom(
             "component": {
                 "type": "application",
                 "bom-ref": root_ref,
-                "name": f"{app_name} ({'Android' if platform_name == 'android' else 'macOS'})",
+                "name": f"{app_name} ({ {'android': 'Android', 'macos': 'macOS', 'windows': 'Windows'}.get(platform_name, platform_name)})",
                 "version": version,
                 "purl": root_ref,
                 "properties": [{"name": "bridgey:build", "value": str(build)}],
@@ -295,6 +301,90 @@ def macos_sbom(
     return make_bom(
         app_name=app_name, app_id=app_id, platform_name="macos", version=version, build=build,
         timestamp=timestamp, components=components, direct=[c["bom-ref"] for c in components],
+    )
+
+
+def cargo_components(lock_text: str, root: str) -> tuple[list[dict], dict[str, list[str]], list[str]]:
+    """The crates `root` builds from, by Cargo.lock: components, the dependency graph and the direct ones. The
+    workspace's own crates are left out (they are the app); their dependencies are kept."""
+    lock = tomllib.loads(lock_text)
+    packages = lock.get("package", [])
+    by_name: dict[str, list[dict]] = {}
+    for p in packages:
+        by_name.setdefault(p["name"], []).append(p)
+
+    def resolve(spec: str) -> dict | None:
+        parts = spec.split(" ")
+        candidates = by_name.get(parts[0], [])
+        if len(parts) > 1:
+            candidates = [c for c in candidates if c["version"] == parts[1]] or candidates
+        return candidates[0] if candidates else None
+
+    def purl(p: dict) -> str:
+        return f"pkg:cargo/{p['name']}@{p['version']}"
+
+    start = resolve(root)
+    if start is None:
+        raise SupplyChainError(f"{root} is not in Cargo.lock")
+    seen: dict[str, dict] = {}
+    graph: dict[str, list[str]] = {}
+    stack = [start]
+    while stack:
+        p = stack.pop()
+        key = f"{p['name']} {p['version']}"
+        if key in seen:
+            continue
+        seen[key] = p
+        children = [c for c in (resolve(d) for d in p.get("dependencies", [])) if c]
+        graph[purl(p)] = [purl(c) for c in children]
+        stack.extend(children)
+    local = {key for key, p in seen.items() if "source" not in p}
+    components = [
+        {"type": "library", "bom-ref": purl(p), "name": p["name"], "version": p["version"], "purl": purl(p)}
+        for key, p in seen.items() if key not in local
+    ]
+    # The workspace crates are the app itself: their external dependencies are the direct ones.
+    direct = sorted({ref for key, p in seen.items() if key in local for ref in graph[purl(p)] if not ref.startswith(tuple(f"pkg:cargo/{seen[k]['name']}@" for k in local))})
+    return components, graph, direct
+
+
+CARGO_TREE_LINE = re.compile(r"^(?P<name>[A-Za-z0-9_\-]+) v(?P<version>[0-9][^ ]*)(?P<local> \(.*\))?(?: \(\*\))?$")
+
+
+def cargo_tree_components(text: str) -> tuple[list[dict], list[str]]:
+    """`cargo tree -p bridgey-client --target <windows triple> -e normal --prefix none` output: the crates the
+    Windows DLL really links, for that target and its default features. Local (path) crates are the app itself."""
+    components: dict[str, dict] = {}
+    for line in text.splitlines():
+        match = CARGO_TREE_LINE.match(line.strip())
+        if not match or match["local"]:
+            continue
+        ref = f"pkg:cargo/{match['name']}@{match['version']}"
+        components[ref] = {"type": "library", "bom-ref": ref, "name": match["name"], "version": match["version"], "purl": ref}
+    if not components:
+        raise SupplyChainError("the Windows Rust dependency list is empty")
+    return sorted(components.values(), key=lambda c: c["bom-ref"]), sorted(components)
+
+
+def windows_sbom(
+    lock_text: str, projects: list[str], *, app_name: str, app_id: str, version: str, build: str, timestamp: str, rust_deps: str | None = None
+) -> dict:
+    if rust_deps:
+        components, direct = cargo_tree_components(rust_deps)
+        graph: dict[str, list[str]] = {}
+    else:
+        # Without the build job's list: every crate Cargo.lock reaches from bridgey-client (all targets and features).
+        components, graph, direct = cargo_components(lock_text, WINDOWS_ROOT_CRATE)
+    for text in projects:
+        for match in PACKAGE_REFERENCE.finditer(text):
+            ref = f"pkg:nuget/{match['name']}@{match['version']}"
+            if any(c["bom-ref"] == ref for c in components):
+                continue
+            components.append({"type": "library", "bom-ref": ref, "name": match["name"], "version": match["version"], "purl": ref})
+            direct.append(ref)
+    return make_bom(
+        app_name=app_name, app_id=app_id, platform_name="windows", version=version, build=build,
+        timestamp=timestamp, components=components, direct=direct, graph=graph,
     )
 
 
