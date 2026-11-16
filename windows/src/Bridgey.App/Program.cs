@@ -24,10 +24,10 @@ public static class Program
         }
         // Nothing to quit or to show a menu for: never start Bridgey just to do that.
         if (args.Contains("--quit")) return 0;
-        Application.Start(_ =>
+        Application.Start(start =>
         {
             SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread()));
-            _ = new App();
+            new App();
         });
         return 0;
     }
