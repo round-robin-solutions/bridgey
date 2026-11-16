@@ -30,7 +30,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 Set-StrictMode -Version Latest
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$Out = Join-Path $Root $Output
+$Out = if ([IO.Path]::IsPathRooted($Output)) { $Output } else { Join-Path $Root $Output }
 $Logs = Join-Path $Out 'logs'
 $Shots = Join-Path $Out 'screenshots'
 $Results = Join-Path $Out 'test-results'

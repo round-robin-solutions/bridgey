@@ -172,14 +172,22 @@ public sealed partial class UpdatesViewModel : ObservableObject
         Progress = 0;
         Status = "Downloading…";
         var path = Path.Combine(_host.DownloadFolder, $"Bridgey-{offer.Build}.zip");
+        // Progress reports arrive posted, and may come after the download has returned: once it has, they are stale.
+        var gate = new object();
+        var downloading = true;
         try
         {
             Directory.CreateDirectory(_host.DownloadFolder);
             await _host.DownloadAsync(offer.Url, path, new Progress<double>(p =>
             {
-                Progress = Math.Round(p * 100);
-                Status = $"Downloading… {Progress:0}%";
+                lock (gate)
+                {
+                    if (!downloading) return;
+                    Progress = Math.Round(p * 100);
+                    Status = $"Downloading… {Progress:0}%";
+                }
             }), CancellationToken.None);
+            lock (gate) downloading = false;
             if (UpdateLogic.Verify(path, offer, _source.PublicKey) is { } problem)
             {
                 TryDelete(path);
@@ -191,6 +199,7 @@ public sealed partial class UpdatesViewModel : ObservableObject
         }
         catch (Exception e) when (e is HttpRequestException or IOException or TaskCanceledException or UnauthorizedAccessException or InvalidDataException)
         {
+            lock (gate) downloading = false;
             TryDelete(path);
             Status = "The download failed. Nothing was installed.";
         }
