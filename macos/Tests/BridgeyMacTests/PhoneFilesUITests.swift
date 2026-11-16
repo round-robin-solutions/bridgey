@@ -301,11 +301,16 @@ final class PhoneFilesUITests: XCTestCase {
         fake.thumbnailFailure = .code(FolderCode.busy)
         let entries = UIFakeImages.media(4)
         let scheduler = scheduler(fake)
-        scheduler.busyPause = 0.2
+        // The production pause: a 0.2 s pause left a slow hosted runner only 0.1 s of margin, and a
+        // second request landed inside the check (16 Nov, xcode-27 runner).
+        scheduler.busyPause = PhoneThumbnailScheduler.busyPause
+        let start = Date()
         scheduler.setOrder(entries)
         entries.forEach(scheduler.appeared)
         spin(0.1)
-        XCTAssertEqual(fake.thumbnailRequests.count, 1, "no request while the phone asks for a pause")
+        if Date().timeIntervalSince(start) < scheduler.busyPause {
+            XCTAssertEqual(fake.thumbnailRequests.count, 1, "no request while the phone asks for a pause")
+        }
         fake.thumbnailFailure = nil
         wait(until: { entries.allSatisfy { scheduler.box(for: $0).image != nil } }, timeout: 3)
         XCTAssertTrue(entries.allSatisfy { scheduler.box(for: $0).image != nil }, "busy never ends in the fallback")
