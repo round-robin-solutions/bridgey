@@ -15,7 +15,7 @@ DOC = ROOT / "docs" / "protocol-contract.md"
 BEGIN = "<!-- BEGIN GENERATED: protocol/tools/contract.py --write -->"
 END = "<!-- END GENERATED -->"
 KIND = re.compile(r"^[a-z][a-z0-9]*(\.[a-z0-9_]+)+$")
-PLATFORMS = {"android", "macos", "cli"}
+PLATFORMS = {"android", "macos", "cli", "client"}
 
 
 def load(path=MESSAGES):

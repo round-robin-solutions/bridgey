@@ -1,0 +1,169 @@
+//! `protocol/test-vectors/session-client-v1.json`: a real session between two session clients, recorded on the
+//! wire (a first pairing with its code, both features maps, clipboard text and its acknowledgement), with the
+//! pairing material from the test key log. The Android and Mac test suites check every frame with their own
+//! code; this test checks the committed file with this crate's. `BRIDGEY_WRITE_VECTORS=1` records a new one.
+
+use crate::client::{Client, Config};
+use crate::events::{Event, Next, SendStatus};
+use crate::session::{transcript_v1, KEYLOG};
+use crate::trust::MemoryStorage;
+use crate::wire::Message;
+use crate::{crypto, features};
+use serde_json::{json, Value};
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../protocol/test-vectors/session-client-v1.json");
+const TEXT: &str = "Bridgey vector: clipboard text ✓";
+
+/// Forwards one connection to `target`, recording every line with the side that sent it.
+fn proxy(target: u16) -> (u16, Arc<Mutex<Vec<(String, String)>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let lines: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let log = lines.clone();
+    std::thread::spawn(move || {
+        let (inbound, _) = listener.accept().unwrap();
+        let outbound = TcpStream::connect(("127.0.0.1", target)).unwrap();
+        let pipe = |from: TcpStream, mut to: TcpStream, side: &'static str, log: Arc<Mutex<Vec<(String, String)>>>| {
+            std::thread::spawn(move || {
+                for line in BufReader::new(from).lines() {
+                    let Ok(line) = line else { return };
+                    log.lock().unwrap().push((side.to_string(), line.clone()));
+                    if to.write_all(format!("{line}\n").as_bytes()).is_err() {
+                        return;
+                    }
+                }
+            })
+        };
+        pipe(inbound.try_clone().unwrap(), outbound.try_clone().unwrap(), "initiator", log.clone());
+        pipe(outbound, inbound, "responder", log);
+    });
+    (port, lines)
+}
+
+fn wait(client: &Client, until: impl Fn(&Event) -> bool, seen: &mut Vec<Event>) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if let Next::Event(e) = client.next_event(Duration::from_millis(100)) {
+            if let Event::PairingCode { pairing, .. } = &e {
+                let _ = client.confirm_pairing(*pairing, true);
+            }
+            let done = until(&e);
+            seen.push(e);
+            if done {
+                return;
+            }
+        }
+    }
+    panic!("timed out: {seen:?}");
+}
+
+fn record() -> Value {
+    let start = |name: &str| {
+        let mut c = Config::new(name, "windows");
+        c.port = 0;
+        c.discovery = false;
+        Client::start(c, Arc::new(MemoryStorage::default())).unwrap()
+    };
+    let (a, b) = (start("Vector initiator"), start("Vector responder"));
+    b.allow_pairing(Duration::from_secs(60));
+    let (port, lines) = proxy(b.port());
+    a.pair(None, Some("127.0.0.1"), port).unwrap();
+    let b_thread = {
+        std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            wait(&b, |e| matches!(e, Event::Features { .. }), &mut seen);
+            wait(&b, |e| matches!(e, Event::Clipboard { .. }), &mut seen);
+            (b, seen)
+        })
+    };
+    let mut seen = Vec::new();
+    wait(&a, |e| matches!(e, Event::Features { .. }), &mut seen);
+    let peer = seen.iter().find_map(|e| if let Event::Connected { device_id, .. } = e { Some(device_id.clone()) } else { None }).unwrap();
+    a.send_clipboard(&peer, TEXT).unwrap();
+    wait(&a, |e| matches!(e, Event::ClipboardSent { status: SendStatus::Delivered, .. }), &mut seen);
+    let (b, _) = b_thread.join().unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    a.stop();
+    b.stop();
+    let code = seen.iter().find_map(|e| if let Event::PairingCode { code, .. } = e { Some(code.clone()) } else { None }).unwrap();
+    let frames: Vec<(String, String)> = lines.lock().unwrap().iter().filter(|(_, l)| !l.contains("\"heartbeat.")).cloned().collect();
+    let offer = Message::decode(frames[0].1.as_bytes()).unwrap();
+    let (_, prk, key) = KEYLOG.lock().unwrap().iter().find(|(s, ..)| *s == offer.session_id).cloned().unwrap();
+    json!({
+        "version": 1,
+        "description": "A protocol 2 session between two Bridgey session clients (rust/client), recorded on the wire: the first pairing (offer with commitment, answer, reveal, both confirms), each side's features.update, a clipboard.update from the initiator and its clipboard.ack. Heartbeats are left out. prk and sessionKey come from the test key log; everything else is what crossed the wire. Generated by rust/client/src/vectors.rs.",
+        "transcript": "bridgey-auth-v1",
+        "prk": crypto::b64(&prk),
+        "sessionKey": crypto::b64(&key),
+        "code": code,
+        "clipboardText": TEXT,
+        "frames": frames.iter().map(|(from, line)| json!({"from": from, "line": line})).collect::<Vec<_>>(),
+    })
+}
+
+/// Checks a recorded session the way a receiver would, with this crate's own code.
+fn check(v: &Value) {
+    let frames: Vec<(String, Message)> = v["frames"].as_array().unwrap().iter().map(|f| (f["from"].as_str().unwrap().to_string(), Message::decode(f["line"].as_str().unwrap().as_bytes()).expect("every frame decodes"))).collect();
+    let find = |kind: &str| frames.iter().find(|(_, m)| m.kind == kind).map(|(_, m)| m.clone()).unwrap();
+    let (offer, answer, reveal) = (find("pairing.offer"), find("pairing.answer"), find("pairing.reveal"));
+    let session = offer.session_id.clone();
+    let (init_id, resp_id) = (offer.device_id.clone().unwrap(), answer.device_id.clone().unwrap());
+    let (init_eph, resp_eph) = (reveal.public_key.clone().unwrap(), answer.public_key.clone().unwrap());
+    assert!(offer.public_key.is_none() && offer.protocol_version == Some(2) && answer.protocol_version == Some(2));
+    assert!(crypto::commitment_matches(offer.commitment.as_deref().unwrap(), &session, &init_eph));
+    let prk: [u8; 32] = crypto::unb64(v["prk"].as_str().unwrap()).unwrap().try_into().unwrap();
+    let key: [u8; 32] = crypto::unb64(v["sessionKey"].as_str().unwrap()).unwrap().try_into().unwrap();
+    assert_eq!(crypto::hmac_key(&prk), key);
+    assert_eq!(crypto::sas_code(&prk, &init_eph, &resp_eph), v["code"].as_str().unwrap());
+    let transcript = transcript_v1(&session, &init_id, &resp_id, &init_eph, &resp_eph);
+    let mut identities = std::collections::HashMap::new();
+    for (_, m) in frames.iter().filter(|(_, m)| m.kind == "pairing.confirm") {
+        let (id, identity) = (m.device_id.clone().unwrap(), m.identity_key.clone().unwrap());
+        assert!(crypto::proof_matches(&key, &session, &id, &identity, m.proof.as_deref().unwrap()));
+        assert!(crypto::verify_signature(&identity, &transcript, m.signature.as_deref().unwrap()));
+        identities.insert(id, identity);
+    }
+    assert_eq!(identities.len(), 2);
+    let envelope = crypto::envelope_key(&key);
+    let mut features_seen = 0;
+    for (from, m) in frames.iter().filter(|(_, m)| !m.kind.starts_with("pairing.")) {
+        let sender = if from == "initiator" { &init_id } else { &resp_id };
+        assert!(m.tag_matches(&envelope, sender), "{} is tagged by its sender", m.kind);
+        match m.kind.as_str() {
+            "features.update" => {
+                let plain = crypto::decrypt(&key, m.nonce.as_deref().unwrap(), m.ciphertext.as_deref().unwrap()).unwrap();
+                let features::Decoded::State(map) = features::decode(&plain) else { panic!("features decode") };
+                assert!(map.get("clipboard"));
+                features_seen += 1;
+            }
+            "clipboard.update" => {
+                let plain = crypto::decrypt(&key, m.nonce.as_deref().unwrap(), m.ciphertext.as_deref().unwrap()).unwrap();
+                assert_eq!(String::from_utf8(plain).unwrap(), v["clipboardText"].as_str().unwrap());
+                let ack = find("clipboard.ack");
+                assert_eq!(ack.message_id, m.message_id);
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(features_seen, 2);
+}
+
+#[test]
+fn recorded_session_vector() {
+    if std::env::var_os("BRIDGEY_WRITE_VECTORS").is_some() {
+        let v = record();
+        check(&v);
+        std::fs::write(PATH, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+    }
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(PATH).unwrap()).unwrap();
+    check(&v);
+}
+
+#[test]
+fn a_fresh_recording_checks() {
+    check(&record());
+}

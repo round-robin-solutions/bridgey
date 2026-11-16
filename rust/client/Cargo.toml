@@ -1,0 +1,29 @@
+[package]
+name = "bridgey-client"
+description = "Bridgey session client for new platforms: discovery, protocol 2 pairing, trust, encrypted sessions and features behind a C ABI (docs/session-client.md)"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+# bridgey_core.dll on Windows, libbridgey_core.so on Linux, libbridgey_core.a for iOS.
+name = "bridgey_core"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = ["mdns"]
+# Built-in DNS-SD (_bridgey._tcp) browsing and publishing. Hosts with their own Bonjour (iOS) can turn it off
+# and pass discovered devices in with bridgey_add_discovered.
+mdns = ["dep:mdns-sd"]
+
+[dependencies]
+bridgey-connect-proto = { path = "../proto" }
+base64.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+mdns-sd = { version = "0.21", optional = true, default-features = false }
+
+[dev-dependencies]
+cbindgen = { version = "0.29", default-features = false }

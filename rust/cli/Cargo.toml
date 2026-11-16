@@ -16,6 +16,7 @@ detect = ["bridgey-codes/llama"]
 
 [dependencies]
 bridgey-codes = { path = "../codes" }
+bridgey-client = { path = "../client" }
 bridgey-connect = { path = "../core" }
 bridgey-connect-proto = { path = "../proto" }
 base64.workspace = true
