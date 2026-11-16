@@ -19,7 +19,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         new("media", "Media and actions", "\uE768", true),
         new("remoteControl", "Remote control", "\uE7C9", false),
         new("privacy", "Privacy", "\uE72E", true),
-        new("updates", "Updates", "\uE895", false),
+        new("updates", "Updates", "\uE895", true),
         new("general", "General", "\uE713", true),
         new("about", "About", "\uE946", true),
     ];
@@ -37,6 +37,9 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
     public event Action<bool>? SendToMenuChanged;
 
     public AppSettings Values => settings;
+
+    /// <summary>Saves settings changed outside a property here (the updater's channel and last check).</summary>
+    public void Save() => Changed();
 
     private void Changed()
     {

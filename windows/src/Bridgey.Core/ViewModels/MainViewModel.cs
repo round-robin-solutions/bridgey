@@ -44,6 +44,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public PairingViewModel Pairing { get; }
     public SettingsViewModel Settings { get; }
     public NotificationsViewModel Notifications { get; }
+    /// <summary>Self-update; set by the host before the window opens (none in tests that do not need it).</summary>
+    public UpdatesViewModel? Updates { get; set; }
 
     public MainViewModel(IBridgeyClient client, SettingsViewModel settings, IUiDispatcher ui, IClipboardService clipboard, IAlertService alerts, IFileService? files = null,
         IPhoneNotifier? notifier = null, INotificationHistory? history = null, ICompanionAdvertiser? advertiser = null,

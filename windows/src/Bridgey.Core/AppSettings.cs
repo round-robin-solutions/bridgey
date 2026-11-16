@@ -68,6 +68,11 @@ public sealed class AppSettings
     public bool Media { get; set; }
     /// <summary>Connect away from home: paired devices reach this PC off the local network (on, as on the Mac).</summary>
     public bool ConnectAway { get; set; } = true;
+    /// <summary>stable, beta or nightly. Empty: the channel this build came from (a beta build follows Beta).</summary>
+    public string UpdateChannel { get; set; } = "";
+    /// <summary>Look for a new version when Bridgey opens, at most every six hours.</summary>
+    public bool AutoUpdateCheck { get; set; } = true;
+    public DateTimeOffset? LastUpdateCheck { get; set; }
     /// <summary>Binary frames with devices that have them. Off only for a test (settings.json).</summary>
     public bool FastTransfers { get; set; } = true;
     public bool SetupDone { get; set; }
