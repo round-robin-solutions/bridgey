@@ -662,9 +662,10 @@ Never commit any of these, and never print them. `.gitignore` already blocks `*.
 ## Releasing
 
 Releases build on our machines, not GitHub Actions: Android on rr-dev-1 (inside the shared
-`iieon-slot` build queue), macOS on a Mac over SSH (under `/tmp/app-build-mac.lock`). The
-Sparkle key stays on rr-dev-1, so signing happens there. RR CI runs them (see below); the
-commands also work by hand.
+`iieon-slot` build queue) and the Mac app on an RR CI Mac (the work Mac; the personal Mac only as
+a fallback). The Sparkle key stays on rr-dev-1, so signing happens there. RR CI runs them (see
+below); by hand, `release.sh --mac-host` builds the Mac app over SSH instead (under
+`/tmp/app-build-mac.lock`).
 
 ### With RR CI
 
@@ -675,19 +676,21 @@ The RR CI project `bridgey` (policy in `rbansal42/rr-ci` `examples/app_policies.
   (`swift test -Xswiftc -warnings-as-errors` and `./build-app.sh` on macOS 15 runners) and
   `python` (`scripts/rr/tests`, where present). They run on GitHub-hosted runners without any
   secret and post `rr-ci/<task>` statuses.
-- **Nightly** on every push to `rr/main`, once that revision's checks have passed, built and
-  published on GitHub-hosted runners by `.github/workflows/rr-ci-nightly.yml`: Android on Ubuntu,
-  the Mac app on macOS 15, then appcast signing and publishing. Notes are the commit subjects since
+- **Nightly** on every push to `rr/main`, once that revision's checks have passed. RR CI's
+  `nightly-macos` job builds the Mac app on a Mac (`scripts/rr/ci-release-macos.sh nightly`) and
+  hands it to `nightly` on rr-dev-1 (`scripts/rr/ci-release.sh nightly`), which builds Android,
+  signs the appcast and publishes. Notes are the commit subjects since
   the previous nightly, beta or stable release (`scripts/rr/release-notes.sh`). RR CI builds one nightly at a time
   and only the newest revision: a queued nightly for an older revision is dropped when a newer
   push passes, and a revision that already has a beta or stable tag gets no nightly.
-  Its secrets are environment secrets of `rr-ci-release` (deployment rule: `rr/main` only), read
-  by name only in the jobs that need them; publishing uses the run's `GITHUB_TOKEN`
-  (`contents: write`). `scripts/rr/ci-release.sh nightly` on rr-dev-1 remains as a fallback.
+  `.github/workflows/rr-ci-nightly.yml` (GitHub-hosted, secrets in the `rr-ci-release`
+  environment) is not in use: its last runs, on 26 Oct, failed to sign the APK.
 - **Releases** from annotated tags on `rr/main`: `v1.0.0-beta.2` for Beta, `v1.0.0` for Stable (betas lead to
   `EDITION_NEXT_VERSION`); the tag message is the release notes. RR CI checks the tag is on `rr/main`
   before starting. `scripts/rr/ci-release.sh tag` checks the tag (annotated, on `rr/main`, pointing at the
-  build) and runs `release.sh` with that version; `publish.sh` uses the existing tag. RR CI starts the
+  build) and runs `release.sh` with that version; `publish.sh` uses the existing tag. The Mac app
+  comes from the `release-macos` job, as for nightlies; `ci-release.sh` refuses it unless it was built
+  from the same revision with the same version and build number. RR CI starts the
   release task for tags matching the project's `release_tags` in rr-ci (`examples/app_policies.py`).
 
 Make the tags with `scripts/rr/cut-release.py`. Without `--push` it only prints the plan, the tag message
