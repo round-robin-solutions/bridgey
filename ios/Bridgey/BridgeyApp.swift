@@ -23,7 +23,6 @@ struct BridgeyApp: App {
             options.discovery = false
             settings.setupDone = demo != "setup"
             settings.deviceName = "Rahul’s iPhone"
-            settings.copyReceivedText = false
         }
         if let appearance = options.appearance { settings.appearance = appearance }
         let store: SecretStore = options.ephemeral ? MemorySecretStore() : KeychainStore()

@@ -15,7 +15,8 @@
 # else <next>-dev and the UTC build time (YYDDDHHMM).
 #
 # Usage: scripts/rr/build-ios.sh [--core-only] [--no-ui-tests] [--no-ipad] [--no-device]
-# Env:   IOS_IPHONE_TYPE, IOS_IPAD_TYPE  simulator device types (default: the newest iPhone and iPad Xcode has)
+# Env:   IOS_IPHONE_TYPE, IOS_IPAD_TYPE  simulator names to copy, e.g. "iPhone 17" (default: the plainest
+#                                        iPhone and iPad Xcode set up for its newest iOS runtime)
 #        IOS_KEEP_SIMULATORS=1           keep the throwaway simulators (for a look afterwards)
 set -eu
 . "$(dirname -- "$0")/common.sh"
@@ -107,31 +108,37 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Prints "<device type id> <runtime id>" for the newest device type whose name starts with $1 (or exactly $2).
+# Prints "<device type id> <runtime id>" for a simulator to copy: the one named $2 if given, else a standard model
+# (iPhone <n>; iPad Pro 11-inch, then iPad Air 11-inch) on the newest iOS runtime that has one, else any device
+# whose name starts with $1. The device type list itself is in no useful order.
 pick_simulator() {
-  xcrun simctl list -j devicetypes runtimes | python3 -c '
-import json, sys
+  xcrun simctl list -j devices available runtimes | python3 -c '
+import json, re, sys
 prefix, wanted = sys.argv[1], sys.argv[2]
 data = json.load(sys.stdin)
 runtimes = [r for r in data["runtimes"] if r.get("isAvailable") and r.get("platform", r.get("name", "")).startswith("iOS")]
-runtimes.sort(key=lambda r: [int(x) for x in r["version"].split(".")])
-if not runtimes:
-    sys.exit("no iOS simulator runtime")
-runtime = runtimes[-1]
-supported = {t["identifier"] for t in runtime.get("supportedDeviceTypes", [])} or None
-types = [t for t in data["devicetypes"] if t["name"].startswith(prefix) and (supported is None or t["identifier"] in supported)]
+runtimes.sort(key=lambda r: [int(x) for x in r["version"].split(".")], reverse=True)
 if wanted:
-    types = [t for t in types if t["name"] == wanted] or sys.exit("no simulator type " + wanted)
-pick = types[-1]
-print(pick["identifier"], runtime["identifier"])
+    tests = [lambda n: n == wanted]
+elif prefix == "iPhone":
+    tests = [lambda n: re.fullmatch(r"iPhone \d+", n), lambda n: n.startswith("iPhone ")]
+else:
+    tests = [lambda n: n.startswith("iPad Pro 11-inch"), lambda n: n.startswith("iPad Air 11-inch"), lambda n: n.startswith("iPad")]
+for test in tests:
+    for runtime in runtimes:
+        matches = sorted((d for d in data["devices"].get(runtime["identifier"], []) if test(d["name"])), key=lambda d: d["name"], reverse=True)
+        if matches:
+            print(matches[0]["deviceTypeIdentifier"], runtime["identifier"])
+            sys.exit(0)
+sys.exit("no " + (wanted or prefix) + " simulator set up for any iOS runtime")
 ' "$1" "${2:-}"
 }
 
+# Creates a throwaway simulator and prints its ID. Run it in the main shell, then add the ID to SIMS there.
 new_simulator() {
-  set -- $(pick_simulator "$1" "${2:-}")
-  sim=$(xcrun simctl create "bridgey-ci-$$-$(date +%s)" "$1" "$2")
-  SIMS="$SIMS $sim"
-  echo "$sim"
+  picked=$(pick_simulator "$1" "${2:-}") || die "no simulator to copy"
+  # shellcheck disable=SC2086
+  xcrun simctl create "bridgey-ci-$$-$(date +%s)" $picked
 }
 
 free_port() {
@@ -182,6 +189,8 @@ run_tests() {
 FAILED=""
 step "iPhone: unit tests"
 IPHONE=$(new_simulator "iPhone" "${IOS_IPHONE_TYPE:-}")
+SIMS="$SIMS $IPHONE"
+xcrun simctl list devices | grep "$IPHONE" | sed 's/^ */simulator: /'
 xcrun simctl boot "$IPHONE"
 run_tests iphone-unit "$IPHONE" -only-testing:BridgeyTests || FAILED="$FAILED iphone-unit"
 
@@ -207,6 +216,8 @@ if [ "$UI_TESTS" = 1 ]; then
   if [ "$IPAD" = 1 ]; then
     step "iPad: screenshots"
     IPAD_SIM=$(new_simulator "iPad" "${IOS_IPAD_TYPE:-}")
+    SIMS="$SIMS $IPAD_SIM"
+    xcrun simctl list devices | grep "$IPAD_SIM" | sed 's/^ */simulator: /'
     xcrun simctl boot "$IPAD_SIM"
     run_tests ipad-ui "$IPAD_SIM" -only-testing:BridgeyUITests/ScreenshotTests || FAILED="$FAILED ipad-ui"
   fi

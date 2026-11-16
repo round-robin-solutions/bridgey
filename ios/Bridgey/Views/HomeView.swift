@@ -40,33 +40,60 @@ struct HomeView: View {
     }
 
     private func stream(showDevices: Bool) -> some View {
-        StreamPane(showDevices: showDevices, sheet: $sheet, preview: $preview)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(spacing: 0) {
+            HomeHeader(showPair: showDevices, sheet: $sheet)
+            StreamPane(showDevices: showDevices, sheet: $sheet, preview: $preview)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !model.devices.isEmpty {
                 SendBar(attach: { picking = true })
             }
-            .background(c.bg.ignoresSafeArea())
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        AuroraMark(size: 26)
-                        Text("Bridgey").font(BrandFont.heading(20, relativeTo: .title3)).foregroundStyle(c.on)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isHeader)
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if showDevices {
-                        Button { sheet = .pair } label: { Image(systemName: "plus") }
-                            .accessibilityLabel("Pair a device")
-                            .accessibilityIdentifier("toolbar.pair")
-                    }
-                    Button { sheet = .settings } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Settings")
-                        .accessibilityIdentifier("toolbar.settings")
-                }
+        }
+        .background(c.bg.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
+    }
+}
+
+/// The brand row, as on the Mac's panel: the mark, the name, Pair and Settings. It stays put while the stream
+/// scrolls.
+private struct HomeHeader: View {
+    let showPair: Bool
+    @Binding var sheet: HomeSheet?
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        HStack(spacing: 10) {
+            AuroraMark(size: 30)
+            Text("Bridgey")
+                .font(BrandFont.heading(24, relativeTo: .title2))
+                .foregroundStyle(c.on)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 8)
+            if showPair {
+                button("plus", label: "Pair a device", id: "toolbar.pair") { sheet = .pair }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(c.bg, for: .navigationBar)
+            button("gearshape", label: "Settings", id: "toolbar.settings") { sheet = .settings }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
+        .frame(maxWidth: 720)
+        .frame(maxWidth: .infinity)
+        .background(c.bg)
+    }
+
+    private func button(_ symbol: String, label: String, id: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(c.on2)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(c.s2))
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressScaleStyle())
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(id)
     }
 }
 
@@ -571,7 +598,7 @@ private struct SendBar: View {
                 }
                 .labelStyle(.iconOnly)
                 .buttonBorderShape(.circle)
-                .tint(c.pri)
+                .tint(c.tbi)
                 .disabled(target?.clipboardReady != true)
                 .accessibilityIdentifier("send.paste")
                 TextField("Text or a link", text: $model.draft, axis: .vertical)
@@ -600,7 +627,7 @@ private struct SendBar: View {
         .padding(.bottom, 8)
         .frame(maxWidth: 720)
         .frame(maxWidth: .infinity)
-        .background(c.bg.opacity(0.94).ignoresSafeArea(edges: .bottom))
+        .background(c.bg.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
     }
 }
