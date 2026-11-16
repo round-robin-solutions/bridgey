@@ -30,7 +30,11 @@ fn devices_reconnect_over_a_tunnel_when_the_local_network_is_gone() {
     phone.client.set_lan_for_tests(false);
     pc.client.set_lan_for_tests(false);
     pc.wait("the local session dropped", |e| matches!(e, Event::Disconnected { .. }).then_some(()));
-    pc.wait("back over a tunnel", |e| matches!(e, Event::Connected { .. }).then_some(()));
+    let deadline = Instant::now() + common::WAIT;
+    while !pc.saw(|e| matches!(e, Event::Connected { .. })) {
+        assert!(Instant::now() < deadline, "not back over a tunnel.\nPC: {:#}\nPhone: {:#}", pc.client.connect_debug_for_tests(), phone.client.connect_debug_for_tests());
+        std::thread::sleep(Duration::from_millis(200));
+    }
     phone.wait("back over a tunnel at the phone", |e| matches!(e, Event::Features { .. }).then_some(()));
     std::thread::sleep(Duration::from_millis(500));
     phone.clear();

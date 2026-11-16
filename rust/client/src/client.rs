@@ -234,6 +234,8 @@ struct Connect {
     contributions: HashMap<String, [u8; 32]>,
     /// Sessions running on a tunnel: session to tunnel ID.
     tunnels: HashMap<u64, String>,
+    /// The node's last timing steps (race, dial, tunnel), for diagnostics.
+    trace: std::collections::VecDeque<String>,
 }
 
 pub(crate) struct Inner {
@@ -846,6 +848,19 @@ impl Client {
 
     /// Tests only: off stops local network connections (TCP), so sessions can only come up over Connect anywhere
     /// tunnels; the current local sessions close.
+    #[doc(hidden)]
+    /// Tests only (not in the C ABI): the node's status, this device's addresses, each device's learned addresses and
+    /// the node's recent timing steps, to explain a tunnel that did not come up.
+    #[doc(hidden)]
+    pub fn connect_debug_for_tests(&self) -> Value {
+        let (node, trace) = {
+            let c = self.inner.connect.lock().unwrap();
+            (c.node.clone(), c.trace.iter().cloned().collect::<Vec<_>>())
+        };
+        let learned: Vec<Value> = self.inner.trust.lock().unwrap().all().iter().map(|d| json!({"device": d.device_id, "port": d.learned_port, "addrs": d.learned.iter().map(|a| a.a.clone()).collect::<Vec<_>>(), "secret": d.pair_secret.is_some()})).collect();
+        json!({"status": node.as_ref().map(|n| n.status()), "addresses": node.as_ref().map(|n| n.addresses()), "learned": learned, "trace": trace})
+    }
+
     #[doc(hidden)]
     pub fn set_lan_for_tests(&self, on: bool) {
         self.inner.lan.store(on, Ordering::Relaxed);
@@ -2030,6 +2045,13 @@ impl Inner {
             }
             "state" => {
                 let _ = self.storage.store("connect-state", e["state"].to_string().as_bytes());
+            }
+            "timing" => {
+                let mut c = self.connect.lock().unwrap();
+                if c.trace.len() == 64 {
+                    c.trace.pop_front();
+                }
+                c.trace.push_back(text.chars().take(400).collect());
             }
             _ => {}
         }
