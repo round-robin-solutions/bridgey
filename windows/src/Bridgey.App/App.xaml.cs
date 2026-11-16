@@ -146,15 +146,19 @@ public partial class App : Application, ITrayHost
         Model.SendClipboardText(device, text);
     }
 
+    /// <summary>A command from a second launch. It runs after WM_COPYDATA returns, so the sender never waits on a menu.</summary>
     public void Command(string command)
     {
-        switch (command)
+        DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
         {
-            case TrayIcon.CommandMenu: _tray?.ShowMenu(); break;
-            case TrayIcon.CommandPair: Pair(); break;
-            case TrayIcon.CommandQuit: Quit(); break;
-            default: Open(); break;
-        }
+            switch (command)
+            {
+                case TrayIcon.CommandMenu: _tray?.ShowMenu(); break;
+                case TrayIcon.CommandPair: Pair(); break;
+                case TrayIcon.CommandQuit: Quit(); break;
+                default: Open(); break;
+            }
+        });
     }
 
     public void Quit()
