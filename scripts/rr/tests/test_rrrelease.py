@@ -191,6 +191,27 @@ class AssembleTests(unittest.TestCase):
         older = self.root / "older"
         self.assertEqual(self.fixture.assemble(older, "nightly", "1.0.0-nightly.20261026", 262990800, "nightly-20261026.0800", previous=published), 1)
 
+    def test_second_nightly_of_a_day_verifies_against_its_own_item(self):
+        # 16 Nov: the second nightly's zip has the same file name as the first's, whose item stays in the
+        # appcast; verify checked the new zip against the old item's signature and stopped the release.
+        published = self.root / "published"
+        first = self.root / "first"
+        self.fixture.assemble(first, "nightly", "1.0.0-nightly.20261116", 263191353, "nightly-20261116.1353")
+        published.mkdir()
+        for name in ("nightly.json", "appcast.xml"):
+            (published / name).write_bytes((first / "channels" / name).read_bytes())
+        self.fixture.zip.write_bytes(self.fixture.zip.read_bytes() + b"second build")
+        second = self.root / "second"
+        self.assertEqual(self.fixture.assemble(second, "nightly", "1.0.0-nightly.20261116", 263191818, "nightly-20261116.1818", previous=published), 0)
+        items = rrrelease.parse_appcast((second / "channels" / "appcast.xml").read_bytes())
+        self.assertEqual(len([i for i in items if i["url"].endswith("Bridgey-RR-1.0.0-nightly.20261116-macOS.zip")]), 2)
+        report = rrrelease.verify(second, self.props, self.fixture.public)
+        self.assertEqual(sum("appcast: Bridgey-RR-1.0.0-nightly.20261116-macOS.zip EdDSA ok" in line for line in report), 1)
+        # A tampered zip for this release still fails.
+        (second / "release" / "Bridgey-RR-1.0.0-nightly.20261116-macOS.zip").write_bytes(b"evil")
+        with self.assertRaises(rrrelease.ReleaseError):
+            rrrelease.verify(second, self.props, self.fixture.public)
+
     def publish_feeds(self, dist, published):
         published.mkdir(exist_ok=True)
         for name in ("beta.json", "nightly.json", "stable.json", "appcast.xml"):

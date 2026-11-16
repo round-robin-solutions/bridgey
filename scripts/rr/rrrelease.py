@@ -523,6 +523,10 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
     asset_prefix = props["UPDATE_ASSET_URL_PREFIX"]
     report = []
     found = False
+    # This release's update archives, by full URL (the tag is part of it). Nightly file names repeat within a
+    # day, so the merged appcast can hold an earlier nightly's item with the same file name: only items whose
+    # URL is this release's are checked against the local files.
+    release_urls: set[str] = set()
     for channel in CHANNELS:
         path = channels_dir / f"{channel}.json"
         if not path.is_file():
@@ -544,6 +548,7 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
         if feed.get("macos"):
             local_zip = release_dir / feed["macos"]["zip"]["url"].rsplit("/", 1)[-1]
             if local_zip.is_file():
+                release_urls.add(feed["macos"]["zip"]["url"])
                 if not ed_verify(public_key, local_zip, feed["macos"]["edSignature"]):
                     raise ReleaseError(f"EdDSA signature in {channel}.json does not verify")
                 report.append(f"{channel}: {local_zip.name} EdDSA ok")
@@ -561,7 +566,7 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
             if not item["url"].startswith(asset_prefix):
                 raise ReleaseError(f"appcast item {item['shortVersion']} points outside the release repository")
             local = release_dir / item["url"].rsplit("/", 1)[-1]
-            if local.is_file():
+            if item["url"] in release_urls and local.is_file():
                 if not ed_verify(public_key, local, item["edSignature"]):
                     raise ReleaseError(f"appcast signature for {local.name} does not verify")
                 report.append(f"appcast: {local.name} EdDSA ok")
