@@ -106,6 +106,18 @@ pub enum BridgeyEventKind {
     FindRequested = 24,
     /// The device says it is ringing (status 1) or has stopped (0), after bridgey_find. device_id.
     FindState = 25,
+    /// A phone notification. device_id, status = 1 quiet (history only: no banner, no sound) or 0, text = JSON:
+    /// packageName, applicationName, notificationId, title, text, timestamp, icon (base64 PNG), callType, actions
+    /// ([{token, title, allowsReply}]), quiet, redacted, code ({code, service, channel} when one was found).
+    Notification = 26,
+    /// The phone's notification went away. device_id, text = notificationId, status = 1 when a call ended.
+    NotificationRemoved = 27,
+    /// Whether the phone shows Bridgey the text of code messages. device_id, text = allowed, hidden or not_linked.
+    CodesStatus = 28,
+    /// The phone asks for a Bluetooth LE advertisement of a service for 60 s (status 1; answer with
+    /// bridgey_codes_advertise_result) or to stop it (status 0, id = 1 when the link was made). device_id,
+    /// text = the service UUID.
+    CodesAdvertise = 29,
 }
 
 /// Bytes owned by the library: UTF-8, NUL-terminated for convenience, `len` without the NUL. `ptr` is NULL when
@@ -322,6 +334,10 @@ fn to_c(event: Event) -> BridgeyEvent {
         Event::Battery { device_id, level, charging } => (K::Battery, i32::from(level), u64::from(charging), Some(device_id), None, None, None),
         Event::FindRequested { device_id, ring } => (K::FindRequested, i32::from(ring), 0, Some(device_id), None, None, None),
         Event::FindState { device_id, ringing } => (K::FindState, i32::from(ringing), 0, Some(device_id), None, None, None),
+        Event::Notification { device_id, notification } => (K::Notification, i32::from(notification.quiet), 0, Some(device_id), Some(notification.application_name.clone()), Some(notification.to_json().to_string()), None),
+        Event::NotificationRemoved { device_id, notification_id, call_ended } => (K::NotificationRemoved, i32::from(call_ended), 0, Some(device_id), None, Some(notification_id), None),
+        Event::CodesStatus { device_id, status } => (K::CodesStatus, 0, 0, Some(device_id), None, Some(status), None),
+        Event::CodesAdvertise { device_id, service_uuid, start, linked } => (K::CodesAdvertise, i32::from(start), u64::from(linked), Some(device_id), None, Some(service_uuid), None),
     };
     BridgeyEvent { kind, status, id, device_id: owned(device_id), name: owned(name), text: owned(text), extra: owned(extra), bytes, total }
 }
@@ -786,6 +802,85 @@ pub extern "C" fn bridgey_set_fast_transfers(handle: u64, on: u8) -> i32 {
     guard(|| {
         let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
         c.set_fast_transfers(on != 0);
+        BRIDGEY_OK
+    })
+}
+
+/// Dismisses a phone notification on the phone.
+///
+/// # Safety
+/// The strings are NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_notification_dismiss(handle: u64, device_id: *const c_char, notification_id: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(n))) = (arg(device_id), arg(notification_id)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.dismiss_notification(id, n).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Runs a phone notification's action; `reply` (NULL for none) is the text for an action that allows a reply.
+///
+/// # Safety
+/// The strings are NULL (reply only) or NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_notification_action(handle: u64, device_id: *const c_char, notification_id: *const c_char, token: *const c_char, reply: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(n)), Ok(Some(t)), Ok(r)) = (arg(device_id), arg(notification_id), arg(token), arg(reply)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.notification_action(id, n, t, r).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Codes from messages (`sms` 1) and Also read codes in email (`email` 1) on this device; both off by default.
+#[no_mangle]
+pub extern "C" fn bridgey_set_codes(handle: u64, sms: u8, email: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        c.set_codes(sms != 0, email != 0);
+        BRIDGEY_OK
+    })
+}
+
+/// Asks the phone to show its prompt for linking this device (codes from messages).
+///
+/// # Safety
+/// `device_id` is a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_codes_link_request(handle: u64, device_id: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(Some(id)) = arg(device_id) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.codes_link_request(id).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// The answer to a `CodesAdvertise` start: `ok` 1, or 0 with `reason` (bluetooth_off, unauthorized, unsupported,
+/// failed).
+///
+/// # Safety
+/// The strings are NULL (reason only) or NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_codes_advertise_result(handle: u64, device_id: *const c_char, service_uuid: *const c_char, ok: u8, reason: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(uuid)), Ok(reason)) = (arg(device_id), arg(service_uuid), arg(reason)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.codes_advertise_result(id, uuid, ok != 0, reason).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// This device's activity, sampled by the host every two seconds: `state` 0 with `idle_seconds` since the last
+/// input, 1 locked, 2 unknown.
+#[no_mangle]
+pub extern "C" fn bridgey_set_presence(handle: u64, state: i32, idle_seconds: u32) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        use crate::notifications::Presence;
+        c.set_presence(match state {
+            0 => Presence::Input { idle: idle_seconds },
+            1 => Presence::Locked,
+            _ => Presence::Unknown,
+        });
         BRIDGEY_OK
     })
 }

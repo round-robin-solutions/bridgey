@@ -7,11 +7,14 @@
 //!   battery <level> <0|1>    report its battery (level 0 to 100, charging)
 //!   ring | stop-ring         ring the other device, or stop it
 //!   stopped                  it stopped ringing itself (after the other device rang it)
+//!   notify <json>            post a notification (the notifications.post payload)
+//!   unnotify <id>            the notification went away on the phone
+//!   codes-status <status>    allowed, hidden or not_linked
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
 //!        [--receive-dir <folder>] [--seconds 300]
 //!
-//! Files, battery and find device are on. It never touches a real device's settings: identity and trust live in
+//! Files, battery, find device and notifications (with routing, presence and code status) are on. It never touches a real device's settings: identity and trust live in
 //! memory and end with the process.
 
 use bridgey_core::{Client, Config, Event, MemoryStorage, Next};
@@ -53,7 +56,7 @@ fn main() {
     let mut config = Config::new(&name, "android");
     config.port = port;
     config.discovery = discover;
-    for key in ["files", "battery", "find_device"] {
+    for key in ["files", "battery", "find_device", "notifications", "notification_routing_draft1", "device_presence_draft1", "sms_codes_draft1"] {
         config.defaults.set(key, true);
     }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
@@ -92,6 +95,9 @@ fn main() {
                     "ring" => client.find(&device, true),
                     "stop-ring" => client.find(&device, false),
                     "stopped" => client.find_stopped(&device),
+                    "notify" => client.send_as_phone_for_tests(&device, "notifications.post", rest),
+                    "unnotify" => client.send_as_phone_for_tests(&device, "notifications.remove", &json!({"notificationId": rest}).to_string()),
+                    "codes-status" => client.send_as_phone_for_tests(&device, "codes.status", &json!({"version": 1, "status": rest}).to_string()),
                     _ => {
                         out(json!({"event": "command", "ok": false, "error": "unknown command", "line": line}));
                         continue;

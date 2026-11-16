@@ -402,10 +402,10 @@ Idempotent.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `notifications.post` | upstream-v1 | phone-to-mac | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `notifications.remove` | upstream-v1 | phone-to-mac | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `notifications.dismiss` | upstream-v1 | mac-to-phone | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `notifications.action` | upstream-v1 | mac-to-phone | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
+| `notifications.post` | upstream-v1 | phone-to-mac | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `notifications.remove` | upstream-v1 | phone-to-mac | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `notifications.dismiss` | upstream-v1 | mac-to-phone | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `notifications.action` | upstream-v1 | mac-to-phone | notifications | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `notifications.post`
 
@@ -450,11 +450,11 @@ Android runs only tokens it retained for the still active notification.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `codes.status` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `codes.link_request` | edition-draft | mac-to-phone | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `codes.advertise` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `codes.advertise_result` | edition-draft | mac-to-phone | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `codes.advertise_stop` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `codes.status` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `codes.link_request` | edition-draft | mac-to-phone | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `codes.advertise` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `codes.advertise_result` | edition-draft | mac-to-phone | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `codes.advertise_stop` | edition-draft | phone-to-mac | sms_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 | `codes.query` | edition-draft | agent-to-phone | agent_codes_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `codes.result` | edition-draft | phone-to-agent | agent_codes_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, cli |
 | `codes.cancel` | edition-draft | agent-to-phone | agent_codes_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, cli |
@@ -2095,7 +2095,7 @@ A remote action: refused unless this Mac is allowed on the phone. At most one ev
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `presence.state` | edition-draft | mac-to-phone | device_presence_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `presence.state` | edition-draft | mac-to-phone | device_presence_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `presence.state`
 

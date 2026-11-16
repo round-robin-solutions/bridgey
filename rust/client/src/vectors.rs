@@ -191,15 +191,15 @@ mod files {
 
     /// One frame on the wire: a JSON line, or a whole binary frame.
     #[derive(Clone)]
-    enum Wire {
+    pub(super) enum Wire {
         Line(String),
         Binary(Vec<u8>),
     }
 
-    type Recording = Arc<Mutex<Vec<(String, Wire)>>>;
+    pub(super) type Recording = Arc<Mutex<Vec<(String, Wire)>>>;
 
     /// Forwards one connection, splitting each direction into JSON lines and binary frames as it goes.
-    fn proxy(target: u16) -> (u16, Recording) {
+    pub(super) fn proxy(target: u16) -> (u16, Recording) {
         use std::io::Read;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -437,6 +437,148 @@ mod files {
 
     #[test]
     fn a_fresh_files_recording_checks() {
+        check(&record());
+    }
+}
+
+/// `protocol/test-vectors/session-client-notifications-v1.json`: after pairing, a phone (a session client sending what
+/// the phone sends) posts notifications and codes messages, and the Windows side answers with an action and reply, a
+/// dismiss, a link request, an advertising result and presence. The Android suite reads every message the Windows
+/// side sent with the phone's own checks. `BRIDGEY_WRITE_VECTORS=notifications` records it.
+mod notifications {
+    use super::files::{proxy, Wire};
+    use super::*;
+    use crate::notifications::Presence;
+
+    const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../protocol/test-vectors/session-client-notifications-v1.json");
+    pub(super) const TOKEN_REPLY: &str = "4f1c0b9a2e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a3928170f6e5d4c";
+    const TOKEN_READ: &str = "0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9";
+    const UUID: &str = "7e57d00d-0000-4000-8000-0000000000cc";
+
+    fn record() -> Value {
+        let start = |name: &str| {
+            let mut c = Config::new(name, "windows");
+            c.port = 0;
+            c.discovery = false;
+            for key in ["notifications", "notification_routing_draft1", "device_presence_draft1", "sms_codes_draft1"] {
+                c.defaults.set(key, true);
+            }
+            Client::start(c, Arc::new(MemoryStorage::default())).unwrap()
+        };
+        let (pc, phone) = (start("Vector PC"), start("Vector phone"));
+        pc.set_codes(true, false);
+        phone.allow_pairing(Duration::from_secs(60));
+        let (port, frames) = proxy(phone.port());
+        pc.pair(None, Some("127.0.0.1"), port).unwrap();
+        let phone_thread = std::thread::spawn(move || {
+            let mut phone_seen = Vec::new();
+            wait(&phone, |e| matches!(e, Event::Features { remote, .. } if remote.get("device_presence_draft1")), &mut phone_seen);
+            let pc_id = phone_seen.iter().find_map(|e| if let Event::Connected { device_id, .. } = e { Some(device_id.clone()) } else { None }).unwrap();
+            (phone, pc_id)
+        });
+        let mut seen = Vec::new();
+        wait(&pc, |e| matches!(e, Event::Features { remote, .. } if remote.get("notifications")), &mut seen);
+        let phone_id = seen.iter().find_map(|e| if let Event::Connected { device_id, .. } = e { Some(device_id.clone()) } else { None }).unwrap();
+        let (phone, pc_id) = phone_thread.join().unwrap();
+        let sms = json!({
+            "packageName": "com.google.android.apps.messaging", "applicationName": "Messages", "notificationId": "0|com.google.android.apps.messaging|42|null|10234",
+            "title": "VM-HDFCBK", "text": "OTP is 482913 for txn of INR 2,499.00 at AMAZON PAY. Do not share OTP.", "timestamp": 1794000000000i64,
+            "actions": [{"actionToken": TOKEN_REPLY, "title": "Reply", "allowsReply": true}, {"actionToken": TOKEN_READ, "title": "Mark as read", "allowsReply": false}],
+            "smsDefaultApp": true, "redacted": false, "presentation": "alert",
+        });
+        phone.send_as_phone_for_tests(&pc_id, "notifications.post", &sms.to_string()).unwrap();
+        wait(&pc, |e| matches!(e, Event::Notification { notification, .. } if notification.code.is_some()), &mut seen);
+        let quiet = json!({"packageName": "com.whatsapp", "applicationName": "WhatsApp", "notificationId": "0|com.whatsapp|7|null|10301", "title": "Ravi", "text": "On my way", "timestamp": 1794000005000i64, "actions": [], "smsDefaultApp": false, "presentation": "quiet"});
+        phone.send_as_phone_for_tests(&pc_id, "notifications.post", &quiet.to_string()).unwrap();
+        wait(&pc, |e| matches!(e, Event::Notification { notification, .. } if notification.quiet), &mut seen);
+        phone.send_as_phone_for_tests(&pc_id, "codes.status", &json!({"version": 1, "status": "hidden"}).to_string()).unwrap();
+        wait(&pc, |e| matches!(e, Event::CodesStatus { .. }), &mut seen);
+        pc.notification_action(&phone_id, "0|com.google.android.apps.messaging|42|null|10234", TOKEN_REPLY, Some("Thanks, done ✓")).unwrap();
+        pc.dismiss_notification(&phone_id, "0|com.whatsapp|7|null|10301").unwrap();
+        pc.codes_link_request(&phone_id).unwrap();
+        phone.send_as_phone_for_tests(&pc_id, "codes.advertise", &json!({"version": 1, "serviceUuid": UUID}).to_string()).unwrap();
+        wait(&pc, |e| matches!(e, Event::CodesAdvertise { start: true, .. }), &mut seen);
+        pc.codes_advertise_result(&phone_id, UUID, false, Some("unsupported")).unwrap();
+        pc.set_presence(Presence::Locked);
+        phone.send_as_phone_for_tests(&pc_id, "notifications.remove", &json!({"notificationId": "0|com.google.android.apps.messaging|42|null|10234"}).to_string()).unwrap();
+        wait(&pc, |e| matches!(e, Event::NotificationRemoved { .. }), &mut seen);
+        std::thread::sleep(Duration::from_millis(300));
+        pc.stop();
+        phone.stop();
+        let frames: Vec<(String, String)> = frames
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(from, w)| match w {
+                Wire::Line(l) if !l.contains("\"heartbeat.") => Some((from.clone(), l.clone())),
+                _ => None,
+            })
+            .collect();
+        let offer = Message::decode(frames[0].1.as_bytes()).unwrap();
+        let (_, prk, key) = KEYLOG.lock().unwrap().iter().find(|(s, ..)| *s == offer.session_id).cloned().unwrap();
+        json!({
+            "version": 1,
+            "description": "A protocol 2 session between two Bridgey session clients (rust/client), recorded on the wire after the first pairing. The responder sends what the phone sends: two notifications.post (an SMS with a code and two actions, alert; a WhatsApp message, quiet), codes.status, codes.advertise and notifications.remove. The initiator (the Windows side) answers with notifications.action with a reply, notifications.dismiss, codes.link_request, codes.advertise_result and presence.state. Heartbeats are left out. prk and sessionKey come from the test key log. Generated by rust/client/src/vectors.rs.",
+            "transcript": "bridgey-auth-v1",
+            "prk": crypto::b64(&prk),
+            "sessionKey": crypto::b64(&key),
+            "replyToken": TOKEN_REPLY,
+            "replyText": "Thanks, done ✓",
+            "serviceUuid": UUID,
+            "frames": frames.iter().map(|(from, line)| json!({"from": from, "line": line})).collect::<Vec<_>>(),
+        })
+    }
+
+    fn check(v: &Value) {
+        let key: [u8; 32] = crypto::unb64(v["sessionKey"].as_str().unwrap()).unwrap().try_into().unwrap();
+        let envelope = crypto::envelope_key(&key);
+        let mut ids = std::collections::HashMap::new();
+        let mut kinds = std::collections::BTreeMap::new();
+        for f in v["frames"].as_array().unwrap() {
+            let from = f["from"].as_str().unwrap().to_string();
+            let m = Message::decode(f["line"].as_str().unwrap().as_bytes()).unwrap();
+            if m.kind == "pairing.offer" || m.kind == "pairing.answer" {
+                ids.insert(from.clone(), m.device_id.clone().unwrap());
+            }
+            if m.kind.starts_with("pairing.") {
+                continue;
+            }
+            assert!(m.tag_matches(&envelope, &ids[&from]), "{} is tagged by its sender", m.kind);
+            let plain = m.ciphertext.as_deref().map(|c| crypto::decrypt(&key, m.nonce.as_deref().unwrap(), c).unwrap());
+            *kinds.entry((from.clone(), m.kind.clone())).or_insert(0) += 1;
+            match m.kind.as_str() {
+                "notifications.post" => assert!(crate::notifications::decode_post(&plain.unwrap(), true).is_some()),
+                "notifications.action" => {
+                    let p: Value = serde_json::from_slice(&plain.unwrap()).unwrap();
+                    assert_eq!(p["actionToken"], v["replyToken"]);
+                    assert_eq!(p["replyText"], v["replyText"]);
+                }
+                "presence.state" => {
+                    let p: Value = serde_json::from_slice(&plain.unwrap()).unwrap();
+                    assert_eq!(p["version"], 1);
+                    assert!(p["sequence"].as_u64().unwrap() >= 1);
+                }
+                _ => {}
+            }
+        }
+        for (from, kind) in [("responder", "notifications.post"), ("responder", "codes.status"), ("responder", "codes.advertise"), ("responder", "notifications.remove"), ("initiator", "notifications.action"), ("initiator", "notifications.dismiss"), ("initiator", "codes.link_request"), ("initiator", "codes.advertise_result"), ("initiator", "presence.state")] {
+            assert!(kinds.contains_key(&(from.to_string(), kind.to_string())), "{from} sent {kind}");
+        }
+    }
+
+    #[test]
+    fn recorded_notifications_vector() {
+        if writes("notifications") {
+            let v = record();
+            check(&v);
+            std::fs::write(PATH, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(PATH).unwrap()).unwrap();
+        check(&v);
+    }
+
+    #[test]
+    fn a_fresh_notifications_recording_checks() {
         check(&record());
     }
 }

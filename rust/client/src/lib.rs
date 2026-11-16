@@ -7,6 +7,7 @@
 //! uses them from here.
 
 pub mod client;
+pub mod codes;
 pub mod crypto;
 #[cfg(feature = "mdns")]
 mod discovery;
@@ -14,6 +15,7 @@ pub mod events;
 pub mod fast;
 pub mod features;
 pub mod ffi;
+pub mod notifications;
 pub mod session;
 pub mod transfer;
 pub mod trust;

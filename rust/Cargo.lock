@@ -214,6 +214,7 @@ name = "bridgey-client"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "bridgey-codes",
  "bridgey-connect-proto",
  "cbindgen",
  "mdns-sd",

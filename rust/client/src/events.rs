@@ -60,6 +60,15 @@ pub enum Event {
     FindRequested { device_id: String, ring: bool },
     /// The other device says it is ringing, or has stopped (after `find`).
     FindState { device_id: String, ringing: bool },
+    /// A phone notification (with the code found in it, when Codes from messages is on).
+    Notification { device_id: String, notification: Box<crate::notifications::Notification> },
+    /// The phone's notification went away (read, dismissed there, or the call ended).
+    NotificationRemoved { device_id: String, notification_id: String, call_ended: bool },
+    /// Whether the phone shows Bridgey the text of code messages: allowed, hidden or not_linked.
+    CodesStatus { device_id: String, status: String },
+    /// The phone asks this device to advertise a Bluetooth LE service for 60 seconds (`start`), or to stop
+    /// (`linked` says whether the link was made). Answer a start with `codes_advertise_result`.
+    CodesAdvertise { device_id: String, service_uuid: String, start: bool, linked: bool },
     Dropped { count: u64 },
     Error { text: String },
 }
