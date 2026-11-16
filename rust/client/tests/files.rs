@@ -17,7 +17,8 @@ struct Peer {
 }
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("bridgey-files-{tag}-{}", std::process::id())).join(format!("{:?}", Instant::now()).replace(['.', ' '], ""));
+    // A UUID: Windows refuses characters that other names (such as a time's debug text) can contain.
+    let dir = std::env::temp_dir().join(format!("bridgey-files-{tag}-{}", bridgey_core::crypto::uuid4()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
