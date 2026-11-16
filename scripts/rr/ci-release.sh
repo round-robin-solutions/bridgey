@@ -5,8 +5,10 @@
 #   v1.0.0         -> stable 1.0.0
 #   v1.0.0-beta.2  -> beta 1.0.0-beta.2 (betas lead to EDITION_NEXT_VERSION)
 # Tags are made by scripts/rr/cut-release.py (beta, promote); see docs/rr-edition.md "Releasing".
-# The revision must be on RELEASE_BRANCH (rr/main). Builds Android here and the Mac app on
-# BRIDGEY_RR_MAC_HOST (default personal) over SSH, then publishes (release.sh --publish).
+# The revision must be on RELEASE_BRANCH (rr/main). Builds Android here, then publishes (release.sh --publish).
+# The Mac app comes from this release's RR CI Mac job (release-macos or nightly-macos, which run
+# scripts/rr/ci-release-macos.sh) when RR CI hands its files over in RR_CI_INPUT_DIR; otherwise it is
+# built on BRIDGEY_RR_MAC_HOST (default personal) over SSH.
 # RR CI gives jobs a private HOME, so the keys, the GitHub token and the toolchains come from the
 # worker account's home (RR_CI_HOST_HOME): ~/.config/bridgey-rr/{rr-bridgey.jks,android-signing.env,
 # sparkle_ed25519_private.key,github-token}. Nothing secret is printed.
@@ -69,5 +71,23 @@ else
   set -- "$CHANNEL" --version "$VERSION"
 fi
 
-echo "== $* from $BRANCH @$SHORT, Mac build on $MAC_HOST"
-sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --mac-host "$MAC_HOST" --publish
+# The Mac app from RR CI's Mac job, when it ran: same revision, and the version and build number this
+# release derives from that job's build time must be the ones built into the app.
+MAC_DIR=""
+if [ -n "${RR_CI_INPUT_DIR:-}" ]; then
+  for d in "$RR_CI_INPUT_DIR/release-macos" "$RR_CI_INPUT_DIR/nightly-macos"; do
+    if [ -f "$d/release.env" ]; then MAC_DIR=$d; break; fi
+  done
+fi
+if [ -n "$MAC_DIR" ]; then
+  MAC_NOW=$(sed -n 's/^NOW=//p' "$MAC_DIR/release.env")
+  [ "$(sed -n 's/^REVISION=//p' "$MAC_DIR/release.env")" = "$HEAD" ] || die "the Mac build is not of $HEAD"
+  WANT=$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$@" --now "$MAC_NOW" | grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=')
+  GOT=$(grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=' "$MAC_DIR/release.env")
+  [ "$WANT" = "$GOT" ] || die "the Mac build's version differs from this release's"
+  echo "== $* from $BRANCH @$SHORT, Mac build from RR CI's Mac job"
+  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --now "$MAC_NOW" --notes-file "$NOTES" --macos-artifacts "$MAC_DIR" --publish
+else
+  echo "== $* from $BRANCH @$SHORT, Mac build on $MAC_HOST"
+  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --mac-host "$MAC_HOST" --publish
+fi
