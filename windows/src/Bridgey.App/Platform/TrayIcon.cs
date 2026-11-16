@@ -69,6 +69,8 @@ internal sealed unsafe class TrayIcon : IDisposable
         fixed (char* path = Paths.Asset("Bridgey.ico")) _icon = LoadImage(0, path, IMAGE_ICON, size, size, LR_LOADFROMFILE);
         _current = this;
         Add();
+        // Lock and unlock, for the activity phones use to route alerts (ActivityWatch).
+        WTSRegisterSessionNotification(_hwnd, 0);
     }
 
     public nint Handle => _hwnd;
@@ -138,6 +140,12 @@ internal sealed unsafe class TrayIcon : IDisposable
                     ShowMenu();
                     break;
             }
+            return true;
+        }
+        if (msg == WM_WTSSESSION_CHANGE)
+        {
+            if (wParam == WTS_SESSION_LOCK) ActivityWatch.Locked = true;
+            else if (wParam == WTS_SESSION_UNLOCK) ActivityWatch.Locked = false;
             return true;
         }
         if (msg == _taskbarCreated && _taskbarCreated != 0)
@@ -210,6 +218,7 @@ internal sealed unsafe class TrayIcon : IDisposable
             _added = false;
         }
         if (_icon != 0) DestroyIcon(_icon);
+        WTSUnRegisterSessionNotification(_hwnd);
         DestroyWindow(_hwnd);
         if (_current == this) _current = null;
     }

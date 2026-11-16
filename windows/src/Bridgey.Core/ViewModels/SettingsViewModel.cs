@@ -11,7 +11,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         new("thisPc", "This PC", "\uE7F4", true),
         new("devices", "Devices", "\uE772", true),
         new("clipboard", "Clipboard", "\uE77F", true),
-        new("notifications", "Notifications", "\uEA8F", false),
+        new("notifications", "Notifications", "\uEA8F", true),
         new("messages", "Text messages", "\uE8BD", false),
         new("calls", "Calls", "\uE717", false),
         new("files", "Files", "\uE8B7", true),
@@ -30,6 +30,9 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
     /// <summary>A feature's default for devices without their own switch changed (feature key, on).</summary>
     public event Action<string, bool>? FeatureDefaultChanged;
     public event Action<string>? ReceiveFolderChanged;
+    /// <summary>Codes from messages or Also read codes in email changed.</summary>
+    public event Action? CodesChanged;
+    public event Action<bool>? NotificationHistoryChanged;
     public event Action<bool>? SendToMenuChanged;
 
     public AppSettings Values => settings;
@@ -250,7 +253,11 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
 
     public void ResetReceiveFolder() => ReceiveFolder = "";
 
-    /// <summary>Every switch the session client takes as a default, with its value (applied at start).</summary>
+    /// <summary>
+    /// Every switch the session client takes as a default, with its value (applied at start). The drafts follow the
+    /// Mac's rules: routing and code status with Notifications, presence with Share when I'm using this PC, email codes
+    /// with both code switches.
+    /// </summary>
     public IEnumerable<(string Key, bool On)> FeatureDefaults =>
     [
         ("clipboard", settings.Clipboard),
@@ -258,7 +265,119 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         ("battery", settings.Battery),
         ("find_device", settings.FindDevice),
         ("ping", settings.Ping),
+        ("notifications", settings.Notifications),
+        ("notification_routing_draft1", settings.Notifications),
+        ("device_presence_draft1", settings.Notifications && settings.ShareActivity),
+        ("sms_codes_draft1", settings.Notifications),
+        ("email_codes_draft1", settings.Notifications && settings.CodesFromMessages && settings.CodesFromEmail),
     ];
+
+    private void NotificationDefaultsChanged()
+    {
+        foreach (var (key, on) in FeatureDefaults.Where(f => f.Key is "notifications" or "notification_routing_draft1" or "device_presence_draft1" or "sms_codes_draft1" or "email_codes_draft1"))
+            FeatureDefaultChanged?.Invoke(key, on);
+    }
+
+    public bool Notifications
+    {
+        get => settings.Notifications;
+        set
+        {
+            if (value == settings.Notifications) return;
+            settings.Notifications = value;
+            Changed();
+            Raise();
+            NotificationDefaultsChanged();
+        }
+    }
+
+    public bool NotificationBanners
+    {
+        get => settings.NotificationBanners;
+        set
+        {
+            if (value == settings.NotificationBanners) return;
+            settings.NotificationBanners = value;
+            Changed();
+            Raise();
+        }
+    }
+
+    public bool NotificationHistory
+    {
+        get => settings.NotificationHistory;
+        set
+        {
+            if (value == settings.NotificationHistory) return;
+            settings.NotificationHistory = value;
+            Changed();
+            Raise();
+            NotificationHistoryChanged?.Invoke(value);
+        }
+    }
+
+    public bool CodesFromMessages
+    {
+        get => settings.CodesFromMessages;
+        set
+        {
+            if (value == settings.CodesFromMessages) return;
+            settings.CodesFromMessages = value;
+            Changed();
+            Raise();
+            CodesChanged?.Invoke();
+            NotificationDefaultsChanged();
+        }
+    }
+
+    public bool CodesFromEmail
+    {
+        get => settings.CodesFromEmail;
+        set
+        {
+            if (value == settings.CodesFromEmail) return;
+            settings.CodesFromEmail = value;
+            Changed();
+            Raise();
+            CodesChanged?.Invoke();
+            NotificationDefaultsChanged();
+        }
+    }
+
+    public bool CopyCodes
+    {
+        get => settings.CopyCodes;
+        set
+        {
+            if (value == settings.CopyCodes) return;
+            settings.CopyCodes = value;
+            Changed();
+            Raise();
+        }
+    }
+
+    public bool ShareActivity
+    {
+        get => settings.ShareActivity;
+        set
+        {
+            if (value == settings.ShareActivity) return;
+            settings.ShareActivity = value;
+            Changed();
+            Raise();
+            NotificationDefaultsChanged();
+        }
+    }
+
+    /// <summary>Banners from one phone app off (muted) or on again.</summary>
+    public void SetAppMuted(string package, bool muted)
+    {
+        var list = settings.MutedApps;
+        if (muted == list.Contains(package)) return;
+        if (muted) list.Add(package);
+        else list.Remove(package);
+        Changed();
+    }
 
     public bool SetupDone
     {

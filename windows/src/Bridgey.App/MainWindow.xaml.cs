@@ -16,7 +16,7 @@ namespace Bridgey;
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup";
+    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications";
 
     private readonly Dictionary<string, FrameworkElement> _pages = new();
     private string _current = "";
@@ -88,6 +88,7 @@ public sealed partial class MainWindow : Window
             PairPage => new Views.PairPage(),
             SettingsPage => new Views.SettingsPage(),
             SetupPage => new Views.SetupPage(),
+            NotificationsPage => new Views.NotificationsPage(),
             _ => new Views.HomePage(),
         };
         _pages[key] = page;

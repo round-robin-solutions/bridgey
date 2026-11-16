@@ -39,11 +39,23 @@ public enum BridgeyEventKind : uint
     Battery = 23,
     FindRequested = 24,
     FindState = 25,
+    Notification = 26,
+    NotificationRemoved = 27,
+    CodesStatus = 28,
+    CodesAdvertise = 29,
     /// <summary>
     /// Not from the library: BridgeyClient folds the four file events into one per change, with the whole transfer as
     /// <see cref="TransferInfo"/> JSON in Text and its <see cref="TransferState"/> in Status. Id = transfer.
     /// </summary>
     Transfer = 1000,
+}
+
+/// <summary>This PC's activity for presence.state (bridgey_set_presence).</summary>
+public enum PresenceState
+{
+    Input = 0,
+    Locked = 1,
+    Unknown = 2,
 }
 
 /// <summary>BridgeyTransferState: where a file going either way is.</summary>
@@ -166,6 +178,12 @@ public interface IBridgeyClient : IDisposable
     void SetBattery(int? level, bool charging);
     void Find(string deviceId, bool ring);
     void FindStopped(string deviceId);
+    void DismissNotification(string deviceId, string notificationId);
+    void NotificationAction(string deviceId, string notificationId, string token, string? reply);
+    void SetCodes(bool sms, bool email);
+    void CodesLinkRequest(string deviceId);
+    void CodesAdvertiseResult(string deviceId, string serviceUuid, bool ok, string? reason);
+    void SetPresence(PresenceState state, uint idleSeconds);
 }
 
 /// <summary>
@@ -381,6 +399,20 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
 
     public void FindStopped(string deviceId) => Check(NativeMethods.bridgey_find_stopped(_handle, deviceId));
 
+    public void DismissNotification(string deviceId, string notificationId) => Check(NativeMethods.bridgey_notification_dismiss(_handle, deviceId, notificationId));
+
+    public void NotificationAction(string deviceId, string notificationId, string token, string? reply) =>
+        Check(NativeMethods.bridgey_notification_action(_handle, deviceId, notificationId, token, reply));
+
+    public void SetCodes(bool sms, bool email) => Check(NativeMethods.bridgey_set_codes(_handle, sms ? (byte)1 : (byte)0, email ? (byte)1 : (byte)0));
+
+    public void CodesLinkRequest(string deviceId) => Check(NativeMethods.bridgey_codes_link_request(_handle, deviceId));
+
+    public void CodesAdvertiseResult(string deviceId, string serviceUuid, bool ok, string? reason) =>
+        Check(NativeMethods.bridgey_codes_advertise_result(_handle, deviceId, serviceUuid, ok ? (byte)1 : (byte)0, reason));
+
+    public void SetPresence(PresenceState state, uint idleSeconds) => Check(NativeMethods.bridgey_set_presence(_handle, (int)state, idleSeconds));
+
     /// <summary>Fast transfers with peers that show them; off sends JSON chunks (a test setting).</summary>
     public void SetFastTransfers(bool on) => Check(NativeMethods.bridgey_set_fast_transfers(_handle, on ? (byte)1 : (byte)0));
 
@@ -555,4 +587,66 @@ public sealed class SnapshotNearby
 [JsonSerializable(typeof(Snapshot))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]
 [JsonSerializable(typeof(TransferInfo))]
+[JsonSerializable(typeof(PhoneNotification))]
+[JsonSerializable(typeof(List<StoredNotification>))]
 internal sealed partial class BridgeyJson : JsonSerializerContext;
+
+/// <summary>A Notification event's JSON (rust/client/src/notifications.rs, <c>Notification::to_json</c>).</summary>
+public sealed class PhoneNotification
+{
+    public string PackageName { get; set; } = "";
+    public string ApplicationName { get; set; } = "";
+    public string NotificationId { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Text { get; set; } = "";
+    public long Timestamp { get; set; }
+    public string? Icon { get; set; }
+    public string? CallType { get; set; }
+    public List<PhoneAction> Actions { get; set; } = new();
+    public bool Quiet { get; set; }
+    public bool Redacted { get; set; }
+    public FoundCode? Code { get; set; }
+
+    public static PhoneNotification? Parse(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize(json, BridgeyJson.Default.PhoneNotification); }
+        catch (JsonException) { return null; }
+    }
+}
+
+public sealed class PhoneAction
+{
+    public string Token { get; set; } = "";
+    public string Title { get; set; } = "";
+    public bool AllowsReply { get; set; }
+}
+
+public sealed class FoundCode
+{
+    public string Code { get; set; } = "";
+    public string Service { get; set; } = "";
+    public string Channel { get; set; } = "sms";
+}
+
+/// <summary>One row of the notification history file (no codes and no icons are kept).</summary>
+public sealed class StoredNotification
+{
+    public string DeviceId { get; set; } = "";
+    public string DeviceName { get; set; } = "";
+    public string PackageName { get; set; } = "";
+    public string ApplicationName { get; set; } = "";
+    public string NotificationId { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Text { get; set; } = "";
+    public long Timestamp { get; set; }
+    public long ReceivedAt { get; set; }
+
+    public static string Serialize(List<StoredNotification> items) => JsonSerializer.Serialize(items, BridgeyJson.Default.ListStoredNotification);
+
+    public static List<StoredNotification> Deserialize(string json)
+    {
+        try { return JsonSerializer.Deserialize(json, BridgeyJson.Default.ListStoredNotification) ?? new(); }
+        catch (JsonException) { return new(); }
+    }
+}

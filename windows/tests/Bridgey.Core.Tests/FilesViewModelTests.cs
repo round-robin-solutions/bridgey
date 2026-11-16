@@ -8,7 +8,7 @@ public sealed class FilesViewModelTests
 {
     private const string Phone = "11111111-1111-4111-8111-111111111111";
     private const string Mac = "22222222-2222-4222-8222-222222222222";
-    private const string AllOn = """{"clipboard":true,"files":true,"battery":true,"find_device":true,"ping":true}""";
+    private const string AllOn = """{"clipboard":true,"files":true,"battery":true,"find_device":true,"ping":true,"notifications":true}""";
 
     private readonly FakeClient _client = new();
     private readonly FakeAlerts _alerts = new();
@@ -16,7 +16,7 @@ public sealed class FilesViewModelTests
 
     private MainViewModel Model(bool twoDevices = false)
     {
-        var local = new Dictionary<string, bool> { ["clipboard"] = true, ["files"] = true, ["battery"] = true, ["find_device"] = true, ["ping"] = true };
+        var local = new Dictionary<string, bool> { ["clipboard"] = true, ["files"] = true, ["battery"] = true, ["find_device"] = true, ["ping"] = true, ["notifications"] = true };
         _client.State.Devices.Add(new SnapshotDevice { DeviceId = Phone, Name = "Pixel 9", Platform = "android", Local = new(local) });
         if (twoDevices) _client.State.Devices.Add(new SnapshotDevice { DeviceId = Mac, Name = "MacBook", Platform = "macos", Local = new(local) });
         var settings = new SettingsViewModel(new AppSettings(), _ => { }, "Test PC") { DefaultReceiveFolder = @"C:\Users\test\Downloads\Bridgey" };
@@ -189,7 +189,7 @@ public sealed class FilesViewModelTests
     {
         var model = Connected();
         var phone = model.Devices.Single();
-        Assert.Equal(["Clipboard", "Files", "Battery", "Find device", "Ping"], phone.Switches.Select(s => s.Title));
+        Assert.Equal(["Clipboard", "Files", "Battery", "Find device", "Ping", "Notifications"], phone.Switches.Select(s => s.Title));
         Assert.All(phone.Switches, s => Assert.True(s.IsOn));
         phone.Switches.Single(s => s.Key == "files").IsOn = false;
         Assert.Contains($"feature {Phone} files False", _client.Calls);

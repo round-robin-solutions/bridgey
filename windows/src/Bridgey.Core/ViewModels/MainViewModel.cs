@@ -38,8 +38,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<ActivityItem> Activity { get; } = new();
     public PairingViewModel Pairing { get; }
     public SettingsViewModel Settings { get; }
+    public NotificationsViewModel Notifications { get; }
 
-    public MainViewModel(IBridgeyClient client, SettingsViewModel settings, IUiDispatcher ui, IClipboardService clipboard, IAlertService alerts, IFileService? files = null)
+    public MainViewModel(IBridgeyClient client, SettingsViewModel settings, IUiDispatcher ui, IClipboardService clipboard, IAlertService alerts, IFileService? files = null,
+        IPhoneNotifier? notifier = null, INotificationHistory? history = null, ICompanionAdvertiser? advertiser = null)
     {
         _client = client;
         _ui = ui;
@@ -48,6 +50,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _files = files ?? new NoFiles();
         Settings = settings;
         Pairing = new PairingViewModel(this, client);
+        Notifications = new NotificationsViewModel(client, settings, notifier ?? new NoNotifier(), clipboard, history, advertiser, NameOf);
         Devices.CollectionChanged += (_, _) => DevicesChanged();
         Activity.CollectionChanged += (_, _) =>
         {
@@ -67,6 +70,21 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         foreach (var (key, on) in Settings.FeatureDefaults) Try(() => _client.SetFeature(null, key, on));
         if (Settings.ReceiveFolder.Length > 0) Try(() => _client.SetReceiveDir(Settings.ReceiveFolder));
         Refresh();
+    }
+
+    private sealed class NoNotifier : IPhoneNotifier
+    {
+        public void Show(NotificationItem item) { }
+        public void ShowCode(NotificationItem item, bool copied) { }
+        public void Remove(string deviceId, string notificationId) { }
+    }
+
+    /// <summary>This PC's activity, sampled every two seconds: phones that show device presence send their alerts to
+    /// the device in use. Only whether there was input and how long ago; never keys or apps.</summary>
+    public void ReportActivity(uint idleSeconds, bool locked)
+    {
+        try { _client.SetPresence(locked ? PresenceState.Locked : PresenceState.Input, idleSeconds); }
+        catch (BridgeyException) { }
     }
 
     private sealed class NoFiles : IFileService
@@ -248,6 +266,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     internal void Handle(BridgeyEvent e)
     {
         Pairing.Handle(e);
+        Notifications.Handle(e);
         switch (e.Kind)
         {
             case BridgeyEventKind.DeviceFound when e.Text is not null:

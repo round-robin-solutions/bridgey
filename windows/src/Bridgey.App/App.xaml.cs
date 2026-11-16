@@ -20,6 +20,7 @@ public partial class App : Application, ITrayHost
     private readonly WindowsClipboard _clipboard = new();
     private readonly Notifications _notifications = new();
     private DispatcherQueueTimer? _pairingTimer;
+    private DispatcherQueueTimer? _activityTimer;
     private DispatcherQueue? _queue;
     private bool _quitting;
     /// <summary>Files from Send to that arrived before any device could take them (Bridgey just started).</summary>
@@ -77,7 +78,8 @@ public partial class App : Application, ITrayHost
             Exit();
             return;
         }
-        Model = new MainViewModel(client, settingsModel, new UiDispatcher(queue), _clipboard, new Alerts(_notifications, () => Model.Settings.Values), new ExplorerFiles());
+        Model = new MainViewModel(client, settingsModel, new UiDispatcher(queue), _clipboard, new Alerts(_notifications, () => Model.Settings.Values), new ExplorerFiles(),
+            new PhoneNotifier(_notifications), new ProtectedHistory(Paths.DataFolder), new CompanionAdvertiser());
         if (client is BridgeyClient native && !settings.FastTransfers) native.SetFastTransfers(false);
         Model.FilesRequested += device => _ = PickAndSend(device);
         Model.ChooseDeviceForFiles += (paths, devices) => _ = ChooseAndSend(paths, devices);
@@ -127,6 +129,10 @@ public partial class App : Application, ITrayHost
         _pairingTimer.Interval = TimeSpan.FromMinutes(1);
         _pairingTimer.Tick += (_, _) => Model.Pairing.KeepAllowing();
         _pairingTimer.Start();
+        _activityTimer = queue.CreateTimer();
+        _activityTimer.Interval = TimeSpan.FromSeconds(2);
+        _activityTimer.Tick += (_, _) => Model.ReportActivity(ActivityWatch.IdleSeconds(), ActivityWatch.Locked);
+        _activityTimer.Start();
 
         var send = SendCommand.Paths(commandLine.Skip(1));
         if ((!commandLine.Contains("--background") && send is null) || !settings.SetupDone) _window.ShowAnimated();
@@ -194,8 +200,19 @@ public partial class App : Application, ITrayHost
     private void NotificationAction(IDictionary<string, string> arguments, IDictionary<string, string> input)
     {
         arguments.TryGetValue("path", out var path);
+        arguments.TryGetValue("device", out var device);
+        arguments.TryGetValue("id", out var id);
+        arguments.TryGetValue("token", out var token);
+        input.TryGetValue("reply", out var reply);
         switch (arguments.TryGetValue("action", out var action) ? action : "")
         {
+            case "phoneAction" or "phoneDismiss" or "copyCode" when device is not null && id is not null:
+                Model.Notifications.FromBanner(device, id, action, token, reply);
+                break;
+            case "openNotifications":
+                _window?.ShowAnimated();
+                _window?.Navigate(MainWindow.NotificationsPage);
+                break;
             case "open" when path is not null:
                 new ExplorerFiles().Open(path);
                 break;
@@ -281,6 +298,7 @@ public partial class App : Application, ITrayHost
         if (_quitting) return;
         _quitting = true;
         _pairingTimer?.Stop();
+        _activityTimer?.Stop();
         Model.StopRinging();
         _notifications.Dispose();
         _tray?.Dispose();

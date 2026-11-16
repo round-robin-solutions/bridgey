@@ -8,6 +8,8 @@ internal static unsafe partial class Win32
 {
     public const uint WM_NULL = 0x0000;
     public const uint WM_COPYDATA = 0x004A;
+    public const uint WM_WTSSESSION_CHANGE = 0x02B1;
+    public const nint WTS_SESSION_LOCK = 7, WTS_SESSION_UNLOCK = 8;
     public const uint WM_CONTEXTMENU = 0x007B;
     public const uint WM_LBUTTONUP = 0x0202;
     public const uint WM_RBUTTONUP = 0x0205;
@@ -147,6 +149,14 @@ internal static unsafe partial class Win32
     public static partial int MessageBox(nint hwnd, char* text, char* caption, uint type);
 
     public const uint SND_ASYNC = 0x1, SND_NODEFAULT = 0x2, SND_LOOP = 0x8, SND_ALIAS = 0x10000, SND_FILENAME = 0x20000;
+
+    [LibraryImport("wtsapi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool WTSRegisterSessionNotification(nint hwnd, uint flags);
+
+    [LibraryImport("wtsapi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool WTSUnRegisterSessionNotification(nint hwnd);
 
     [LibraryImport("winmm.dll", EntryPoint = "PlaySoundW")]
     [return: MarshalAs(UnmanagedType.Bool)]
