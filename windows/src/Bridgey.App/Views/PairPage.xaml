@@ -12,7 +12,7 @@
 
             <!-- Choose a device nearby, or type an address. -->
             <StackPanel x:Name="ChoosePanel" Spacing="16" Visibility="{x:Bind Pairing.IsChoosing, Mode=OneWay}">
-                <TextBlock Text="Open Bridgey on your phone or Mac and keep it on the same network. Other devices can pair with this PC while this screen is open."
+                <TextBlock Text="Open Bridgey on your phone or Mac on the same network, then choose it below. While this screen is open, it can pair from its side too."
                            Style="{StaticResource BrandSecondary}" />
 
                 <ItemsRepeater ItemsSource="{x:Bind Pairing.Nearby}" AutomationProperties.AutomationId="Nearby">

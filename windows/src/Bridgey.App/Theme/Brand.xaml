@@ -17,6 +17,8 @@
             <Color x:Key="SystemAccentColorDark3">#00465A</Color>
 
             <SolidColorBrush x:Key="BrandWindowBrush" Color="#F4F7FA" />
+            <!-- Over Mica: none in light, a midnight tint in dark. -->
+            <SolidColorBrush x:Key="BrandWindowTintBrush" Color="#F4F7FA" Opacity="0" />
             <SolidColorBrush x:Key="BrandSurfaceBrush" Color="#FFFFFF" Opacity="0.86" />
             <SolidColorBrush x:Key="BrandSurfaceAltBrush" Color="#EEF2F7" />
             <SolidColorBrush x:Key="BrandOutlineBrush" Color="#DDE3EB" />
@@ -46,7 +48,11 @@
             <Color x:Key="SystemAccentColorDark3">#006685</Color>
 
             <SolidColorBrush x:Key="BrandWindowBrush" Color="#050B18" />
-            <SolidColorBrush x:Key="BrandSurfaceBrush" Color="#0D1321" Opacity="0.82" />
+            <SolidColorBrush x:Key="BrandWindowTintBrush" Color="#050B18" Opacity="0.62" />
+            <SolidColorBrush x:Key="BrandSurfaceBrush" Color="#151C29" Opacity="0.94" />
+            <!-- The page area in the edition's midnight rather than Windows' neutral grey. -->
+            <SolidColorBrush x:Key="NavigationViewContentBackground" Color="#0D1321" Opacity="0.78" />
+            <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="#2A303F" />
             <SolidColorBrush x:Key="BrandSurfaceAltBrush" Color="#151C29" />
             <SolidColorBrush x:Key="BrandOutlineBrush" Color="#2A303F" />
             <SolidColorBrush x:Key="BrandOnBrush" Color="#F4F7FA" />

@@ -90,6 +90,11 @@ public sealed partial class AppTests : IDisposable
                     // The pairing from the light run is kept (DPAPI-protected) and reconnects.
                     Click(window, "NavHome");
                     WaitFor(() => Find(window, "HomeStatus").Name == $"Connected to {PeerName}", "the dark run reconnects to the peer");
+                    // Text still moves after the reconnect.
+                    var draft = Find(window, "Draft").AsTextBox();
+                    draft.Text = "Hello again after a restart";
+                    Click(window, "SendDraft");
+                    Assert.Equal("Hello again after a restart", PeerEvent("clipboard").GetProperty("text").GetString());
                 }
                 Click(window, "NavHome");
                 Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));

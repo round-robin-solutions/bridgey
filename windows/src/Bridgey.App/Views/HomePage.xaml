@@ -98,18 +98,17 @@
                     <Ellipse Margin="6" Fill="{ThemeResource BrandTintPurpleBrush}" />
                     <FontIcon Glyph="&#xE8EA;" FontSize="18" Foreground="{ThemeResource BrandTintPurpleInkBrush}" />
                 </Grid>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                    <TextBlock Text="Pair your phone or Mac" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource BrandOnBrush}" />
-                    <TextBlock Text="Open Bridgey on it, then pair from here." Style="{StaticResource BrandSecondary}" />
-                </StackPanel>
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource BrandBody}"
+                           Text="Open Bridgey on your phone or Mac, then pair it with this PC." />
                 <Button Grid.Column="2" Content="Pair a device" Style="{StaticResource AccentButtonStyle}" Click="OnPair"
                         VerticalAlignment="Center" AutomationProperties.AutomationId="HomePair" />
             </Grid>
         </Border>
 
-        <TextBlock Grid.Row="3" Text="Activity" Style="{StaticResource BrandSectionTitle}" Margin="0,8,0,0" />
+        <TextBlock Grid.Row="3" Text="Activity" Style="{StaticResource BrandSectionTitle}" Margin="0,8,0,0"
+                   Visibility="{x:Bind Model.HasDevices, Mode=OneWay}" />
 
-        <Grid Grid.Row="4">
+        <Grid Grid.Row="4" Visibility="{x:Bind Model.HasDevices, Mode=OneWay}">
             <ListView ItemsSource="{x:Bind Model.Activity}" SelectionMode="None" IsItemClickEnabled="False"
                       AutomationProperties.AutomationId="Activity" Padding="0">
                 <ListView.ItemContainerStyle>

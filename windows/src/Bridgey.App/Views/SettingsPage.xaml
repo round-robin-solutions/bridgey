@@ -45,7 +45,7 @@
                                 <TextBlock Text="Name" Style="{StaticResource BrandBody}" />
                                 <TextBlock Text="What your other devices call this PC." Style="{StaticResource BrandSecondary}" />
                             </StackPanel>
-                            <TextBox x:Name="NameBox" Grid.Column="1" Text="{x:Bind Settings.DeviceName, Mode=OneWay}" LostFocus="OnNameCommitted"
+                            <TextBox x:Name="NameBox" Grid.Column="1" VerticalAlignment="Center" Text="{x:Bind Settings.DeviceName, Mode=OneWay}" LostFocus="OnNameCommitted"
                                      KeyDown="OnNameKeyDown" AutomationProperties.AutomationId="DeviceName" />
                         </Grid>
                     </Border>
@@ -86,8 +86,8 @@
                                             <TextBlock Text="{x:Bind Name, Mode=OneWay}" Style="{StaticResource BrandBody}" />
                                             <TextBlock Text="{x:Bind Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
                                         </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" OnContent="Clipboard" OffContent="Clipboard" MinWidth="0"
-                                                      IsOn="{x:Bind ClipboardAllowed, Mode=TwoWay}" />
+                                        <ToggleSwitch Grid.Column="2" OnContent="Clipboard on" OffContent="Clipboard off" VerticalAlignment="Center"
+                                                      IsOn="{x:Bind ClipboardAllowed, Mode=TwoWay}" AutomationProperties.Name="Clipboard" />
                                         <Button Grid.Column="3" Content="Forget" Click="{x:Bind Forget}" VerticalAlignment="Center" />
                                     </Grid>
                                 </Border>
@@ -99,26 +99,47 @@
                 <!-- Clipboard -->
                 <StackPanel x:Name="ClipboardSection" Spacing="8" Tag="clipboard">
                     <Border Style="{StaticResource Row}">
-                        <ToggleSwitch Header="Clipboard" IsOn="{x:Bind Settings.Clipboard, Mode=TwoWay}" OnContent="On for paired devices" OffContent="Off"
-                                      AutomationProperties.AutomationId="ClipboardOn" />
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Clipboard" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Send and receive text with paired devices. Each device can be turned off in Devices." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Clipboard, Mode=TwoWay}" AutomationProperties.Name="Clipboard" AutomationProperties.AutomationId="ClipboardOn" />
+                        </Grid>
                     </Border>
                     <Border Style="{StaticResource Row}">
-                        <StackPanel Spacing="4">
-                            <ToggleSwitch Header="Automatic clipboard" IsOn="{x:Bind Settings.AutomaticClipboard, Mode=TwoWay}"
-                                          AutomationProperties.AutomationId="AutomaticClipboard" />
-                            <TextBlock Text="Sends what you copy on this PC to connected devices. Text that password managers mark as private is never sent."
-                                       Style="{StaticResource BrandSecondary}" />
-                        </StackPanel>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Automatic clipboard" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Sends what you copy here to connected devices. Text a password manager marks as private is never sent." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.AutomaticClipboard, Mode=TwoWay}" AutomationProperties.Name="Automatic clipboard" AutomationProperties.AutomationId="AutomaticClipboard" />
+                        </Grid>
                     </Border>
                 </StackPanel>
 
                 <!-- Privacy -->
                 <StackPanel x:Name="PrivacySection" Spacing="8" Tag="privacy">
                     <Border Style="{StaticResource Row}">
-                        <StackPanel Spacing="4">
-                            <ToggleSwitch Header="Show previews in activity" IsOn="{x:Bind Settings.ShowPreviews, Mode=TwoWay}" />
-                            <TextBlock Text="Activity stays on this PC and is cleared when Bridgey quits." Style="{StaticResource BrandSecondary}" />
-                        </StackPanel>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Show previews in activity" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Activity stays on this PC and is cleared when Bridgey quits." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.ShowPreviews, Mode=TwoWay}" AutomationProperties.Name="Show previews in activity" />
+                        </Grid>
                     </Border>
                 </StackPanel>
 
@@ -130,9 +151,11 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="Appearance" Style="{StaticResource BrandBody}" VerticalAlignment="Center" />
-                            <ComboBox Grid.Column="1" SelectedIndex="{x:Bind Settings.ThemeIndex, Mode=TwoWay}" MinWidth="160"
-                                      AutomationProperties.AutomationId="Appearance">
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Appearance" Style="{StaticResource BrandBody}" />
+                            </StackPanel>
+                            <ComboBox Grid.Column="1" SelectedIndex="{x:Bind Settings.ThemeIndex, Mode=TwoWay}" MinWidth="170" VerticalAlignment="Center"
+                                      AutomationProperties.Name="Appearance" AutomationProperties.AutomationId="Appearance">
                                 <ComboBoxItem Content="Same as Windows" />
                                 <ComboBoxItem Content="Light" />
                                 <ComboBoxItem Content="Dark" />
@@ -140,19 +163,42 @@
                         </Grid>
                     </Border>
                     <Border Style="{StaticResource Row}">
-                        <StackPanel Spacing="4">
-                            <ToggleSwitch Header="Reduce motion" IsOn="{x:Bind Settings.ReduceMotion, Mode=TwoWay}" />
-                            <TextBlock Text="Windows' own Animation effects setting always applies." Style="{StaticResource BrandSecondary}" />
-                        </StackPanel>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Reduce motion" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Windows' own Animation effects setting always applies." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.ReduceMotion, Mode=TwoWay}" AutomationProperties.Name="Reduce motion" />
+                        </Grid>
                     </Border>
                     <Border Style="{StaticResource Row}">
-                        <ToggleSwitch Header="Start Bridgey when you sign in" IsOn="{x:Bind Settings.StartAtSignIn, Mode=TwoWay}" />
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Start Bridgey when you sign in" Style="{StaticResource BrandBody}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.StartAtSignIn, Mode=TwoWay}" AutomationProperties.Name="Start Bridgey when you sign in" />
+                        </Grid>
                     </Border>
                     <Border Style="{StaticResource Row}">
-                        <StackPanel Spacing="4">
-                            <ToggleSwitch Header="Keep running in the notification area" IsOn="{x:Bind Settings.KeepRunningInTray, Mode=TwoWay}" />
-                            <TextBlock Text="Closing the window keeps devices connected. Quit from the Bridgey icon's menu." Style="{StaticResource BrandSecondary}" />
-                        </StackPanel>
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Keep running in the notification area" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Closing the window keeps devices connected. Quit from the Bridgey icon's menu." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.KeepRunningInTray, Mode=TwoWay}" AutomationProperties.Name="Keep running in the notification area" />
+                        </Grid>
                     </Border>
                 </StackPanel>
 

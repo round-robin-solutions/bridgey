@@ -37,8 +37,9 @@ public sealed partial class MainWindow : Window
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         var scale = Win32.GetDpiForWindow(hwnd) / 96.0;
         if (scale <= 0) scale = 1;
-        AppWindow.Resize(new SizeInt32((int)(1040 * scale), (int)(720 * scale)));
+        // 1040 x 720, or less on a small screen.
         var area = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        AppWindow.Resize(new SizeInt32(Math.Min((int)(1040 * scale), area.Width - (int)(48 * scale)), Math.Min((int)(720 * scale), area.Height - (int)(48 * scale))));
         AppWindow.Move(new PointInt32(area.X + Math.Max(0, (area.Width - AppWindow.Size.Width) / 2), area.Y + Math.Max(0, (area.Height - AppWindow.Size.Height) / 2)));
         AppWindow.Closing += OnClosing;
 

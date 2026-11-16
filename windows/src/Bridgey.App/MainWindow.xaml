@@ -7,6 +7,7 @@
     <Grid x:Name="Root" AutomationProperties.AutomationId="MainRoot">
         <!-- Shown only where Mica is not available. -->
         <Border x:Name="BackdropFallback" Background="{ThemeResource BrandWindowBrush}" Visibility="Collapsed" />
+        <Border Background="{ThemeResource BrandWindowTintBrush}" />
         <Grid x:Name="Chrome">
             <Grid.RowDefinitions>
                 <RowDefinition Height="48" />
