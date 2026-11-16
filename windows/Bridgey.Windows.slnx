@@ -1,0 +1,14 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="ARM64" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/Bridgey.App/Bridgey.App.csproj" />
+    <Project Path="src/Bridgey.Core/Bridgey.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Bridgey.Core.Tests/Bridgey.Core.Tests.csproj" />
+    <Project Path="tests/Bridgey.UiTests/Bridgey.UiTests.csproj" />
+  </Folder>
+</Solution>

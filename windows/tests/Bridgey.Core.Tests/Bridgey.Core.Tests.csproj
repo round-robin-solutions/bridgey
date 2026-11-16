@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs on Windows (bridgey_core.dll) and Linux (libbridgey_core.so): the interop, view models, settings and
+       version labels. scripts/rr/build-windows.ps1 passes BridgeyNativeDir. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Bridgey.Tests</RootNamespace>
+    <BridgeyNativeDir Condition="'$(BridgeyNativeDir)' == ''">$(RepoRoot)/rust/target/debug</BridgeyNativeDir>
+    <BridgeyNativeFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">bridgey_core.dll</BridgeyNativeFile>
+    <BridgeyNativeFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">libbridgey_core.dylib</BridgeyNativeFile>
+    <BridgeyNativeFile Condition="'$(BridgeyNativeFile)' == ''">libbridgey_core.so</BridgeyNativeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Bridgey.Core/Bridgey.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(BridgeyNativeDir)/$(BridgeyNativeFile)" Link="$(BridgeyNativeFile)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+</Project>

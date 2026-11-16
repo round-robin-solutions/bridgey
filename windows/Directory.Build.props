@@ -1,0 +1,22 @@
+<Project>
+  <!-- Shared by every project in windows/. Edition values come from rr-edition.properties at the repository root. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Company>Round Robin</Company>
+    <Product>Bridgey by Round Robin</Product>
+    <Copyright>Bridgey by Round Robin, built on Bridgey by Semyon Mikhailov (MIT)</Copyright>
+    <RepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepoRoot>
+    <EditionFile>$(RepoRoot)/rr-edition.properties</EditionFile>
+    <EditionText>$([System.IO.File]::ReadAllText('$(EditionFile)'))</EditionText>
+    <EditionNextVersion>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^EDITION_NEXT_VERSION=([^\r\n]*).*\z', '$1'))</EditionNextVersion>
+    <!-- Release builds pass BRIDGEY_VERSION_NAME and BRIDGEY_BUILD_NUMBER (scripts/rr); local builds are dev builds. -->
+    <BridgeyVersionName Condition="'$(BridgeyVersionName)' == ''">$(BRIDGEY_VERSION_NAME)</BridgeyVersionName>
+    <BridgeyBuildNumber Condition="'$(BridgeyBuildNumber)' == ''">$(BRIDGEY_BUILD_NUMBER)</BridgeyBuildNumber>
+    <!-- YYDDDHHMM in UTC, as scripts/rr/rrrelease.py build_number. -->
+    <BridgeyBuildNumber Condition="'$(BridgeyBuildNumber)' == ''">$([System.DateTime]::UtcNow.ToString('yy'))$([System.DateTime]::UtcNow.DayOfYear.ToString('000'))$([System.DateTime]::UtcNow.ToString('HHmm'))</BridgeyBuildNumber>
+  </PropertyGroup>
+</Project>

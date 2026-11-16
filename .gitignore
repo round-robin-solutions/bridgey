@@ -28,3 +28,10 @@ android/.kotlin/
 
 # Connect anywhere Rust workspace
 rust/target/
+
+# Windows app (windows/): build output and test artefacts
+windows/out/
+windows/**/bin/
+windows/**/obj/
+windows/.vs/
+*.user
