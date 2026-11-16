@@ -16,7 +16,7 @@ Extend the existing `rust/` workspace rather than add another transport stack.
 | Layer | Ownership |
 | --- | --- |
 | Wire formats, decoding limits, version negotiation and golden fixtures | Shared Rust protocol modules |
-| Encrypted sessions, identity pins, LAN/private-network/direct/relay routing | Existing Rust connection core |
+| Encrypted sessions, identity pins, LAN/private-network/direct/relay routing | Existing Rust connection core and the session client (`rust/client`, [session-client.md](session-client.md)) |
 | Screen/control session transitions, geometry versions, replay/rate limits and bounded queues | Shared Rust interaction module, to be implemented |
 | Permissions, secure storage, capture, hardware codecs, input injection and background lifecycle | Native adapter on each OS |
 | Settings, accessibility, device pickers, notification actions and app lifecycle | Native UI using the platform's conventions |

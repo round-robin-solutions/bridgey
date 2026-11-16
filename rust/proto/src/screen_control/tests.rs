@@ -528,8 +528,7 @@ fn monotonic_clock_reversal_stops_and_never_refills_an_extra_budget() {
 
 #[test]
 fn counters_fail_closed_at_json_safe_limits_without_wrapping() {
-    let mut host = HostSession::default();
-    host.last_session = MAX_SEQUENCE;
+    let mut host = HostSession { last_session: MAX_SEQUENCE, ..Default::default() };
     assert_eq!(host.begin(authority(), geometry(), 0), Err(Rejection::Exhausted));
     let (mut host, local, info) = ready();
     host.active.as_mut().unwrap().sequence = MAX_SEQUENCE - 1;

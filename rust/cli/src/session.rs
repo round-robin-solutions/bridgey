@@ -793,6 +793,74 @@ mod tailnet_pairing_tests {
         assert!(dial.1.is_none() && listen.1.is_none());
     }
 
+    /// Runs the shared session client's event pump on a thread: confirms its code, returns (code, connected peer).
+    fn shared_pump(client: Arc<bridgey_core::Client>) -> std::thread::JoinHandle<(Option<String>, Option<String>)> {
+        std::thread::spawn(move || {
+            let mut code = None;
+            loop {
+                match client.next_event(Duration::from_secs(20)) {
+                    bridgey_core::Next::Event(bridgey_core::Event::PairingCode { pairing, code: c, .. }) => {
+                        code = Some(c);
+                        let _ = client.confirm_pairing(pairing, true);
+                    }
+                    bridgey_core::Next::Event(bridgey_core::Event::Connected { device_id, .. }) => return (code, Some(device_id)),
+                    bridgey_core::Next::Event(_) => {}
+                    _ => return (code, None),
+                }
+            }
+        })
+    }
+
+    async fn shared_client() -> Arc<bridgey_core::Client> {
+        tokio::task::spawn_blocking(|| {
+            let mut config = bridgey_core::Config::new("Shared client", "linux");
+            config.port = 0;
+            config.discovery = false;
+            Arc::new(bridgey_core::Client::start(config, Arc::new(bridgey_core::MemoryStorage::default())).unwrap())
+        })
+        .await
+        .unwrap()
+    }
+
+    /// The CLI's session, which has paired with both apps since 0.10, and the shared session client (rust/client)
+    /// pair over plain TCP: the client answers the CLI's dial with the same code, and both authenticate each other.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_cli_pairs_with_the_shared_session_client() {
+        let client = shared_client().await;
+        client.allow_pairing(Duration::from_secs(60));
+        let pump = shared_pump(client.clone());
+        let a = local("cli");
+        let a_id = a.device_id.clone();
+        let dial = side(a, spec(1, Mode::Dial, TcpStream::connect(("127.0.0.1", client.port())).await.unwrap()), true).await;
+        let (code, connected) = tokio::task::spawn_blocking(move || pump.join().unwrap()).await.unwrap();
+        assert!(dial.0.is_some() && dial.0 == code, "the same six-digit code on both ends");
+        assert_eq!(dial.1.expect("the CLI authenticated the client").device_id, client.device_id());
+        assert_eq!(connected.as_deref(), Some(a_id.as_str()));
+        tokio::task::spawn_blocking(move || client.stop()).await.unwrap();
+    }
+
+    /// ...and the other way round: the client dials, the CLI listens (`bridgey pair --allow`).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_shared_session_client_pairs_with_the_cli() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let b = local("cli listening");
+        let b_id = b.device_id.clone();
+        let accept = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            side(b, spec(2, Mode::Listen, stream), true).await
+        });
+        let client = shared_client().await;
+        let pump = shared_pump(client.clone());
+        client.pair(None, Some("127.0.0.1"), port).unwrap();
+        let listen = accept.await.unwrap();
+        let (code, connected) = tokio::task::spawn_blocking(move || pump.join().unwrap()).await.unwrap();
+        assert!(listen.0.is_some() && listen.0 == code);
+        assert_eq!(listen.1.expect("the CLI authenticated the client").device_id, client.device_id());
+        assert_eq!(connected.as_deref(), Some(b_id.as_str()));
+        tokio::task::spawn_blocking(move || client.stop()).await.unwrap();
+    }
+
     /// The transcript on plain TCP is the apps' v1 form.
     #[test]
     fn v1_transcript() {

@@ -200,11 +200,11 @@ the tables at the end of this page are generated from it with
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `pairing.offer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey?, targetDeviceId?, commitment?, protocolVersion? | android, macos, cli |
-| `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, protocolVersion? | android, macos, cli |
-| `pairing.reveal` | edition-extension | either | none | no | none | frame | sessionId, publicKey | android, macos, cli |
-| `pairing.confirm` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, identityKey, proof, signature | android, macos, cli |
-| `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId, reason?, tag? | android, macos, cli |
+| `pairing.offer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey?, targetDeviceId?, commitment?, protocolVersion? | android, macos, cli, client |
+| `pairing.answer` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, deviceName, publicKey, protocolVersion? | android, macos, cli, client |
+| `pairing.reveal` | edition-extension | either | none | no | none | frame | sessionId, publicKey | android, macos, cli, client |
+| `pairing.confirm` | upstream-v1 | either | none | no | none | frame | sessionId, deviceId, identityKey, proof, signature | android, macos, cli, client |
+| `pairing.cancel` | upstream-v1 | either | none | no | none | frame | sessionId, reason?, tag? | android, macos, cli, client |
 
 `pairing.offer`
 
@@ -226,8 +226,8 @@ Ends only the session it arrives on. reason (edition extension) says why, for th
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `heartbeat.ping` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos, cli |
-| `heartbeat.pong` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos, cli |
+| `heartbeat.ping` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos, cli, client |
+| `heartbeat.pong` | upstream-v1 | either | none | no | none | frame | sessionId, messageId | android, macos, cli, client |
 
 `heartbeat.ping`
 
@@ -241,7 +241,7 @@ messageId echoes the ping's. Connection health (both apps) times the round trip 
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `features.update` | upstream-v1 | either | none | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `features.update` | upstream-v1 | either | none | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
 
 `features.update`
 
@@ -254,10 +254,10 @@ Sent after pairing and whenever local policy changes. A feature is available onl
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `clipboard.update` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `clipboard.rich` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `clipboard.ack` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos, cli |
-| `clipboard.rejected` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos, cli |
+| `clipboard.update` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `clipboard.rich` | upstream-v1 | either | clipboard | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `clipboard.ack` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos, cli, client |
+| `clipboard.rejected` | upstream-v1 | either | clipboard | no | none | frame | sessionId, messageId | android, macos, cli, client |
 | `clipboard.offer` | edition-draft | either | clipboard_files_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `clipboard.fetch` | edition-draft | either | clipboard_files_draft1 | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
 | `clipboard.error` | edition-draft | either | clipboard_files_draft1 | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
@@ -774,8 +774,8 @@ Answered by `find.stopped`.
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `ping.request` | upstream-v1 | either | ping | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `ping.ack` | upstream-v1 | either | ping | no | none | frame | sessionId, messageId | android, macos, cli |
+| `ping.request` | upstream-v1 | either | ping | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `ping.ack` | upstream-v1 | either | ping | no | none | frame | sessionId, messageId | android, macos, cli, client |
 
 `ping.request`
 
