@@ -138,6 +138,13 @@ try {
         if (-not $SkipUiTests -and $Architectures -contains 'x64') {
             Write-Step 'UI tests (x64): screenshots and pairing with the scripted peer'
             $env:BRIDGEY_APP_EXE = Join-Path $Publish 'x64/Bridgey.exe'
+            if ($env:RR_CI_HOSTED -eq '1') {
+                # A throwaway CI runner: allow both programs through Windows Firewall up front, so no security alert
+                # covers the window in screenshots. Never done on anyone's own PC.
+                foreach ($program in @($env:BRIDGEY_APP_EXE, $peer)) {
+                    & netsh advfirewall firewall add rule name="Bridgey CI $(Split-Path -Leaf $program)" dir=in action=allow program="$program" enable=yes | Out-Null
+                }
+            }
             $env:BRIDGEY_PEER_EXE = $peer
             $env:BRIDGEY_SCREENSHOTS = $Shots
             Invoke-Logged -Log 'ui-tests.log' -Exe 'dotnet' -Arguments @('test', '--project', 'tests/Bridgey.UiTests', '--report-trx', '--results-directory', $Results)

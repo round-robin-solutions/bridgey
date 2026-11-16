@@ -50,11 +50,11 @@ public sealed partial class AppTests : IDisposable
         {
             // First run.
             var window = Launch("Light", setupDone: false);
-            Find(window, "Setup");
+            Find(window, "SetupContinue");
             Shot(window, "setup-light");
             Quit();
             window = Launch("Dark", setupDone: false);
-            Find(window, "Setup");
+            Find(window, "SetupContinue");
             Shot(window, "setup-dark");
             Quit();
 

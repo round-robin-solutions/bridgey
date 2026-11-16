@@ -103,11 +103,11 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
 /// <summary>A device on the network that this PC could pair with.</summary>
 public sealed partial class NearbyItem(MainViewModel owner) : ObservableObject
 {
-    public string? DeviceId { get; init; }
-    public string Name { get; init; } = "";
-    public string? Platform { get; init; }
-    public string Host { get; init; } = "";
-    public ushort Port { get; init; }
+    public string? DeviceId { get; set; }
+    public string Name { get; set; } = "";
+    public string? Platform { get; set; }
+    public string Host { get; set; } = "";
+    public ushort Port { get; set; }
 
     public string Glyph => Platform switch
     {
@@ -141,11 +141,11 @@ public sealed partial class ActivityItem : ObservableObject
 {
     private string _status = "";
 
-    public required ActivityDirection Direction { get; init; }
-    public required string Title { get; init; }
-    public string Preview { get; init; } = "";
-    public DateTimeOffset At { get; init; } = DateTimeOffset.Now;
-    public ulong Request { get; init; }
+    public required ActivityDirection Direction { get; set; }
+    public required string Title { get; set; }
+    public string Preview { get; set; } = "";
+    public DateTimeOffset At { get; set; } = DateTimeOffset.Now;
+    public ulong Request { get; set; }
 
     public string Glyph => Direction == ActivityDirection.Received ? "\uE896" : "\uE898";
     public string Time => At.ToLocalTime().ToString("HH:mm");
@@ -172,4 +172,12 @@ public sealed partial class ActivityItem : ObservableObject
 }
 
 /// <summary>A section in Settings, in the edition's order (Mac and Android use the same).</summary>
-public sealed partial record SettingsSection(string Key, string Title, string Glyph, bool Available);
+public sealed partial class SettingsSection(string key, string title, string glyph, bool available)
+{
+    public string Key { get; } = key;
+    public string Title { get; } = title;
+    public string Glyph { get; } = glyph;
+    public bool Available { get; } = available;
+
+    public override string ToString() => Title;
+}
