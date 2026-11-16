@@ -1,5 +1,6 @@
 import Foundation
 
+#if DEBUG
 /// Sample devices and activity for screenshots (BRIDGEY_DEMO, debug builds only). No network, nothing saved.
 final class DemoClient: CoreClient {
     static let factory: ClientFactory = { _, onEvent in DemoClient(onEvent: onEvent) }
@@ -90,10 +91,9 @@ final class DemoClient: CoreClient {
 }
 
 extension AppModel {
-    /// Screenshot data. Debug builds only.
+    /// Screenshot data.
     func loadDemo(devices: [DeviceItem]? = nil, activity: [ActivityItem] = [], transfers: [TransferItem] = [], links: [LinkCard] = []) {
-        #if DEBUG
         replaceForDemo(devices: devices, activity: activity, transfers: transfers, links: links)
-        #endif
     }
 }
+#endif

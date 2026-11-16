@@ -26,13 +26,11 @@ struct BridgeyApp: App {
             settings.copyReceivedText = false
         }
         if let appearance = options.appearance { settings.appearance = appearance }
-        let factory: ClientFactory
-        if options.demo != nil {
-            factory = DemoClient.factory
-        } else {
-            let store: SecretStore = options.ephemeral ? MemorySecretStore() : KeychainStore()
-            factory = { core, onEvent in try BridgeyCore.start(core, store: store, onEvent: onEvent) }
-        }
+        let store: SecretStore = options.ephemeral ? MemorySecretStore() : KeychainStore()
+        var factory: ClientFactory = { core, onEvent in try BridgeyCore.start(core, store: store, onEvent: onEvent) }
+        #if DEBUG
+        if options.demo != nil { factory = DemoClient.factory }
+        #endif
         _settings = StateObject(wrappedValue: settings)
         _model = StateObject(wrappedValue: AppModel(settings: settings, options: options, makeClient: factory))
     }
@@ -74,7 +72,9 @@ struct RootView: View {
         }
         .preferredColorScheme(settings.appearance.scheme)
         .onAppear {
+            #if DEBUG
             if let demo = model.options.demo { DemoClient.seed(model, screen: demo) }
+            #endif
         }
     }
 }

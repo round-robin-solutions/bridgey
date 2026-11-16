@@ -1,0 +1,15 @@
+{
+  "_comment": "The Bridgey ios lane for RR CI, as the coordinator task the CI owner thread adds. It needs a Mac with Xcode 27 and its iOS simulator runtime (CoreSimulator matching Xcode), Rust with rustup, and python3. On GitHub's hosted macOS runners it runs through .github/workflows/rr-ci-hosted.yml (workflow_dispatch, no secrets). scripts/rr/build-ios.sh makes and deletes its own simulators and runs a scripted peer on free local ports. See ios/README.md.",
+  "ios": {
+    "command": ["sh", "scripts/rr/build-ios.sh"],
+    "runs_on": "macos-xcode-27",
+    "inputs": ["ios/**", "rust/**", "protocol/**", "scripts/rr/build-ios.sh", "scripts/rr/common.sh", "scripts/rr/rust-env.sh", "scripts/rr/rust-toolchain.sh", "rr-edition.properties"],
+    "pass_env": [],
+    "timeout_minutes": 60,
+    "artifacts": [
+      "ios/out/screenshots/*.png",
+      "ios/out/test-results/*.xcresult.zip",
+      "ios/out/logs/*.log"
+    ]
+  }
+}
