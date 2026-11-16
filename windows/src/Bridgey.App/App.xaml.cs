@@ -9,7 +9,7 @@ namespace Bridgey;
 /// Starts the session client, the notification area icon and the window. Bridgey keeps running in the notification
 /// area when the window closes (Settings > General); Quit is in the icon's menu.
 /// </summary>
-public partial class App : Application, TrayIcon.ITrayHost
+public partial class App : Application, ITrayHost
 {
     public static MainViewModel Model { get; private set; } = null!;
     public static App Instance => (App)Current;
@@ -109,7 +109,7 @@ public partial class App : Application, TrayIcon.ITrayHost
         if (commandLine.Contains("--tray-menu")) queue.TryEnqueue(() => _tray.ShowMenu());
     }
 
-    // TrayIcon.ITrayHost
+    // ITrayHost
 
     public IReadOnlyList<(string Id, string Name)> ClipboardTargets() =>
         Model.Devices.Where(d => d.ClipboardReady).Select(d => (d.Id, d.Name)).ToList();

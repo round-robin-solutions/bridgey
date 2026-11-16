@@ -22,6 +22,8 @@ public static class Program
             for (var i = 0; i < 20 && command.Length > 0 && !TrayIcon.Forward(command); i++) Thread.Sleep(250);
             return 0;
         }
+        // Nothing to quit or to show a menu for: never start Bridgey just to do that.
+        if (args.Contains("--quit")) return 0;
         Application.Start(_ =>
         {
             SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread()));

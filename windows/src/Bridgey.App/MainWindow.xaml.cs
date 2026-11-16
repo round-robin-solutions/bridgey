@@ -58,8 +58,8 @@ public sealed partial class MainWindow : Window
         var dark = Root.ActualTheme == ElementTheme.Dark;
         AppWindow.TitleBar.ButtonForegroundColor = dark ? Colors.White : Colors.Black;
         AppWindow.TitleBar.ButtonHoverForegroundColor = dark ? Colors.White : Colors.Black;
-        AppWindow.TitleBar.ButtonHoverBackgroundColor = dark ? Windows.UI.Color.FromArgb(0x20, 0xFF, 0xFF, 0xFF) : Windows.UI.Color.FromArgb(0x14, 0x00, 0x00, 0x00);
-        AppWindow.TitleBar.ButtonInactiveForegroundColor = dark ? Windows.UI.Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF) : Windows.UI.Color.FromArgb(0x80, 0x00, 0x00, 0x00);
+        AppWindow.TitleBar.ButtonHoverBackgroundColor = dark ? ColorHelper.FromArgb(0x20, 0xFF, 0xFF, 0xFF) : ColorHelper.FromArgb(0x14, 0x00, 0x00, 0x00);
+        AppWindow.TitleBar.ButtonInactiveForegroundColor = dark ? ColorHelper.FromArgb(0x80, 0xFF, 0xFF, 0xFF) : ColorHelper.FromArgb(0x80, 0x00, 0x00, 0x00);
     }
 
     public void ShowAnimated()

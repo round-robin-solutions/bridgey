@@ -18,7 +18,11 @@ public sealed partial class SettingsPage : UserControl
     public SettingsPage()
     {
         InitializeComponent();
-        SectionList.SelectedIndex = 0;
+        // Compiled bindings fill the list when the page loads.
+        Loaded += (_, _) =>
+        {
+            if (SectionList.SelectedIndex < 0) SectionList.SelectedIndex = 0;
+        };
     }
 
     /// <summary>Opens one section (used by the notification area menu and tests).</summary>

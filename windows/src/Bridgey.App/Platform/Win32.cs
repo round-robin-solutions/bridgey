@@ -133,8 +133,10 @@ internal static unsafe partial class Win32
     [LibraryImport("user32.dll")]
     public static partial uint GetDpiForWindow(nint hwnd);
 
+    public const int SM_CXSMICON = 49;
+
     [LibraryImport("user32.dll")]
-    public static partial int GetSystemMetricsForDpi(int index, uint dpi);
+    public static partial int GetSystemMetrics(int index);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

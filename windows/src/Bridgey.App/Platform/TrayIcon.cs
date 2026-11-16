@@ -4,6 +4,19 @@ using static Bridgey.Platform.Win32;
 
 namespace Bridgey.Platform;
 
+/// <summary>What the notification area icon asks of the app.</summary>
+public interface ITrayHost
+{
+    IReadOnlyList<(string Id, string Name)> ClipboardTargets();
+    void Open();
+    void Pair();
+    void Settings();
+    void AllowPairing();
+    void SendClipboard(string deviceId);
+    void Quit();
+    void Command(string command);
+}
+
 /// <summary>
 /// Bridgey's icon in the notification area and its menu, on a hidden window of the UI thread. The same window takes
 /// commands from a second launch (WM_COPYDATA): <c>--show</c>, <c>--tray-menu</c>, <c>--pair</c>, <c>--quit</c>.
@@ -29,18 +42,6 @@ internal sealed unsafe class TrayIcon : IDisposable
     private string _tip = Edition.DisplayName;
     private bool _added;
 
-    public interface ITrayHost
-    {
-        IReadOnlyList<(string Id, string Name)> ClipboardTargets();
-        void Open();
-        void Pair();
-        void Settings();
-        void AllowPairing();
-        void SendClipboard(string deviceId);
-        void Quit();
-        void Command(string command);
-    }
-
     public TrayIcon(ITrayHost host)
     {
         _host = host;
@@ -59,7 +60,9 @@ internal sealed unsafe class TrayIcon : IDisposable
                 _hwnd = CreateWindowEx(WS_EX_TOOLWINDOW, cls, title, WS_POPUP, 0, 0, 0, 0, 0, 0, instance, 0);
         }
         fixed (char* name = "TaskbarCreated") _taskbarCreated = RegisterWindowMessage(name);
-        fixed (char* path = Paths.Asset("Bridgey.ico")) _icon = LoadImage(0, path, IMAGE_ICON, 0, 0, LR_LOADFROMFILE);
+        // The small icon size for this display's scale (16 px at 100%).
+        var size = GetSystemMetrics(SM_CXSMICON);
+        fixed (char* path = Paths.Asset("Bridgey.ico")) _icon = LoadImage(0, path, IMAGE_ICON, size, size, LR_LOADFROMFILE);
         _current = this;
         Add();
     }

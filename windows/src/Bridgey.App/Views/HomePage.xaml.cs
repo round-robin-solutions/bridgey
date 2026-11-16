@@ -15,7 +15,8 @@ public sealed partial class HomePage : UserControl
         InitializeComponent();
         Motion.ShowHide(RequestBar);
         Motion.ShowHide(NoticeBar);
-        TargetBox.SelectedItem = Model.Target;
+        // Compiled bindings fill the list when the page loads; select the target then.
+        Loaded += (_, _) => TargetBox.SelectedItem = Model.Target;
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainViewModel.Target) && !ReferenceEquals(TargetBox.SelectedItem, Model.Target)) TargetBox.SelectedItem = Model.Target;
