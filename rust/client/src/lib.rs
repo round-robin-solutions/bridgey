@@ -20,6 +20,7 @@ pub mod quick;
 pub mod session;
 pub mod transfer;
 pub mod trust;
+pub mod update;
 #[cfg(test)]
 mod vectors;
 pub mod wire;

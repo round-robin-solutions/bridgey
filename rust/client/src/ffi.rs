@@ -945,6 +945,47 @@ pub unsafe extern "C" fn bridgey_set_media_state(handle: u64, state: *const c_ch
     })
 }
 
+/// Self-update: what a channel feed (`feed`, its JSON) offers this device, as JSON: `{"ok":true,"offer":{version,
+/// build, url, sha256, size, signature, notes, notesUrl}}` (offer null when nothing is newer than `current_build`), or
+/// `{"ok":false,"error":...}` for a feed not to trust. `arch` is x64 or arm64; downloads must start with
+/// `trusted_prefix`. Needs no client. Free the result with bridgey_string_free.
+///
+/// # Safety
+/// The strings are NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_update_check(feed: *const c_char, app_id: *const c_char, channel: *const c_char, arch: *const c_char, current_build: u64, trusted_prefix: *const c_char) -> *mut c_char {
+    std::panic::catch_unwind(|| {
+        let (Ok(Some(feed)), Ok(Some(app)), Ok(Some(channel)), Ok(Some(arch)), Ok(Some(prefix))) = (arg(feed), arg(app_id), arg(channel), arg(arch), arg(trusted_prefix)) else {
+            return give(serde_json::json!({"ok": false, "error": "invalid argument"}).to_string());
+        };
+        let reply = match crate::update::check(feed, app, channel, arch, current_build, prefix) {
+            Ok(offer) => serde_json::json!({"ok": true, "offer": offer.map(|o| o.to_json())}),
+            Err(e) => serde_json::json!({"ok": false, "error": e}),
+        };
+        give(reply.to_string())
+    })
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Self-update: checks a downloaded file's size, SHA-256 (hex) and Ed25519 signature by the release key (base64).
+/// Returns NULL when it checks out, else what is wrong (free it with bridgey_string_free).
+///
+/// # Safety
+/// The strings are NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_update_verify(path: *const c_char, sha256: *const c_char, size: u64, signature: *const c_char, public_key: *const c_char) -> *mut c_char {
+    std::panic::catch_unwind(|| {
+        let (Ok(Some(path)), Ok(Some(sha)), Ok(Some(sig)), Ok(Some(key))) = (arg(path), arg(sha256), arg(signature), arg(public_key)) else {
+            return give("invalid argument".into());
+        };
+        match crate::update::verify_file(std::path::Path::new(path), sha, size, sig, key) {
+            Ok(()) => std::ptr::null_mut(),
+            Err(e) => give(e.into()),
+        }
+    })
+    .unwrap_or_else(|_| give("internal error".into()))
+}
+
 /// Copies `len` bytes into the buffer a storage `load` callback was given.
 ///
 /// # Safety
