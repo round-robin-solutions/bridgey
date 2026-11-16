@@ -104,7 +104,7 @@ try {
     try {
         Write-Step 'C# unit tests'
         $hostArch = if ($native.ContainsKey('x64')) { 'x64' } else { $Architectures[0] }
-        Invoke-Logged -Log 'unit-tests.log' -Exe 'dotnet' -Arguments @('test', '--project', 'tests/Bridgey.Core.Tests', "-p:BridgeyNativeDir=$($native[$hostArch])", '--', '--report-trx', '--results-directory', $Results)
+        Invoke-Logged -Log 'unit-tests.log' -Exe 'dotnet' -Arguments @('test', '--project', 'tests/Bridgey.Core.Tests', "-p:BridgeyNativeDir=$($native[$hostArch])", '--report-trx', '--results-directory', $Results)
 
         $sums = [System.Collections.Generic.List[string]]::new()
         foreach ($arch in $Architectures) {
@@ -140,7 +140,7 @@ try {
             $env:BRIDGEY_APP_EXE = Join-Path $Publish 'x64/Bridgey.exe'
             $env:BRIDGEY_PEER_EXE = $peer
             $env:BRIDGEY_SCREENSHOTS = $Shots
-            Invoke-Logged -Log 'ui-tests.log' -Exe 'dotnet' -Arguments @('test', '--project', 'tests/Bridgey.UiTests', '--', '--report-trx', '--results-directory', $Results)
+            Invoke-Logged -Log 'ui-tests.log' -Exe 'dotnet' -Arguments @('test', '--project', 'tests/Bridgey.UiTests', '--report-trx', '--results-directory', $Results)
             Write-Host "Screenshots: $((Get-ChildItem $Shots -Filter *.png).Name -join ', ')"
         }
     }
