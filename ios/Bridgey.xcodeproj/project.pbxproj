@@ -1,0 +1,639 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		537A3EB16FD5CC86DEAFD81F /* BridgeyShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6C11C1D6E4474E1A2DF375F7 /* BridgeyShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6F23F6B4F87E18A5884C5809 /* BridgeyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00A915076ED11553C11D085D /* BridgeyCore.xcframework */; };
+		DC4A108697BB2FEC6B8B18D8 /* BridgeyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00A915076ED11553C11D085D /* BridgeyCore.xcframework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		4FCDE2120D9FB143A6887982 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8A3644E94EDE01F4ABE61CA2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C673B71425C12DFCE556C83D;
+			remoteInfo = Bridgey;
+		};
+		6DA4A26F8D52B1FF306191FF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8A3644E94EDE01F4ABE61CA2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 69A67669A6DA380D4A57F246;
+			remoteInfo = BridgeyShare;
+		};
+		E6A5BB0B9166D733CE54A0E6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8A3644E94EDE01F4ABE61CA2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C673B71425C12DFCE556C83D;
+			remoteInfo = Bridgey;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		1CD089FB50A1C683C9E14B23 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				537A3EB16FD5CC86DEAFD81F /* BridgeyShare.appex in Embed Foundation Extensions */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			name = "Embed Foundation Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		00A915076ED11553C11D085D /* BridgeyCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/BridgeyCore.xcframework; sourceTree = "<group>"; };
+		110046D8AD379A9FFEA597B9 /* Bridgey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bridgey.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		38A1867573F9813E2C788F8B /* BridgeyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		53ADA1EA7D3DD33F246C8DAD /* Share-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Share-Info.plist"; sourceTree = "<group>"; };
+		6C11C1D6E4474E1A2DF375F7 /* BridgeyShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BridgeyShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		7FAF1C87A14443A096357399 /* BridgeyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		887E53401EA812E326AB3CE4 /* BridgeyShare.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BridgeyShare.entitlements; sourceTree = "<group>"; };
+		984F23F90C7BBA65FA607C6E /* App-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "App-Info.plist"; sourceTree = "<group>"; };
+		AD4F01D05080B046949DDF50 /* Bridgey.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Bridgey.xcconfig; sourceTree = "<group>"; };
+		D6FC7989B79D6A37A57AD521 /* Bridgey.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Bridgey.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		306446022EACCD594681DEE4 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		448BD55B6B784512A40C7D9B /* BridgeyTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BridgeyTests;
+			sourceTree = "<group>";
+		};
+		55B87983A9A269110E36E858 /* Bridgey */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Bridgey;
+			sourceTree = "<group>";
+		};
+		681EBBF851A2F87428685294 /* BridgeyUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BridgeyUITests;
+			sourceTree = "<group>";
+		};
+		8AA03AD7F806571D9CCDEAEC /* ShareExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
+		8B4E3AE51B607AD19C14291B /* Modules */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Modules;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1A5BAD203C98DD1A0837A99B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DC4A108697BB2FEC6B8B18D8 /* BridgeyCore.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		43E81276115F0943795893A9 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6F23F6B4F87E18A5884C5809 /* BridgeyCore.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		57B706F1D293748628E74700 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9E866836F818EA15A328AE0D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		07D4065DE8A651F98F34A4D6 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				110046D8AD379A9FFEA597B9 /* Bridgey.app */,
+				6C11C1D6E4474E1A2DF375F7 /* BridgeyShare.appex */,
+				7FAF1C87A14443A096357399 /* BridgeyTests.xctest */,
+				38A1867573F9813E2C788F8B /* BridgeyUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		739620D9C136A4C0ED692E1A = {
+			isa = PBXGroup;
+			children = (
+				55B87983A9A269110E36E858 /* Bridgey */,
+				306446022EACCD594681DEE4 /* Shared */,
+				8AA03AD7F806571D9CCDEAEC /* ShareExtension */,
+				448BD55B6B784512A40C7D9B /* BridgeyTests */,
+				681EBBF851A2F87428685294 /* BridgeyUITests */,
+				8B4E3AE51B607AD19C14291B /* Modules */,
+				93B40B64980244AFC3EF8BAF /* Config */,
+				A60C4A2699D672692B69708B /* Frameworks */,
+				07D4065DE8A651F98F34A4D6 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		93B40B64980244AFC3EF8BAF /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				AD4F01D05080B046949DDF50 /* Bridgey.xcconfig */,
+				984F23F90C7BBA65FA607C6E /* App-Info.plist */,
+				53ADA1EA7D3DD33F246C8DAD /* Share-Info.plist */,
+				D6FC7989B79D6A37A57AD521 /* Bridgey.entitlements */,
+				887E53401EA812E326AB3CE4 /* BridgeyShare.entitlements */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		A60C4A2699D672692B69708B /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				00A915076ED11553C11D085D /* BridgeyCore.xcframework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		17FD916D5DCC90E2A27129D0 /* BridgeyTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 880F4BA520088FF8DBBD1C51 /* Build configuration list for PBXNativeTarget "BridgeyTests" */;
+			buildPhases = (
+				A44E98FE79870C2CAEC160DB /* Sources */,
+				9E866836F818EA15A328AE0D /* Frameworks */,
+				6BB379CA30E8D8379DD25495 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9A2E0AA08ADCE33740180718 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				448BD55B6B784512A40C7D9B /* BridgeyTests */,
+			);
+			name = BridgeyTests;
+			packageProductDependencies = (
+			);
+			productName = BridgeyTests;
+			productReference = 7FAF1C87A14443A096357399 /* BridgeyTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		69A67669A6DA380D4A57F246 /* BridgeyShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 12E26CB0CC6AA8136CDCB982 /* Build configuration list for PBXNativeTarget "BridgeyShare" */;
+			buildPhases = (
+				2D75C3B1C98D3E19542400F8 /* Sources */,
+				1A5BAD203C98DD1A0837A99B /* Frameworks */,
+				A426D6E40E690B8BA290C45F /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				8AA03AD7F806571D9CCDEAEC /* ShareExtension */,
+				306446022EACCD594681DEE4 /* Shared */,
+			);
+			name = BridgeyShare;
+			packageProductDependencies = (
+			);
+			productName = BridgeyShare;
+			productReference = 6C11C1D6E4474E1A2DF375F7 /* BridgeyShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		97F06D8A58F6D3DE40B98721 /* BridgeyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB4BCCF66556D0022ECCFDD0 /* Build configuration list for PBXNativeTarget "BridgeyUITests" */;
+			buildPhases = (
+				6EED69B59085A659F21441EA /* Sources */,
+				57B706F1D293748628E74700 /* Frameworks */,
+				DF0BA468C3502B689C466027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BC466634F88C602620260302 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				681EBBF851A2F87428685294 /* BridgeyUITests */,
+			);
+			name = BridgeyUITests;
+			packageProductDependencies = (
+			);
+			productName = BridgeyUITests;
+			productReference = 38A1867573F9813E2C788F8B /* BridgeyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		C673B71425C12DFCE556C83D /* Bridgey */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2431C9557E88DE611188A8D9 /* Build configuration list for PBXNativeTarget "Bridgey" */;
+			buildPhases = (
+				14B663B9080AE08F0FC4CAFB /* Sources */,
+				43E81276115F0943795893A9 /* Frameworks */,
+				2B171C5823551195894B6E00 /* Resources */,
+				1CD089FB50A1C683C9E14B23 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7EAE470B81432F4499D84B38 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				55B87983A9A269110E36E858 /* Bridgey */,
+				306446022EACCD594681DEE4 /* Shared */,
+			);
+			name = Bridgey;
+			packageProductDependencies = (
+			);
+			productName = Bridgey;
+			productReference = 110046D8AD379A9FFEA597B9 /* Bridgey.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8A3644E94EDE01F4ABE61CA2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2720;
+				LastUpgradeCheck = 2720;
+				TargetAttributes = {
+					C673B71425C12DFCE556C83D = {
+						CreatedOnToolsVersion = 27.2;
+					};
+					69A67669A6DA380D4A57F246 = {
+						CreatedOnToolsVersion = 27.2;
+					};
+					17FD916D5DCC90E2A27129D0 = {
+						CreatedOnToolsVersion = 27.2;
+						TestTargetID = C673B71425C12DFCE556C83D;
+					};
+					97F06D8A58F6D3DE40B98721 = {
+						CreatedOnToolsVersion = 27.2;
+						TestTargetID = C673B71425C12DFCE556C83D;
+					};
+				};
+			};
+			buildConfigurationList = 07409E8D3A9435C67320D7D7 /* Build configuration list for PBXProject "Bridgey" */;
+			developmentRegion = "en-GB";
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				"en-GB",
+				Base,
+			);
+			mainGroup = 739620D9C136A4C0ED692E1A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 07D4065DE8A651F98F34A4D6 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C673B71425C12DFCE556C83D /* Bridgey */,
+				69A67669A6DA380D4A57F246 /* BridgeyShare */,
+				17FD916D5DCC90E2A27129D0 /* BridgeyTests */,
+				97F06D8A58F6D3DE40B98721 /* BridgeyUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		2B171C5823551195894B6E00 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6BB379CA30E8D8379DD25495 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A426D6E40E690B8BA290C45F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DF0BA468C3502B689C466027 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		14B663B9080AE08F0FC4CAFB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2D75C3B1C98D3E19542400F8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6EED69B59085A659F21441EA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A44E98FE79870C2CAEC160DB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7EAE470B81432F4499D84B38 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 69A67669A6DA380D4A57F246 /* BridgeyShare */;
+			targetProxy = 6DA4A26F8D52B1FF306191FF /* PBXContainerItemProxy */;
+		};
+		9A2E0AA08ADCE33740180718 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C673B71425C12DFCE556C83D /* Bridgey */;
+			targetProxy = E6A5BB0B9166D733CE54A0E6 /* PBXContainerItemProxy */;
+		};
+		BC466634F88C602620260302 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C673B71425C12DFCE556C83D /* Bridgey */;
+			targetProxy = 4FCDE2120D9FB143A6887982 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		177CFBD85B87376F8DABA2F3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/BridgeyShare.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/Share-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID).share";
+				PRODUCT_NAME = BridgeyShare;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		17FFC9CB9FA8AD84C7EC3F9F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AD4F01D05080B046949DDF50 /* Bridgey.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		3366D95F46B6F443B444082F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID).uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_TARGET_NAME = Bridgey;
+			};
+			name = Debug;
+		};
+		46A88DE1F11BC77B103FF4DE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID).uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_TARGET_NAME = Bridgey;
+			};
+			name = Release;
+		};
+		7FC679F790944C88E07F3D86 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/Bridgey.entitlements;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/App-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID)";
+				PRODUCT_NAME = Bridgey;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+		9E02F17BB02000C1B8A8D3EB /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = AD4F01D05080B046949DDF50 /* Bridgey.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		ABC69F0D87423AE3627D10F2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID).tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Bridgey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Bridgey";
+			};
+			name = Debug;
+		};
+		C3E709888DD826AAD75A99AD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID).tests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Bridgey.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Bridgey";
+			};
+			name = Release;
+		};
+		C8C5F06085A4B5BFA027CC13 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/BridgeyShare.entitlements;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/Share-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID).share";
+				PRODUCT_NAME = BridgeyShare;
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		F44AD2CE60788E9B17E98938 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/Bridgey.entitlements;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Config/App-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(BRIDGEY_BUNDLE_ID)";
+				PRODUCT_NAME = Bridgey;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		07409E8D3A9435C67320D7D7 /* Build configuration list for project */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				17FFC9CB9FA8AD84C7EC3F9F /* Debug */,
+				9E02F17BB02000C1B8A8D3EB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		12E26CB0CC6AA8136CDCB982 /* Build configuration list for BridgeyShare */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8C5F06085A4B5BFA027CC13 /* Debug */,
+				177CFBD85B87376F8DABA2F3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		2431C9557E88DE611188A8D9 /* Build configuration list for Bridgey */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F44AD2CE60788E9B17E98938 /* Debug */,
+				7FC679F790944C88E07F3D86 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		880F4BA520088FF8DBBD1C51 /* Build configuration list for BridgeyTests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ABC69F0D87423AE3627D10F2 /* Debug */,
+				C3E709888DD826AAD75A99AD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB4BCCF66556D0022ECCFDD0 /* Build configuration list for BridgeyUITests */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3366D95F46B6F443B444082F /* Debug */,
+				46A88DE1F11BC77B103FF4DE /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 8A3644E94EDE01F4ABE61CA2 /* Project object */;
+}
