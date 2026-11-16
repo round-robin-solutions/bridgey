@@ -180,6 +180,16 @@ run_tests() {
   echo "> xcodebuild test-without-building ($label)"
   xcodebuild test-without-building -project "$IOS/Bridgey.xcodeproj" -scheme Bridgey -destination "id=$sim" \
     -derivedDataPath "$BUILD" -resultBundlePath "$bundle" "$@" > "$LOGS/test-$label.log" 2>&1 || status=$?
+  # A new simulator's first UI test can stall the test runner while it loads accessibility, before any test
+  # runs (XCTWaiter handleStalledWait). That one case is tried once more, and said so; test failures are not.
+  if [ "$status" != 0 ] && grep -q "test runner crashed while preparing to run tests" "$LOGS/test-$label.log"; then
+    echo "note: the test runner crashed before any test ran ($label); trying once more"
+    mv "$LOGS/test-$label.log" "$LOGS/test-$label-runner-crash.log"
+    rm -rf "$bundle"
+    status=0
+    xcodebuild test-without-building -project "$IOS/Bridgey.xcodeproj" -scheme Bridgey -destination "id=$sim" \
+      -derivedDataPath "$BUILD" -resultBundlePath "$bundle" "$@" > "$LOGS/test-$label.log" 2>&1 || status=$?
+  fi
   grep -E '^(Test Suite|Test Case .*(passed|failed|skipped)|.*error:|\*\* TEST)' "$LOGS/test-$label.log" | tail -n 60 || true
   [ -d "$bundle" ] && export_shots "$bundle"
   [ -d "$bundle" ] && (cd "$RESULTS" && zip -qry "$label.xcresult.zip" "$label.xcresult" && rm -rf "$label.xcresult")
@@ -192,6 +202,8 @@ IPHONE=$(new_simulator "iPhone" "${IOS_IPHONE_TYPE:-}")
 SIMS="$SIMS $IPHONE"
 xcrun simctl list devices | grep "$IPHONE" | sed 's/^ */simulator: /'
 xcrun simctl boot "$IPHONE"
+# Fully booted (first-boot setup done) before anything is installed.
+xcrun simctl bootstatus "$IPHONE" -b > /dev/null
 run_tests iphone-unit "$IPHONE" -only-testing:BridgeyTests || FAILED="$FAILED iphone-unit"
 
 if [ "$UI_TESTS" = 1 ]; then
@@ -219,6 +231,7 @@ if [ "$UI_TESTS" = 1 ]; then
     SIMS="$SIMS $IPAD_SIM"
     xcrun simctl list devices | grep "$IPAD_SIM" | sed 's/^ */simulator: /'
     xcrun simctl boot "$IPAD_SIM"
+    xcrun simctl bootstatus "$IPAD_SIM" -b > /dev/null
     run_tests ipad-ui "$IPAD_SIM" -only-testing:BridgeyUITests/ScreenshotTests || FAILED="$FAILED ipad-ui"
   fi
 fi

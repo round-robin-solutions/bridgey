@@ -240,6 +240,12 @@ final class AppModel: ObservableObject {
     }
 
     func handle(_ e: CoreEvent) {
+        apply(e)
+        // In the background only to let files finish: stop once they have.
+        if backgroundTask != .invalid, transfers.isEmpty { stop() }
+    }
+
+    private func apply(_ e: CoreEvent) {
         switch e.kind {
         case .deviceFound, .deviceLost:
             refreshNearby()
