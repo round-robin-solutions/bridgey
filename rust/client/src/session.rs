@@ -935,7 +935,7 @@ mod tests {
     #[test]
     fn contract_lists_the_kinds_this_client_uses() {
         let source = include_str!("session.rs");
-        let code = &source[..source.find("#[cfg(test)]").unwrap()];
+        let code = &source[..source.find("#[cfg(test)]\nmod tests").unwrap()];
         let is_kind = |s: &str| {
             let mut parts = s.split('.');
             let first = parts.next().unwrap_or("");
