@@ -14,6 +14,7 @@ pub mod events;
 pub mod features;
 pub mod ffi;
 pub mod session;
+pub mod transfer;
 pub mod trust;
 #[cfg(test)]
 mod vectors;

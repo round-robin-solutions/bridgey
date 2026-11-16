@@ -85,6 +85,20 @@ pub enum BridgeyEventKind {
     EventsDropped = 15,
     /// text = what went wrong.
     Error = 16,
+    /// A file is coming in. id = transfer, device_id, name = file name, extra = MIME type, total = size.
+    FileIncoming = 17,
+    /// id = transfer, device_id, status = 1 incoming or 0 outgoing, bytes, total. At most four a second.
+    FileProgress = 18,
+    /// id = transfer, device_id, name = the name it was saved under, status = 1 incoming or 0 outgoing,
+    /// text = where it was saved (incoming), total = size.
+    FileDone = 19,
+    /// id = transfer, device_id, name, status = 1 incoming or 0 outgoing, text = reason (`BridgeyEvent` docs in
+    /// docs/session-client.md).
+    FileFailed = 20,
+    /// A link to open or dismiss; never opened by the library. device_id, text = the link.
+    Link = 21,
+    /// id = request, device_id, status = BridgeySendStatus, text = `opened` when the device opened it at once.
+    LinkSent = 22,
 }
 
 /// Bytes owned by the library: UTF-8, NUL-terminated for convenience, `len` without the NUL. `ptr` is NULL when
@@ -104,6 +118,10 @@ pub struct BridgeyEvent {
     pub name: BridgeyStr,
     pub text: BridgeyStr,
     pub extra: BridgeyStr,
+    /// File events: bytes so far.
+    pub bytes: u64,
+    /// File events: the file's size.
+    pub total: u64,
 }
 
 #[repr(C)]
@@ -125,7 +143,16 @@ pub struct BridgeyConfig {
     /// Without storage callbacks: keep the identity and trusted devices in owner-only files here. Both NULL:
     /// in memory only (tests).
     pub data_dir: *const c_char,
+    /// Read only when struct_size covers it (hosts built before it pass a smaller size). Where received files are
+    /// saved; NULL refuses files. bridgey_set_receive_dir changes it later.
+    pub receive_dir: *const c_char,
+    /// 1: connect only to devices named with bridgey_connect, as a share extension does, instead of keeping every
+    /// trusted device connected.
+    pub manual_connect: u8,
 }
+
+/// The size of a BridgeyConfig from before receive_dir, which hosts may still pass.
+const CONFIG_V1_SIZE: usize = std::mem::offset_of!(BridgeyConfig, receive_dir);
 
 /// An opaque buffer a storage `load` callback copies a value into with `bridgey_buffer_set`.
 pub struct BridgeyBuffer {
@@ -252,6 +279,7 @@ unsafe fn free_owned(s: &BridgeyStr) {
 fn to_c(event: Event) -> BridgeyEvent {
     use BridgeyEventKind as K;
     let s = |v: &str| Some(v.to_string());
+    let (mut bytes, mut total) = (0u64, 0u64);
     let (kind, status, id, device_id, name, text, extra) = match event {
         Event::Found { device_id, name, platform, host, port } => (K::DeviceFound, i32::from(port), 0, device_id, s(&name), Some(host), platform),
         Event::Lost { device_id, host, port } => (K::DeviceLost, i32::from(port), 0, device_id, None, Some(host), None),
@@ -269,8 +297,23 @@ fn to_c(event: Event) -> BridgeyEvent {
         Event::TrustChanged { device_id, name, trusted } => (K::TrustChanged, i32::from(trusted), 0, Some(device_id), Some(name), None, None),
         Event::Dropped { count } => (K::EventsDropped, 0, count, None, None, None, None),
         Event::Error { text } => (K::Error, 0, 0, None, None, Some(text), None),
+        Event::FileIncoming { transfer, device_id, name, size, mime } => {
+            total = size;
+            (K::FileIncoming, 1, transfer, Some(device_id), Some(name), None, Some(mime))
+        }
+        Event::FileProgress { transfer, device_id, incoming, bytes: b, total: t } => {
+            (bytes, total) = (b, t);
+            (K::FileProgress, i32::from(incoming), transfer, Some(device_id), None, None, None)
+        }
+        Event::FileDone { transfer, device_id, incoming, name, path, size } => {
+            (bytes, total) = (size, size);
+            (K::FileDone, i32::from(incoming), transfer, Some(device_id), Some(name), path, None)
+        }
+        Event::FileFailed { transfer, device_id, incoming, name, reason } => (K::FileFailed, i32::from(incoming), transfer, Some(device_id), Some(name), Some(reason), None),
+        Event::Link { device_id, url } => (K::Link, 0, 0, Some(device_id), None, Some(url), None),
+        Event::LinkSent { request, device_id, status, opened } => (K::LinkSent, status as i32, request, Some(device_id), None, opened.then(|| "opened".to_string()), None),
     };
-    BridgeyEvent { kind, status, id, device_id: owned(device_id), name: owned(name), text: owned(text), extra: owned(extra) }
+    BridgeyEvent { kind, status, id, device_id: owned(device_id), name: owned(name), text: owned(text), extra: owned(extra), bytes, total }
 }
 
 /// The C ABI version (`BRIDGEY_ABI_VERSION` in the header).
@@ -298,12 +341,17 @@ pub unsafe extern "C" fn bridgey_client_new(config: *const BridgeyConfig, storag
             return BRIDGEY_ERR_INVALID_ARGUMENT;
         }
         let c = &*config;
-        if (c.struct_size as usize) < std::mem::size_of::<BridgeyConfig>() {
+        let size = c.struct_size as usize;
+        if size < CONFIG_V1_SIZE {
             return BRIDGEY_ERR_INVALID_ARGUMENT;
         }
         let (Ok(Some(name)), Ok(Some(platform)), Ok(data_dir)) = (arg(c.device_name), arg(c.platform), arg(c.data_dir)) else {
             return BRIDGEY_ERR_INVALID_ARGUMENT;
         };
+        // Fields after data_dir only when the host's struct has them.
+        let full = size >= std::mem::size_of::<BridgeyConfig>();
+        let Ok(receive_dir) = (if full { arg(c.receive_dir) } else { Ok(None) }) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        let manual_connect = full && c.manual_connect != 0;
         let store: Arc<dyn Storage> = if !storage.is_null() {
             let s = &*storage;
             let (Some(load), Some(store), Some(remove)) = (s.load, s.store, s.remove) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
@@ -323,6 +371,8 @@ pub unsafe extern "C" fn bridgey_client_new(config: *const BridgeyConfig, storag
         if c.event_capacity > 0 {
             config.event_capacity = c.event_capacity as usize;
         }
+        config.receive_dir = receive_dir.map(std::path::PathBuf::from);
+        config.manual_connect = manual_connect;
         match Client::start(config, store) {
             Ok(client) => {
                 let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
@@ -574,6 +624,103 @@ pub unsafe extern "C" fn bridgey_add_discovered(handle: u64, device_id: *const c
         let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
         let (Ok(id), Ok(name), Ok(platform), Ok(Some(host))) = (arg(device_id), arg(name), arg(platform), arg(host)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
         c.add_discovered(id, name.unwrap_or(""), platform, host, port).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Sends a file to a connected device with Files on at both ends: hashed, offered, then sent once accepted. Files
+/// to one device go one at a time, in order. `name` (the name the other device sees) and `mime` may be NULL.
+/// `*out_transfer` identifies the FileProgress, FileDone and FileFailed events.
+///
+/// # Safety
+/// `device_id` and `path` are NUL-terminated strings; `name` and `mime` are NULL or NUL-terminated; all valid for
+/// the call. `out_transfer` is valid.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_send_file(handle: u64, device_id: *const c_char, path: *const c_char, name: *const c_char, mime: *const c_char, out_transfer: *mut u64) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(path)), Ok(name), Ok(mime)) = (arg(device_id), arg(path), arg(name), arg(mime)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        if out_transfer.is_null() {
+            return BRIDGEY_ERR_INVALID_ARGUMENT;
+        }
+        match c.send_file(id, std::path::Path::new(path), name, mime) {
+            Ok(t) => {
+                *out_transfer = t;
+                BRIDGEY_OK
+            }
+            Err(e) => code(e),
+        }
+    })
+}
+
+/// Stops a transfer in either direction and tells the other device. A FileFailed event with `cancelled` follows.
+#[no_mangle]
+pub extern "C" fn bridgey_cancel_file(handle: u64, transfer: u64) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        c.cancel_file(transfer).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Sends an http or https link to a connected device with Links on at both ends. `*out_request` identifies the
+/// LinkSent event.
+///
+/// # Safety
+/// `device_id` and `url` are NUL-terminated strings valid for the call; `out_request` is valid.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_send_link(handle: u64, device_id: *const c_char, url: *const c_char, out_request: *mut u64) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(url))) = (arg(device_id), arg(url)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        if out_request.is_null() {
+            return BRIDGEY_ERR_INVALID_ARGUMENT;
+        }
+        match c.send_link(id, url) {
+            Ok(r) => {
+                *out_request = r;
+                BRIDGEY_OK
+            }
+            Err(e) => code(e),
+        }
+    })
+}
+
+/// Connects to a trusted device now and keeps it connected (with manual_connect, only these devices are).
+///
+/// # Safety
+/// `device_id` is a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_connect(handle: u64, device_id: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(Some(id)) = arg(device_id) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.connect(id).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Where received files are saved from now on; NULL refuses files.
+///
+/// # Safety
+/// `dir` is NULL or a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_set_receive_dir(handle: u64, dir: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(dir) = arg(dir) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.set_receive_dir(dir.map(std::path::Path::new));
+        BRIDGEY_OK
+    })
+}
+
+/// A device given with bridgey_add_discovered has gone.
+///
+/// # Safety
+/// `host` is a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_remove_discovered(handle: u64, host: *const c_char, port: u16) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(Some(host)) = arg(host) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.remove_discovered(host, port).map(|_| BRIDGEY_OK).unwrap_or_else(code)
     })
 }
 

@@ -8,17 +8,21 @@
 
 use crate::crypto::{self, Ephemeral, SigningKey};
 use crate::features::{self, FeatureMap};
+use crate::transfer::{self, FILE_CHUNK, MAX_CHUNK_IN, MAX_FILE, QUICK_MAX};
 use crate::wire::{Message, MAX_FRAME};
-use serde_json::Value;
-use std::collections::{HashSet, VecDeque};
+use serde_json::{json, Value};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io::{Read, Write};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Notify};
+use tokio::time::Instant;
 
 /// The apps' local heartbeat: a ping every 10 s, a link silent for 30 s is dead (Reconnect.kt).
 pub const HEARTBEAT: Duration = Duration::from_secs(10);
@@ -31,6 +35,19 @@ pub const REPLAY_WINDOW: usize = 256;
 /// `clipboard.update` and `clipboard.rich`: text (and HTML) up to 32 KiB before encryption.
 pub const CLIPBOARD_MAX: usize = 32_768;
 const COMMANDS: usize = 64;
+/// File chunks waiting for the socket at once. Other frames never wait for room, so reading never waits for writing
+/// and two devices sending each other files cannot block each other.
+const CHUNKS_IN_FLIGHT: usize = 16;
+/// How long the other device has to accept a file, and to confirm it after the last chunk.
+const ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
+const COMPLETE_TIMEOUT: Duration = Duration::from_secs(60);
+/// A receiver that acknowledges chunks (Android) keeps at most 64 unacknowledged; one silent this long has stalled.
+const CHUNK_WINDOW: i64 = 64;
+const ACK_STALL: Duration = Duration::from_secs(30);
+/// Files coming in at once from one device.
+const MAX_INCOMING: usize = 4;
+/// Progress events at most this often per transfer.
+const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
 pub struct Local {
     pub device_id: String,
@@ -92,6 +109,16 @@ pub enum Event {
     ClipboardResult { device_id: String, message_id: String, delivered: bool },
     Ping { device_id: String },
     PingAck { device_id: String, message_id: String },
+    /// A file is coming in; it is saved in the receive folder once its hash checks out.
+    FileIncoming { transfer: u64, device_id: String, name: String, size: u64, mime: String },
+    FileProgress { transfer: u64, device_id: String, incoming: bool, bytes: u64, total: u64 },
+    /// Saved here (`path`), or confirmed by the other device.
+    FileDone { transfer: u64, device_id: String, incoming: bool, name: String, path: Option<String>, size: u64 },
+    FileFailed { transfer: u64, device_id: String, incoming: bool, name: String, reason: String },
+    /// A link from the other device, queued for the person to open (never opened here).
+    Link { device_id: String, url: String },
+    /// `quick.result` for a request this end sent.
+    QuickResult { device_id: String, request_id: String, accepted: bool, opened: bool },
     Closed { session: u64, device_id: Option<String>, reason: String, authenticated: bool, paired: bool, answered: bool },
 }
 
@@ -107,6 +134,21 @@ pub trait Host: Send + Sync + 'static {
     /// Both confirmations verified. False when another session to the device wins; this one then closes.
     fn authenticated(&self, auth: Authenticated) -> bool;
     fn event(&self, event: Event);
+    /// A new ID for a transfer that came in.
+    fn next_id(&self) -> u64;
+    /// Where received files go; None refuses them.
+    fn receive_dir(&self) -> Option<PathBuf>;
+}
+
+/// A file to offer, hashed already (hashing a large file must not hold up the session).
+#[derive(Clone, Debug)]
+pub struct OutgoingFile {
+    pub transfer: u64,
+    pub path: PathBuf,
+    pub name: String,
+    pub mime: String,
+    pub size: u64,
+    pub sha256: String,
 }
 
 pub enum Command {
@@ -114,6 +156,9 @@ pub enum Command {
     Clipboard { text: String, message_id: String },
     Features,
     Ping { message_id: String },
+    SendFile(OutgoingFile),
+    CancelFile(u64),
+    Link { url: String, request_id: String, open: bool },
     Close(&'static str),
 }
 
@@ -150,6 +195,16 @@ impl Handle {
     }
     pub fn ping(&self, message_id: String) -> bool {
         self.tx.try_send(Command::Ping { message_id }).is_ok()
+    }
+    /// Queues a file; files go one at a time, in order.
+    pub fn send_file(&self, file: OutgoingFile) -> bool {
+        self.tx.try_send(Command::SendFile(file)).is_ok()
+    }
+    pub fn cancel_file(&self, transfer: u64) -> bool {
+        self.tx.try_send(Command::CancelFile(transfer)).is_ok()
+    }
+    pub fn send_link(&self, url: String, request_id: String, open: bool) -> bool {
+        self.tx.try_send(Command::Link { url, request_id, open }).is_ok()
     }
     pub fn close(&self, why: &'static str) {
         let _ = self.tx.try_send(Command::Close(why));
@@ -188,6 +243,45 @@ enum Step {
     Close(String),
 }
 
+/// A file coming in: written to a hidden partial file and hashed as it arrives.
+struct Incoming {
+    transfer: u64,
+    name: String,
+    size: u64,
+    sha256: Vec<u8>,
+    received: u64,
+    next_sequence: i64,
+    dir: PathBuf,
+    part: PathBuf,
+    file: std::fs::File,
+    hasher: ring::digest::Context,
+    reported: Option<Instant>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Stage {
+    /// `files.offer` sent; waiting for `files.accept`.
+    Offered,
+    Sending,
+    /// `files.complete` sent; waiting for `files.complete.ack`.
+    Completing,
+}
+
+/// The file this end is sending now. Others wait in `queue`.
+struct Outgoing {
+    file: OutgoingFile,
+    id: String,
+    stage: Stage,
+    reader: std::fs::File,
+    sequence: i64,
+    /// The highest chunk the receiver acknowledged; only receivers that acknowledge (Android) hold back sending.
+    acked: i64,
+    acks: bool,
+    sent: u64,
+    deadline: Option<Instant>,
+    reported: Option<Instant>,
+}
+
 /// Starts a session on a connected socket. Returns its handle at once; events go to the host.
 pub fn spawn(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>) -> Handle {
     let (tx, rx) = mpsc::channel(COMMANDS);
@@ -197,6 +291,7 @@ pub fn spawn(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>) -
         let peer = stream.peer_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
         let mut s = Session::new(session, stream, role, host.clone(), own, peer);
         let reason = s.run(rx).await;
+        s.end_transfers(&reason);
         let st = &s.st;
         host.event(Event::Closed {
             session,
@@ -217,14 +312,42 @@ struct Session {
     handle: Handle,
     peer: SocketAddr,
     reader: Option<BufReader<OwnedReadHalf>>,
-    write: OwnedWriteHalf,
+    write: mpsc::UnboundedSender<(Vec<u8>, bool)>,
+    /// Chunks queued for the socket, and a wake when one has gone.
+    in_flight: Arc<AtomicUsize>,
+    room: Arc<Notify>,
     st: State,
+    incoming: HashMap<String, Incoming>,
+    active: Option<Outgoing>,
+    queue: VecDeque<OutgoingFile>,
+    /// Transfers that ended here; late chunks for them are dropped quietly.
+    ended: VecDeque<String>,
+    quick_sequence: i64,
+    quick_seen: HashMap<String, i64>,
+}
+
+/// Writes queued frames in order; reading carries on meanwhile. Ends when the session drops its sender or the socket fails.
+async fn write_frames(mut write: tokio::net::tcp::OwnedWriteHalf, mut rx: mpsc::UnboundedReceiver<(Vec<u8>, bool)>, in_flight: Arc<AtomicUsize>, room: Arc<Notify>) {
+    while let Some((frame, chunk)) = rx.recv().await {
+        if write.write_all(&frame).await.is_err() {
+            return;
+        }
+        if chunk {
+            in_flight.fetch_sub(1, Ordering::Relaxed);
+            room.notify_one();
+        }
+    }
+    let _ = write.shutdown().await;
 }
 
 impl Session {
     fn new(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>, handle: Handle, peer: SocketAddr) -> Session {
         let _ = stream.set_nodelay(true);
         let (read, write) = stream.into_split();
+        let (frames, rx) = mpsc::unbounded_channel();
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let room = Arc::new(Notify::new());
+        tokio::spawn(write_frames(write, rx, in_flight.clone(), room.clone()));
         let dials = role != Role::Accept;
         Session {
             session,
@@ -233,7 +356,15 @@ impl Session {
             handle,
             peer,
             reader: Some(BufReader::with_capacity(MAX_FRAME + 2, read)),
-            write,
+            write: frames,
+            in_flight,
+            room,
+            incoming: HashMap::new(),
+            active: None,
+            queue: VecDeque::new(),
+            ended: VecDeque::new(),
+            quick_sequence: 0,
+            quick_seen: HashMap::new(),
             st: State {
                 id: if dials { crypto::uuid4() } else { String::new() },
                 eph: Ephemeral::generate(),
@@ -306,7 +437,29 @@ impl Session {
                     None => std::future::pending().await,
                 }
             };
+            let transfer_deadline = self.active.as_ref().and_then(|a| a.deadline);
+            let transfer_wait = async move {
+                match transfer_deadline {
+                    Some(d) => tokio::time::sleep_until(d).await,
+                    None => std::future::pending().await,
+                }
+            };
+            let chunk_ready = self.chunk_ready();
+            let room = self.in_flight.load(Ordering::Relaxed) < CHUNKS_IN_FLIGHT;
+            let wake = self.room.clone();
             tokio::select! {
+                // The next file chunk while few are queued; incoming frames are read in between.
+                _ = std::future::ready(()), if chunk_ready && room => {
+                    if let Step::Close(reason) = self.next_chunk() {
+                        return reason;
+                    }
+                }
+                _ = wake.notified(), if chunk_ready && !room => {}
+                _ = transfer_wait => {
+                    if let Step::Close(reason) = self.transfer_timeout().await {
+                        return reason;
+                    }
+                }
                 read = read_line(&mut reader, &mut line) => {
                     match read {
                         Ok(true) => {}
@@ -395,16 +548,46 @@ impl Session {
                 }
                 self.encrypted("ping.request", br#"{"version":1}"#, message_id).await
             }
+            Command::SendFile(file) => {
+                if !self.st.authenticated {
+                    self.file_failed(file.transfer, false, &file.name, "not_connected");
+                    return Step::Continue;
+                }
+                self.queue.push_back(file);
+                self.start_next().await
+            }
+            Command::CancelFile(transfer) => self.cancel_file(transfer).await,
+            Command::Link { url, request_id, open } => {
+                if !self.st.authenticated {
+                    return Step::Continue;
+                }
+                self.quick_sequence += 1;
+                let request = json!({
+                    "version": 1,
+                    "requestId": request_id,
+                    "feature": "links",
+                    "action": if open { "open" } else { "offer" },
+                    "value": url,
+                    "sequence": self.quick_sequence,
+                });
+                self.encrypted("quick.request", request.to_string().as_bytes(), crypto::uuid4()).await
+            }
         }
     }
 
     async fn encrypted(&mut self, kind: &str, plaintext: &[u8], message_id: String) -> Step {
+        self.encrypted_for(kind, plaintext, message_id, None).await
+    }
+
+    /// An encrypted message; file messages repeat their transfer ID outside, so a receiver can refuse without decrypting.
+    async fn encrypted_for(&mut self, kind: &str, plaintext: &[u8], message_id: String, transfer_id: Option<&str>) -> Step {
         let Some(key) = self.st.key else { return Step::Continue };
         let (nonce, ciphertext) = crypto::encrypt(&key, plaintext);
         let mut m = Message::new(kind, &self.st.id);
         m.message_id = Some(message_id);
         m.nonce = Some(nonce);
         m.ciphertext = Some(ciphertext);
+        m.transfer_id = transfer_id.map(str::to_string);
         match self.send(m).await {
             Ok(()) => Step::Continue,
             Err(_) => Step::Close("send_failed".into()),
@@ -416,8 +599,8 @@ impl Session {
         self.encrypted("features.update", &policy.encode(), crypto::uuid4()).await
     }
 
-    /// Writes one frame, tagged once there is an envelope key (pairing frames other than pairing.cancel never are).
-    async fn send(&mut self, mut m: Message) -> std::io::Result<()> {
+    /// One frame's bytes, tagged once there is an envelope key (pairing frames other than pairing.cancel never are).
+    fn frame(&self, mut m: Message) -> Vec<u8> {
         if let Some(key) = self.st.envelope {
             if !m.kind.starts_with("pairing.") || m.kind == "pairing.cancel" {
                 m.tag = Some(m.compute_tag(&key, &self.host.local().device_id));
@@ -425,7 +608,30 @@ impl Session {
         }
         let mut text = m.encode();
         text.push('\n');
-        self.write.write_all(text.as_bytes()).await
+        text.into_bytes()
+    }
+
+    /// Queues one frame for the socket, in order. Never waits.
+    async fn send(&mut self, m: Message) -> Result<(), ()> {
+        let frame = self.frame(m);
+        self.write.send((frame, false)).map_err(|_| ())
+    }
+
+    fn send_chunk(&self, m: Message) -> Result<(), ()> {
+        let frame = self.frame(m);
+        self.in_flight.fetch_add(1, Ordering::Relaxed);
+        self.write.send((frame, true)).map_err(|_| ())
+    }
+
+    /// A transfer control message with nothing encrypted (`files.accept`, `files.chunk.ack`, `files.cancel`, ...).
+    async fn outer(&mut self, kind: &str, transfer_id: &str, sequence: Option<i64>) -> Step {
+        let mut m = Message::new(kind, &self.st.id);
+        m.transfer_id = Some(transfer_id.to_string());
+        m.sequence = sequence;
+        match self.send(m).await {
+            Ok(()) => Step::Continue,
+            Err(_) => Step::Close("send_failed".into()),
+        }
     }
 
     async fn cancel(&mut self, reason: &str) {
@@ -607,7 +813,7 @@ impl Session {
         }
     }
 
-    async fn answer_offer(&mut self) -> std::io::Result<()> {
+    async fn answer_offer(&mut self) -> Result<(), ()> {
         let host = self.host.clone();
         let local = host.local();
         let mut answer = Message::new("pairing.answer", &self.st.id);
@@ -804,10 +1010,429 @@ impl Session {
                 }
                 Step::Continue
             }
+            "files.offer" => self.file_offer(m).await,
+            "files.chunk" => self.file_chunk(m).await,
+            "files.complete" => self.file_complete(m).await,
+            "files.accept" => {
+                if let Some(a) = self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref() && a.stage == Stage::Offered) {
+                    a.stage = Stage::Sending;
+                    a.deadline = Some(Instant::now() + ACK_STALL);
+                }
+                Step::Continue
+            }
+            "files.chunk.ack" => {
+                if let (Some(a), Some(sequence)) = (self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref()), m.sequence) {
+                    a.acks = true;
+                    a.acked = a.acked.max(sequence.min(a.sequence - 1));
+                    if a.stage == Stage::Sending {
+                        a.deadline = Some(Instant::now() + ACK_STALL);
+                    }
+                }
+                Step::Continue
+            }
+            "files.complete.ack" => {
+                let done = self.active.take_if(|a| Some(&a.id) == m.transfer_id.as_ref() && a.stage == Stage::Completing);
+                if let Some(a) = done {
+                    self.ended(&a.id);
+                    let f = a.file;
+                    self.host.event(Event::FileDone { transfer: f.transfer, device_id, incoming: false, name: f.name, path: None, size: f.size });
+                    return self.start_next().await;
+                }
+                Step::Continue
+            }
+            "files.rejected" => {
+                // Files is off on the other device: this file and the ones waiting behind it would all be refused.
+                let refused = self.active.take_if(|a| Some(&a.id) == m.transfer_id.as_ref());
+                if let Some(a) = refused {
+                    self.ended(&a.id);
+                    self.file_failed(a.file.transfer, false, &a.file.name, "rejected");
+                    for f in std::mem::take(&mut self.queue) {
+                        self.file_failed(f.transfer, false, &f.name, "rejected");
+                    }
+                }
+                Step::Continue
+            }
+            "files.cancel" => {
+                let Some(id) = m.transfer_id.clone() else { return Step::Continue };
+                let mut known = false;
+                if let Some(a) = self.active.take_if(|a| a.id == id) {
+                    known = true;
+                    self.ended(&id);
+                    self.file_failed(a.file.transfer, false, &a.file.name, "cancelled_remote");
+                }
+                if let Some(i) = self.incoming.remove(&id) {
+                    known = true;
+                    self.drop_incoming(&id, i, "cancelled_remote");
+                }
+                if !known {
+                    return Step::Continue;
+                }
+                if let Step::Close(r) = self.outer("files.cancel.ack", &id, None).await {
+                    return Step::Close(r);
+                }
+                self.start_next().await
+            }
+            "files.cancel.ack" => Step::Continue,
+            "quick.request" => self.quick_request(m).await,
+            "quick.result" => {
+                let Some(plain) = self.open(&m).filter(|p| p.len() <= QUICK_MAX) else { return Step::Continue };
+                let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(&plain) else { return Step::Continue };
+                if o.get("version").and_then(Value::as_i64) != Some(1) {
+                    return Step::Continue;
+                }
+                let (Some(request_id), Some(accepted)) = (o.get("requestId").and_then(Value::as_str), o.get("accepted").and_then(Value::as_bool)) else {
+                    return Step::Continue;
+                };
+                let opened = o.get("opened").and_then(Value::as_bool).unwrap_or(false);
+                self.host.event(Event::QuickResult { device_id, request_id: request_id.to_string(), accepted, opened });
+                Step::Continue
+            }
             // Unknown kinds and features this client does not offer: ignored, the session stays.
             _ => Step::Continue,
         }
     }
+
+    // MARK: files (docs/protocol.md "Files (`files.v1`)", JSON chunks)
+
+    fn file_failed(&self, transfer: u64, incoming: bool, name: &str, reason: &str) {
+        self.host.event(Event::FileFailed { transfer, device_id: self.st.remote_id.clone(), incoming, name: name.to_string(), reason: reason.to_string() });
+    }
+
+    /// Remembers a transfer that ended so its late chunks are dropped without a fuss.
+    fn ended(&mut self, id: &str) {
+        self.ended.push_back(id.to_string());
+        if self.ended.len() > 64 {
+            self.ended.pop_front();
+        }
+    }
+
+    fn drop_incoming(&mut self, id: &str, i: Incoming, reason: &str) {
+        drop(i.file);
+        let _ = std::fs::remove_file(&i.part);
+        self.ended(id);
+        self.file_failed(i.transfer, true, &i.name, reason);
+    }
+
+    /// The next waiting file is offered when nothing is being sent.
+    async fn start_next(&mut self) -> Step {
+        while self.active.is_none() {
+            let Some(file) = self.queue.pop_front() else { return Step::Continue };
+            let reader = match std::fs::File::open(&file.path) {
+                Ok(r) => r,
+                Err(_) => {
+                    self.file_failed(file.transfer, false, &file.name, "unreadable");
+                    continue;
+                }
+            };
+            let id = crypto::uuid4();
+            let offer = json!({"transferId": id, "name": file.name, "mimeType": file.mime, "size": file.size, "sha256": file.sha256});
+            self.active = Some(Outgoing {
+                file,
+                id: id.clone(),
+                stage: Stage::Offered,
+                reader,
+                sequence: 0,
+                acked: -1,
+                acks: false,
+                sent: 0,
+                deadline: Some(Instant::now() + ACCEPT_TIMEOUT),
+                reported: None,
+            });
+            if let Some(a) = &self.active {
+                self.host.event(Event::FileProgress { transfer: a.file.transfer, device_id: self.st.remote_id.clone(), incoming: false, bytes: 0, total: a.file.size });
+            }
+            return self.encrypted_for("files.offer", offer.to_string().as_bytes(), crypto::uuid4(), Some(&id)).await;
+        }
+        Step::Continue
+    }
+
+    /// A chunk may go when a file is being sent and, for receivers that acknowledge, the window has room.
+    fn chunk_ready(&self) -> bool {
+        self.st.authenticated && self.active.as_ref().is_some_and(|a| a.stage == Stage::Sending && (!a.acks || a.sequence - a.acked <= CHUNK_WINDOW))
+    }
+
+    /// Queues the next chunk, or `files.complete` after the last one.
+    fn next_chunk(&mut self) -> Step {
+        let Some(key) = self.st.key else { return Step::Continue };
+        let device_id = self.st.remote_id.clone();
+        let Some(a) = self.active.as_mut() else { return Step::Continue };
+        let mut buf = vec![0u8; FILE_CHUNK];
+        let n = match read_full(&mut a.reader, &mut buf) {
+            Ok(n) => n,
+            Err(_) => usize::MAX,
+        };
+        let id = a.id.clone();
+        if n == usize::MAX || (n == 0 && a.sent != a.file.size) || a.sent + n as u64 > a.file.size {
+            // The file could not be read, or changed since it was hashed: tell the other device to let go.
+            let a = self.active.take().unwrap();
+            let mut m = Message::new("files.cancel", &self.st.id);
+            m.transfer_id = Some(id.clone());
+            if self.send_chunk(m).is_err() {
+                return Step::Close("send_failed".into());
+            }
+            self.ended(&id);
+            self.file_failed(a.file.transfer, false, &a.file.name, "changed");
+            return Step::Continue;
+        }
+        let m = if n == 0 {
+            let plain = json!({"transferId": id, "sha256": a.file.sha256}).to_string();
+            let (nonce, ciphertext) = crypto::encrypt(&key, plain.as_bytes());
+            a.stage = Stage::Completing;
+            a.deadline = Some(Instant::now() + COMPLETE_TIMEOUT);
+            let mut m = Message::new("files.complete", &self.st.id);
+            m.message_id = Some(crypto::uuid4());
+            m.transfer_id = Some(id);
+            m.nonce = Some(nonce);
+            m.ciphertext = Some(ciphertext);
+            m
+        } else {
+            let (nonce, ciphertext) = crypto::encrypt(&key, &buf[..n]);
+            let mut m = Message::new("files.chunk", &self.st.id);
+            // The apps take a chunk only with its own messageId (into the replay window).
+            m.message_id = Some(crypto::uuid4());
+            m.transfer_id = Some(id);
+            m.sequence = Some(a.sequence);
+            m.nonce = Some(nonce);
+            m.ciphertext = Some(ciphertext);
+            a.sequence += 1;
+            a.sent += n as u64;
+            let now = Instant::now();
+            if a.reported.is_none_or(|t| now.duration_since(t) >= PROGRESS_EVERY) {
+                a.reported = Some(now);
+                self.host.event(Event::FileProgress { transfer: a.file.transfer, device_id, incoming: false, bytes: a.sent, total: a.file.size });
+            }
+            m
+        };
+        match self.send_chunk(m) {
+            Ok(()) => Step::Continue,
+            Err(()) => Step::Close("send_failed".into()),
+        }
+    }
+
+    async fn transfer_timeout(&mut self) -> Step {
+        let now = Instant::now();
+        let Some(a) = self.active.as_mut() else { return Step::Continue };
+        if a.deadline.is_none_or(|d| d > now) {
+            return Step::Continue;
+        }
+        let reason = match a.stage {
+            Stage::Offered => "not_accepted",
+            Stage::Completing => "not_confirmed",
+            // Only a receiver that acknowledges can stall a transfer; for others the wait just goes on.
+            Stage::Sending if a.acks && a.sequence - a.acked > CHUNK_WINDOW => "stalled",
+            Stage::Sending => {
+                a.deadline = Some(now + ACK_STALL);
+                return Step::Continue;
+            }
+        };
+        let a = self.active.take().unwrap();
+        self.ended(&a.id);
+        self.file_failed(a.file.transfer, false, &a.file.name, reason);
+        if let Step::Close(r) = self.outer("files.cancel", &a.id, None).await {
+            return Step::Close(r);
+        }
+        self.start_next().await
+    }
+
+    async fn cancel_file(&mut self, transfer: u64) -> Step {
+        if let Some(i) = self.queue.iter().position(|f| f.transfer == transfer) {
+            let f = self.queue.remove(i).unwrap();
+            self.file_failed(f.transfer, false, &f.name, "cancelled");
+            return Step::Continue;
+        }
+        if let Some(a) = self.active.take_if(|a| a.file.transfer == transfer) {
+            self.ended(&a.id);
+            self.file_failed(a.file.transfer, false, &a.file.name, "cancelled");
+            if let Step::Close(r) = self.outer("files.cancel", &a.id, None).await {
+                return Step::Close(r);
+            }
+            return self.start_next().await;
+        }
+        let id = self.incoming.iter().find(|(_, i)| i.transfer == transfer).map(|(id, _)| id.clone());
+        if let Some(id) = id {
+            let i = self.incoming.remove(&id).unwrap();
+            self.drop_incoming(&id, i, "cancelled");
+            return self.outer("files.cancel", &id, None).await;
+        }
+        Step::Continue
+    }
+
+    async fn file_offer(&mut self, m: Message) -> Step {
+        let device_id = self.st.remote_id.clone();
+        let Some(outer_id) = m.transfer_id.clone() else { return Step::Continue };
+        let dir = self.host.receive_dir();
+        if !self.host.policy(&device_id).get("files") || dir.is_none() {
+            // Files is off here: refused without decrypting, then the switches the other device should have had.
+            if let Step::Close(r) = self.outer("files.rejected", &outer_id, None).await {
+                return Step::Close(r);
+            }
+            return self.send_features().await;
+        }
+        let Some(plain) = self.open(&m) else { return Step::Close("bad_files".into()) };
+        let offer = serde_json::from_slice::<Value>(&plain).ok();
+        let o = offer.as_ref().and_then(Value::as_object);
+        let field = |k: &str| o.and_then(|o| o.get(k));
+        let transfer_id = field("transferId").and_then(Value::as_str).unwrap_or("");
+        let name = field("name").and_then(Value::as_str).unwrap_or("");
+        let size = field("size").and_then(Value::as_u64);
+        let sha256 = field("sha256").and_then(Value::as_str).and_then(crypto::unb64).filter(|h| h.len() == 32);
+        let mime = field("mimeType").and_then(Value::as_str).unwrap_or("application/octet-stream").chars().take(128).collect::<String>();
+        // Clipboard files and folders are drafts this client does not advertise.
+        let other_purpose = field("purpose").is_some_and(|p| !p.is_null()) || field("folderTransferId").is_some_and(|p| !p.is_null());
+        let (Some(size), Some(sha256)) = (size, sha256) else { return self.outer("files.cancel", &outer_id, None).await };
+        if other_purpose || transfer_id != outer_id || !crypto::is_uuid(transfer_id) || name.is_empty() || size > MAX_FILE {
+            return self.outer("files.cancel", &outer_id, None).await;
+        }
+        let taken = self.incoming.contains_key(transfer_id) || self.active.as_ref().is_some_and(|a| a.id == transfer_id) || self.ended.iter().any(|e| e == transfer_id);
+        if taken || self.incoming.len() >= MAX_INCOMING {
+            return self.outer("files.cancel", &outer_id, None).await;
+        }
+        let dir = dir.unwrap();
+        let part = transfer::part_path(&dir, transfer_id);
+        let file = match std::fs::create_dir_all(&dir).and_then(|_| std::fs::OpenOptions::new().write(true).create_new(true).open(&part)) {
+            Ok(f) => f,
+            Err(_) => {
+                self.host.event(Event::FileFailed { transfer: 0, device_id, incoming: true, name: transfer::safe_name(name), reason: "storage".into() });
+                return self.outer("files.cancel", &outer_id, None).await;
+            }
+        };
+        let name = transfer::safe_name(name);
+        let transfer = self.host.next_id();
+        self.incoming.insert(
+            transfer_id.to_string(),
+            Incoming { transfer, name: name.clone(), size, sha256, received: 0, next_sequence: 0, dir, part, file, hasher: ring::digest::Context::new(&ring::digest::SHA256), reported: None },
+        );
+        self.host.event(Event::FileIncoming { transfer, device_id, name, size, mime });
+        self.outer("files.accept", &outer_id, None).await
+    }
+
+    async fn file_chunk(&mut self, m: Message) -> Step {
+        let Some(id) = m.transfer_id.clone() else { return Step::Continue };
+        if !self.incoming.contains_key(&id) {
+            // A chunk for a transfer that ended here (cancelled, failed) is dropped quietly; any other is not ours.
+            return if self.ended.contains(&id) { Step::Continue } else { self.bad() };
+        }
+        let Some(data) = self.open(&m) else { return Step::Close("bad_files".into()) };
+        let device_id = self.st.remote_id.clone();
+        let i = self.incoming.get_mut(&id).unwrap();
+        let fits = m.sequence == Some(i.next_sequence) && !data.is_empty() && data.len() <= MAX_CHUNK_IN && i.received + data.len() as u64 <= i.size;
+        if !fits || i.file.write_all(&data).is_err() {
+            let reason = if fits { "storage" } else { "invalid" };
+            let i = self.incoming.remove(&id).unwrap();
+            self.drop_incoming(&id, i, reason);
+            return self.outer("files.cancel", &id, None).await;
+        }
+        i.hasher.update(&data);
+        i.received += data.len() as u64;
+        i.next_sequence += 1;
+        let now = Instant::now();
+        if i.reported.is_none_or(|t| now.duration_since(t) >= PROGRESS_EVERY) {
+            i.reported = Some(now);
+            self.host.event(Event::FileProgress { transfer: i.transfer, device_id, incoming: true, bytes: i.received, total: i.size });
+        }
+        // Every chunk is acknowledged, as Android does; a Mac keeps at most 64 unacknowledged.
+        self.outer("files.chunk.ack", &id, m.sequence).await
+    }
+
+    async fn file_complete(&mut self, m: Message) -> Step {
+        let Some(plain) = self.open(&m) else { return Step::Close("bad_files".into()) };
+        let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(&plain) else { return Step::Continue };
+        // Android repeats the transfer ID only inside.
+        let Some(id) = o.get("transferId").and_then(Value::as_str).map(str::to_string) else { return Step::Continue };
+        let hash = o.get("sha256").and_then(Value::as_str).and_then(crypto::unb64);
+        let Some(i) = self.incoming.remove(&id) else { return Step::Continue };
+        let device_id = self.st.remote_id.clone();
+        let Incoming { transfer, name, size, sha256, received, dir, part, mut file, hasher, .. } = i;
+        let digest = hasher.finish();
+        let verified = received == size && crypto::ct_eq(digest.as_ref(), &sha256) && hash.as_deref().is_some_and(|h| crypto::ct_eq(h, &sha256));
+        let flushed = file.flush().and_then(|_| file.sync_all()).is_ok();
+        drop(file);
+        self.ended(&id);
+        if !verified || !flushed {
+            let _ = std::fs::remove_file(&part);
+            self.file_failed(transfer, true, &name, if verified { "storage" } else { "verification_failed" });
+            return self.outer("files.cancel", &id, None).await;
+        }
+        match transfer::place(&part, &dir, &name) {
+            Ok(path) => {
+                let saved = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name);
+                self.host.event(Event::FileDone { transfer, device_id, incoming: true, name: saved, path: Some(path.to_string_lossy().into_owned()), size });
+                self.outer("files.complete.ack", &id, None).await
+            }
+            Err(_) => {
+                let _ = std::fs::remove_file(&part);
+                self.file_failed(transfer, true, &name, "storage");
+                self.outer("files.cancel", &id, None).await
+            }
+        }
+    }
+
+    /// The session ended: partial files are deleted and every transfer still running or waiting fails.
+    fn end_transfers(&mut self, reason: &str) {
+        let why = if reason == "stopped" { "stopped" } else { "interrupted" };
+        for (id, i) in std::mem::take(&mut self.incoming) {
+            self.drop_incoming(&id, i, why);
+        }
+        if let Some(a) = self.active.take() {
+            self.file_failed(a.file.transfer, false, &a.file.name, why);
+        }
+        for f in std::mem::take(&mut self.queue) {
+            self.file_failed(f.transfer, false, &f.name, why);
+        }
+    }
+
+    // MARK: links (`quick.request` with feature `links`)
+
+    async fn quick_request(&mut self, m: Message) -> Step {
+        let Some(plain) = self.open(&m).filter(|p| p.len() <= QUICK_MAX) else { return Step::Continue };
+        let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(&plain) else { return Step::Continue };
+        let (Some(1), Some(request_id), Some(feature), Some(action), Some(value), Some(sequence)) = (
+            o.get("version").and_then(Value::as_i64),
+            o.get("requestId").and_then(Value::as_str).filter(|r| crypto::is_uuid(r)),
+            o.get("feature").and_then(Value::as_str),
+            o.get("action").and_then(Value::as_str),
+            o.get("value").and_then(Value::as_str),
+            o.get("sequence").and_then(Value::as_i64).filter(|s| (1..=9_007_199_254_740_991).contains(s)),
+        ) else {
+            return Step::Continue;
+        };
+        // Each feature's sequence only rises within a session, so an old request never runs again.
+        let seen = self.quick_seen.entry(feature.chars().take(32).collect()).or_insert(0);
+        if sequence <= *seen {
+            return Step::Continue;
+        }
+        *seen = sequence;
+        let device_id = self.st.remote_id.clone();
+        let (accepted, reason) = if feature != "links" || !matches!(action, "offer" | "open") {
+            (false, None)
+        } else if !self.host.policy(&device_id).get("links") {
+            (false, Some("links_disabled"))
+        } else if !transfer::valid_link(value) {
+            (false, None)
+        } else {
+            self.host.event(Event::Link { device_id, url: value.to_string() });
+            (true, None)
+        };
+        let mut result = json!({"version": 1, "requestId": request_id, "feature": feature.chars().take(32).collect::<String>(), "accepted": accepted, "opened": false});
+        if let Some(r) = reason {
+            result["reason"] = Value::from(r);
+        }
+        self.encrypted("quick.result", result.to_string().as_bytes(), crypto::uuid4()).await
+    }
+}
+
+/// Reads until `buf` is full or the file ends.
+fn read_full(file: &mut std::fs::File, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut n = 0;
+    while n < buf.len() {
+        match file.read(&mut buf[n..]) {
+            Ok(0) => break,
+            Ok(k) => n += k,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(n)
 }
 
 /// Test builds only: each session's pairing material, so recorded sessions can be checked by other implementations.

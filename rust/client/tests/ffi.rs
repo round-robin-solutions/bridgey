@@ -58,6 +58,8 @@ fn start(name: &str, storage: Option<&BridgeyStorage>) -> u64 {
         device_name: name.as_ptr(),
         platform: platform.as_ptr(),
         data_dir: std::ptr::null(),
+        receive_dir: std::ptr::null(),
+        manual_connect: 0,
     };
     let mut handle = 0u64;
     let rc = unsafe { bridgey_client_new(&config, storage.map_or(std::ptr::null(), |s| s as *const _), &mut handle) };
@@ -170,9 +172,45 @@ fn bad_configuration_is_refused() {
     let mut out = 0u64;
     assert_eq!(unsafe { bridgey_client_new(std::ptr::null(), std::ptr::null(), &mut out) }, BRIDGEY_ERR_INVALID_ARGUMENT);
     let name = CString::new("x").unwrap();
-    let config = BridgeyConfig { struct_size: 4, port: 0, listen: 0, discovery: 0, event_capacity: 0, device_name: name.as_ptr(), platform: name.as_ptr(), data_dir: std::ptr::null() };
+    let config = BridgeyConfig {
+        struct_size: 4,
+        port: 0,
+        listen: 0,
+        discovery: 0,
+        event_capacity: 0,
+        device_name: name.as_ptr(),
+        platform: name.as_ptr(),
+        data_dir: std::ptr::null(),
+        receive_dir: std::ptr::null(),
+        manual_connect: 0,
+    };
     assert_eq!(unsafe { bridgey_client_new(&config, std::ptr::null(), &mut out) }, BRIDGEY_ERR_INVALID_ARGUMENT, "struct_size too small");
     let half = BridgeyStorage { context: std::ptr::null_mut(), load: Some(load), store: None, remove: None };
     let config = BridgeyConfig { struct_size: std::mem::size_of::<BridgeyConfig>() as u32, ..config };
     assert_eq!(unsafe { bridgey_client_new(&config, &half, &mut out) }, BRIDGEY_ERR_INVALID_ARGUMENT, "all three callbacks");
+}
+
+/// A host built before receive_dir (the Windows app) passes the older, smaller struct; it still starts, and the
+/// fields it does not have are never read.
+#[test]
+fn a_config_from_before_receive_dir_still_starts() {
+    let name = CString::new("old host").unwrap();
+    let platform = CString::new("windows").unwrap();
+    let old_size = std::mem::offset_of!(BridgeyConfig, receive_dir) as u32;
+    let config = BridgeyConfig {
+        struct_size: old_size,
+        port: std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port(),
+        listen: 0,
+        discovery: 0,
+        event_capacity: 0,
+        device_name: name.as_ptr(),
+        platform: platform.as_ptr(),
+        data_dir: std::ptr::null(),
+        // Garbage the library must not read for a struct this size.
+        receive_dir: std::ptr::dangling::<std::ffi::c_char>(),
+        manual_connect: 7,
+    };
+    let mut handle = 0u64;
+    assert_eq!(unsafe { bridgey_client_new(&config, std::ptr::null(), &mut handle) }, BRIDGEY_OK);
+    bridgey_client_free(handle);
 }

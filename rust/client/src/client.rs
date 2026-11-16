@@ -5,11 +5,12 @@
 
 use crate::events::{Event, EventQueue, Next, SendStatus};
 use crate::features::FeatureMap;
-use crate::session::{self, Admission, Authenticated, Handle, Local, Offer, Role};
+use crate::session::{self, Admission, Authenticated, Handle, Local, Offer, OutgoingFile, Role};
 use crate::trust::{Identity, KnownAddress, Storage, TrustStore, TrustedDevice};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -38,6 +39,8 @@ const REQUEST_SPACING: Duration = Duration::from_secs(10);
 /// Senders give up on an acknowledgement after this long rather than show "sending" forever.
 const ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const PING_TIMEOUT: Duration = Duration::from_secs(5);
+/// Quick actions (links) are "not confirmed" after eight seconds (docs/protocol.md "Quick actions").
+const QUICK_TIMEOUT: Duration = Duration::from_secs(8);
 /// Connections that have not authenticated yet, at once.
 const MAX_PENDING: usize = 16;
 
@@ -52,6 +55,11 @@ pub struct Config {
     pub event_capacity: usize,
     /// This device's switches for devices that have none of their own.
     pub defaults: FeatureMap,
+    /// Where received files are saved. None refuses files (`files.rejected`), whatever the switches say.
+    pub receive_dir: Option<PathBuf>,
+    /// Connect only to devices named with `connect` (a share extension), instead of keeping every trusted device
+    /// connected.
+    pub manual_connect: bool,
 }
 
 impl Config {
@@ -59,8 +67,26 @@ impl Config {
         let mut defaults = FeatureMap::all_off();
         defaults.set("clipboard", true);
         defaults.set("ping", true);
-        Config { device_name: device_name.into(), platform: platform.into(), port: DEFAULT_PORT, listen: true, discovery: true, event_capacity: 1024, defaults }
+        Config {
+            device_name: device_name.into(),
+            platform: platform.into(),
+            port: DEFAULT_PORT,
+            listen: true,
+            discovery: true,
+            event_capacity: 1024,
+            defaults,
+            receive_dir: None,
+            manual_connect: false,
+        }
     }
+}
+
+/// What an acknowledgement is waited for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pending {
+    Clipboard,
+    Ping,
+    Link,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -159,8 +185,25 @@ struct State {
     requests: HashMap<String, Instant>,
     discovered: HashMap<String, Discovered>,
     remote: HashMap<String, FeatureMap>,
-    pending: HashMap<String, (u64, String, bool)>,
+    /// Waiting for an answer, by message ID (clipboard, ping) or request ID (links).
+    pending: HashMap<String, (u64, String, Pending)>,
     loops: HashMap<String, Arc<Notify>>,
+    /// Transfers in either direction and the device each is with, for cancelling.
+    transfers: HashMap<u64, String>,
+    /// With manual_connect: the devices the host asked to connect to.
+    wanted: HashSet<String>,
+    /// Each device's files waiting to be hashed, in the order they were sent.
+    hashing: HashMap<String, mpsc::UnboundedSender<HashJob>>,
+    /// Files sent but not handed to a session yet (still hashing or waiting to be).
+    unhanded: HashSet<u64>,
+}
+
+/// A file to hash before it is offered.
+struct HashJob {
+    transfer: u64,
+    path: PathBuf,
+    name: String,
+    mime: String,
 }
 
 pub(crate) struct Inner {
@@ -169,6 +212,8 @@ pub(crate) struct Inner {
     port: AtomicU64,
     storage: Arc<dyn Storage>,
     defaults: RwLock<FeatureMap>,
+    receive_dir: RwLock<Option<PathBuf>>,
+    manual: bool,
     trust: Mutex<TrustStore>,
     state: Mutex<State>,
     events: EventQueue,
@@ -203,6 +248,8 @@ impl Client {
             port: AtomicU64::new(0),
             storage,
             defaults: RwLock::new(config.defaults.clone()),
+            receive_dir: RwLock::new(config.receive_dir.clone()),
+            manual: config.manual_connect,
             trust: Mutex::new(trust),
             state: Mutex::new(State::default()),
             events: EventQueue::new(config.event_capacity),
@@ -395,6 +442,7 @@ impl Client {
             if let Some(n) = st.loops.remove(&id) {
                 n.notify_one();
             }
+            st.wanted.remove(&id);
         }
         self.inner.emit(Event::TrustChanged { device_id: id, name, trusted: false });
         Ok(())
@@ -412,7 +460,7 @@ impl Client {
         let (handle, id) = self.inner.feature_session(device_id, "clipboard")?;
         let message_id = crate::crypto::uuid4();
         let request = self.inner.next_id();
-        self.inner.state.lock().unwrap().pending.insert(message_id.clone(), (request, id.clone(), false));
+        self.inner.state.lock().unwrap().pending.insert(message_id.clone(), (request, id.clone(), Pending::Clipboard));
         if !handle.send_clipboard(text.to_string(), message_id.clone()) {
             self.inner.state.lock().unwrap().pending.remove(&message_id);
             return Err(ClientError::NotConnected);
@@ -427,13 +475,124 @@ impl Client {
         let (handle, id) = self.inner.feature_session(device_id, "ping")?;
         let message_id = crate::crypto::uuid4();
         let request = self.inner.next_id();
-        self.inner.state.lock().unwrap().pending.insert(message_id.clone(), (request, id, true));
+        self.inner.state.lock().unwrap().pending.insert(message_id.clone(), (request, id, Pending::Ping));
         if !handle.ping(message_id.clone()) {
             self.inner.state.lock().unwrap().pending.remove(&message_id);
             return Err(ClientError::NotConnected);
         }
         self.inner.expire(message_id, PING_TIMEOUT);
         Ok(request)
+    }
+
+    /// Sends a file to a connected device: hashed first, then offered, then sent in chunks once accepted. Files to
+    /// one device go one at a time, in order. The result arrives as `FileDone` or `FileFailed` with the returned
+    /// transfer ID, with `FileProgress` meanwhile. `name` defaults to the file's own name and `mime` to one from it.
+    pub fn send_file(&self, device_id: &str, path: &Path, name: Option<&str>, mime: Option<&str>) -> Result<u64, ClientError> {
+        self.inner.check()?;
+        let meta = std::fs::metadata(path).map_err(|e| ClientError::InvalidArgument(if e.kind() == std::io::ErrorKind::NotFound { "no such file" } else { "unreadable file" }))?;
+        if !meta.is_file() {
+            return Err(ClientError::InvalidArgument("not a file"));
+        }
+        if meta.len() > crate::transfer::MAX_FILE {
+            return Err(ClientError::TooLarge);
+        }
+        let (_, id) = self.inner.feature_session(device_id, "files")?;
+        let own = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = crate::transfer::safe_name(name.filter(|n| !n.trim().is_empty()).unwrap_or(&own));
+        let mime = mime.filter(|m| !m.is_empty() && m.len() <= 128).map(str::to_string).unwrap_or_else(|| crate::transfer::mime_for(&name).to_string());
+        let transfer = self.inner.next_id();
+        let job = HashJob { transfer, path: path.to_path_buf(), name, mime };
+        let mut st = self.inner.state.lock().unwrap();
+        st.transfers.insert(transfer, id.clone());
+        st.unhanded.insert(transfer);
+        // One queue per device, so files are hashed and offered in the order they were sent.
+        let queue = st.hashing.entry(id.clone()).or_insert_with(|| {
+            let (tx, rx) = mpsc::unbounded_channel();
+            let me = self.inner.clone();
+            self.inner.rt.spawn(me.hash_loop(id.clone(), rx));
+            tx
+        });
+        if let Err(e) = queue.send(job) {
+            st.transfers.remove(&transfer);
+            st.unhanded.remove(&transfer);
+            st.hashing.remove(&id);
+            drop(st);
+            self.inner.emit(Event::FileFailed { transfer, device_id: id, incoming: false, name: e.0.name, reason: "stopped".into() });
+        }
+        Ok(transfer)
+    }
+
+    /// Stops a transfer in either direction; the other device is told. `FileFailed` follows with `cancelled`.
+    pub fn cancel_file(&self, transfer: u64) -> Result<(), ClientError> {
+        self.inner.check()?;
+        let device = {
+            let mut st = self.inner.state.lock().unwrap();
+            let device = st.transfers.get(&transfer).cloned().ok_or(ClientError::UnknownDevice)?;
+            // Not with a session yet: it ends here.
+            if st.unhanded.remove(&transfer) {
+                st.transfers.remove(&transfer);
+                drop(st);
+                self.inner.emit(Event::FileFailed { transfer, device_id: device, incoming: false, name: String::new(), reason: "cancelled".into() });
+                return Ok(());
+            }
+            device
+        };
+        let handle = {
+            let st = self.inner.state.lock().unwrap();
+            st.connected.get(&device).and_then(|s| st.sessions.get(s)).map(|l| l.handle.clone())
+        };
+        match handle {
+            Some(h) if h.cancel_file(transfer) => Ok(()),
+            _ => {
+                // Still hashing (no session has it yet), or the session ended: it fails here.
+                let removed = self.inner.state.lock().unwrap().transfers.remove(&transfer);
+                if removed.is_some() {
+                    self.inner.emit(Event::FileFailed { transfer, device_id: device, incoming: false, name: String::new(), reason: "cancelled".into() });
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Sends a link (http or https) to a connected device with Links on at both ends. It is queued there for the
+    /// person to open; a Mac with "Open links from other devices right away" opens it. The result arrives as
+    /// `LinkSent` with the returned request ID.
+    pub fn send_link(&self, device_id: &str, url: &str) -> Result<u64, ClientError> {
+        self.inner.check()?;
+        let url = url.trim();
+        if !crate::transfer::valid_link(url) {
+            return Err(ClientError::InvalidArgument("not an http or https link"));
+        }
+        let (handle, id) = self.inner.feature_session(device_id, "links")?;
+        // A Mac that shows links_open_draft1 understands "open" (Send to device); others queue an "offer".
+        let open = self.inner.state.lock().unwrap().remote.get(&id).is_some_and(|r| r.get("links_open_draft1"));
+        let request_id = crate::crypto::uuid4();
+        let request = self.inner.next_id();
+        self.inner.state.lock().unwrap().pending.insert(request_id.clone(), (request, id, Pending::Link));
+        if !handle.send_link(url.to_string(), request_id.clone(), open) {
+            self.inner.state.lock().unwrap().pending.remove(&request_id);
+            return Err(ClientError::NotConnected);
+        }
+        self.inner.expire(request_id, QUICK_TIMEOUT);
+        Ok(request)
+    }
+
+    /// Connects to a trusted device now and keeps it connected (needed with `manual_connect`; elsewhere it retries
+    /// at once, like a network change).
+    pub fn connect(&self, device_id: &str) -> Result<(), ClientError> {
+        self.inner.check()?;
+        let id = device_id.to_ascii_lowercase();
+        if self.inner.trust.lock().unwrap().get(&id).is_none() {
+            return Err(ClientError::UnknownDevice);
+        }
+        self.inner.state.lock().unwrap().wanted.insert(id.clone());
+        self.inner.ensure_loop(&id);
+        Ok(())
+    }
+
+    /// Where received files go from now on; None refuses files.
+    pub fn set_receive_dir(&self, dir: Option<&Path>) {
+        *self.inner.receive_dir.write().unwrap() = dir.map(Path::to_path_buf);
     }
 
     /// Turns one of this device's switches on or off, for one trusted device or (without one) as the default.
@@ -468,6 +627,14 @@ impl Client {
         let port = if port == 0 { DEFAULT_PORT } else { port };
         let key = format!("host:{}", SocketAddr::new(ip, port));
         self.inner.discovered(key, device_id.map(str::to_string), name.to_string(), platform.map(str::to_string), vec![SocketAddr::new(ip, port)]);
+        Ok(())
+    }
+
+    /// A device the host found itself has gone (its Bonjour service was removed).
+    pub fn remove_discovered(&self, host: &str, port: u16) -> Result<(), ClientError> {
+        let ip: IpAddr = host.trim().parse().map_err(|_| ClientError::InvalidArgument("host must be an IP address"))?;
+        let port = if port == 0 { DEFAULT_PORT } else { port };
+        self.inner.lost(&format!("host:{}", SocketAddr::new(ip, port)));
         Ok(())
     }
 
@@ -563,9 +730,8 @@ impl Inner {
         self.rt.spawn(async move {
             tokio::time::sleep(after).await;
             let pending = me.state.lock().unwrap().pending.remove(&message_id);
-            if let Some((request, device_id, ping)) = pending {
-                let status = SendStatus::TimedOut;
-                me.emit(if ping { Event::PingResult { request, device_id, status } } else { Event::ClipboardSent { request, device_id, status } });
+            if let Some((request, device_id, what)) = pending {
+                me.emit(answer(what, request, device_id, SendStatus::TimedOut));
             }
         });
     }
@@ -697,8 +863,61 @@ impl Inner {
         a.wake.notify_one();
     }
 
+    /// Hashes one device's files in order and hands each to its session, which offers them one at a time.
+    async fn hash_loop(self: Arc<Self>, device_id: String, mut jobs: mpsc::UnboundedReceiver<HashJob>) {
+        while let Some(job) = jobs.recv().await {
+            let HashJob { transfer, path, name, mime } = job;
+            let fail = |reason: &str| {
+                let mut st = self.state.lock().unwrap();
+                st.transfers.remove(&transfer);
+                // Cancelled meanwhile: that already said so.
+                if st.unhanded.remove(&transfer) {
+                    drop(st);
+                    self.emit(Event::FileFailed { transfer, device_id: device_id.clone(), incoming: false, name: name.clone(), reason: reason.into() });
+                }
+            };
+            // Cancelled before its turn.
+            if !self.state.lock().unwrap().unhanded.contains(&transfer) {
+                continue;
+            }
+            let hashed = {
+                let path = path.clone();
+                tokio::task::spawn_blocking(move || crate::transfer::hash_file(&path)).await
+            };
+            let Ok(Ok((sha256, size))) = hashed else {
+                fail("unreadable");
+                continue;
+            };
+            if size > crate::transfer::MAX_FILE {
+                fail("unreadable");
+                continue;
+            }
+            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256 };
+            match self.feature_session(&device_id, "files") {
+                Ok((handle, _)) => {
+                    // Handed over under the lock, so a cancel goes either here or to the session, never neither.
+                    let mut st = self.state.lock().unwrap();
+                    if !st.unhanded.remove(&transfer) {
+                        continue;
+                    }
+                    if !handle.send_file(file) {
+                        st.transfers.remove(&transfer);
+                        drop(st);
+                        self.emit(Event::FileFailed { transfer, device_id: device_id.clone(), incoming: false, name: name.clone(), reason: "not_connected".into() });
+                    }
+                }
+                Err(ClientError::NotConnected) => fail("not_connected"),
+                Err(_) => fail("rejected"),
+            }
+        }
+    }
+
     fn ensure_loop(&self, device_id: &str) {
         let mut st = self.state.lock().unwrap();
+        // A share extension keeps only the devices it was asked for connected.
+        if self.manual && !st.wanted.contains(device_id) {
+            return;
+        }
         if let Some(n) = st.loops.get(device_id) {
             n.notify_one();
             return;
@@ -820,6 +1039,7 @@ impl Inner {
         }
     }
 
+    #[cfg(feature = "mdns")]
     pub(crate) fn found(&self, key: String, device_id: Option<String>, name: String, platform: Option<String>, addrs: Vec<SocketAddr>) {
         self.discovered(key, device_id, name, platform, addrs);
     }
@@ -892,6 +1112,14 @@ impl Inner {
 impl session::Host for Inner {
     fn local(&self) -> &Local {
         &self.local
+    }
+
+    fn next_id(&self) -> u64 {
+        Inner::next_id(self)
+    }
+
+    fn receive_dir(&self) -> Option<PathBuf> {
+        self.receive_dir.read().unwrap().clone()
     }
 
     fn pin(&self, device_id: &str) -> Option<String> {
@@ -1077,17 +1305,50 @@ impl session::Host for Inner {
             }
             session::Event::Clipboard { device_id, text, html, .. } => self.emit(Event::Clipboard { device_id, text, html }),
             session::Event::ClipboardResult { message_id, delivered, .. } => {
-                let pending = self.state.lock().unwrap().pending.remove(&message_id);
-                if let Some((request, device_id, false)) = pending {
-                    self.emit(Event::ClipboardSent { request, device_id, status: if delivered { SendStatus::Delivered } else { SendStatus::Rejected } });
+                let pending = self.state.lock().unwrap().pending.remove_entry(&message_id);
+                match pending {
+                    Some((_, (request, device_id, Pending::Clipboard))) => {
+                        self.emit(Event::ClipboardSent { request, device_id, status: if delivered { SendStatus::Delivered } else { SendStatus::Rejected } });
+                    }
+                    Some((k, v)) => {
+                        self.state.lock().unwrap().pending.insert(k, v);
+                    }
+                    None => {}
                 }
             }
             session::Event::Ping { device_id } => self.emit(Event::Ping { device_id }),
             session::Event::PingAck { message_id, .. } => {
-                let pending = self.state.lock().unwrap().pending.remove(&message_id);
-                if let Some((request, device_id, true)) = pending {
-                    self.emit(Event::PingResult { request, device_id, status: SendStatus::Delivered });
+                let pending = self.state.lock().unwrap().pending.remove_entry(&message_id);
+                match pending {
+                    Some((_, (request, device_id, Pending::Ping))) => self.emit(Event::PingResult { request, device_id, status: SendStatus::Delivered }),
+                    Some((k, v)) => {
+                        self.state.lock().unwrap().pending.insert(k, v);
+                    }
+                    None => {}
                 }
+            }
+            session::Event::QuickResult { device_id, request_id, accepted, opened } => {
+                let mut st = self.state.lock().unwrap();
+                // Only the device the link went to can answer for it.
+                if st.pending.get(&request_id).is_some_and(|p| p.2 == Pending::Link && p.1 == device_id) {
+                    let (request, device_id, _) = st.pending.remove(&request_id).unwrap();
+                    drop(st);
+                    self.emit(Event::LinkSent { request, device_id, status: if accepted { SendStatus::Delivered } else { SendStatus::Rejected }, opened });
+                }
+            }
+            session::Event::Link { device_id, url } => self.emit(Event::Link { device_id, url }),
+            session::Event::FileIncoming { transfer, device_id, name, size, mime } => {
+                self.state.lock().unwrap().transfers.insert(transfer, device_id.clone());
+                self.emit(Event::FileIncoming { transfer, device_id, name, size, mime });
+            }
+            session::Event::FileProgress { transfer, device_id, incoming, bytes, total } => self.emit(Event::FileProgress { transfer, device_id, incoming, bytes, total }),
+            session::Event::FileDone { transfer, device_id, incoming, name, path, size } => {
+                self.state.lock().unwrap().transfers.remove(&transfer);
+                self.emit(Event::FileDone { transfer, device_id, incoming, name, path, size });
+            }
+            session::Event::FileFailed { transfer, device_id, incoming, name, reason } => {
+                self.state.lock().unwrap().transfers.remove(&transfer);
+                self.emit(Event::FileFailed { transfer, device_id, incoming, name, reason });
             }
             session::Event::Closed { session, device_id, reason, authenticated, paired, answered } => self.closed(session, device_id, reason, authenticated, paired, answered),
         }
@@ -1109,7 +1370,7 @@ impl Inner {
         if st.incoming_pairing == Some(session) {
             st.incoming_pairing = None;
         }
-        let failed: Vec<(String, u64, String, bool)> = match &disconnected {
+        let failed: Vec<(String, u64, String, Pending)> = match &disconnected {
             Some(id) => st.pending.iter().filter(|(_, v)| &v.1 == id).map(|(k, v)| (k.clone(), v.0, v.1.clone(), v.2)).collect(),
             None => vec![],
         };
@@ -1133,9 +1394,8 @@ impl Inner {
             }
             wake.notify_one();
         }
-        for (_, request, device, ping) in failed {
-            let status = SendStatus::Failed;
-            self.emit(if ping { Event::PingResult { request, device_id: device, status } } else { Event::ClipboardSent { request, device_id: device, status } });
+        for (_, request, device, what) in failed {
+            self.emit(answer(what, request, device, SendStatus::Failed));
         }
         // An offer this end answered that ended before pairing finished.
         if !authenticated && paired && answered && !live.dialled && live.attempt.is_none() {
@@ -1149,5 +1409,14 @@ impl Inner {
                 n.notify_one();
             }
         }
+    }
+}
+
+/// The event that answers a send: its result, whatever the send was.
+fn answer(what: Pending, request: u64, device_id: String, status: SendStatus) -> Event {
+    match what {
+        Pending::Clipboard => Event::ClipboardSent { request, device_id, status },
+        Pending::Ping => Event::PingResult { request, device_id, status },
+        Pending::Link => Event::LinkSent { request, device_id, status, opened: false },
     }
 }
