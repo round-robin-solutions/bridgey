@@ -59,7 +59,8 @@ internal sealed class UpdateHost(Func<MainWindow?> window, Action quit) : IUpdat
         var source = Directory.GetFiles(staging, "Bridgey.exe", SearchOption.AllDirectories).Select(Path.GetDirectoryName).FirstOrDefault()
             ?? throw new InvalidDataException("the update has no Bridgey.exe");
         var target = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
-        var start = new ProcessStartInfo(Path.Combine(source!, "Bridgey.exe")) { UseShellExecute = false, WorkingDirectory = source };
+        // Started through the shell, so it inherits none of this process's handles and outlives it cleanly.
+        var start = new ProcessStartInfo(Path.Combine(source!, "Bridgey.exe")) { UseShellExecute = true, WorkingDirectory = source };
         start.ArgumentList.Add("--install-update");
         start.ArgumentList.Add(source!);
         start.ArgumentList.Add(target);
@@ -120,7 +121,7 @@ internal static class UpdateInstaller
         Log(ok ? "Update installed" : "Update not fully installed; starting the installed Bridgey");
         try
         {
-            Process.Start(new ProcessStartInfo(Path.Combine(target, "Bridgey.exe")) { UseShellExecute = false, WorkingDirectory = target });
+            Process.Start(new ProcessStartInfo(Path.Combine(target, "Bridgey.exe")) { UseShellExecute = true, WorkingDirectory = target });
         }
         catch (Exception e)
         {

@@ -212,6 +212,12 @@ public sealed class UpdateTests : IDisposable
             try { if (!p.HasExited) p.Kill(); }
             catch (Exception) { }
         }
+        // Anything else this test started from its folders (the installer, a second relaunch), so nothing outlives it.
+        foreach (var p in Process.GetProcessesByName("Bridgey"))
+        {
+            try { if (SafePath(p)?.StartsWith(_root, StringComparison.OrdinalIgnoreCase) == true) p.Kill(); }
+            catch (Exception) { }
+        }
         _automation.Dispose();
     }
 }
