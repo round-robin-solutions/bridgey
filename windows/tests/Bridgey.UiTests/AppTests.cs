@@ -79,6 +79,9 @@ public sealed partial class AppTests : IDisposable
                 SelectSection(window, "About");
                 Assert.Contains("1.0", Find(window, "ShortVersion").Name);
                 Shot(window, $"settings-about-{t}");
+                SelectSection(window, "Updates");
+                Find(window, "CheckUpdates");
+                Shot(window, $"settings-updates-{t}");
 
                 Click(window, "NavPair");
                 Find(window, "PairAddress");
