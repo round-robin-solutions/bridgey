@@ -76,6 +76,10 @@ jobs:
           out = os.path.join(os.environ['RUNNER_TEMP'], 'rr-ci-output')
           os.makedirs(out, exist_ok=True)
           env = {**os.environ, 'CI': '1', 'RR_CI_HOSTED': '1', 'RR_CI_OUTPUT': out, 'RR_CI_CPU': str(job.get('cpu', 1))}
+          # The run's context, as RR CI's own workers export it (a tag names the release version; one release time per
+          # release run). Only these names, and never a secret.
+          env.update({k: str(v) for k, v in (job.get('env') or {}).items()
+                      if k in ('RR_CI_REVISION', 'RR_CI_RUN_KIND', 'RR_CI_BRANCH', 'RR_CI_REF', 'RR_CI_RELEASE_NOW')})
           env.pop('RR_CI_JOB', None)
           code = subprocess.call(job['command'], env=env)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
@@ -181,6 +185,10 @@ jobs:
           out = os.path.join(os.environ['RUNNER_TEMP'], 'rr-ci-output')
           os.makedirs(out, exist_ok=True)
           env = {**os.environ, 'CI': '1', 'RR_CI_HOSTED': '1', 'RR_CI_OUTPUT': out, 'RR_CI_CPU': str(job.get('cpu', 1))}
+          # The run's context, as RR CI's own workers export it (a tag names the release version; one release time per
+          # release run). Only these names, and never a secret.
+          env.update({k: str(v) for k, v in (job.get('env') or {}).items()
+                      if k in ('RR_CI_REVISION', 'RR_CI_RUN_KIND', 'RR_CI_BRANCH', 'RR_CI_REF', 'RR_CI_RELEASE_NOW')})
           env.pop('RR_CI_JOB', None)
           code = subprocess.call(job['command'], env=env)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as handle:
