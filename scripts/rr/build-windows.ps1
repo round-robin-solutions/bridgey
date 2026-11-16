@@ -90,8 +90,8 @@ try {
     $manifest = Join-Path $Root 'rust/Cargo.toml'
     Invoke-Logged -Log 'rustup.log' -Exe 'rustup' -Arguments (@('target', 'add') + ($Architectures | ForEach-Object { $rustTargets[$_] }))
     if ($env:RR_CI_HOSTED -eq '1') {
-        # A throwaway CI runner: the Connect test dials a QUIC tunnel to this machine's own network address, which
-        # Windows Firewall drops for a program without a rule. Allow the test programs first. Never on anyone's own PC.
+        # A throwaway CI runner: the Connect test dials a QUIC tunnel to this machine's own network address. Allow the
+        # test programs through Windows Firewall first, so a missing rule can't be why it fails. Never on anyone's own PC.
         $built = & cargo test -p bridgey-client --locked --no-run --message-format=json --manifest-path $manifest 2>$null
         if ($LASTEXITCODE -ne 0) { throw "cargo test --no-run failed ($LASTEXITCODE)" }
         foreach ($line in $built) {
