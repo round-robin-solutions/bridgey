@@ -769,8 +769,24 @@ impl Node {
 
     async fn dial_direct(self: Arc<Self>, peer: String, addr: SocketAddr, route: Route, vpn: Option<String>) {
         let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route));
-        let Ok(connecting) = self.endpoint.connect_with(config, addr, "bridgey") else { return };
-        let Ok(Ok(conn)) = tokio::time::timeout(Duration::from_secs(3), connecting).await else { return };
+        let connecting = match self.endpoint.connect_with(config, addr, "bridgey") {
+            Ok(c) => c,
+            Err(e) => {
+                self.mark("dial.error", Some(&peer), Some(&format!("{addr}: {e}")));
+                return;
+            }
+        };
+        let conn = match tokio::time::timeout(Duration::from_secs(3), connecting).await {
+            Ok(Ok(conn)) => conn,
+            Ok(Err(e)) => {
+                self.mark("dial.error", Some(&peer), Some(&format!("{addr}: {e}")));
+                return;
+            }
+            Err(_) => {
+                self.mark("dial.timeout", Some(&peer), Some(&addr.to_string()));
+                return;
+            }
+        };
         if self.has_tunnel(&peer, route) {
             conn.close(0u32.into(), b"superseded");
             return;
@@ -1611,7 +1627,17 @@ impl Node {
             }
             let node = self.clone();
             tokio::spawn(async move {
-                let Ok(Ok(conn)) = tokio::time::timeout(Duration::from_secs(10), incoming).await else { return };
+                let conn = match tokio::time::timeout(Duration::from_secs(10), incoming).await {
+                    Ok(Ok(conn)) => conn,
+                    Ok(Err(e)) => {
+                        node.mark("accept.error", None, Some(&format!("{source}: {e}")));
+                        return;
+                    }
+                    Err(_) => {
+                        node.mark("accept.timeout", None, Some(&source.to_string()));
+                        return;
+                    }
+                };
                 let remote = addrs::canonical(conn.remote_address());
                 if is_virtual(remote) {
                     let session = node.ice.lock().unwrap().values().find(|s| s.agent.vaddr == remote).cloned();
@@ -2001,6 +2027,8 @@ impl Node {
         let c = &self.mux.counters;
         json!({
             "ok": true,
+            "sendErrors": c.send_errors.load(Ordering::Relaxed),
+            "lastSendError": c.last_send_error.lock().unwrap().clone(),
             "udpPort": self.mux.port(),
             "control": self.rdv_connected.load(Ordering::Relaxed),
             "relayOnly": self.mux.relay_only.load(Ordering::Relaxed),

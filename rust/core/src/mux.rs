@@ -79,6 +79,9 @@ pub struct Counters {
     pub direct_out: AtomicU64,
     pub relay_in: AtomicU64,
     pub relay_out: AtomicU64,
+    /// QUIC datagrams the OS refused to send (counted as lost), and the last reason, for diagnostics.
+    pub send_errors: AtomicU64,
+    pub last_send_error: Mutex<String>,
 }
 
 pub struct Mux {
@@ -472,7 +475,12 @@ impl quinn::AsyncUdpSocket for Mux {
         match self.send_path(path, transmit.contents) {
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
             // Unreachable networks and the like: QUIC treats the packet as lost.
-            _ => Ok(()),
+            Err(e) => {
+                self.counters.send_errors.fetch_add(1, Ordering::Relaxed);
+                *self.counters.last_send_error.lock().unwrap() = format!("{dest}: {e}");
+                Ok(())
+            }
+            Ok(()) => Ok(()),
         }
     }
 
