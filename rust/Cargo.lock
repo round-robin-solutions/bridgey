@@ -215,6 +215,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "bridgey-codes",
+ "bridgey-connect",
  "bridgey-connect-proto",
  "cbindgen",
  "mdns-sd",

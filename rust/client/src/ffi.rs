@@ -95,7 +95,8 @@ pub enum BridgeyEventKind {
     /// id = transfer, device_id, name, status = 1 incoming or 0 outgoing, text = reason (`BridgeyEvent` docs in
     /// docs/session-client.md).
     FileFailed = 20,
-    /// A link to open or dismiss; never opened by the library. device_id, text = the link.
+    /// A link to open or dismiss; never opened by the library. device_id, text = the link, status = 1 when the host
+    /// opens it now (the device asked for that and Open links right away is on), 0 to offer Open and Dismiss.
     Link = 21,
     /// id = request, device_id, status = BridgeySendStatus, text = `opened` when the device opened it at once.
     LinkSent = 22,
@@ -118,6 +119,13 @@ pub enum BridgeyEventKind {
     /// bridgey_codes_advertise_result) or to stop it (status 0, id = 1 when the link was made). device_id,
     /// text = the service UUID.
     CodesAdvertise = 29,
+    /// The phone's media control for this device's player. device_id, text = the request ID (pass it to
+    /// bridgey_media_result), name = toggle, pause, next, previous, seek or volume, status = the value (seconds or 0 to
+    /// 100), id = 1 when there is a value.
+    MediaCommand = 30,
+    /// Connect away from home. text = off, disabled, connecting, unreachable or online, extra = JSON array of the
+    /// paired device IDs the control service says are online.
+    ConnectState = 31,
 }
 
 /// Bytes owned by the library: UTF-8, NUL-terminated for convenience, `len` without the NUL. `ptr` is NULL when
@@ -329,7 +337,7 @@ fn to_c(event: Event) -> BridgeyEvent {
             (K::FileDone, i32::from(incoming), transfer, Some(device_id), Some(name), path, None)
         }
         Event::FileFailed { transfer, device_id, incoming, name, reason } => (K::FileFailed, i32::from(incoming), transfer, Some(device_id), Some(name), Some(reason), None),
-        Event::Link { device_id, url } => (K::Link, 0, 0, Some(device_id), None, Some(url), None),
+        Event::Link { device_id, url, open } => (K::Link, i32::from(open), 0, Some(device_id), None, Some(url), None),
         Event::LinkSent { request, device_id, status, opened } => (K::LinkSent, status as i32, request, Some(device_id), None, opened.then(|| "opened".to_string()), None),
         Event::Battery { device_id, level, charging } => (K::Battery, i32::from(level), u64::from(charging), Some(device_id), None, None, None),
         Event::FindRequested { device_id, ring } => (K::FindRequested, i32::from(ring), 0, Some(device_id), None, None, None),
@@ -338,6 +346,8 @@ fn to_c(event: Event) -> BridgeyEvent {
         Event::NotificationRemoved { device_id, notification_id, call_ended } => (K::NotificationRemoved, i32::from(call_ended), 0, Some(device_id), None, Some(notification_id), None),
         Event::CodesStatus { device_id, status } => (K::CodesStatus, 0, 0, Some(device_id), None, Some(status), None),
         Event::CodesAdvertise { device_id, service_uuid, start, linked } => (K::CodesAdvertise, i32::from(start), u64::from(linked), Some(device_id), None, Some(service_uuid), None),
+        Event::ConnectState { state, online } => (K::ConnectState, 0, 0, None, None, Some(state), Some(serde_json::Value::from(online).to_string())),
+        Event::MediaCommand { device_id, request_id, action, value } => (K::MediaCommand, value.unwrap_or(0) as i32, u64::from(value.is_some()), Some(device_id), Some(action), Some(request_id), None),
     };
     BridgeyEvent { kind, status, id, device_id: owned(device_id), name: owned(name), text: owned(text), extra: owned(extra), bytes, total }
 }
@@ -882,6 +892,56 @@ pub extern "C" fn bridgey_set_presence(handle: u64, state: i32, idle_seconds: u3
             _ => Presence::Unknown,
         });
         BRIDGEY_OK
+    })
+}
+
+/// Connect away from home on (1, with the control service's URL, or NULL for learned addresses only) or off (0).
+///
+/// # Safety
+/// `control_url` is NULL or a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_set_connect(handle: u64, on: u8, control_url: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(url) = arg(control_url) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.set_connect(on != 0, url).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Open links from other devices right away (1, the default) or keep each for Open and Dismiss (0).
+#[no_mangle]
+pub extern "C" fn bridgey_set_links_open(handle: u64, on: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        c.set_links_open(on != 0);
+        BRIDGEY_OK
+    })
+}
+
+/// Whether the player did a MediaCommand (`accepted` 1) or could not (0).
+///
+/// # Safety
+/// The strings are NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_media_result(handle: u64, device_id: *const c_char, request_id: *const c_char, accepted: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(r))) = (arg(device_id), arg(request_id)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.media_result(id, r, accepted != 0).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// This device's player as JSON (player, title, artist, playing, position, duration, volume, controls, detail,
+/// artwork), or NULL when nothing plays.
+///
+/// # Safety
+/// `state` is NULL or a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_set_media_state(handle: u64, state: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(state) = arg(state) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.set_media_state(state).map(|_| BRIDGEY_OK).unwrap_or_else(code)
     })
 }
 

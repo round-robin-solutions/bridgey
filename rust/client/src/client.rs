@@ -44,6 +44,8 @@ const PING_TIMEOUT: Duration = Duration::from_secs(5);
 const QUICK_TIMEOUT: Duration = Duration::from_secs(8);
 /// Connections that have not authenticated yet, at once.
 const MAX_PENDING: usize = 16;
+/// Connect away from home's feature key (docs/protocol.md "Connect anywhere").
+pub const CONNECT_FEATURE: &str = "connect_draft1";
 
 pub struct Config {
     pub device_name: String,
@@ -206,6 +208,10 @@ struct State {
     ringing: HashSet<String>,
     /// presence.state per device: the session it went on, the last sequence, when and what was sent.
     presence: HashMap<String, (u64, u64, Instant, crate::notifications::Presence)>,
+    /// When a link was last opened right away, per device (at most one every 3 seconds).
+    opened_links: HashMap<String, Instant>,
+    /// The last media.state sent to each device and when.
+    media_sent: HashMap<String, (String, Instant)>,
 }
 
 /// A file to hash before it is offered.
@@ -214,6 +220,20 @@ struct HashJob {
     path: PathBuf,
     name: String,
     mime: String,
+}
+
+/// Connect away from home: the core's node while the setting is on, and what it reports.
+#[derive(Default)]
+struct Connect {
+    node: Option<Arc<bridgey_connect::node::Node>>,
+    /// off, disabled (no control service: learned addresses only), connecting, unreachable, online.
+    presence: String,
+    /// Paired devices the control service says are online.
+    online: Vec<String>,
+    /// connect.setup contributions this end sent and has not had answered, per device.
+    contributions: HashMap<String, [u8; 32]>,
+    /// Sessions running on a tunnel: session to tunnel ID.
+    tunnels: HashMap<u64, String>,
 }
 
 pub(crate) struct Inner {
@@ -238,6 +258,13 @@ pub(crate) struct Inner {
     codes: Mutex<(bool, bool)>,
     /// This device's activity, for presence.state.
     activity: Mutex<crate::notifications::Presence>,
+    /// Open links from other devices right away (on by default, as the Mac).
+    links_open: AtomicBool,
+    /// This device's player, as media.state (None: no player).
+    media: Mutex<Option<String>>,
+    connect: Mutex<Connect>,
+    /// Tests only: off stops local network connections, so a session can only come up over a tunnel.
+    lan: AtomicBool,
     rt: tokio::runtime::Handle,
     me: Weak<Inner>,
     #[cfg(feature = "mdns")]
@@ -279,6 +306,10 @@ impl Client {
             stopped: AtomicBool::new(false),
             codes: Mutex::new((false, false)),
             activity: Mutex::new(crate::notifications::Presence::Unknown),
+            links_open: AtomicBool::new(true),
+            media: Mutex::new(None),
+            connect: Mutex::new(Connect { presence: "off".into(), ..Default::default() }),
+            lan: AtomicBool::new(true),
             rt: runtime.handle().clone(),
             me: me.clone(),
             #[cfg(feature = "mdns")]
@@ -314,6 +345,7 @@ impl Client {
                     let connected: Vec<String> = inner.state.lock().unwrap().connected.keys().cloned().collect();
                     for id in connected {
                         inner.send_presence(&id, false);
+                        inner.send_media_state(&id, false);
                     }
                 }
             });
@@ -342,6 +374,8 @@ impl Client {
         if let Some(d) = self.inner.discovery.lock().unwrap().take() {
             d.stop();
         }
+        // Connect away from home: the node releases its relay allocation.
+        self.inner.stop_connect();
         self.inner.events.close();
         let sessions: Vec<Handle> = self.inner.state.lock().unwrap().sessions.values().map(|l| l.handle.clone()).collect();
         for h in sessions {
@@ -766,6 +800,65 @@ impl Client {
         }
     }
 
+    /// Open links right away (on by default): a link a device asks to open at once is opened by the host, at most one
+    /// every 3 s per device; off offers each for Open or Dismiss.
+    pub fn set_links_open(&self, on: bool) {
+        self.inner.links_open.store(on, Ordering::Relaxed);
+    }
+
+    /// The answer to a MediaCommand: whether the player did it.
+    pub fn media_result(&self, device_id: &str, request_id: &str, accepted: bool) -> Result<(), ClientError> {
+        self.inner.encrypted_to(device_id, "media", "quick.result", crate::quick::result_payload(request_id, "media", accepted, None, None))
+    }
+
+    /// This device's player for phones that show Media (`media.state`, JSON: player, title, artist, playing, position,
+    /// duration, volume, controls, detail, artwork); None when nothing plays. Sent when it changes and every ten
+    /// seconds while playing.
+    pub fn set_media_state(&self, state: Option<&str>) -> Result<(), ClientError> {
+        let payload = match state {
+            Some(s) => Some(crate::quick::media_state_payload(s).ok_or(ClientError::InvalidArgument("media state"))?),
+            None => None,
+        };
+        *self.inner.media.lock().unwrap() = payload;
+        let connected: Vec<String> = self.inner.state.lock().unwrap().connected.keys().cloned().collect();
+        for id in connected {
+            self.inner.send_media_state(&id, false);
+        }
+        Ok(())
+    }
+
+    /// Connect away from home (docs/connect-anywhere.md): starts or stops the core's node. `control_url` is the
+    /// control service (the edition's `CONNECT_CONTROL_URL`); without one, devices meet only at the addresses they
+    /// learned from each other. Devices set it up between themselves (connect.setup) once both have it on.
+    pub fn set_connect(&self, on: bool, control_url: Option<&str>) -> Result<(), ClientError> {
+        self.inner.check()?;
+        if on {
+            self.inner.start_connect(control_url)?;
+        } else {
+            self.inner.stop_connect();
+        }
+        let connected: Vec<String> = self.inner.state.lock().unwrap().connected.keys().cloned().collect();
+        for id in connected {
+            self.inner.send_policy(&id);
+        }
+        Ok(())
+    }
+
+    /// Tests only: off stops local network connections (TCP), so sessions can only come up over Connect anywhere
+    /// tunnels; the current local sessions close.
+    #[doc(hidden)]
+    pub fn set_lan_for_tests(&self, on: bool) {
+        self.inner.lan.store(on, Ordering::Relaxed);
+        if !on {
+            let st = self.inner.state.lock().unwrap();
+            let tunnels: HashSet<u64> = self.inner.connect.lock().unwrap().tunnels.keys().copied().collect();
+            for (id, l) in st.sessions.iter().filter(|(id, _)| !tunnels.contains(id)) {
+                let _ = id;
+                l.handle.close("lan_off");
+            }
+        }
+    }
+
     /// Tests and the scripted peer only (not in the C ABI): sends what a phone sends, so a desktop client can be
     /// tested against it. `payload` is the JSON plaintext.
     #[doc(hidden)]
@@ -774,6 +867,7 @@ impl Client {
             "notifications.post" => ("notifications.post", "notifications"),
             "notifications.remove" => ("notifications.remove", "notifications"),
             "codes.status" => ("codes.status", crate::notifications::SMS_CODES),
+            "quick.request" => ("quick.request", "links"),
             "codes.advertise" => ("codes.advertise", crate::notifications::SMS_CODES),
             "codes.advertise_stop" => ("codes.advertise_stop", crate::notifications::SMS_CODES),
             _ => return Err(ClientError::InvalidArgument("kind")),
@@ -789,6 +883,11 @@ impl Client {
 
     /// The network changed: try every trusted device that is not connected again, from the fast delays.
     pub fn network_changed(&self) {
+        let node = self.inner.connect.lock().unwrap().node.clone();
+        if let Some(node) = node {
+            let _guard = self.inner.rt.enter();
+            node.network_changed("network", None);
+        }
         let loops: Vec<Arc<Notify>> = self.inner.state.lock().unwrap().loops.values().cloned().collect();
         for n in loops {
             n.notify_one();
@@ -848,6 +947,8 @@ impl Inner {
         };
         // A capability, not a setting: this client reads binary frames whenever it supports them.
         policy.set(fast::FEATURE, self.fast_transfers.load(Ordering::Relaxed));
+        // Connect away from home: while the node runs, for every peer.
+        policy.set(CONNECT_FEATURE, self.connect.lock().unwrap().node.is_some());
         policy
     }
 
@@ -925,6 +1026,9 @@ impl Inner {
             };
             if self.stopped.load(Ordering::SeqCst) {
                 return;
+            }
+            if !self.lan.load(Ordering::Relaxed) {
+                continue;
             }
             let pending = self.state.lock().unwrap().sessions.values().filter(|l| !l.authenticated).count();
             if pending >= MAX_PENDING {
@@ -1145,7 +1249,7 @@ impl Inner {
                 }
             }
             first = false;
-            let addrs = self.addresses_for(&device_id);
+            let addrs = if self.lan.load(Ordering::Relaxed) { self.addresses_for(&device_id) } else { Vec::new() };
             let mut connected = false;
             for addr in addrs {
                 if self.state.lock().unwrap().connected.contains_key(&device_id) {
@@ -1230,6 +1334,7 @@ impl Inner {
                     "local": d.policy(&defaults).to_json(),
                     "remote": st.remote.get(&d.device_id).map(FeatureMap::to_json),
                     "battery": st.battery.get(&d.device_id).map(|(level, charging)| json!({"level": level, "charging": charging})),
+                    "away": d.pair_secret.is_some(),
                     "ringing": st.ringing.contains(&d.device_id),
                 })
             })
@@ -1259,6 +1364,11 @@ impl Inner {
             "defaults": defaults.to_json(),
             "devices": devices,
             "nearby": nearby,
+            "connect": {
+                "state": self.connect.lock().unwrap().presence,
+                "online": self.connect.lock().unwrap().online,
+                "tunnels": self.connect.lock().unwrap().tunnels.len(),
+            },
         })
     }
 
@@ -1425,6 +1535,9 @@ impl session::Host for Inner {
                     last_connected_ms: Some(now_ms()),
                     addresses: vec![],
                     features: HashMap::new(),
+                    pair_secret: None,
+                    learned_port: None,
+                    learned: vec![],
                 };
                 d.remember(address);
                 trust.put(d);
@@ -1446,6 +1559,14 @@ impl session::Host for Inner {
             self.emit(Event::PairingFinished { pairing: attempt.unwrap_or(auth.session), device_id: Some(device.clone()), name: Some(auth.name.clone()), ok: true, reason: "paired".into() });
         }
         self.emit(Event::Connected { device_id: device.clone(), name: auth.name });
+        let tunnel = self.connect.lock().unwrap().tunnels.get(&auth.session).cloned();
+        let node = self.connect.lock().unwrap().node.clone();
+        if let (Some(tunnel), Some(node)) = (tunnel, node.as_ref()) {
+            node.tunnel_authenticated(&tunnel);
+        }
+        if node.is_some() {
+            self.sync_peers();
+        }
         if let Some(w) = watch {
             let _ = w.send(Outcome::Authenticated);
         }
@@ -1479,12 +1600,17 @@ impl session::Host for Inner {
             }
             session::Event::Features { device_id, features, .. } => {
                 let battery = features.get("battery");
+                let features_copy = features.clone();
                 self.state.lock().unwrap().remote.insert(device_id.clone(), features.clone());
                 self.emit(Event::Features { local: self.policy_for(&device_id), device_id: device_id.clone(), remote: features });
                 if battery {
                     self.send_battery(&device_id);
                 }
                 self.send_presence(&device_id, true);
+                self.send_media_state(&device_id, true);
+                if features_copy.get(CONNECT_FEATURE) {
+                    self.send_addresses(&device_id);
+                }
             }
             session::Event::Battery { device_id, level, charging } => {
                 self.state.lock().unwrap().battery.insert(device_id.clone(), (level, charging));
@@ -1492,6 +1618,7 @@ impl session::Host for Inner {
             }
             session::Event::Find { device_id, ring } => self.emit(Event::FindRequested { device_id, ring }),
             session::Event::Payload { device_id, kind, plain } => self.payload(device_id, kind, &plain),
+            session::Event::Quick { device_id, request } => self.quick(device_id, request),
             session::Event::FindAck { device_id, ringing } => {
                 {
                     let mut st = self.state.lock().unwrap();
@@ -1536,7 +1663,7 @@ impl session::Host for Inner {
                     self.emit(Event::LinkSent { request, device_id, status: if accepted { SendStatus::Delivered } else { SendStatus::Rejected }, opened });
                 }
             }
-            session::Event::Link { device_id, url } => self.emit(Event::Link { device_id, url }),
+            session::Event::Link { device_id, url } => self.emit(Event::Link { device_id, url, open: false }),
             session::Event::FileIncoming { transfer, device_id, name, size, mime } => {
                 self.state.lock().unwrap().transfers.insert(transfer, device_id.clone());
                 self.emit(Event::FileIncoming { transfer, device_id, name, size, mime });
@@ -1567,6 +1694,7 @@ impl Inner {
                 st.battery.remove(&id);
                 st.ringing.remove(&id);
                 st.presence.remove(&id);
+                st.media_sent.remove(&id);
                 disconnected = Some(id);
             }
         }
@@ -1603,6 +1731,10 @@ impl Inner {
         // An offer this end answered that ended before pairing finished.
         if !authenticated && paired && answered && !live.dialled && live.attempt.is_none() {
             self.emit(Event::PairingFinished { pairing: session, device_id: device_id.clone(), name: None, ok: false, reason: reason.clone() });
+        }
+        self.connect.lock().unwrap().tunnels.remove(&session);
+        if disconnected.is_some() && self.connect.lock().unwrap().node.is_some() {
+            self.sync_peers();
         }
         if let Some(id) = disconnected {
             if !live.replaced {
@@ -1659,10 +1791,71 @@ impl Inner {
         handle.send_encrypted("presence.state", payload.into_bytes(), crate::crypto::uuid4());
     }
 
+    /// media.state to one device that shows Media at both ends: when it changed, every ten seconds while playing, or
+    /// at once (`force`, after its features arrive).
+    fn send_media_state(&self, device_id: &str, force: bool) {
+        let Ok((handle, _)) = self.feature_session(device_id, "media") else { return };
+        let payload = match self.media.lock().unwrap().clone() {
+            Some(p) => p,
+            None => crate::quick::media_state_payload(r#"{"player":"Off","detail":"Nothing is playing on this PC","controls":[]}"#).unwrap_or_default(),
+        };
+        {
+            let mut st = self.state.lock().unwrap();
+            let playing = payload.contains("\"playing\":true");
+            let due = match st.media_sent.get(device_id) {
+                None => true,
+                Some((last, at)) => force || *last != payload || (playing && at.elapsed() >= Duration::from_secs(10)),
+            };
+            if !due {
+                return;
+            }
+            st.media_sent.insert(device_id.to_string(), (payload.clone(), Instant::now()));
+        }
+        handle.send_encrypted("media.state", payload.into_bytes(), crate::crypto::uuid4());
+    }
+
+    /// A link or a media command from a device.
+    fn quick(&self, device_id: String, r: crate::quick::Request) {
+        let handle = self.connected_session(&device_id).ok();
+        let reply = |payload: String| {
+            if let Some(handle) = &handle {
+                handle.send_encrypted("quick.result", payload.into_bytes(), crate::crypto::uuid4());
+            }
+        };
+        match r.feature.as_str() {
+            // A link the device asks to open at once (the session handed over only those, with Links and
+            // links_open_draft1 on here): opened now unless Open links right away is off or one opened in the last 3 s.
+            "links" => {
+                let url = r.value.trim().to_string();
+                let now = self.links_open.load(Ordering::Relaxed) && {
+                    let mut st = self.state.lock().unwrap();
+                    let recent = st.opened_links.get(&device_id).is_some_and(|t| t.elapsed() < Duration::from_secs(3));
+                    if !recent {
+                        st.opened_links.insert(device_id.clone(), Instant::now());
+                    }
+                    !recent
+                };
+                self.emit(Event::Link { device_id, url, open: now });
+                reply(crate::quick::result_payload(&r.request_id, "links", true, Some(now), None))
+            }
+            "media" => {
+                let command = crate::quick::media_command(&r.action, &r.value).filter(|_| self.policy_for(&device_id).get("media"));
+                match command {
+                    Some((action, value)) => self.emit(Event::MediaCommand { device_id, request_id: r.request_id, action, value }),
+                    None => reply(crate::quick::result_payload(&r.request_id, "media", false, None, None)),
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// A notification or codes message the session opened.
     fn payload(&self, device_id: String, kind: &str, plain: &[u8]) {
         use crate::notifications as n;
         match kind {
+            "connect.addresses" => self.connect_addresses(&device_id, plain),
+            "connect.setup" => self.connect_setup(&device_id, plain),
+            "connect.setup.ack" => {}
             "notifications.post" => {
                 let routing = self.policy_for(&device_id).get(n::ROUTING) && self.state.lock().unwrap().remote.get(&device_id).is_some_and(|r| r.get(n::ROUTING));
                 let Some(mut notification) = n::decode_post(plain, routing) else { return };
@@ -1707,5 +1900,268 @@ fn answer(what: Pending, request: u64, device_id: String, status: SendStatus) ->
         Pending::Clipboard => Event::ClipboardSent { request, device_id, status },
         Pending::Ping => Event::PingResult { request, device_id, status },
         Pending::Link => Event::LinkSent { request, device_id, status, opened: false },
+    }
+}
+
+
+/// Connect away from home: the core's node, tunnels, pair secrets and the addresses devices learn from each other
+/// (docs/connect-anywhere.md, rust/cli/src/daemon.rs runs the same for the agent).
+impl Inner {
+    fn start_connect(&self, control_url: Option<&str>) -> Result<(), ClientError> {
+        if self.connect.lock().unwrap().node.is_some() {
+            return Ok(());
+        }
+        let key = crate::trust::node_key(self.storage.as_ref()).map_err(ClientError::Storage)?;
+        let state = self.storage.load("connect-state").ok().flatten().and_then(|b| serde_json::from_slice(&b).ok());
+        let config = bridgey_connect::node::StartConfig {
+            port: 42_458,
+            control_url: control_url.map(str::trim).filter(|u| !u.is_empty()).map(str::to_string),
+            app: format!("bridgey-rr/{} {}", env!("CARGO_PKG_VERSION"), self.platform),
+            node_key: crate::crypto::b64url(&key.public_raw()),
+            relay_only: false,
+            state,
+            relay_keepalive_s: 25,
+        };
+        let has_control = config.control_url.is_some();
+        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        let sink: bridgey_connect::node::EventSink = Arc::new(move |e: String| {
+            let _ = tx.send(e);
+        });
+        let (done, wait) = std::sync::mpsc::channel();
+        self.rt.spawn(async move {
+            let _ = done.send(bridgey_connect::node::Node::start(config, sink).await);
+        });
+        let node = wait.recv().map_err(|_| ClientError::Stopped)?.map_err(ClientError::Io)?;
+        {
+            let mut c = self.connect.lock().unwrap();
+            c.node = Some(node);
+            c.presence = if has_control { "connecting" } else { "disabled" }.into();
+        }
+        let me = self.me.clone();
+        let key = Arc::new(key);
+        self.rt.spawn(async move {
+            while let Some(text) = rx.recv().await {
+                let Some(inner) = me.upgrade() else { return };
+                inner.node_event(&text, &key);
+            }
+        });
+        self.sync_peers();
+        self.emit_connect_state();
+        Ok(())
+    }
+
+    fn stop_connect(&self) {
+        let node = {
+            let mut c = self.connect.lock().unwrap();
+            c.presence = "off".into();
+            c.online.clear();
+            c.node.take()
+        };
+        if let Some(node) = node {
+            let (done, wait) = std::sync::mpsc::channel();
+            self.rt.spawn(async move {
+                node.shutdown().await;
+                let _ = done.send(());
+            });
+            let _ = wait.recv_timeout(Duration::from_secs(5));
+        }
+        self.emit_connect_state();
+    }
+
+    fn emit_connect_state(&self) {
+        let (state, online) = {
+            let c = self.connect.lock().unwrap();
+            (c.presence.clone(), c.online.clone())
+        };
+        self.emit(Event::ConnectState { state, online });
+    }
+
+    /// The core's list of paired devices: those with a pair secret, their learned addresses, and whether a session
+    /// is up already (then the node does not race for one).
+    fn sync_peers(&self) {
+        let Some(node) = self.connect.lock().unwrap().node.clone() else { return };
+        let connected: HashSet<String> = self.state.lock().unwrap().connected.keys().cloned().collect();
+        let list: Vec<bridgey_connect::node::PeerConfig> = self
+            .trust
+            .lock()
+            .unwrap()
+            .all()
+            .iter()
+            .filter_map(|d| {
+                let secret = d.pair_secret.clone()?;
+                let port = d.learned_port.unwrap_or(DEFAULT_PORT);
+                let addresses = d.learned.iter().map(|a| bridgey_connect::node::Learned { a: a.a.clone(), p: port, kind: a.kind.clone(), vpn: a.vpn.clone() }).collect();
+                Some(bridgey_connect::node::PeerConfig {
+                    id: d.device_id.clone(),
+                    side: bridgey_connect_proto::derive::side(&self.local.device_id, &d.device_id),
+                    pair_secret: secret,
+                    addresses,
+                    connected: connected.contains(&d.device_id),
+                    invite: false,
+                })
+            })
+            .collect();
+        let _guard = self.rt.enter();
+        if let Err(e) = node.set_peers(list) {
+            self.emit(Event::Error { text: format!("connect: {e}") });
+        }
+    }
+
+    fn node_event(&self, text: &str, key: &crate::crypto::SigningKey) {
+        let Ok(e) = serde_json::from_str::<Value>(text) else { return };
+        let Some(node) = self.connect.lock().unwrap().node.clone() else { return };
+        match e["e"].as_str().unwrap_or("") {
+            "sign" => {
+                let data = e["data"].as_str().and_then(crate::crypto::unb64).unwrap_or_default();
+                node.sign_result(e["id"].as_u64().unwrap_or(0), Some(key.sign(&data)));
+            }
+            "tunnel" => self.on_tunnel(&e, &node),
+            "presence" => {
+                {
+                    let mut c = self.connect.lock().unwrap();
+                    c.presence = e["state"].as_str().unwrap_or("").chars().take(16).collect();
+                    c.online = e["peers"].as_array().map(|a| a.iter().filter_map(|p| p.as_str().map(str::to_string)).collect()).unwrap_or_default();
+                }
+                self.emit_connect_state();
+            }
+            "state" => {
+                let _ = self.storage.store("connect-state", e["state"].to_string().as_bytes());
+            }
+            _ => {}
+        }
+    }
+
+    /// A tunnel the core brought up: connect to its loopback bridge, hand over its token, and run a protocol 2 reconnect
+    /// on it (the QUIC client dials, as on the local network).
+    fn on_tunnel(&self, e: &Value, node: &Arc<bridgey_connect::node::Node>) {
+        let tunnel = e["tunnel"].as_str().unwrap_or("").to_string();
+        let port = e["port"].as_u64().unwrap_or(0) as u16;
+        let token = e["token"].as_str().unwrap_or("").to_string();
+        let exporter = e["exporter"].as_str().unwrap_or("").to_string();
+        let quic_client = e["quicClient"].as_bool().unwrap_or(false);
+        let peer = e["peer"].as_str().map(|p| p.to_ascii_lowercase()).filter(|p| self.trust.lock().unwrap().get(p).is_some());
+        let role = match (quic_client, &peer) {
+            (true, Some(p)) => Role::Reconnect { device_id: p.clone() },
+            (true, None) => {
+                node.close_tunnel(&tunnel);
+                return;
+            }
+            (false, _) => Role::Accept,
+        };
+        let me = self.arc();
+        let node = node.clone();
+        self.rt.spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let Ok(Ok(mut stream)) = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(("127.0.0.1", port))).await else {
+                node.close_tunnel(&tunnel);
+                return;
+            };
+            if stream.write_all(format!("{token}\n").as_bytes()).await.is_err() {
+                node.close_tunnel(&tunnel);
+                return;
+            }
+            let session = me.next_id();
+            let handle = session::spawn_on(session, stream, role, me.clone(), Some(session::Tunnel { id: tunnel.clone(), exporter }));
+            me.connect.lock().unwrap().tunnels.insert(session, tunnel);
+            me.register(session, handle, quic_client, None, peer, None);
+        });
+    }
+
+    /// This device's addresses and UDP port, and the pair check, to a device that shows Connect away from home.
+    fn send_addresses(&self, device_id: &str) {
+        let Some(node) = self.connect.lock().unwrap().node.clone() else { return };
+        let Ok((handle, _)) = self.feature_session(device_id, CONNECT_FEATURE) else { return };
+        let reply = node.addresses();
+        let addrs: Vec<Value> = reply["addrs"].as_array().cloned().unwrap_or_default().into_iter().take(16).collect();
+        let mut payload = json!({"version": 1, "port": reply["port"], "addrs": addrs});
+        let secret = self.trust.lock().unwrap().get(device_id).and_then(|d| d.pair_secret.clone());
+        if let Some(s) = secret.as_deref().and_then(crate::crypto::unb64) {
+            payload["pairCheck"] = json!(bridgey_connect_proto::derive::pair_check(&s));
+        }
+        handle.send_encrypted("connect.addresses", payload.to_string().into_bytes(), crate::crypto::uuid4());
+    }
+
+    fn send_setup(&self, device_id: &str, contribution: &[u8; 32], rotate: bool) {
+        if let Ok((handle, _)) = self.feature_session(device_id, CONNECT_FEATURE) {
+            let payload = json!({"version": 1, "contribution": crate::crypto::b64(contribution), "rotate": rotate});
+            handle.send_encrypted("connect.setup", payload.to_string().into_bytes(), crate::crypto::uuid4());
+        }
+    }
+
+    /// connect.addresses: keep the device's addresses; when the pair checks differ (or either side has none), the
+    /// lower device ID starts connect.setup.
+    fn connect_addresses(&self, device_id: &str, plain: &[u8]) {
+        let Ok(Value::Object(p)) = serde_json::from_slice::<Value>(plain) else { return };
+        if p.get("version").and_then(Value::as_i64) != Some(1) {
+            return;
+        }
+        let port = p.get("port").and_then(Value::as_u64).filter(|v| (1..=65_535).contains(v)).unwrap_or(42_458) as u16;
+        let addrs: Vec<crate::trust::LearnedAddress> = p
+            .get("addrs")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| {
+                        let ip = x.get("a")?.as_str()?.parse::<IpAddr>().ok()?;
+                        let kind = x.get("kind")?.as_str().filter(|k| ["lan", "vpn", "public6"].contains(k))?;
+                        let vpn = x.get("vpn").and_then(Value::as_str).filter(|v| ["tailscale", "other"].contains(v)).map(str::to_string);
+                        Some(crate::trust::LearnedAddress { a: ip.to_string(), kind: kind.to_string(), vpn })
+                    })
+                    .take(16)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let theirs = p.get("pairCheck").and_then(Value::as_str).map(str::to_string);
+        let mine = {
+            let mut trust = self.trust.lock().unwrap();
+            let Some(d) = trust.get_mut(device_id) else { return };
+            let changed = d.learned_port != Some(port) || d.learned != addrs;
+            d.learned_port = Some(port);
+            d.learned = addrs;
+            let mine = d.pair_secret.as_deref().and_then(crate::crypto::unb64).map(|s| bridgey_connect_proto::derive::pair_check(&s));
+            if changed {
+                let _ = trust.save(self.storage.as_ref());
+            }
+            mine
+        };
+        self.sync_peers();
+        if (mine.is_none() || mine != theirs) && self.local.device_id.as_str() < device_id {
+            let contribution = crate::crypto::random::<32>();
+            self.connect.lock().unwrap().contributions.insert(device_id.to_string(), contribution);
+            self.send_setup(device_id, &contribution, mine.is_some());
+        }
+    }
+
+    /// connect.setup: answer with this side's contribution if it had not sent one, then both derive the pair secret
+    /// (HKDF over both contributions, the lower device ID's first) and acknowledge.
+    fn connect_setup(&self, device_id: &str, plain: &[u8]) {
+        let Ok(Value::Object(p)) = serde_json::from_slice::<Value>(plain) else { return };
+        if p.get("version").and_then(Value::as_i64) != Some(1) {
+            return;
+        }
+        let Some(theirs) = p.get("contribution").and_then(Value::as_str).and_then(crate::crypto::unb64).filter(|c| c.len() == 32) else { return };
+        let pending = self.connect.lock().unwrap().contributions.remove(device_id);
+        let mine = match pending {
+            Some(c) => c,
+            None => {
+                let c = crate::crypto::random::<32>();
+                self.send_setup(device_id, &c, p.get("rotate").and_then(Value::as_bool).unwrap_or(false));
+                c
+            }
+        };
+        let local = self.local.device_id.as_str();
+        let (low, high) = bridgey_connect_proto::derive::ordered(local, device_id);
+        let (c_low, c_high) = if local < device_id { (mine.as_slice(), theirs.as_slice()) } else { (theirs.as_slice(), mine.as_slice()) };
+        let secret = bridgey_connect_proto::derive::pair_secret(c_low, c_high, low, high);
+        {
+            let mut trust = self.trust.lock().unwrap();
+            let Some(d) = trust.get_mut(device_id) else { return };
+            d.pair_secret = Some(crate::crypto::b64(&secret));
+            let _ = trust.save(self.storage.as_ref());
+        }
+        if let Ok((handle, _)) = self.feature_session(device_id, CONNECT_FEATURE) {
+            handle.send_encrypted("connect.setup.ack", json!({"version": 1}).to_string().into_bytes(), crate::crypto::uuid4());
+        }
+        self.sync_peers();
     }
 }

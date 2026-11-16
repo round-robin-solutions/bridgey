@@ -10,6 +10,8 @@
 //!   notify <json>            post a notification (the notifications.post payload)
 //!   unnotify <id>            the notification went away on the phone
 //!   codes-status <status>    allowed, hidden or not_linked
+//!   link <url> | link-open <url>   send a link (kept for Open, or opened right away)
+//!   media <action> [value]   a media button (toggle, pause, next, previous, seek, volume)
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
 //!        [--receive-dir <folder>] [--seconds 300]
@@ -56,7 +58,7 @@ fn main() {
     let mut config = Config::new(&name, "android");
     config.port = port;
     config.discovery = discover;
-    for key in ["files", "battery", "find_device", "notifications", "notification_routing_draft1", "device_presence_draft1", "sms_codes_draft1"] {
+    for key in ["files", "battery", "find_device", "notifications", "notification_routing_draft1", "device_presence_draft1", "sms_codes_draft1", "links", "media"] {
         config.defaults.set(key, true);
     }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
@@ -72,8 +74,9 @@ fn main() {
         client.pair(None, Some(&host), port).expect("pair");
     }
     let connected: Arc<Mutex<Option<String>>> = Arc::default();
+    let sequence = Arc::new(std::sync::atomic::AtomicU64::new(0));
     {
-        let (client, connected) = (client.clone(), connected.clone());
+        let (client, connected, sequence) = (client.clone(), connected.clone(), sequence.clone());
         std::thread::spawn(move || {
             for line in std::io::stdin().lock().lines() {
                 let Ok(line) = line else { return };
@@ -98,6 +101,19 @@ fn main() {
                     "notify" => client.send_as_phone_for_tests(&device, "notifications.post", rest),
                     "unnotify" => client.send_as_phone_for_tests(&device, "notifications.remove", &json!({"notificationId": rest}).to_string()),
                     "codes-status" => client.send_as_phone_for_tests(&device, "codes.status", &json!({"version": 1, "status": rest}).to_string()),
+                    "link" | "link-open" | "media" => {
+                        let (feature, action, value) = match command {
+                            "link" => ("links", "offer", rest.to_string()),
+                            "link-open" => ("links", "open", rest.to_string()),
+                            _ => {
+                                let (a, v) = rest.split_once(' ').unwrap_or((rest, ""));
+                                ("media", a, v.to_string())
+                            }
+                        };
+                        let seq = sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                        let payload = json!({"version": 1, "requestId": bridgey_core::crypto::uuid4(), "feature": feature, "action": action, "value": value, "sequence": seq});
+                        client.send_as_phone_for_tests(&device, "quick.request", &payload.to_string())
+                    }
                     _ => {
                         out(json!({"event": "command", "ok": false, "error": "unknown command", "line": line}));
                         continue;
@@ -146,6 +162,7 @@ fn main() {
             Event::Battery { level, charging, .. } => out(json!({"event": "battery", "level": level, "charging": charging})),
             Event::FindRequested { ring, .. } => out(json!({"event": "find", "ring": ring})),
             Event::FindState { ringing, .. } => out(json!({"event": "ringing", "ringing": ringing})),
+            Event::Link { url, open, .. } => out(json!({"event": "link", "url": url, "open": open})),
             _ => {}
         }
     }

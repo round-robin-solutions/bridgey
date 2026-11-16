@@ -48,8 +48,10 @@ pub enum Event {
     /// `reason`: rejected (Files is off there), cancelled, cancelled_remote, not_accepted, not_confirmed, stalled,
     /// verification_failed, unreadable, changed, storage, invalid, not_connected, interrupted, stopped.
     FileFailed { transfer: u64, device_id: String, incoming: bool, name: String, reason: String },
-    /// A link from a device, for the person to open or dismiss. Never opened by the library.
-    Link { device_id: String, url: String },
+    /// A link from a device, for the person to open or dismiss; never opened by the library. `open`: the device asked
+    /// for it to open at once, this device's Open links right away is on, and it is not too soon after the last one,
+    /// so the host opens it now.
+    Link { device_id: String, url: String, open: bool },
     /// The answer to `send_link`: delivered (queued or opened there), rejected (Links is off there or the link was
     /// refused), timed out or failed. `opened` when the other device opened it at once.
     LinkSent { request: u64, device_id: String, status: SendStatus, opened: bool },
@@ -69,6 +71,12 @@ pub enum Event {
     /// The phone asks this device to advertise a Bluetooth LE service for 60 seconds (`start`), or to stop
     /// (`linked` says whether the link was made). Answer a start with `codes_advertise_result`.
     CodesAdvertise { device_id: String, service_uuid: String, start: bool, linked: bool },
+    /// The phone's media control for this device's player: toggle, pause, next, previous, seek (seconds) or volume
+    /// (0 to 100). Answer with `media_result` once the player did it (or could not).
+    MediaCommand { device_id: String, request_id: String, action: String, value: Option<i64> },
+    /// Connect away from home: off, disabled (no control service), connecting, unreachable or online, and the paired
+    /// devices the control service says are online.
+    ConnectState { state: String, online: Vec<String> },
     Dropped { count: u64 },
     Error { text: String },
 }
@@ -76,7 +84,7 @@ pub enum Event {
 impl Event {
     /// Events a snapshot or a later event can replace.
     fn replaceable(&self) -> bool {
-        matches!(self, Event::Found { .. } | Event::Lost { .. } | Event::Features { .. } | Event::FileProgress { .. })
+        matches!(self, Event::Found { .. } | Event::Lost { .. } | Event::Features { .. } | Event::FileProgress { .. } | Event::Battery { .. } | Event::ConnectState { .. })
     }
 }
 

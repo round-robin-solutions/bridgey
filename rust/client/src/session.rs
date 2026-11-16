@@ -131,8 +131,10 @@ pub enum Event {
     Find { device_id: String, ring: bool },
     /// The other device says it is ringing (`find.started`) or not (`find.stopped`).
     FindAck { device_id: String, ringing: bool },
-    /// An encrypted message the client decodes itself (notifications, codes), already opened.
+    /// An encrypted message the client decodes itself (notifications, codes, quick results), already opened.
     Payload { device_id: String, kind: &'static str, plain: Vec<u8> },
+    /// A `quick.request` (a link, or a media command) that passed its checks and the session's sequence.
+    Quick { device_id: String, request: crate::quick::Request },
     Closed { session: u64, device_id: Option<String>, reason: String, authenticated: bool, paired: bool, answered: bool },
 }
 
@@ -318,14 +320,29 @@ struct Outgoing {
     pacer: Pacer,
 }
 
+/// A Connect anywhere tunnel the session runs on (the core's loopback bridge): its ID and TLS exporter.
+#[derive(Clone, Debug)]
+pub struct Tunnel {
+    pub id: String,
+    /// Base64 TLS exporter, signed into the `bridgey-auth-v2` transcript.
+    pub exporter: String,
+}
+
 /// Starts a session on a connected socket. Returns its handle at once; events go to the host.
 pub fn spawn(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>) -> Handle {
+    spawn_on(session, stream, role, host, None)
+}
+
+/// A session on a socket, or on a Connect anywhere tunnel: trusted devices only, as a protocol 2 reconnect, with the
+/// tunnel's exporter in the signed transcript (docs/protocol.md "Connect anywhere").
+pub fn spawn_on(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>, tunnel: Option<Tunnel>) -> Handle {
     let (tx, rx) = mpsc::channel(COMMANDS);
     let handle = Handle { session, tx, heard: Arc::new(AtomicU64::new(clock_ms())) };
     let own = handle.clone();
     tokio::spawn(async move {
         let peer = stream.peer_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
         let mut s = Session::new(session, stream, role, host.clone(), own, peer);
+        s.tunnel = tunnel;
         let reason = s.run(rx).await;
         s.end_transfers(&reason);
         let st = &s.st;
@@ -360,6 +377,7 @@ struct Session {
     ended: VecDeque<String>,
     quick_sequence: i64,
     quick_seen: HashMap<String, i64>,
+    tunnel: Option<Tunnel>,
 }
 
 /// Writes queued frames in order; reading carries on meanwhile. Ends when the session drops its sender or the socket fails.
@@ -401,6 +419,7 @@ impl Session {
             ended: VecDeque::new(),
             quick_sequence: 0,
             quick_seen: HashMap::new(),
+            tunnel: None,
             st: State {
                 id: if dials { crypto::uuid4() } else { String::new() },
                 eph: Ephemeral::generate(),
@@ -715,7 +734,12 @@ impl Session {
         } else {
             (self.st.remote_id.as_str(), local.device_id.as_str(), self.st.remote_eph.as_str(), self.st.eph.public.as_str())
         };
-        transcript_v1(&self.st.id, init_id, resp_id, init_eph, resp_eph)
+        match &self.tunnel {
+            // On a tunnel the exporter binds the signatures to this TLS session: a relay or a man in the middle that
+            // ends QUIC on both sides sees two different exporters.
+            Some(t) => transcript_v2(&self.st.id, init_id, resp_id, init_eph, resp_eph, &t.exporter),
+            None => transcript_v1(&self.st.id, init_id, resp_id, init_eph, resp_eph),
+        }
     }
 
     async fn confirm(&mut self) -> Result<(), String> {
@@ -845,6 +869,11 @@ impl Session {
         }
         let trusted = self.host.pin(&remote_id).is_some();
         match (m.public_key.clone(), m.commitment.clone()) {
+            // Tunnels carry trusted devices only: a first pairing stays on the local network, where the code is compared.
+            (None, Some(_)) if self.tunnel.is_some() => {
+                self.cancel("not_trusted").await;
+                Step::Close("tunnel_untrusted".into())
+            }
             // A first pairing (or a pairing again, with a code): the host decides.
             (None, Some(commitment)) => {
                 let offer = Offer { session: self.session, device_id: &remote_id, name: &self.st.remote_name, peer: self.peer };
@@ -1186,6 +1215,20 @@ impl Session {
                     return Step::Continue;
                 }
                 let kind = if m.kind == "notifications.post" { "notifications.post" } else { "notifications.remove" };
+                self.host.event(Event::Payload { device_id, kind, plain });
+                Step::Continue
+            }
+            "connect.setup" | "connect.setup.ack" | "connect.addresses" => {
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                // Drafts: a payload that does not open is dropped and the session stays.
+                let Some(plain) = self.open(&m).filter(|p| p.len() <= 8_192) else { return Step::Continue };
+                let kind = match m.kind.as_str() {
+                    "connect.setup" => "connect.setup",
+                    "connect.setup.ack" => "connect.setup.ack",
+                    _ => "connect.addresses",
+                };
                 self.host.event(Event::Payload { device_id, kind, plain });
                 Step::Continue
             }
@@ -1610,6 +1653,15 @@ impl Session {
         }
         *seen = sequence;
         let device_id = self.st.remote_id.clone();
+        // The phone's media controls, and links it asks to open at once while this end shows links_open_draft1: the
+        // client decides (and answers once the host has acted).
+        let policy = self.host.policy(&device_id);
+        let delegated = (feature == "media" && policy.get("media")) || (feature == "links" && action == "open" && policy.get("links") && policy.get(crate::quick::LINKS_OPEN) && transfer::valid_link(value));
+        if delegated {
+            let request = crate::quick::Request { request_id: request_id.to_ascii_lowercase(), feature: feature.to_string(), action: action.to_string(), value: value.to_string(), sequence: sequence as u64 };
+            self.host.event(Event::Quick { device_id, request });
+            return Step::Continue;
+        }
         let (accepted, reason) = if feature != "links" || !matches!(action, "offer" | "open") {
             (false, None)
         } else if !self.host.policy(&device_id).get("links") {
@@ -1647,6 +1699,11 @@ fn read_full(file: &mut std::fs::File, buf: &mut [u8]) -> std::io::Result<usize>
 pub(crate) type KeyLogEntry = (String, [u8; 32], [u8; 32]);
 #[cfg(test)]
 pub(crate) static KEYLOG: std::sync::Mutex<Vec<KeyLogEntry>> = std::sync::Mutex::new(Vec::new());
+
+/// `bridgey-auth-v2`: the v1 fields and the tunnel's base64 TLS exporter (rust/cli/src/session.rs, the apps' tunnels).
+pub fn transcript_v2(session: &str, init_id: &str, resp_id: &str, init_eph: &str, resp_eph: &str, exporter: &str) -> Vec<u8> {
+    ["bridgey-auth-v2", session, init_id, resp_id, init_eph, resp_eph, exporter].join("\0").into_bytes()
+}
 
 /// `bridgey-auth-v1` \0 sessionId \0 initiator \0 responder \0 initiator key \0 responder key (PairingCoordinator.kt).
 pub fn transcript_v1(session: &str, init_id: &str, resp_id: &str, init_eph: &str, resp_eph: &str) -> Vec<u8> {
