@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="Bridgey.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid x:Name="Root" AutomationProperties.AutomationId="MainRoot">
+        <!-- Shown only where Mica is not available. -->
+        <Border x:Name="BackdropFallback" Background="{ThemeResource BrandWindowBrush}" Visibility="Collapsed" />
+        <Border Background="{ThemeResource BrandWindowTintBrush}" />
+        <Grid x:Name="Chrome">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="48" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <Grid x:Name="AppTitleBar" Padding="16,0,140,0">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <Image Source="ms-appx:///Assets/AppMark.png" Width="20" Height="20" />
+                    <TextBlock Text="Bridgey" FontFamily="{StaticResource BrandHeadingFont}" FontSize="14" FontWeight="SemiBold"
+                               VerticalAlignment="Center" Foreground="{ThemeResource BrandOnBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <NavigationView x:Name="Nav" Grid.Row="1" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed"
+                            IsPaneToggleButtonVisible="False" IsSettingsVisible="False" OpenPaneLength="208"
+                            SelectionChanged="OnNavSelectionChanged">
+                <NavigationView.MenuItems>
+                    <NavigationViewItem Content="Home" Tag="home" AutomationProperties.AutomationId="NavHome">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE80F;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                    <NavigationViewItem Content="Pair a device" Tag="pair" AutomationProperties.AutomationId="NavPair">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE710;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationView.MenuItems>
+                <NavigationView.FooterMenuItems>
+                    <NavigationViewItem Content="Settings" Tag="settings" AutomationProperties.AutomationId="NavSettings">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE713;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
+                </NavigationView.FooterMenuItems>
+
+                <Grid x:Name="PageHost" />
+            </NavigationView>
+        </Grid>
+    </Grid>
+</Window>

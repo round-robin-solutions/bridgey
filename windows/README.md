@@ -1,0 +1,85 @@
+# Bridgey by Round Robin for Windows
+
+The Windows app: pairing with the Android and Mac apps (protocol 2), a home screen with each device's status, and
+clipboard text in both directions. It runs from the notification area. Files, notifications and the other features
+follow in later milestones ([plan](../docs/session-client.md)).
+
+## How it is built
+
+- **UI:** WinUI 3 (Windows App SDK 2.6), in the edition's "Stream" style. It follows the app's light or dark
+  setting, uses Mica where Windows has it, and keeps its motion to opacity and position. Windows' "Animation
+  effects" and Settings > General > Reduce motion both turn motion off.
+- **App code:** C# on .NET 10, compiled ahead of time (NativeAOT). It ships as one self-contained folder for x64
+  and Arm64, and needs no .NET install.
+- **Session:** `bridgey_core.dll`, built from [`rust/client`](../rust/client) and called through
+  source-generated P/Invoke (`src/Bridgey.Core/Native`). Pairing data is encrypted for the Windows user with DPAPI
+  in `%LOCALAPPDATA%\Bridgey by Round Robin`.
+
+| Folder | What it is |
+| --- | --- |
+| `src/Bridgey.Core` | The interop, settings, version labels and view models. It builds and is tested on Linux too. |
+| `src/Bridgey.App` | The WinUI app: windows and pages, the notification area icon, the clipboard and Windows services. |
+| `tests/Bridgey.Core.Tests` | Unit tests. They include two clients pairing through the real `bridgey_core` library. |
+| `tests/Bridgey.UiTests` | FlaUI tests. They take screenshots in light and dark and pair with a scripted peer. |
+
+## Build and test
+
+You need Windows 10 or 11, the .NET 10 SDK, Rust (`rustup`) and Visual Studio's C++ build tools with the ARM64
+tools. Building for Arm64 also needs LLVM.
+
+```powershell
+pwsh -NoProfile -File scripts/rr/build-windows.ps1                    # both architectures, every test
+pwsh -NoProfile -File scripts/rr/build-windows.ps1 -Architectures x64 -SkipUiTests
+```
+
+The output goes to `windows/out`:
+- `Bridgey-RR-<version>-windows-x64.zip` and `...-arm64.zip`;
+- `SHA256SUMS`;
+- `screenshots/`;
+- `test-results/`;
+- `logs/`.
+
+RR CI runs the same script on GitHub's hosted `windows-latest` runners, as the `windows` lane for pull requests
+that touch `windows/` or `rust/` (task definition: [`ci/rr-ci-windows-task.json`](../ci/rr-ci-windows-task.json)).
+
+The C# unit tests also run on Linux against `libbridgey_core.so`:
+
+```sh
+cargo build -p bridgey-client --manifest-path rust/Cargo.toml
+cd windows && dotnet test --project tests/Bridgey.Core.Tests
+```
+
+## Installing a test build
+
+1. Unzip the folder anywhere, for example into `%LOCALAPPDATA%\Programs`.
+2. Run `Bridgey.exe`.
+
+Builds aren't signed yet, so Windows SmartScreen says "Windows protected your PC" on the first run. Choose
+**More info**, then **Run anyway**. The first time Bridgey listens for your devices, Windows Firewall asks whether
+it may use private networks. Allow it, or your phone and Mac can't connect.
+
+The settings that change the app's behaviour are in Settings:
+- the name other devices see;
+- Clipboard, on for paired devices;
+- Automatic clipboard, off by default;
+- start at sign-in, on by default;
+- keep running in the notification area, on by default;
+- appearance;
+- reduce motion.
+
+A second copy of `Bridgey.exe` doesn't start another app. It brings the running one forward. It also takes
+`--tray-menu`, `--pair` and `--quit`.
+
+Test hooks: `BRIDGEY_DATA_DIR` runs a separate profile. That profile has its own pairing data, never touches the
+sign-in items, and runs as its own single instance. `BRIDGEY_PORT` and `BRIDGEY_DISCOVERY=0` change the port and
+turn off discovery.
+
+## Not yet
+
+- Signing: Azure Trusted Signing or another certificate is a later decision.
+- MSIX and winget.
+- Self-update on the Stable, Beta and Nightly feeds (M2).
+- Files, notifications as toasts, links, battery, media, codes, and Connect away from home (M2).
+- Messages, calls, phone files, and screen view and control (M3).
+
+The activity list is in memory only for now.

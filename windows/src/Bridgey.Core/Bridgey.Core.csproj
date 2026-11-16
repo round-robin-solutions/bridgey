@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Everything that is not Windows UI: the bridgey_core interop, settings, versions and the view models.
+       It builds and its tests run on Linux too (against libbridgey_core.so). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Bridgey</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTrimmable>true</IsTrimmable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Bridgey.Core.Tests" />
+  </ItemGroup>
+
+  <!-- Edition.g.cs: names and versions from rr-edition.properties, so Windows reads the same single file as
+       Gradle, macos/build-app.sh and scripts/rr. -->
+  <PropertyGroup>
+    <EditionDisplayName>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^EDITION_DISPLAY_NAME=([^\r\n]*).*\z', '$1'))</EditionDisplayName>
+    <EditionShortName>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^EDITION_SHORT_NAME=([^\r\n]*).*\z', '$1'))</EditionShortName>
+    <EditionUpstreamBase>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^EDITION_UPSTREAM_BASE=([^\r\n]*).*\z', '$1'))</EditionUpstreamBase>
+    <EditionRepository>$([System.Text.RegularExpressions.Regex]::Replace('$(EditionText)', '(?ms)\A.*?^GITHUB_REPO=([^\r\n]*).*\z', '$1'))</EditionRepository>
+    <EditionVersionName>$(BridgeyVersionName)</EditionVersionName>
+    <EditionVersionName Condition="'$(EditionVersionName)' == ''">$(EditionNextVersion)-dev</EditionVersionName>
+  </PropertyGroup>
+
+  <Target Name="BridgeyEdition" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <EditionGenerated>$(IntermediateOutputPath)Edition.g.cs</EditionGenerated>
+    </PropertyGroup>
+    <ItemGroup>
+      <EditionLine Include="// Generated from rr-edition.properties by Bridgey.Core.csproj. Do not edit." />
+      <EditionLine Include="namespace Bridgey%3B" />
+      <EditionLine Include="public static partial class Edition" />
+      <EditionLine Include="{" />
+      <EditionLine Include="    public const string DisplayName = &quot;$(EditionDisplayName)&quot;%3B" />
+      <EditionLine Include="    public const string ShortName = &quot;$(EditionShortName)&quot;%3B" />
+      <EditionLine Include="    public const string NextVersion = &quot;$(EditionNextVersion)&quot;%3B" />
+      <EditionLine Include="    public const string UpstreamBase = &quot;$(EditionUpstreamBase)&quot;%3B" />
+      <EditionLine Include="    public const string Repository = &quot;$(EditionRepository)&quot;%3B" />
+      <EditionLine Include="    public const string VersionName = &quot;$(EditionVersionName)&quot;%3B" />
+      <EditionLine Include="    public const string BuildNumber = &quot;$(BridgeyBuildNumber)&quot;%3B" />
+      <EditionLine Include="}" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(EditionGenerated)" Lines="@(EditionLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+  <Target Name="BridgeyEditionCompile" BeforeTargets="CoreCompile" DependsOnTargets="BridgeyEdition">
+    <ItemGroup>
+      <Compile Remove="$(EditionGenerated)" />
+      <Compile Include="$(EditionGenerated)" />
+      <FileWrites Include="$(EditionGenerated)" />
+    </ItemGroup>
+  </Target>
+</Project>

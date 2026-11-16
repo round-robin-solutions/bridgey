@@ -1,0 +1,18 @@
+{
+  "_comment": "The Bridgey windows lane for RR CI, as the coordinator task the CI owner thread adds. It runs on GitHub's hosted windows-latest runners through .github/workflows/rr-ci-hosted.yml (workflow_dispatch, no secrets). See windows/README.md.",
+  "windows": {
+    "command": ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/rr/build-windows.ps1"],
+    "runs_on": "windows-latest",
+    "setup": { "python": "3.12" },
+    "inputs": ["windows/**", "rust/**", "protocol/**", "scripts/rr/build-windows.ps1", "rr-edition.properties"],
+    "pass_env": [],
+    "timeout_minutes": 60,
+    "artifacts": [
+      "windows/out/*.zip",
+      "windows/out/SHA256SUMS",
+      "windows/out/screenshots/*.png",
+      "windows/out/test-results/*.trx",
+      "windows/out/logs/*.log"
+    ]
+  }
+}
