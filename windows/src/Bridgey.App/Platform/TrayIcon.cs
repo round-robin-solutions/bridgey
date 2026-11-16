@@ -97,7 +97,7 @@ internal sealed unsafe class TrayIcon : IDisposable
     {
         try
         {
-            if (_current is { } tray && tray._hwnd == hwnd && tray.Handle(msg, wParam, lParam, out var result)) return result;
+            if (_current is { } tray && tray._hwnd == hwnd && tray.HandleMessage(msg, wParam, lParam, out var result)) return result;
         }
         catch (Exception e)
         {
@@ -106,7 +106,7 @@ internal sealed unsafe class TrayIcon : IDisposable
         return DefWindowProc(hwnd, msg, wParam, lParam);
     }
 
-    private bool Handle(uint msg, nint wParam, nint lParam, out nint result)
+    private bool HandleMessage(uint msg, nint wParam, nint lParam, out nint result)
     {
         result = 0;
         if (msg == CallbackMessage)
