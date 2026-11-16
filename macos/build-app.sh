@@ -28,6 +28,9 @@ if [ -n "${RR_CI_CPU:-}" ]; then
   [ "${#RR_CI_CPU}" -le 3 ] && [ "$RR_CI_CPU" -gt 0 ] || { echo "RR_CI_CPU must be a positive integer" >&2; exit 2; }
   set -- --jobs "$RR_CI_CPU"
 fi
+# Extra swift build flags from the release script (word-split on purpose, e.g. "--disable-index-store").
+# shellcheck disable=SC2086
+[ -z "${BRIDGEY_SWIFT_BUILD_FLAGS:-}" ] || set -- "$@" $BRIDGEY_SWIFT_BUILD_FLAGS
 
 env \
   SDKROOT="$SDK_PATH" \

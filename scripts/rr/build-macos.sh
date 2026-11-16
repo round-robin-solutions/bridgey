@@ -46,8 +46,18 @@ fi
 sh "$RR_ROOT/scripts/rr/rust-toolchain.sh" mac
 PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
 export PATH
-swift test --build-system native -c release --skip MacTrustRegistryTests
-OUTPUT_DIR="$OUTPUT" ./package-release.sh
+# Disk: a cold release build peaked at 38.5 GiB on RR CI's work Mac (16 Nov) with a full index store and full
+# debug info, building everything twice (release tests, then the app). Releases need neither the IDE index nor
+# full debug info; line tables still symbolicate crash reports. Cargo skips incremental state and debug info.
+SIZE_FLAGS="--disable-index-store -Xswiftc -gline-tables-only"
+export CARGO_INCREMENTAL=0 CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_PROFILE_DEV_DEBUG=0
+# shellcheck disable=SC2086
+swift test --build-system native -c release $SIZE_FLAGS --skip MacTrustRegistryTests
+# The test bundle and test-only module builds are not part of the app; drop them before the packaging build.
+find .build -maxdepth 3 \( -name '*PackageTests.xctest' -o -name '*Tests.build' -o -name '*PackageTests.product' \) -prune -exec rm -rf {} + 2>/dev/null || true
+echo "after release tests: $(du -sh .build 2>/dev/null | cut -f1) in macos/.build"
+BRIDGEY_SWIFT_BUILD_FLAGS="$SIZE_FLAGS" OUTPUT_DIR="$OUTPUT" ./package-release.sh
+echo "after packaging: $(du -sh .build 2>/dev/null | cut -f1) in macos/.build"
 
 APP=".build/release/$(edition_value EDITION_MAC_APP_NAME).app"
 PLIST="$APP/Contents/Info.plist"
