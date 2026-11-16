@@ -26,7 +26,8 @@ else
   set -- "$CHANNEL" --version "$VERSION"
 fi
 
-NOW=$(date -u +%Y-%m-%dT%H:%M:00Z)
+# RR CI gives every job of a release run one time, so the Mac and Windows halves derive the same version and build.
+NOW=${RR_CI_RELEASE_NOW:-$(date -u +%Y-%m-%dT%H:%M:00Z)}
 eval "$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$@" --now "$NOW")"
 export BRIDGEY_VERSION_NAME="$VERSION_NAME" BRIDGEY_BUILD_NUMBER="$BUILD_NUMBER"
 echo "== macOS for $CHANNEL $VERSION_NAME build $BUILD_NUMBER"

@@ -113,8 +113,9 @@ Windows target, from `cargo tree`, and the app's NuGet packages) and in the prov
   replaces the app's files once Bridgey has closed and opens it again. Builds aren't Authenticode-signed yet, so the
   release key's signature is the check that a download is ours.
 
-A dry run with Windows: put the two zips, `release.env`, `windows.build-info` and `windows-rust-dependencies.txt` in a
-folder (the Windows job's artifacts), then
+A dry run with Windows: put the two zips (`Bridgey-RR-windows-x64.zip` and `...-arm64.zip`, as the Windows job names
+them, or build-windows.ps1's versioned names), `release.env`, `windows.build-info` and `windows-rust-dependencies.txt`
+in a folder (the Windows job's artifacts), then
 
 ```sh
 scripts/rr/release.sh nightly --skip-android --skip-macos --windows-artifacts <folder>

@@ -9,7 +9,7 @@
   pwsh -NoProfile -File scripts/rr/ci-release-windows.ps1 -Mode tag -Output <dir>     beta or stable from RR_CI_REF
 
   Builds with scripts/rr/build-windows.ps1 (the verify lane ran the UI tests on this revision, so they are skipped
-  here). The output holds the two zips, SHA256SUMS, release.env (the time, channel, version name, build number, tag
+  here). The output holds the two zips under fixed names (Bridgey-RR-windows-x64.zip, ...-arm64.zip), SHA256SUMS, release.env (the time, channel, version name, build number, tag
   and revision; ci-release.sh refuses a different revision or version), windows.build-info (the toolchains) and
   windows-rust-dependencies.txt (cargo tree for the Windows target, for the SBOM). RR_CI_RELEASE_NOW, when set,
   gives the release time so a separate Mac job derives the same version. No secrets: the zips are signed with the
@@ -51,8 +51,17 @@ if (Test-Path $build) { Remove-Item -Recurse -Force $build }
 if ($LASTEXITCODE -ne 0) { throw "build-windows.ps1 failed ($LASTEXITCODE)" }
 
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
-Copy-Item (Join-Path $build '*.zip') $Output
-Copy-Item (Join-Path $build 'SHA256SUMS') $Output
+# Fixed names, as the Mac job's Bridgey-RR-macOS.dmg: RR CI hands files to the publishing job by exact name, and
+# release.sh puts the version back in the names it publishes.
+$prefix = ((Get-Content (Join-Path $Root 'rr-edition.properties')) -match '^EDITION_ASSET_PREFIX=' | Select-Object -First 1) -replace '^EDITION_ASSET_PREFIX=', ''
+$sums = foreach ($arch in @('x64', 'arm64')) {
+    $zip = Get-ChildItem $build -Filter "*-windows-$arch.zip" | Select-Object -First 1
+    if (-not $zip) { throw "build-windows.ps1 made no $arch zip" }
+    $name = "$prefix-windows-$arch.zip"
+    Copy-Item $zip.FullName (Join-Path $Output $name)
+    "$((Get-FileHash -Algorithm SHA256 (Join-Path $Output $name)).Hash.ToLowerInvariant())  $name"
+}
+Set-Content -Path (Join-Path $Output 'SHA256SUMS') -Value $sums -Encoding ascii
 $revision = (& git -C $Root rev-parse HEAD).Trim()
 @(
     "NOW=$now", "CHANNEL=$($values['CHANNEL'])", "VERSION_NAME=$($values['VERSION_NAME'])", "BUILD_NUMBER=$($values['BUILD_NUMBER'])",

@@ -93,8 +93,10 @@ fi
 if [ -n "$WIN_ARTIFACTS" ]; then
   PREFIX=$(edition_value EDITION_ASSET_PREFIX)
   for arch in x64 arm64; do
-    zip="$WIN_ARTIFACTS/$PREFIX-$VERSION_NAME-windows-$arch.zip"
-    [ -f "$zip" ] || die "the Windows $arch zip for $VERSION_NAME is not in $WIN_ARTIFACTS"
+    # The Windows job's fixed name, or a build-windows.ps1 zip named for this version.
+    zip="$WIN_ARTIFACTS/$PREFIX-windows-$arch.zip"
+    [ -f "$zip" ] || zip="$WIN_ARTIFACTS/$PREFIX-$VERSION_NAME-windows-$arch.zip"
+    [ -f "$zip" ] || die "no Windows $arch zip ($PREFIX-windows-$arch.zip or $PREFIX-$VERSION_NAME-windows-$arch.zip) in $WIN_ARTIFACTS"
     set -- "$@" --windows-$arch "$zip"
   done
   WIN_BUILD=$(sed -n 's/^BUILD_NUMBER=//p' "$WIN_ARTIFACTS/release.env" 2>/dev/null || true)
