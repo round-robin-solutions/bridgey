@@ -37,12 +37,21 @@ jobs:
       RR_CI_JOB: ${{ inputs.job }}
       RR_CI_ATTEMPT: ${{ inputs.attempt }}
     steps:
+      # Windows runners convert line endings on checkout by default; tests and golden vectors expect the bytes in git.
+      - if: runner.os == 'Windows'
+        name: Keep the repository's line endings
+        shell: bash
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ fromJSON(inputs.job).revision }}
           persist-credentials: false
+      # Windows images name Python "python" (a "python3" there may be the Store stub).
       - name: Check the revision
-        run: test "$(git rev-parse HEAD)" = "$(python3 -c 'import json,os;print(json.loads(os.environ["RR_CI_JOB"])["revision"])')"
+        shell: bash
+        run: |
+          PY=python3; [ "$RUNNER_OS" != Windows ] || PY=python
+          test "$(git rev-parse HEAD)" = "$("$PY" -c 'import json,os;print(json.loads(os.environ["RR_CI_JOB"])["revision"])')"
       - if: fromJSON(inputs.job).setup.java
         uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -60,7 +69,8 @@ jobs:
         id: task
         shell: bash
         run: |
-          python3 - <<'PY'
+          PY=python3; [ "$RUNNER_OS" != Windows ] || PY=python
+          "$PY" - <<'PY'
           import json, os, subprocess, sys
           job = json.loads(os.environ['RR_CI_JOB'])
           out = os.path.join(os.environ['RUNNER_TEMP'], 'rr-ci-output')
