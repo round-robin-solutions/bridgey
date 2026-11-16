@@ -931,6 +931,11 @@ impl session::Host for Inner {
             }
             return Admission::Answer;
         }
+        // The device this end is already pairing with dialled too, but this end's pairing is past the answer (its code
+        // shows): its offer is redundant. Refuse it as busy, with no "wants to pair" card for a device mid-pairing.
+        if st.pairing.as_ref().is_some_and(|a| !a.cancelled && a.expected.as_deref() == Some(offer.device_id)) {
+            return Admission::Refuse("busy");
+        }
         let busy = st.incoming_pairing.is_some_and(|s| s != offer.session && st.sessions.contains_key(&s)) || st.pairing.as_ref().is_some_and(|a| !a.cancelled);
         let armed = st.armed_until.is_some_and(|t| t > now);
         if !armed {
