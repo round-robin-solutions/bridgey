@@ -33,6 +33,9 @@ public sealed partial class AppTests : IDisposable
     private readonly string _peerExe = Required("BRIDGEY_PEER_EXE");
     private readonly string _shots = Environment.GetEnvironmentVariable("BRIDGEY_SCREENSHOTS") is { Length: > 0 } s ? s : Path.Combine(Path.GetTempPath(), "bridgey-screenshots");
     private readonly string _data = Path.Combine(Path.GetTempPath(), "bridgey-ui-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _inbox = Path.Combine(Path.GetTempPath(), "bridgey-ui-inbox-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _peerInbox = Path.Combine(Path.GetTempPath(), "bridgey-ui-peer-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _sendTo = Path.Combine(Path.GetTempPath(), "bridgey-ui-sendto-" + Guid.NewGuid().ToString("N")[..8]);
     private readonly UIA3Automation _automation = new();
     private Application? _app;
     private Process? _peer;
@@ -84,7 +87,11 @@ public sealed partial class AppTests : IDisposable
 
                 TrayMenu(window, $"tray-menu-{t}");
 
-                if (theme == "Light") PairWithPeer(window);
+                if (theme == "Light")
+                {
+                    PairWithPeer(window);
+                    FilesBatteryAndFind(window);
+                }
                 else
                 {
                     // The pairing from the light run is kept (DPAPI-protected) and reconnects.
@@ -97,8 +104,26 @@ public sealed partial class AppTests : IDisposable
                     Assert.Equal("Hello again after a restart", PeerEvent("clipboard").GetProperty("text").GetString());
                 }
                 Click(window, "NavHome");
+                if (theme == "Dark")
+                {
+                    PeerCommand("battery 23 0");
+                    WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("DeviceBattery"))?.Name == "23%" ? "ok" : null, "the battery after the reconnect");
+                }
                 Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
                 Shot(window, $"home-paired-{t}");
+
+                Click(window, "NavSettings");
+                SelectSection(window, "Files");
+                Assert.Equal(_inbox, Find(window, "ReceiveFolder").Name);
+                Shot(window, $"settings-files-{t}");
+                SelectSection(window, "Media and actions");
+                Shot(window, $"settings-media-{t}");
+                SelectSection(window, "Devices");
+                var device = Find(window, "DeviceSettings");
+                if (device.Patterns.ExpandCollapse.IsSupported) device.Patterns.ExpandCollapse.Pattern.Expand();
+                else device.Click();
+                Find(window, "DeviceSettings").FindFirstDescendant(c => c.ByName("Find device"));
+                Shot(window, $"settings-devices-{t}");
                 Quit();
             }
         }
@@ -135,6 +160,98 @@ public sealed partial class AppTests : IDisposable
         Assert.Equal(FromPc, received.GetProperty("text").GetString());
     }
 
+    /// <summary>
+    /// Battery from the peer, a file each way (the peer sends one; Explorer's Send to sends one to it), the PC rings the
+    /// peer, the peer rings the PC and Stop ends it, all against the scripted peer.
+    /// </summary>
+    private void FilesBatteryAndFind(Window window)
+    {
+        Assert.True(File.Exists(Path.Combine(_sendTo, "Bridgey.lnk")), "Bridgey is in Send to");
+
+        PeerCommand("battery 45 1");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("DeviceBattery"))?.Name == "45%, charging" ? "ok" : null, "the peer's battery on its card");
+
+        // The peer sends a file: it lands in the receive folder and its row offers Open.
+        var fromPeer = Path.Combine(Path.GetTempPath(), "Holiday photo.jpg");
+        var bytes = Enumerable.Range(0, 3_000_000).Select(i => (byte)(i % 253)).ToArray();
+        File.WriteAllBytes(fromPeer, bytes);
+        PeerCommand($"file {fromPeer}");
+        Find(window, "OpenFile");
+        Assert.Equal(bytes, File.ReadAllBytes(Path.Combine(_inbox, "Holiday photo.jpg")));
+        Shot(window, "home-file-received-light");
+        NotificationCenter("notification-file-light");
+
+        // Explorer's Send to: Bridgey.exe --send <file> hands it to the running app, which sends it to the only device.
+        var toPeer = Path.Combine(Path.GetTempPath(), "Quarterly report.pdf");
+        File.WriteAllBytes(toPeer, bytes[..700_000]);
+        var send = new ProcessStartInfo(_exe) { UseShellExecute = false, ArgumentList = { "--send", toPeer } };
+        send.Environment["BRIDGEY_DATA_DIR"] = _data;
+        Process.Start(send)?.WaitForExit(10_000);
+        var arrived = PeerEvent("transfer", e => e.GetProperty("direction").GetString() == "receive" && e.GetProperty("state").GetString() == "done");
+        Assert.Equal(bytes[..700_000], File.ReadAllBytes(arrived.GetProperty("path").GetString()!));
+
+        // Send files on the card opens Windows' Open dialog; a path typed there goes to the peer.
+        var picked = Path.Combine(Path.GetTempPath(), "Picked notes.txt");
+        File.WriteAllText(picked, "Chosen in the file picker");
+        Click(window, "SendFiles");
+        var dialog = Retry.WhileNull(() => window.ModalWindows.FirstOrDefault()
+            ?? _automation.GetDesktop().FindFirstChild(c => c.ByControlType(FlaUI.Core.Definitions.ControlType.Window).And(c.ByName("Open"))), TimeSpan.FromSeconds(20)).Result
+            ?? throw new InvalidOperationException("the file picker did not open");
+        Thread.Sleep(800);
+        var fileName = Retry.WhileNull(() => dialog.FindFirstDescendant(c => c.ByControlType(FlaUI.Core.Definitions.ControlType.Edit).And(c.ByAutomationId("1148"))), TimeSpan.FromSeconds(10)).Result
+            ?? throw new InvalidOperationException("the picker's file name box was not found");
+        fileName.AsTextBox().Text = picked;
+        // The dialog's Open button (ID 1) by UI Automation: a key press can land in a flyout still closing.
+        var open = Retry.WhileNull(() => dialog.FindFirstDescendant(c => c.ByAutomationId("1")), TimeSpan.FromSeconds(10)).Result
+            ?? throw new InvalidOperationException("the picker's Open button was not found");
+        if (open.Patterns.Invoke.IsSupported) open.Patterns.Invoke.Pattern.Invoke();
+        else open.Click();
+        var viaPicker = PeerEvent("transfer", e => e.GetProperty("direction").GetString() == "receive" && e.GetProperty("state").GetString() == "done"
+            && e.GetProperty("name").GetString() == "Picked notes.txt");
+        Assert.Equal("Chosen in the file picker", File.ReadAllText(viaPicker.GetProperty("path").GetString()!));
+        Shot(window, "home-file-sent-light");
+
+        // The PC rings the peer; the peer stops itself, and the card offers Ring again.
+        Click(window, "DeviceMore");
+        Click(window, "RingDevice");
+        PeerEvent("find", e => e.GetProperty("ring").GetBoolean());
+        PeerCommand("stopped");
+        Keyboard.Press(VirtualKeyShort.ESCAPE);
+
+        // The peer rings the PC: the banner shows until Stop, and the peer hears it stopped.
+        PeerCommand("ring");
+        Find(window, "StopRinging");
+        WaitFor(() => Find(window, "RingingBar").FindFirstDescendant(c => c.ByName($"{PeerName} is ringing this PC.")) is not null ? "ok" : null, "the ringing banner");
+        Shot(window, "home-ringing-light");
+        Click(window, "StopRinging");
+        PeerEvent("ringing", e => !e.GetProperty("ringing").GetBoolean());
+    }
+
+    private void PeerCommand(string line)
+    {
+        _peer!.StandardInput.WriteLine(line);
+        _peer.StandardInput.Flush();
+    }
+
+    /// <summary>Opens Windows' notification centre (Win+N) and captures the screen: evidence that the notification
+    /// was delivered. Hosted runners may hold notifications back, so nothing is asserted.</summary>
+    private void NotificationCenter(string name)
+    {
+        try
+        {
+            Thread.Sleep(1500);
+            Keyboard.TypeSimultaneously(VirtualKeyShort.LWIN, VirtualKeyShort.KEY_N);
+            Thread.Sleep(1500);
+            Capture.Screen().ToFile(Path.Combine(_shots, name + ".png"));
+            Keyboard.Press(VirtualKeyShort.ESCAPE);
+            Thread.Sleep(500);
+            // Escape doesn't always close it: give the focus back to Bridgey, which closes the flyout.
+            _app?.GetMainWindow(_automation, TimeSpan.FromSeconds(2))?.Focus();
+            Thread.Sleep(300);
+        }
+        catch (Exception) { }
+    }
+
     private Window Launch(string theme, bool setupDone)
     {
         Directory.CreateDirectory(_data);
@@ -148,6 +265,8 @@ public sealed partial class AppTests : IDisposable
         var start = new ProcessStartInfo(_exe) { UseShellExecute = false };
         start.Environment["BRIDGEY_DATA_DIR"] = _data;
         start.Environment["BRIDGEY_PORT"] = AppPort.ToString();
+        start.Environment["BRIDGEY_RECEIVE_DIR"] = _inbox;
+        start.Environment["BRIDGEY_SENDTO_DIR"] = _sendTo;
         _app = Application.Launch(start);
         Window? window = null;
         try { window = _app.GetMainWindow(_automation, Long); }
@@ -255,7 +374,8 @@ public sealed partial class AppTests : IDisposable
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            ArgumentList = { "--name", PeerName, "--port", PeerPort.ToString(), "--allow", "--discover", "--send", FromPeer, "--seconds", "900" },
+            RedirectStandardInput = true,
+            ArgumentList = { "--name", PeerName, "--port", PeerPort.ToString(), "--allow", "--discover", "--send", FromPeer, "--seconds", "900", "--receive-dir", _peerInbox },
         };
         _peer = Process.Start(start) ?? throw new InvalidOperationException("peer did not start");
         _peer.OutputDataReceived += (_, e) =>
@@ -274,12 +394,12 @@ public sealed partial class AppTests : IDisposable
         PeerEvent("ready");
     }
 
-    private JsonElement PeerEvent(string kind)
+    private JsonElement PeerEvent(string kind, Func<JsonElement, bool>? match = null)
     {
         var deadline = DateTime.UtcNow + Long;
         while (DateTime.UtcNow < deadline)
         {
-            if (_peerEvents.TryTake(out var e, 250) && e.GetProperty("event").GetString() == kind) return e;
+            if (_peerEvents.TryTake(out var e, 250) && e.GetProperty("event").GetString() == kind && (match is null || match(e))) return e;
         }
         string log;
         lock (_peerLog) log = string.Join("\n", _peerLog);

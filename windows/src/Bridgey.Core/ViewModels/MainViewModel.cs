@@ -17,8 +17,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private readonly IUiDispatcher _ui;
     private readonly IClipboardService _clipboard;
     private readonly IAlertService _alerts;
+    private readonly IFileService _files;
     private readonly Dictionary<string, Dictionary<string, bool>> _remote = new();
     private readonly Dictionary<ulong, ActivityItem> _sending = new();
+    /// <summary>File rows by request ID, while their transfer runs.</summary>
+    private readonly Dictionary<ulong, ActivityItem> _transfers = new();
+    private string? _ringingFrom;
     private string _draft = "";
     private string? _notice;
     private string? _requestId;
@@ -35,12 +39,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public PairingViewModel Pairing { get; }
     public SettingsViewModel Settings { get; }
 
-    public MainViewModel(IBridgeyClient client, SettingsViewModel settings, IUiDispatcher ui, IClipboardService clipboard, IAlertService alerts)
+    public MainViewModel(IBridgeyClient client, SettingsViewModel settings, IUiDispatcher ui, IClipboardService clipboard, IAlertService alerts, IFileService? files = null)
     {
         _client = client;
         _ui = ui;
         _clipboard = clipboard;
         _alerts = alerts;
+        _files = files ?? new NoFiles();
         Settings = settings;
         Pairing = new PairingViewModel(this, client);
         Devices.CollectionChanged += (_, _) => DevicesChanged();
@@ -51,9 +56,43 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         };
         Nearby.CollectionChanged += (_, _) => Pairing.NearbyChanged();
         Settings.ClipboardDefaultChanged += on => Try(() => _client.SetFeature(null, "clipboard", on));
+        Settings.FeatureDefaultChanged += (key, on) =>
+        {
+            Try(() => _client.SetFeature(null, key, on));
+            foreach (var d in Devices) UpdateReadiness(d);
+        };
         Settings.DeviceNameChanged += name => Try(() => _client.SetDeviceName(name));
+        Settings.ReceiveFolderChanged += folder => Try(() => _client.SetReceiveDir(folder));
         client.EventReceived += e => _ui.Post(() => Handle(e));
+        foreach (var (key, on) in Settings.FeatureDefaults) Try(() => _client.SetFeature(null, key, on));
+        if (Settings.ReceiveFolder.Length > 0) Try(() => _client.SetReceiveDir(Settings.ReceiveFolder));
         Refresh();
+    }
+
+    private sealed class NoFiles : IFileService
+    {
+        public void Open(string path) { }
+        public void ShowInFolder(string path) { }
+    }
+
+    /// <summary>Another device is ringing this PC: a banner with Stop.</summary>
+    public bool IsRinging => _ringingFrom is not null;
+    public string RingingText => $"{NameOf(_ringingFrom ?? "")} is ringing this PC.";
+
+    /// <summary>The person pressed Stop: the sound ends and the device that rang is told.</summary>
+    public void StopRinging()
+    {
+        if (_ringingFrom is not { } from) return;
+        _alerts.StopRinging();
+        Try(() => _client.FindStopped(from));
+        SetRinging(null);
+    }
+
+    private void SetRinging(string? from)
+    {
+        _ringingFrom = from;
+        Raise(nameof(IsRinging));
+        Raise(nameof(RingingText));
     }
 
     public bool HasDevices => Devices.Count > 0;
@@ -93,7 +132,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         get => _target;
         set
         {
-            if (Set(ref _target, value)) Raise(nameof(CanSendDraft));
+            if (!Set(ref _target, value)) return;
+            Raise(nameof(CanSendDraft));
+            Raise(nameof(CanSendFiles));
         }
     }
 
@@ -156,10 +197,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             item.Name = d.Name;
             item.Platform = d.Platform;
             item.IsConnected = d.Connected;
+            item.BatteryLevel = d.Battery?.Level;
+            item.Charging = d.Battery?.Charging ?? false;
+            item.IsRinging = d.Ringing;
             if (d.Remote is not null) _remote[d.DeviceId] = d.Remote;
             UpdateReadiness(item, d.Local);
         }
         foreach (var gone in Devices.Where(d => !seen.Contains(d.Id)).ToList()) Devices.Remove(gone);
+        foreach (var t in snapshot.Transfers.Where(t => t.State is "queued" or "offered" or "sending" or "receiving")) UpdateTransfer(t.Request, t);
         Nearby.Clear();
         foreach (var n in snapshot.Nearby.Where(n => !n.Trusted && n.Host is not null))
             Nearby.Add(new NearbyItem(this) { DeviceId = n.DeviceId, Name = n.Name, Platform = n.Platform, Host = n.Host!, Port = (ushort)(n.Port ?? 0) });
@@ -180,10 +225,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         local ??= LocalPolicy(item.Id);
         _remote.TryGetValue(item.Id, out var remote);
         bool On(Dictionary<string, bool>? map, string key) => map is not null && map.TryGetValue(key, out var v) && v;
-        if (local is not null) item.ShowClipboardAllowed(On(local, "clipboard"));
+        if (local is not null)
+        {
+            item.ShowClipboardAllowed(On(local, "clipboard"));
+            item.ShowSwitches(local);
+        }
         item.ClipboardReady = item.IsConnected && On(local, "clipboard") && On(remote, "clipboard");
         item.PingReady = item.IsConnected && On(local, "ping") && On(remote, "ping");
+        item.FilesReady = item.IsConnected && On(local, "files") && On(remote, "files");
+        item.FindReady = item.IsConnected && On(local, "find_device") && On(remote, "find_device");
+        if (!(On(local, "battery") && On(remote, "battery"))) item.BatteryLevel = null;
         Raise(nameof(CanSendDraft));
+        Raise(nameof(CanSendFiles));
     }
 
     private Dictionary<string, bool>? LocalPolicy(string id)
@@ -231,12 +284,44 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 if (Find(e.DeviceId) is { } item)
                 {
                     item.IsConnected = false;
+                    item.BatteryLevel = null;
                     _remote.Remove(e.DeviceId);
                     UpdateReadiness(item);
+                }
+                if (_ringingFrom == e.DeviceId)
+                {
+                    _alerts.StopRinging();
+                    SetRinging(null);
                 }
                 DevicesChanged();
                 break;
             }
+            case BridgeyEventKind.Transfer when TransferInfo.Parse(e.Text) is { } transfer:
+                UpdateTransfer(e.Id, transfer);
+                break;
+            case BridgeyEventKind.Battery when e.DeviceId is not null:
+                if (Find(e.DeviceId) is { } battery)
+                {
+                    battery.Charging = e.Id != 0;
+                    battery.BatteryLevel = Math.Clamp(e.Status, 0, 100);
+                }
+                break;
+            case BridgeyEventKind.FindRequested when e.DeviceId is not null:
+                if (e.Status != 0)
+                {
+                    SetRinging(e.DeviceId);
+                    _alerts.StartRinging(NameOf(e.DeviceId));
+                }
+                else if (_ringingFrom == e.DeviceId)
+                {
+                    // Stopped from the other device; it has its answer already.
+                    _alerts.StopRinging();
+                    SetRinging(null);
+                }
+                break;
+            case BridgeyEventKind.FindState when e.DeviceId is not null:
+                if (Find(e.DeviceId) is { } ringing) ringing.IsRinging = e.Status != 0;
+                break;
             case BridgeyEventKind.Features when e.DeviceId is not null:
             {
                 var local = Parse(e.Text);
@@ -346,7 +431,149 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         UpdateReadiness(device);
     }
 
+    internal void SetDeviceFeature(string deviceId, string key, bool on)
+    {
+        Try(() => _client.SetFeature(deviceId, key, on));
+        if (Find(deviceId) is { } device)
+        {
+            if (key == "clipboard") device.ShowClipboardAllowed(on);
+            UpdateReadiness(device);
+        }
+    }
+
     internal void Ping(DeviceItem device) => Try(() => _client.Ping(device.Id));
+
+    /// <summary>Rings the device until someone stops it, or stops it.</summary>
+    internal void Ring(DeviceItem device) => Try(() => _client.Find(device.Id, !device.IsRinging));
+
+    /// <summary>The send bar's device can take files.</summary>
+    public bool CanSendFiles => _target is { FilesReady: true };
+
+    /// <summary>The host shows a file picker and answers with <see cref="SendFiles"/>.</summary>
+    public event Action<DeviceItem>? FilesRequested;
+
+    internal void RequestSendFiles(DeviceItem device) => FilesRequested?.Invoke(device);
+
+    /// <summary>Files from Explorer's Send to, or dropped on the window: which device takes them is asked for when more
+    /// than one could.</summary>
+    public event Action<IReadOnlyList<string>, IReadOnlyList<DeviceItem>>? ChooseDeviceForFiles;
+
+    /// <summary>Files from outside the window (Send to): straight to the one device that can take them, else asked.</summary>
+    public void SendFilesFromShell(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return;
+        var ready = Devices.Where(d => d.FilesReady).ToList();
+        switch (ready.Count)
+        {
+            case 0:
+                Notice = Devices.Count == 0 ? "Pair a phone or Mac first, then send files to it." : "Connect a device with Files on to send files.";
+                break;
+            case 1:
+                SendFiles(ready[0], paths);
+                break;
+            default:
+                ChooseDeviceForFiles?.Invoke(paths, ready);
+                break;
+        }
+    }
+
+    /// <summary>Queues files for one device; each gets a row in Activity.</summary>
+    public void SendFiles(DeviceItem device, IEnumerable<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            try
+            {
+                var request = _client.SendFile(device.Id, path);
+                if (!_transfers.ContainsKey(request))
+                {
+                    var row = NewTransferRow(request, ActivityDirection.Sent, $"{FileName(path)} to {device.Name}");
+                    row.Transfer = TransferState.Queued;
+                    row.Status = "Waiting";
+                }
+            }
+            catch (BridgeyException e)
+            {
+                Notice = e.Code switch
+                {
+                    BridgeyException.FeatureOff => $"Files is off on {device.Name} or on this PC.",
+                    BridgeyException.TooLarge => $"{FileName(path)} is too large to send. Files can be up to 10 GB.",
+                    BridgeyException.InvalidArgument => "Folders can't be sent yet. Choose files instead.",
+                    BridgeyException.Io => $"Bridgey can't read {FileName(path)}.",
+                    _ => e.Message,
+                };
+            }
+        }
+    }
+
+    /// <summary>The last part of a path, with either separator (the same on Windows; the tests also run on Linux).</summary>
+    private static string FileName(string path) => path.Split('\\', '/').LastOrDefault(p => p.Length > 0) ?? path;
+
+    private ActivityItem NewTransferRow(ulong request, ActivityDirection direction, string title)
+    {
+        var row = new ActivityItem { Direction = direction, Title = title, Request = request, Owner = this };
+        _transfers[request] = row;
+        AddActivity(row);
+        return row;
+    }
+
+    private void UpdateTransfer(ulong request, TransferInfo t)
+    {
+        var device = NameOf(t.DeviceId);
+        // A file refused before it started (no room) still gets a row saying so.
+        var row = _transfers.TryGetValue(request, out var known) ? known
+            : NewTransferRow(request, t.Incoming ? ActivityDirection.Received : ActivityDirection.Sent, t.Incoming ? $"{t.Name} from {device}" : $"{t.Name} to {device}");
+        if (!Enum.TryParse<TransferState>(t.State, true, out var state)) return;
+        row.Transfer = state;
+        row.Progress = t.Total > 0 ? Math.Round(100.0 * t.Bytes / t.Total, 1) : 0;
+        row.Status = TransferStatus(t, state, device);
+        if (state == TransferState.Done && t.Incoming)
+        {
+            row.Title = $"{t.Name} from {device}";
+            row.Path = t.Path;
+        }
+        if (state is TransferState.Done or TransferState.Rejected or TransferState.Cancelled or TransferState.Failed or TransferState.Interrupted)
+        {
+            _transfers.Remove(request);
+            if (state == TransferState.Done && t.Incoming && t.Path is { } path) _alerts.FileReceived(device, t.Name, path);
+        }
+    }
+
+    /// <summary>What a file row says under its name.</summary>
+    internal static string TransferStatus(TransferInfo t, TransferState state, string device) => state switch
+    {
+        TransferState.Queued => "Waiting",
+        TransferState.Offered => $"Waiting for {device}",
+        TransferState.Sending or TransferState.Receiving when t.Rate > 0 => $"{ActivityItem.Size(t.Bytes)} of {ActivityItem.Size(t.Total)}, {ActivityItem.Size(t.Rate)}/s",
+        TransferState.Sending or TransferState.Receiving => $"{ActivityItem.Size(t.Bytes)} of {ActivityItem.Size(t.Total)}",
+        TransferState.Done => "",
+        TransferState.Rejected => $"Files is off on {device}",
+        TransferState.Cancelled => t.Reason == "cancelled_remote" ? $"Cancelled on {device}" : "Cancelled",
+        TransferState.Interrupted => "The connection dropped",
+        _ => t.Reason switch
+        {
+            "hash_mismatch" or "size_mismatch" or "invalid_chunk" or "not_verified" => "The file didn't arrive intact",
+            "no_space" => "Not enough free space",
+            "write_failed" => "Bridgey couldn't save the file",
+            "read_failed" => "Bridgey couldn't read the file",
+            "file_changed" => "The file changed while it was sending",
+            "too_large" => "Too large to send",
+            "stalled" or "no_answer" or "no_confirmation" => $"No answer from {device}",
+            _ => t.Incoming ? "Not received" : "Not sent",
+        },
+    };
+
+    internal void CancelTransfer(ActivityItem row) => Try(() => _client.CancelTransfer(row.Request));
+
+    internal void OpenFile(ActivityItem row)
+    {
+        if (row.Path is { } path) _files.Open(path);
+    }
+
+    internal void ShowFileInFolder(ActivityItem row)
+    {
+        if (row.Path is { } path) _files.ShowInFolder(path);
+    }
 
     internal void Forget(DeviceItem device)
     {

@@ -30,7 +30,7 @@
         </ListView>
 
         <ScrollViewer Grid.Column="1">
-            <StackPanel x:Name="SectionPanel" Spacing="8" MaxWidth="680" HorizontalAlignment="Left" Padding="0,0,8,0">
+            <StackPanel x:Name="SectionPanel" Spacing="8" MaxWidth="680" HorizontalAlignment="Stretch" Padding="0,0,8,0">
                 <TextBlock x:Name="SectionTitle" Style="{StaticResource BrandHeadline}" Margin="0,0,0,12" AutomationProperties.AutomationId="SettingsTitle" />
 
                 <!-- This PC -->
@@ -67,30 +67,46 @@
                 <!-- Devices -->
                 <StackPanel x:Name="DevicesSection" Spacing="8" Tag="devices">
                     <TextBlock Text="No paired devices yet." Style="{StaticResource BrandSecondary}" Visibility="{x:Bind Model.HasNoDevices, Mode=OneWay}" />
-                    <ItemsRepeater ItemsSource="{x:Bind Model.Devices}">
+                    <ItemsRepeater ItemsSource="{x:Bind Model.Devices}" HorizontalAlignment="Stretch">
                         <ItemsRepeater.Layout>
                             <StackLayout Spacing="8" />
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="vm:DeviceItem">
-                                <Border Style="{StaticResource BrandCard}" Padding="16,12">
-                                    <Grid ColumnSpacing="16">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <FontIcon Glyph="{x:Bind Glyph, Mode=OneWay}" FontSize="18" />
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" Style="{StaticResource BrandBody}" />
-                                            <TextBlock Text="{x:Bind Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
-                                        </StackPanel>
-                                        <ToggleSwitch Grid.Column="2" OnContent="Clipboard on" OffContent="Clipboard off" VerticalAlignment="Center"
-                                                      IsOn="{x:Bind ClipboardAllowed, Mode=TwoWay}" AutomationProperties.Name="Clipboard" />
-                                        <Button Grid.Column="3" Content="Forget" Click="{x:Bind Forget}" VerticalAlignment="Center" />
-                                    </Grid>
-                                </Border>
+                                <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Padding="16,4,16,12"
+                                          AutomationProperties.Name="{x:Bind Name, Mode=OneWay}" AutomationProperties.AutomationId="DeviceSettings">
+                                    <Expander.Header>
+                                        <Grid ColumnSpacing="16" Padding="0,10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Glyph="{x:Bind Glyph, Mode=OneWay}" FontSize="18" />
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{x:Bind Name, Mode=OneWay}" Style="{StaticResource BrandBody}" />
+                                                <TextBlock Text="{x:Bind Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Expander.Header>
+                                    <StackPanel Spacing="2">
+                                        <ItemsRepeater ItemsSource="{x:Bind Switches}">
+                                            <ItemsRepeater.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:FeatureSwitch">
+                                                    <Grid ColumnSpacing="16" Padding="0,4">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Text="{x:Bind Title}" Style="{StaticResource BrandBody}" VerticalAlignment="Center" />
+                                                        <ToggleSwitch Grid.Column="1" IsOn="{x:Bind IsOn, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0"
+                                                                      AutomationProperties.Name="{x:Bind Title}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsRepeater.ItemTemplate>
+                                        </ItemsRepeater>
+                                        <Button Content="Forget this device" Click="{x:Bind Forget}" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </Expander>
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>
@@ -122,6 +138,109 @@
                                 <TextBlock Text="Sends what you copy here to connected devices. Text a password manager marks as private is never sent." Style="{StaticResource BrandSecondary}" />
                             </StackPanel>
                             <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.AutomaticClipboard, Mode=TwoWay}" AutomationProperties.Name="Automatic clipboard" AutomationProperties.AutomationId="AutomaticClipboard" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <!-- Files -->
+                <StackPanel x:Name="FilesSection" Spacing="8" Tag="files">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Files" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Send and receive files with paired devices. Each device can be turned off in Devices." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Files, Mode=TwoWay}" AutomationProperties.Name="Files" AutomationProperties.AutomationId="FilesOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16" RowSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Save received files in" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="{x:Bind Settings.ReceiveFolder, Mode=OneWay}" Style="{StaticResource BrandSecondary}" TextTrimming="CharacterEllipsis"
+                                           IsTextSelectionEnabled="True" AutomationProperties.AutomationId="ReceiveFolder" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Content="Open" Click="OnOpenReceiveFolder" AutomationProperties.AutomationId="OpenReceiveFolder" />
+                                <Button Content="Change" Click="OnChangeReceiveFolder" AutomationProperties.AutomationId="ChangeReceiveFolder" />
+                                <Button Content="Use Downloads" Click="OnResetReceiveFolder" Visibility="{x:Bind Settings.ReceiveFolderIsCustom, Mode=OneWay}" AutomationProperties.AutomationId="ResetReceiveFolder" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Notify when a file arrives" Style="{StaticResource BrandBody}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.FileNotifications, Mode=TwoWay}" AutomationProperties.Name="Notify when a file arrives" AutomationProperties.AutomationId="FileNotifications" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Show Bridgey in Send to" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Right-click files in Explorer, then Send to, then Bridgey." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.SendToMenu, Mode=TwoWay}" AutomationProperties.Name="Show Bridgey in Send to" AutomationProperties.AutomationId="SendToMenu" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <!-- Media and actions -->
+                <StackPanel x:Name="MediaSection" Spacing="8" Tag="media">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Battery" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Show this PC's battery on your other devices, and theirs here." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Battery, Mode=TwoWay}" AutomationProperties.Name="Battery" AutomationProperties.AutomationId="BatteryOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Find device" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Your other devices can ring this PC until you stop it, and it can ring them." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.FindDevice, Mode=TwoWay}" AutomationProperties.Name="Find device" AutomationProperties.AutomationId="FindDeviceOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Ping" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="One short sound when a paired device pings this PC." Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Ping, Mode=TwoWay}" AutomationProperties.Name="Ping" AutomationProperties.AutomationId="PingOn" />
                         </Grid>
                     </Border>
                 </StackPanel>

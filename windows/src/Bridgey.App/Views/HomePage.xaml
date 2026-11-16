@@ -5,7 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:Bridgey.ViewModels">
 
-    <Grid Padding="32,20,32,24" RowSpacing="16">
+    <Grid x:Name="PageRoot" Padding="32,20,32,24" RowSpacing="16" AllowDrop="True"
+          DragOver="OnDragOver" DragLeave="OnDragLeave" Drop="OnDrop">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -26,25 +27,39 @@
                     <Button Content="Allow" Click="OnAllowRequest" />
                 </InfoBar.ActionButton>
             </InfoBar>
+            <InfoBar x:Name="RingingBar" IsOpen="{x:Bind Model.IsRinging, Mode=OneWay}" Severity="Informational" IsClosable="False"
+                     Message="{x:Bind Model.RingingText, Mode=OneWay}" AutomationProperties.AutomationId="RingingBar">
+                <InfoBar.IconSource>
+                    <FontIconSource Glyph="&#xEA8F;" />
+                </InfoBar.IconSource>
+                <InfoBar.ActionButton>
+                    <Button Content="Stop" Style="{StaticResource AccentButtonStyle}" Click="OnStopRinging" AutomationProperties.AutomationId="StopRinging" />
+                </InfoBar.ActionButton>
+            </InfoBar>
             <InfoBar x:Name="NoticeBar" IsOpen="{x:Bind Model.HasNotice, Mode=OneWay}" Severity="Warning"
-                     Message="{x:Bind Model.Notice, Mode=OneWay}" CloseButtonClick="OnNoticeClosed" />
+                     Message="{x:Bind Model.Notice, Mode=OneWay}" CloseButtonClick="OnNoticeClosed" AutomationProperties.AutomationId="Notice" />
         </StackPanel>
 
         <!-- Devices: a ring per device, the aurora when connected. -->
         <ItemsRepeater Grid.Row="2" ItemsSource="{x:Bind Model.Devices}" Visibility="{x:Bind Model.HasDevices, Mode=OneWay}"
                        AutomationProperties.AutomationId="Devices">
             <ItemsRepeater.Layout>
-                <UniformGridLayout MinItemWidth="300" MinItemHeight="84" MinRowSpacing="12" MinColumnSpacing="12" ItemsStretch="Fill" />
+                <UniformGridLayout MinItemWidth="320" MinItemHeight="136" MinRowSpacing="12" MinColumnSpacing="12" ItemsStretch="Fill" />
             </ItemsRepeater.Layout>
             <ItemsRepeater.ItemTemplate>
                 <DataTemplate x:DataType="vm:DeviceItem">
-                    <Border Style="{StaticResource BrandCard}" Padding="14" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}">
-                        <Grid ColumnSpacing="14">
+                    <Border Style="{StaticResource BrandCard}" Padding="14" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"
+                            AllowDrop="True" DragOver="OnDeviceDragOver" Drop="OnDeviceDrop" Tag="{x:Bind}">
+                        <Grid ColumnSpacing="14" RowSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
                             <Grid Width="48" Height="48" VerticalAlignment="Center">
                                 <Ellipse Stroke="{StaticResource BrandAuroraBrush}" StrokeThickness="3" Visibility="{x:Bind IsConnected, Mode=OneWay}" />
                                 <Ellipse Stroke="{ThemeResource BrandRingOffBrush}" StrokeThickness="3" Visibility="{x:Bind IsOffline, Mode=OneWay}" />
@@ -54,30 +69,45 @@
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                 <TextBlock Text="{x:Bind Name, Mode=OneWay}" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                            Foreground="{ThemeResource BrandOnBrush}" />
-                                <TextBlock Text="{x:Bind Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <TextBlock Text="{x:Bind Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="4" Visibility="{x:Bind HasBattery, Mode=OneWay}"
+                                                AutomationProperties.AutomationId="DeviceBattery" AutomationProperties.Name="{x:Bind BatteryText, Mode=OneWay}">
+                                        <FontIcon Glyph="{x:Bind BatteryGlyph, Mode=OneWay}" FontSize="14" Foreground="{ThemeResource BrandOnBrush}" />
+                                        <TextBlock Text="{x:Bind BatteryText, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
+                                    </StackPanel>
+                                </StackPanel>
                             </StackPanel>
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                            <Button Grid.Column="2" Width="36" Height="36" Padding="0" Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                    AutomationProperties.Name="More" AutomationProperties.AutomationId="DeviceMore" ToolTipService.ToolTip="More">
+                                <FontIcon Glyph="&#xE712;" FontSize="16" />
+                                <Button.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuFlyoutItem Text="{x:Bind RingText, Mode=OneWay}" Click="{x:Bind Ring}" IsEnabled="{x:Bind FindReady, Mode=OneWay}"
+                                                        AutomationProperties.AutomationId="RingDevice">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE7F7;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutItem Text="Ping" Click="{x:Bind Ping}" IsEnabled="{x:Bind PingReady, Mode=OneWay}">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xEA8F;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                        <MenuFlyoutSeparator />
+                                        <MenuFlyoutItem Text="Forget this device" Click="{x:Bind Forget}">
+                                            <MenuFlyoutItem.Icon>
+                                                <FontIcon Glyph="&#xE74D;" />
+                                            </MenuFlyoutItem.Icon>
+                                        </MenuFlyoutItem>
+                                    </MenuFlyout>
+                                </Button.Flyout>
+                            </Button>
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Orientation="Horizontal" Spacing="8">
                                 <Button Content="Send clipboard" Style="{StaticResource AccentButtonStyle}" Click="{x:Bind SendClipboard}"
                                         IsEnabled="{x:Bind ClipboardReady, Mode=OneWay}" AutomationProperties.AutomationId="SendClipboard" />
-                                <Button Background="Transparent" BorderThickness="0" Padding="8" AutomationProperties.Name="More"
-                                        ToolTipService.ToolTip="More">
-                                    <FontIcon Glyph="&#xE712;" FontSize="14" />
-                                    <Button.Flyout>
-                                        <MenuFlyout Placement="BottomEdgeAlignedRight">
-                                            <MenuFlyoutItem Text="Ping" Click="{x:Bind Ping}" IsEnabled="{x:Bind PingReady, Mode=OneWay}">
-                                                <MenuFlyoutItem.Icon>
-                                                    <FontIcon Glyph="&#xEA8F;" />
-                                                </MenuFlyoutItem.Icon>
-                                            </MenuFlyoutItem>
-                                            <MenuFlyoutSeparator />
-                                            <MenuFlyoutItem Text="Forget this device" Click="{x:Bind Forget}">
-                                                <MenuFlyoutItem.Icon>
-                                                    <FontIcon Glyph="&#xE74D;" />
-                                                </MenuFlyoutItem.Icon>
-                                            </MenuFlyoutItem>
-                                        </MenuFlyout>
-                                    </Button.Flyout>
-                                </Button>
+                                <Button Content="Send files" Click="{x:Bind SendFiles}" IsEnabled="{x:Bind FilesReady, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="SendFiles" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -120,32 +150,45 @@
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="vm:ActivityItem">
-                        <Border Style="{StaticResource BrandCard}" Padding="12,10">
-                            <Grid ColumnSpacing="12">
+                        <Border Style="{StaticResource BrandCard}" Padding="12,10" AutomationProperties.Name="{x:Bind Title}">
+                            <Grid ColumnSpacing="12" RowSpacing="6">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
                                 <Border Width="32" Height="32" CornerRadius="16" Background="{ThemeResource BrandTintGreenBrush}">
-                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="14" Foreground="{ThemeResource BrandTintGreenInkBrush}" />
+                                    <FontIcon Glyph="{x:Bind Glyph, Mode=OneWay}" FontSize="14" Foreground="{ThemeResource BrandTintGreenInkBrush}" />
                                 </Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                                    <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" Foreground="{ThemeResource BrandOnBrush}" />
+                                    <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource BrandOnBrush}" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Text="{x:Bind Preview}" Style="{StaticResource BrandSecondary}" TextWrapping="NoWrap"
                                                TextTrimming="CharacterEllipsis" Visibility="{x:Bind HasPreview}" />
+                                    <TextBlock Text="{x:Bind Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" Visibility="{x:Bind IsActive, Mode=OneWay}"
+                                               AutomationProperties.AutomationId="TransferStatus" />
                                 </StackPanel>
-                                <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
-                                    <TextBlock Text="{x:Bind Time}" Style="{StaticResource BrandSecondary}" HorizontalAlignment="Right" />
-                                    <TextBlock Text="{x:Bind Status, Mode=OneWay}" Foreground="{ThemeResource BrandWarnBrush}" FontSize="12"
-                                               HorizontalAlignment="Right" Visibility="{x:Bind HasStatus, Mode=OneWay}" />
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                                    <Button Content="Open" Click="{x:Bind Open}" Visibility="{x:Bind CanOpen, Mode=OneWay}" AutomationProperties.AutomationId="OpenFile" />
+                                    <Button Content="Show in folder" Click="{x:Bind ShowInFolder}" Visibility="{x:Bind CanOpen, Mode=OneWay}" AutomationProperties.AutomationId="ShowInFolder" />
+                                    <Button Content="Cancel" Click="{x:Bind Cancel}" Visibility="{x:Bind IsActive, Mode=OneWay}" AutomationProperties.AutomationId="CancelTransfer" />
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Time}" Style="{StaticResource BrandSecondary}" HorizontalAlignment="Right" />
+                                        <TextBlock Text="{x:Bind Status, Mode=OneWay}" Foreground="{ThemeResource BrandWarnBrush}" FontSize="12" HorizontalAlignment="Right"
+                                                   Visibility="{x:Bind ShowsProblem, Mode=OneWay}" AutomationProperties.AutomationId="RowProblem" />
+                                    </StackPanel>
                                 </StackPanel>
+                                <ProgressBar Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Value="{x:Bind Progress, Mode=OneWay}" Maximum="100"
+                                             IsIndeterminate="{x:Bind IsWaiting, Mode=OneWay}" Visibility="{x:Bind IsActive, Mode=OneWay}" />
                             </Grid>
                         </Border>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            <TextBlock Text="Text you send or receive shows up here." Style="{StaticResource BrandSecondary}"
+            <TextBlock Text="Text and files you send or receive show up here." Style="{StaticResource BrandSecondary}"
                        Visibility="{x:Bind Model.HasNoActivity, Mode=OneWay}" />
         </Grid>
 
@@ -170,6 +213,15 @@
                 <Button Grid.Column="2" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="OnSend"
                         IsEnabled="{x:Bind Model.CanSendDraft, Mode=OneWay}" AutomationProperties.AutomationId="SendDraft" />
             </Grid>
+        </Border>
+
+        <!-- Shown while files are dragged over the page. -->
+        <Border x:Name="DropOverlay" Grid.RowSpan="6" CornerRadius="12" BorderThickness="2" BorderBrush="{ThemeResource BrandPrimaryBrush}"
+                Background="{ThemeResource BrandSurfaceBrush}" Opacity="0.94" Visibility="Collapsed" IsHitTestVisible="False">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10">
+                <FontIcon Glyph="&#xE898;" FontSize="32" Foreground="{ThemeResource BrandPrimaryBrush}" />
+                <TextBlock x:Name="DropText" Style="{StaticResource BrandSectionTitle}" HorizontalAlignment="Center" />
+            </StackPanel>
         </Border>
     </Grid>
 </UserControl>

@@ -15,7 +15,8 @@ public static class Program
         using var mutex = new Mutex(initiallyOwned: true, "Local\\" + TrayIcon.ClassName, out var first);
         if (!first)
         {
-            var command = args.Contains("--tray-menu") ? TrayIcon.CommandMenu
+            var command = SendCommand.Paths(args) is { } paths ? SendCommand.Format(paths)
+                : args.Contains("--tray-menu") ? TrayIcon.CommandMenu
                 : args.Contains("--quit") ? TrayIcon.CommandQuit
                 : args.Contains("--pair") ? TrayIcon.CommandPair
                 : args.Contains("--background") ? "" : TrayIcon.CommandShow;

@@ -14,7 +14,8 @@ internal static unsafe partial class Win32
     public const uint WM_APP = 0x8000;
 
     public const uint NIM_ADD = 0, NIM_MODIFY = 1, NIM_DELETE = 2;
-    public const uint NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_SHOWTIP = 0x80;
+    public const uint NIF_MESSAGE = 0x1, NIF_ICON = 0x2, NIF_TIP = 0x4, NIF_INFO = 0x10, NIF_SHOWTIP = 0x80;
+    public const uint NIIF_INFO = 0x1, NIIF_NOSOUND = 0x10;
 
     public const uint MF_STRING = 0x0, MF_GRAYED = 0x1, MF_SEPARATOR = 0x800;
     public const uint TPM_RIGHTBUTTON = 0x2, TPM_RETURNCMD = 0x100, TPM_NONOTIFY = 0x80;
@@ -144,6 +145,38 @@ internal static unsafe partial class Win32
 
     [LibraryImport("user32.dll", EntryPoint = "MessageBoxW")]
     public static partial int MessageBox(nint hwnd, char* text, char* caption, uint type);
+
+    public const uint SND_ASYNC = 0x1, SND_NODEFAULT = 0x2, SND_LOOP = 0x8, SND_ALIAS = 0x10000, SND_FILENAME = 0x20000;
+
+    [LibraryImport("winmm.dll", EntryPoint = "PlaySoundW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool PlaySound(char* sound, nint module, uint flags);
+
+    /// <summary>FOLDERID_Downloads.</summary>
+    public static readonly Guid DownloadsFolder = new("374DE290-123F-4565-9164-39C4925E467B");
+
+    [LibraryImport("shell32.dll")]
+    public static partial int SHGetKnownFolderPath(Guid* id, uint flags, nint token, char** path);
+
+    [LibraryImport("ole32.dll")]
+    public static partial void CoTaskMemFree(void* memory);
+
+    [LibraryImport("ole32.dll")]
+    public static partial int CoCreateInstance(Guid* clsid, nint outer, uint context, Guid* iid, nint* instance);
+
+    /// <summary>A known folder's path (Downloads), or null.</summary>
+    public static string? KnownFolder(Guid id)
+    {
+        char* path = null;
+        try
+        {
+            return SHGetKnownFolderPath(&id, 0, 0, &path) == 0 && path != null ? new string(path) : null;
+        }
+        finally
+        {
+            if (path != null) CoTaskMemFree(path);
+        }
+    }
 
     [LibraryImport("shell32.dll", EntryPoint = "Shell_NotifyIconW")]
     [return: MarshalAs(UnmanagedType.Bool)]
