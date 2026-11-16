@@ -734,7 +734,7 @@ Not answered. Parts already on the wire may still arrive and are dropped by the 
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `battery.update` | upstream-v1 | either | battery | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `battery.update` | upstream-v1 | either | battery | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
 
 `battery.update`
 
@@ -745,10 +745,10 @@ Not answered. Parts already on the wire may still arrive and are dropped by the 
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `find.start` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `find.stop` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `find.started` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `find.stopped` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `find.start` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `find.stop` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `find.started` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `find.stopped` | upstream-v1 | either | find_device | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
 
 `find.start`
 

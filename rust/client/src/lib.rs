@@ -11,6 +11,7 @@ pub mod crypto;
 #[cfg(feature = "mdns")]
 mod discovery;
 pub mod events;
+pub mod fast;
 pub mod features;
 pub mod ffi;
 pub mod session;

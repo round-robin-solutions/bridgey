@@ -99,6 +99,13 @@ pub enum BridgeyEventKind {
     Link = 21,
     /// id = request, device_id, status = BridgeySendStatus, text = `opened` when the device opened it at once.
     LinkSent = 22,
+    /// A connected device's battery. device_id, status = level 0 to 100, id = 1 charging or 0.
+    Battery = 23,
+    /// The device asks this one to ring (status 1) or stop (0). device_id.
+    /// Call bridgey_find_stopped when the person stops the sound here.
+    FindRequested = 24,
+    /// The device says it is ringing (status 1) or has stopped (0), after bridgey_find. device_id.
+    FindState = 25,
 }
 
 /// Bytes owned by the library: UTF-8, NUL-terminated for convenience, `len` without the NUL. `ptr` is NULL when
@@ -312,6 +319,9 @@ fn to_c(event: Event) -> BridgeyEvent {
         Event::FileFailed { transfer, device_id, incoming, name, reason } => (K::FileFailed, i32::from(incoming), transfer, Some(device_id), Some(name), Some(reason), None),
         Event::Link { device_id, url } => (K::Link, 0, 0, Some(device_id), None, Some(url), None),
         Event::LinkSent { request, device_id, status, opened } => (K::LinkSent, status as i32, request, Some(device_id), None, opened.then(|| "opened".to_string()), None),
+        Event::Battery { device_id, level, charging } => (K::Battery, i32::from(level), u64::from(charging), Some(device_id), None, None, None),
+        Event::FindRequested { device_id, ring } => (K::FindRequested, i32::from(ring), 0, Some(device_id), None, None, None),
+        Event::FindState { device_id, ringing } => (K::FindState, i32::from(ringing), 0, Some(device_id), None, None, None),
     };
     BridgeyEvent { kind, status, id, device_id: owned(device_id), name: owned(name), text: owned(text), extra: owned(extra), bytes, total }
 }
@@ -730,6 +740,52 @@ pub extern "C" fn bridgey_network_changed(handle: u64) -> i32 {
     guard(|| {
         let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
         c.network_changed();
+        BRIDGEY_OK
+    })
+}
+
+/// This device's battery: `level` 0 to 100, or negative for no battery.
+#[no_mangle]
+pub extern "C" fn bridgey_set_battery(handle: u64, level: i32, charging: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        c.set_battery((level >= 0).then(|| (level.min(100) as u8, charging != 0)));
+        BRIDGEY_OK
+    })
+}
+
+/// Rings a connected device until someone stops it (`ring` 1), or stops it (0).
+///
+/// # Safety
+/// `device_id` is a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_find(handle: u64, device_id: *const c_char, ring: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(Some(id)) = arg(device_id) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.find(id, ring != 0).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// The person stopped the sound a `FindRequested` started: the device that rang this one is told.
+///
+/// # Safety
+/// `device_id` is a NUL-terminated string valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_find_stopped(handle: u64, device_id: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let Ok(Some(id)) = arg(device_id) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.find_stopped(id).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
+}
+
+/// Binary file frames (files_fast_draft1) with devices that show them: on by default; 0 sends JSON chunks.
+#[no_mangle]
+pub extern "C" fn bridgey_set_fast_transfers(handle: u64, on: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        c.set_fast_transfers(on != 0);
         BRIDGEY_OK
     })
 }

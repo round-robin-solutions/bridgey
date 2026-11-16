@@ -53,6 +53,13 @@ pub enum Event {
     /// The answer to `send_link`: delivered (queued or opened there), rejected (Links is off there or the link was
     /// refused), timed out or failed. `opened` when the other device opened it at once.
     LinkSent { request: u64, device_id: String, status: SendStatus, opened: bool },
+    /// A connected device's battery (`battery.update`, Battery on at both ends).
+    Battery { device_id: String, level: u8, charging: bool },
+    /// The other device asks this one to ring (`ring`) or stop. The host plays a sound until the person stops it,
+    /// then calls `find_stopped`.
+    FindRequested { device_id: String, ring: bool },
+    /// The other device says it is ringing, or has stopped (after `find`).
+    FindState { device_id: String, ringing: bool },
     Dropped { count: u64 },
     Error { text: String },
 }

@@ -37,13 +37,18 @@ pub fn hash_file(path: &Path) -> io::Result<(String, u64)> {
     Ok((crate::crypto::b64(ctx.finish().as_ref()), size))
 }
 
-/// A sender's display name as a safe file name: the last path component, visible characters only, no leading dot
-/// (hidden files), at most 200 bytes with the extension kept. Never empty.
+/// A sender's display name as a safe file name on every system the client runs on: the last path component,
+/// visible characters only, none of Windows' reserved characters, no leading dot (hidden files), no trailing dots or
+/// spaces (Windows drops them), never a Windows device name (`CON`, `COM1`, ...), at most 200 bytes with the extension
+/// kept. Never empty.
 pub fn safe_name(name: &str) -> String {
     let last = name.rsplit(['/', '\\']).next().unwrap_or("");
     let cleaned: String = last.chars().filter(|c| !crate::session::invisible(*c) && !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|')).collect();
-    let trimmed = cleaned.trim().trim_start_matches('.').trim();
+    let trimmed = cleaned.trim().trim_start_matches('.').trim_end_matches(['.', ' ']).trim();
     let mut out = if trimmed.is_empty() || trimmed == ".." { "file".to_string() } else { trimmed.to_string() };
+    if reserved_on_windows(split_ext(&out).0) {
+        out = format!("_{out}");
+    }
     if out.len() > NAME_MAX {
         let (stem, ext) = split_ext(&out);
         let ext = if ext.len() > 16 { "" } else { ext };
@@ -56,6 +61,14 @@ pub fn safe_name(name: &str) -> String {
     out
 }
 
+/// A Windows device name, whatever the extension and case: `CON`, `PRN`, `AUX`, `NUL`, `COM1` to `COM9`, `LPT1` to
+/// `LPT9` (and the superscript digits Windows also reserves).
+fn reserved_on_windows(stem: &str) -> bool {
+    let upper = stem.trim_end().to_ascii_uppercase();
+    let device = |prefix: &str| upper.starts_with(prefix) && upper.chars().count() == 4 && upper.chars().nth(3).is_some_and(|c| c.is_ascii_digit() && c != '0' || matches!(c, '¹' | '²' | '³'));
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") || device("COM") || device("LPT")
+}
+
 /// "photo.jpg" -> ("photo", ".jpg"); a leading dot or none -> (name, "").
 fn split_ext(name: &str) -> (&str, &str) {
     match name.rfind('.') {
@@ -64,13 +77,18 @@ fn split_ext(name: &str) -> (&str, &str) {
     }
 }
 
-/// The n-th candidate for a name: "photo.jpg", then "photo 2.jpg", "photo 3.jpg" (Finder's numbering, as the Mac).
+/// The n-th candidate for a name: "photo.jpg", then "photo 2.jpg", "photo 3.jpg" (Finder's numbering, as the Mac);
+/// on Windows "photo (1).jpg", "photo (2).jpg", as Windows names downloads.
 pub fn numbered(name: &str, n: u32) -> String {
     if n <= 1 {
         return name.to_string();
     }
     let (stem, ext) = split_ext(name);
-    format!("{stem} {n}{ext}")
+    if cfg!(windows) {
+        format!("{stem} ({}){ext}", n - 1)
+    } else {
+        format!("{stem} {n}{ext}")
+    }
 }
 
 /// Moves a verified partial file to the first free name in `dir`, never over an existing file. Returns its path.
@@ -179,14 +197,30 @@ mod tests {
         let long = format!("{}.jpeg", "x".repeat(400));
         let s = safe_name(&long);
         assert!(s.len() <= 200 && s.ends_with(".jpeg"));
+        // Windows: device names, trailing dots and spaces.
+        assert_eq!(safe_name("CON.txt"), "_CON.txt");
+        assert_eq!(safe_name("com1"), "_com1");
+        assert_eq!(safe_name("LPT9.log"), "_LPT9.log");
+        assert_eq!(safe_name("COM0.txt"), "COM0.txt");
+        assert_eq!(safe_name("console.txt"), "console.txt");
+        assert_eq!(safe_name("notes. . "), "notes");
     }
 
     #[test]
+    #[cfg(not(windows))]
     fn numbering_follows_finder() {
         assert_eq!(numbered("photo.jpg", 1), "photo.jpg");
         assert_eq!(numbered("photo.jpg", 2), "photo 2.jpg");
         assert_eq!(numbered("README", 3), "README 3");
         assert_eq!(numbered("archive.tar.gz", 2), "archive.tar 2.gz");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn numbering_follows_windows() {
+        assert_eq!(numbered("photo.jpg", 1), "photo.jpg");
+        assert_eq!(numbered("photo.jpg", 2), "photo (1).jpg");
+        assert_eq!(numbered("README", 3), "README (2)");
     }
 
     #[test]
@@ -197,7 +231,7 @@ mod tests {
         let part = part_path(&dir, "t1");
         fs::write(&part, b"new").unwrap();
         let placed = place(&part, &dir, "a.txt").unwrap();
-        assert_eq!(placed.file_name().unwrap(), "a 2.txt");
+        assert_eq!(placed.file_name().unwrap(), numbered("a.txt", 2).as_str());
         assert_eq!(fs::read(dir.join("a.txt")).unwrap(), b"old");
         assert_eq!(fs::read(&placed).unwrap(), b"new");
         assert!(!part.exists());
