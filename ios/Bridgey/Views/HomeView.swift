@@ -256,33 +256,49 @@ struct DeviceMenu: View {
     }
 }
 
-/// iPad: devices in a sidebar.
+/// iPad: devices in a sidebar. The chosen one is marked in the chips' tonal style, so its status stays readable.
 private struct DeviceSidebar: View {
     @Binding var sheet: HomeSheet?
     @EnvironmentObject private var model: AppModel
     @Environment(\.brand) private var c
+    @Environment(\.brandReduceMotion) private var reduce
 
     var body: some View {
-        List(selection: Binding(get: { model.target?.id }, set: { model.targetID = $0 })) {
+        List {
             ForEach(model.devices) { device in
-                HStack(spacing: 12) {
-                    DeviceRingView(state: device.ring, platform: device.platform, size: 40)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(device.name).font(.body.weight(.semibold)).foregroundStyle(c.on)
-                        Text(device.connected ? "Connected" : "Not connected")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(device.connected ? c.tgi : c.on2)
+                let selected = device.id == model.target?.id
+                Button { model.targetID = device.id } label: {
+                    HStack(spacing: 12) {
+                        DeviceRingView(state: device.ring, platform: device.platform, size: 40)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(device.name).font(.body.weight(.semibold)).foregroundStyle(c.on)
+                            Text(device.connected ? "Connected" : "Not connected")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(device.connected ? c.tgi : c.on2)
+                        }
+                        Spacer(minLength: 0)
                     }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(selected ? c.tb : .clear))
+                    .contentShape(Rectangle())
                 }
-                .padding(.vertical, 4)
-                .tag(device.id)
+                .buttonStyle(PressScaleStyle())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8))
                 .contextMenu { DeviceMenu(device: device, sheet: $sheet) }
+                .animation(BrandMotion.animation(BrandMotion.effects, reduce: reduce), value: selected)
                 .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(selected ? .isSelected : [])
                 .accessibilityIdentifier("device.chip")
             }
             Button { sheet = .pair } label: { Label("Pair a device", systemImage: "plus.circle") }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
                 .accessibilityIdentifier("toolbar.pair")
         }
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(c.s1)
         .navigationTitle("Devices")
