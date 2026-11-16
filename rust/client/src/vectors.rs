@@ -18,16 +18,19 @@ use std::time::{Duration, Instant};
 const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../protocol/test-vectors/session-client-v1.json");
 const TEXT: &str = "Bridgey vector: clipboard text ✓";
 
+/// Lines seen on the wire, with the side that sent each.
+type Recording = Arc<Mutex<Vec<(String, String)>>>;
+
 /// Forwards one connection to `target`, recording every line with the side that sent it.
-fn proxy(target: u16) -> (u16, Arc<Mutex<Vec<(String, String)>>>) {
+fn proxy(target: u16) -> (u16, Recording) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
-    let lines: Arc<Mutex<Vec<(String, String)>>> = Arc::default();
+    let lines: Recording = Arc::default();
     let log = lines.clone();
     std::thread::spawn(move || {
         let (inbound, _) = listener.accept().unwrap();
         let outbound = TcpStream::connect(("127.0.0.1", target)).unwrap();
-        let pipe = |from: TcpStream, mut to: TcpStream, side: &'static str, log: Arc<Mutex<Vec<(String, String)>>>| {
+        let pipe = |from: TcpStream, mut to: TcpStream, side: &'static str, log: Recording| {
             std::thread::spawn(move || {
                 for line in BufReader::new(from).lines() {
                     let Ok(line) = line else { return };

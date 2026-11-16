@@ -812,7 +812,9 @@ impl Session {
 
 /// Test builds only: each session's pairing material, so recorded sessions can be checked by other implementations.
 #[cfg(test)]
-pub(crate) static KEYLOG: std::sync::Mutex<Vec<(String, [u8; 32], [u8; 32])>> = std::sync::Mutex::new(Vec::new());
+pub(crate) type KeyLogEntry = (String, [u8; 32], [u8; 32]);
+#[cfg(test)]
+pub(crate) static KEYLOG: std::sync::Mutex<Vec<KeyLogEntry>> = std::sync::Mutex::new(Vec::new());
 
 /// `bridgey-auth-v1` \0 sessionId \0 initiator \0 responder \0 initiator key \0 responder key (PairingCoordinator.kt).
 pub fn transcript_v1(session: &str, init_id: &str, resp_id: &str, init_eph: &str, resp_eph: &str) -> Vec<u8> {
