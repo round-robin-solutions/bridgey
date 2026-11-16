@@ -11,11 +11,13 @@ struct HomeView: View {
     @State private var sheet: HomeSheet?
     @State private var preview: URL?
     @State private var picking = false
+    /// iPad: the device list stays beside the stream in both orientations.
+    @State private var columns = NavigationSplitViewVisibility.all
 
     var body: some View {
         Group {
             if sizeClass == .regular {
-                NavigationSplitView {
+                NavigationSplitView(columnVisibility: $columns) {
                     DeviceSidebar(sheet: $sheet)
                         .navigationSplitViewColumnWidth(min: 280, ideal: 320)
                 } detail: {
@@ -463,10 +465,13 @@ private struct ActivityRow: View {
                     HStack(spacing: 4) {
                         Text(subtitle)
                         Text(item.date, style: .time)
+                        if item.outcome == .delivered, let status {
+                            Text("· \(status)")
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(c.on2)
-                    if let status {
+                    if item.outcome != .delivered, let status {
                         Text(status).font(.caption.weight(.medium)).foregroundStyle(item.outcome == .failed ? c.warn : c.on2)
                     }
                 }

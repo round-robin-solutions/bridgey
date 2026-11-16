@@ -9,8 +9,7 @@ final class ScreenshotTests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = true
-        // iPad: landscape shows the sidebar beside the stream.
-        XCUIDevice.shared.orientation = device == "ipad" ? .landscapeLeft : .portrait
+        XCUIDevice.shared.orientation = .portrait
     }
 
     func testLightScreens() { capture("light") }
