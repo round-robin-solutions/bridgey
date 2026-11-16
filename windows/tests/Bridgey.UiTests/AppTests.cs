@@ -144,9 +144,18 @@ public sealed partial class AppTests : IDisposable
         start.Environment["BRIDGEY_DATA_DIR"] = _data;
         start.Environment["BRIDGEY_PORT"] = AppPort.ToString();
         _app = Application.Launch(start);
-        var window = _app.GetMainWindow(_automation, Long) ?? throw new InvalidOperationException("Bridgey's window did not open");
+        Window? window = null;
+        try { window = _app.GetMainWindow(_automation, Long); }
+        catch (Exception e) { throw new InvalidOperationException($"Bridgey's window did not open. App log:\n{AppLog()}", e); }
+        if (window is null) throw new InvalidOperationException($"Bridgey's window did not open. App log:\n{AppLog()}");
         window.Focus();
         return window;
+    }
+
+    private string AppLog()
+    {
+        var path = Path.Combine(_data, "bridgey.log");
+        return File.Exists(path) ? File.ReadAllText(path) : "(no bridgey.log)";
     }
 
     private void Quit()
@@ -311,7 +320,6 @@ public sealed partial class AppTests : IDisposable
         if (_peer is { HasExited: false }) _peer.Kill();
         _peer?.Dispose();
         _automation.Dispose();
-        try { Directory.Delete(_data, true); }
-        catch (Exception) { }
+        // The data folder stays: the build script copies the app's log (bridgey.log) from it into the artifacts.
     }
 }

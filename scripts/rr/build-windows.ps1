@@ -118,6 +118,9 @@ try {
             foreach ($file in @('Bridgey.exe', 'bridgey_core.dll', 'Assets/Bridgey.ico')) {
                 if (-not (Test-Path (Join-Path $dest $file))) { throw "$file is missing from the $arch build" }
             }
+            # The app's compiled XAML and resources: without its .pri, App.xaml cannot load and the app exits at start.
+            $pri = @(Get-ChildItem $dest -Filter '*.pri' | Where-Object { $_.Name -in @('resources.pri', 'Bridgey.pri') })
+            if ($pri.Count -eq 0) { throw "resources.pri is missing from the $arch build (found: $((Get-ChildItem $dest -Filter *.pri).Name -join ', '))" }
 
             # The zip holds one folder, named like the app, so it can be unpacked anywhere.
             $stage = Join-Path $Out "stage/$arch"
@@ -147,6 +150,27 @@ try {
             }
             $env:BRIDGEY_PEER_EXE = $peer
             $env:BRIDGEY_SCREENSHOTS = $Shots
+            # A smoke launch first: if the app dies at start, say how (exit code and Windows' error report).
+            $smokeData = Join-Path ([IO.Path]::GetTempPath()) 'bridgey-ui-smoke'
+            New-Item -ItemType Directory -Force -Path $smokeData | Out-Null
+            $smoke = New-Object Diagnostics.ProcessStartInfo $env:BRIDGEY_APP_EXE
+            $smoke.UseShellExecute = $false
+            $smoke.Environment['BRIDGEY_DATA_DIR'] = $smokeData
+            $smoke.Environment['BRIDGEY_PORT'] = '42459'
+            $smokeStarted = [DateTime]::Now
+            $process = [Diagnostics.Process]::Start($smoke)
+            if ($process.WaitForExit(10000)) {
+                Write-Host ("The app exited at start with 0x{0:X8}" -f $process.ExitCode) -ForegroundColor Red
+                Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = $smokeStarted.AddSeconds(-5) } -ErrorAction SilentlyContinue |
+                    Where-Object { $_.ProviderName -in @('Application Error', '.NET Runtime', 'Windows Error Reporting') } |
+                    Select-Object -First 6 | ForEach-Object { Write-Host "--- $($_.ProviderName)`n$($_.Message)" }
+                $smokeLog = Join-Path $smokeData 'bridgey.log'
+                if (Test-Path $smokeLog) { Write-Host "--- bridgey.log"; Get-Content $smokeLog | Write-Host }
+                throw 'The app exits at start'
+            }
+            $process.Kill()
+            $process.WaitForExit(5000) | Out-Null
+            Write-Host 'Smoke launch: the app stayed up for 10 s'
             Invoke-Logged -Log 'ui-tests.log' -Exe 'dotnet' -Arguments @('test', '--project', 'tests/Bridgey.UiTests', '--report-trx', '--results-directory', $Results)
             Write-Host "Screenshots: $((Get-ChildItem $Shots -Filter *.png).Name -join ', ')"
         }

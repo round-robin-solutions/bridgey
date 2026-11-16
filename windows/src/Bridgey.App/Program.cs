@@ -10,6 +10,7 @@ public static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => App.Log($"Unhandled (domain): {e.ExceptionObject}");
         WinRT.ComWrappersSupport.InitializeComWrappers();
         using var mutex = new Mutex(initiallyOwned: true, "Local\\" + TrayIcon.ClassName, out var first);
         if (!first)
@@ -24,10 +25,19 @@ public static class Program
         }
         // Nothing to quit or to show a menu for: never start Bridgey just to do that.
         if (args.Contains("--quit")) return 0;
+        App.Log($"Starting {Edition.VersionName} ({Edition.BuildNumber})");
         Application.Start(start =>
         {
             SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread()));
-            new App();
+            try
+            {
+                new App();
+            }
+            catch (Exception e)
+            {
+                App.Log($"App failed to start: {e}");
+                throw;
+            }
         });
         return 0;
     }

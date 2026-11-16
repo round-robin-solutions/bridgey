@@ -97,8 +97,10 @@ public partial class App : Application, ITrayHost
         SignIn.Apply(settings.StartAtSignIn);
         Win32.SetMenuTheme((int)settings.Theme);
 
+        Log("Client started; opening the window");
         _window = new MainWindow();
         _tray = new TrayIcon(this);
+        Log("Window and notification area icon ready");
         _tray.SetTooltip(Model.StatusText);
         _pairingTimer = queue.CreateTimer();
         _pairingTimer.Interval = TimeSpan.FromMinutes(1);
