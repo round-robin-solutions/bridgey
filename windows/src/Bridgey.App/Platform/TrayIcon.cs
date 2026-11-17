@@ -8,6 +8,8 @@ namespace Bridgey.Platform;
 public interface ITrayHost
 {
     IReadOnlyList<(string Id, string Name)> ClipboardTargets();
+    IReadOnlyList<(string Id, string Name)> FileTargets();
+    void SendFiles(string deviceId);
     void Open();
     void Pair();
     void Settings();
@@ -30,7 +32,9 @@ internal sealed unsafe class TrayIcon : IDisposable
 
     private const uint CallbackMessage = WM_APP + 1;
     private const uint IconId = 1;
-    private const int MenuOpen = 1, MenuAllow = 2, MenuPair = 3, MenuSettings = 4, MenuQuit = 9, MenuSendFirst = 100;
+    private const int MenuOpen = 1, MenuAllow = 2, MenuPair = 3, MenuSettings = 4, MenuQuit = 9, MenuSendFirst = 100, MenuFilesFirst = 200;
+    /// <summary>A second launch's command: "send" and file paths can be long.</summary>
+    private const uint MaxCommandBytes = 256 * 1024;
 
     public static string ClassName => "BridgeyByRoundRobin." + Paths.ProfileTag;
 
@@ -92,6 +96,19 @@ internal sealed unsafe class TrayIcon : IDisposable
         Shell_NotifyIcon(NIM_MODIFY, &data);
     }
 
+    /// <summary>A one-line balloon from the icon: the fallback where Windows notifications are not available.</summary>
+    public void Balloon(string title, string text)
+    {
+        if (!_added) return;
+        var data = Data(NIF_INFO);
+        data.dwInfoFlags = NIIF_INFO;
+        var t = title.Length > 63 ? title[..63] : title;
+        var body = text.Length > 255 ? text[..255] : text;
+        for (var i = 0; i < t.Length; i++) data.szInfoTitle[i] = t[i];
+        for (var i = 0; i < body.Length; i++) data.szInfo[i] = body[i];
+        Shell_NotifyIcon(NIM_MODIFY, &data);
+    }
+
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static nint WndProc(nint hwnd, uint msg, nint wParam, nint lParam)
     {
@@ -132,7 +149,7 @@ internal sealed unsafe class TrayIcon : IDisposable
         if (msg == WM_COPYDATA)
         {
             var copy = (COPYDATASTRUCT*)lParam;
-            if (copy != null && copy->lpData != null && copy->cbData <= 512)
+            if (copy != null && copy->lpData != null && copy->cbData <= MaxCommandBytes)
             {
                 _host.Command(new string((char*)copy->lpData, 0, (int)(copy->cbData / 2)));
                 result = 1;
@@ -153,6 +170,8 @@ internal sealed unsafe class TrayIcon : IDisposable
         var targets = _host.ClipboardTargets();
         if (targets.Count == 0) Item(menu, 0, "No devices connected", MF_GRAYED);
         for (var i = 0; i < Math.Min(targets.Count, 8); i++) Item(menu, MenuSendFirst + i, $"Send clipboard to {targets[i].Name}");
+        var files = _host.FileTargets();
+        for (var i = 0; i < Math.Min(files.Count, 8); i++) Item(menu, MenuFilesFirst + i, $"Send files to {files[i].Name}…");
         Separator(menu);
         Item(menu, MenuPair, "Pair a device");
         Item(menu, MenuAllow, "Allow pairing for 2 minutes");
@@ -170,7 +189,8 @@ internal sealed unsafe class TrayIcon : IDisposable
             case MenuPair: _host.Pair(); break;
             case MenuSettings: _host.Settings(); break;
             case MenuQuit: _host.Quit(); break;
-            case >= MenuSendFirst when chosen - MenuSendFirst < targets.Count: _host.SendClipboard(targets[chosen - MenuSendFirst].Id); break;
+            case >= MenuFilesFirst when chosen - MenuFilesFirst < files.Count: _host.SendFiles(files[chosen - MenuFilesFirst].Id); break;
+            case >= MenuSendFirst and < MenuFilesFirst when chosen - MenuSendFirst < targets.Count: _host.SendClipboard(targets[chosen - MenuSendFirst].Id); break;
         }
     }
 

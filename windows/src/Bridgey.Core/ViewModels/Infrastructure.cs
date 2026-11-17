@@ -36,8 +36,20 @@ public interface IClipboardService
     void SetText(string text);
 }
 
-/// <summary>Sounds and attention: a ping plays one short sound.</summary>
+/// <summary>Sounds and attention: a ping plays one short sound; find device rings until stopped.</summary>
 public interface IAlertService
 {
     void Ping(string deviceName);
+    /// <summary>A file arrived: a notification with Open and Show in folder.</summary>
+    void FileReceived(string deviceName, string fileName, string path);
+    /// <summary>Another device rings this PC until <see cref="StopRinging"/>.</summary>
+    void StartRinging(string deviceName);
+    void StopRinging();
+}
+
+/// <summary>Opening received files and their folder (Explorer on Windows).</summary>
+public interface IFileService
+{
+    void Open(string path);
+    void ShowInFolder(string path);
 }

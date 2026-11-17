@@ -34,7 +34,27 @@ internal sealed class FakeClient : IBridgeyClient
     public void SetFeature(string? deviceId, string key, bool on) => Calls.Add($"feature {deviceId} {key} {on}");
     public void AddDiscovered(string? deviceId, string? name, string? platform, string host, ushort port) { }
     public void NetworkChanged() { }
+    public readonly List<(string Device, string Path)> Files = new();
+    public int FileError;
+    public void SetReceiveDir(string? folder) => Calls.Add($"receive {folder}");
+    public ulong SendFile(string deviceId, string path)
+    {
+        if (FileError != 0) throw new BridgeyException(FileError);
+        Files.Add((deviceId, path));
+        return ++_next;
+    }
+    public void CancelTransfer(ulong request) => Calls.Add($"cancel-transfer {request}");
+    public void SetBattery(int? level, bool charging) => Calls.Add($"battery {level} {charging}");
+    public void Find(string deviceId, bool ring) => Calls.Add($"find {deviceId} {ring}");
+    public void FindStopped(string deviceId) => Calls.Add($"find-stopped {deviceId}");
     public void Dispose() { }
+}
+
+internal sealed class FakeFiles : IFileService
+{
+    public readonly List<string> Opened = new();
+    public void Open(string path) => Opened.Add("open " + path);
+    public void ShowInFolder(string path) => Opened.Add("folder " + path);
 }
 
 internal sealed class FakeClipboard : IClipboardService
@@ -46,7 +66,12 @@ internal sealed class FakeClipboard : IClipboardService
 internal sealed class FakeAlerts : IAlertService
 {
     public readonly List<string> Pings = new();
+    public readonly List<string> Received = new();
+    public string? RingingFor;
     public void Ping(string deviceName) => Pings.Add(deviceName);
+    public void FileReceived(string deviceName, string fileName, string path) => Received.Add($"{fileName} from {deviceName} at {path}");
+    public void StartRinging(string deviceName) => RingingFor = deviceName;
+    public void StopRinging() => RingingFor = null;
 }
 
 public sealed class ViewModelTests
@@ -57,12 +82,13 @@ public sealed class ViewModelTests
     private readonly FakeClient _client = new();
     private readonly FakeClipboard _clipboard = new();
     private readonly FakeAlerts _alerts = new();
+    private readonly FakeFiles _files = new();
     private readonly AppSettings _settings = new();
 
     private MainViewModel Model()
     {
         _client.State.Devices.Add(new SnapshotDevice { DeviceId = Phone, Name = "Pixel 9", Platform = "android", Local = new() { ["clipboard"] = true, ["ping"] = true } });
-        return new MainViewModel(_client, new SettingsViewModel(_settings, _ => { }, "Test PC"), new InlineDispatcher(), _clipboard, _alerts);
+        return new MainViewModel(_client, new SettingsViewModel(_settings, _ => { }, "Test PC"), new InlineDispatcher(), _clipboard, _alerts, _files);
     }
 
     private static BridgeyEvent E(BridgeyEventKind kind, ulong id = 0, string? device = Phone, string? name = null, string? text = null, string? extra = null, int status = 0) =>

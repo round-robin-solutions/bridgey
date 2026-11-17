@@ -4,6 +4,7 @@
 //! place below.
 
 use crate::events::{Event, EventQueue, Next, SendStatus};
+use crate::fast;
 use crate::features::FeatureMap;
 use crate::session::{self, Admission, Authenticated, Handle, Local, Offer, OutgoingFile, Role};
 use crate::trust::{Identity, KnownAddress, Storage, TrustStore, TrustedDevice};
@@ -11,7 +12,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::{TcpListener, TcpStream};
@@ -60,6 +61,8 @@ pub struct Config {
     /// Connect only to devices named with `connect` (a share extension), instead of keeping every trusted device
     /// connected.
     pub manual_connect: bool,
+    /// Binary file frames (files_fast_draft1) with devices that show them.
+    pub fast_transfers: bool,
 }
 
 impl Config {
@@ -77,6 +80,7 @@ impl Config {
             defaults,
             receive_dir: None,
             manual_connect: false,
+            fast_transfers: true,
         }
     }
 }
@@ -196,6 +200,10 @@ struct State {
     hashing: HashMap<String, mpsc::UnboundedSender<HashJob>>,
     /// Files sent but not handed to a session yet (still hashing or waiting to be).
     unhanded: HashSet<u64>,
+    /// Each connected device's battery, as it last said.
+    battery: HashMap<String, (u8, bool)>,
+    /// Connected devices that said they are ringing.
+    ringing: HashSet<String>,
 }
 
 /// A file to hash before it is offered.
@@ -214,6 +222,11 @@ pub(crate) struct Inner {
     defaults: RwLock<FeatureMap>,
     receive_dir: RwLock<Option<PathBuf>>,
     manual: bool,
+    fast_transfers: AtomicBool,
+    /// Tests only: the size of the chunks sent (0: the protocol's).
+    chunk_size: AtomicUsize,
+    /// This device's battery, sent to devices that show Battery.
+    battery: Mutex<Option<(u8, bool)>>,
     trust: Mutex<TrustStore>,
     state: Mutex<State>,
     events: EventQueue,
@@ -250,6 +263,9 @@ impl Client {
             defaults: RwLock::new(config.defaults.clone()),
             receive_dir: RwLock::new(config.receive_dir.clone()),
             manual: config.manual_connect,
+            fast_transfers: AtomicBool::new(config.fast_transfers),
+            chunk_size: AtomicUsize::new(0),
+            battery: Mutex::new(None),
             trust: Mutex::new(trust),
             state: Mutex::new(State::default()),
             events: EventQueue::new(config.event_capacity),
@@ -638,6 +654,61 @@ impl Client {
         Ok(())
     }
 
+    /// This device's battery (None: no battery). Sent at once to connected devices that show Battery, and to each
+    /// device when it connects.
+    pub fn set_battery(&self, battery: Option<(u8, bool)>) {
+        let battery = battery.map(|(level, charging)| (level.min(100), charging));
+        let changed = {
+            let mut b = self.inner.battery.lock().unwrap();
+            let changed = *b != battery;
+            *b = battery;
+            changed
+        };
+        if changed {
+            let connected: Vec<String> = self.inner.state.lock().unwrap().connected.keys().cloned().collect();
+            for id in connected {
+                self.inner.send_battery(&id);
+            }
+        }
+    }
+
+    /// Rings a connected device until someone stops it (`ring`), or stops it. Its answer arrives as `FindState`.
+    pub fn find(&self, device_id: &str, ring: bool) -> Result<(), ClientError> {
+        self.inner.check()?;
+        let handle = if ring { self.inner.feature_session(device_id, "find_device")?.0 } else { self.inner.connected_session(device_id)? };
+        let kind = if ring { "find.start" } else { "find.stop" };
+        if handle.send_encrypted(kind, session::find_payload().into_bytes(), crate::crypto::uuid4()) {
+            Ok(())
+        } else {
+            Err(ClientError::NotConnected)
+        }
+    }
+
+    /// This device stopped ringing (the person pressed Stop): the device that rang it is told.
+    pub fn find_stopped(&self, device_id: &str) -> Result<(), ClientError> {
+        let handle = self.inner.connected_session(device_id)?;
+        if handle.send_encrypted("find.stopped", session::find_payload().into_bytes(), crate::crypto::uuid4()) {
+            Ok(())
+        } else {
+            Err(ClientError::NotConnected)
+        }
+    }
+
+    /// Binary file frames with devices that show them (on by default). Off sends 24 KiB JSON chunks.
+    pub fn set_fast_transfers(&self, on: bool) {
+        self.inner.fast_transfers.store(on, Ordering::Relaxed);
+        let connected: Vec<String> = self.inner.state.lock().unwrap().connected.keys().cloned().collect();
+        for id in connected {
+            self.inner.send_policy(&id);
+        }
+    }
+
+    /// Tests and recorded vectors only: chunks of this many bytes (0: the protocol's 24 KiB or 256 KiB).
+    #[doc(hidden)]
+    pub fn set_chunk_size_for_tests(&self, bytes: usize) {
+        self.inner.chunk_size.store(bytes, Ordering::Relaxed);
+    }
+
     /// The network changed: try every trusted device that is not connected again, from the fast delays.
     pub fn network_changed(&self) {
         let loops: Vec<Arc<Notify>> = self.inner.state.lock().unwrap().loops.values().cloned().collect();
@@ -693,9 +764,27 @@ impl Inner {
 
     fn policy_for(&self, device_id: &str) -> FeatureMap {
         let defaults = self.defaults.read().unwrap().clone();
-        match self.trust.lock().unwrap().get(device_id) {
+        let mut policy = match self.trust.lock().unwrap().get(device_id) {
             Some(d) => d.policy(&defaults),
             None => defaults,
+        };
+        // A capability, not a setting: this client reads binary frames whenever it supports them.
+        policy.set(fast::FEATURE, self.fast_transfers.load(Ordering::Relaxed));
+        policy
+    }
+
+    /// The session of a connected device, whatever its switches.
+    fn connected_session(&self, device_id: &str) -> Result<Handle, ClientError> {
+        let id = device_id.to_ascii_lowercase();
+        let st = self.state.lock().unwrap();
+        let session = st.connected.get(&id).ok_or(ClientError::NotConnected)?;
+        Ok(st.sessions.get(session).ok_or(ClientError::NotConnected)?.handle.clone())
+    }
+
+    fn send_battery(&self, device_id: &str) {
+        let Some((level, charging)) = *self.battery.lock().unwrap() else { return };
+        if let Ok((handle, _)) = self.feature_session(device_id, "battery") {
+            handle.send_encrypted("battery.update", session::battery_payload(level, charging).into_bytes(), crate::crypto::uuid4());
         }
     }
 
@@ -1062,6 +1151,8 @@ impl Inner {
                     "lastConnectedMs": d.last_connected_ms,
                     "local": d.policy(&defaults).to_json(),
                     "remote": st.remote.get(&d.device_id).map(FeatureMap::to_json),
+                    "battery": st.battery.get(&d.device_id).map(|(level, charging)| json!({"level": level, "charging": charging})),
+                    "ringing": st.ringing.contains(&d.device_id),
                 })
             })
             .collect();
@@ -1120,6 +1211,15 @@ impl session::Host for Inner {
 
     fn receive_dir(&self) -> Option<PathBuf> {
         self.receive_dir.read().unwrap().clone()
+    }
+
+    fn chunk_size(&self, fast: bool) -> usize {
+        match self.chunk_size.load(Ordering::Relaxed) {
+            0 if fast => fast::CHUNK,
+            0 => crate::transfer::FILE_CHUNK,
+            n if fast => n.min(fast::MAX_PLAINTEXT),
+            n => n.min(crate::transfer::FILE_CHUNK),
+        }
     }
 
     fn pin(&self, device_id: &str) -> Option<String> {
@@ -1300,8 +1400,28 @@ impl session::Host for Inner {
                 self.emit(Event::PairingCode { pairing, device_id, name, code });
             }
             session::Event::Features { device_id, features, .. } => {
+                let battery = features.get("battery");
                 self.state.lock().unwrap().remote.insert(device_id.clone(), features.clone());
-                self.emit(Event::Features { local: self.policy_for(&device_id), device_id, remote: features });
+                self.emit(Event::Features { local: self.policy_for(&device_id), device_id: device_id.clone(), remote: features });
+                if battery {
+                    self.send_battery(&device_id);
+                }
+            }
+            session::Event::Battery { device_id, level, charging } => {
+                self.state.lock().unwrap().battery.insert(device_id.clone(), (level, charging));
+                self.emit(Event::Battery { device_id, level, charging });
+            }
+            session::Event::Find { device_id, ring } => self.emit(Event::FindRequested { device_id, ring }),
+            session::Event::FindAck { device_id, ringing } => {
+                {
+                    let mut st = self.state.lock().unwrap();
+                    if ringing {
+                        st.ringing.insert(device_id.clone());
+                    } else {
+                        st.ringing.remove(&device_id);
+                    }
+                }
+                self.emit(Event::FindState { device_id, ringing });
             }
             session::Event::Clipboard { device_id, text, html, .. } => self.emit(Event::Clipboard { device_id, text, html }),
             session::Event::ClipboardResult { message_id, delivered, .. } => {
@@ -1364,6 +1484,8 @@ impl Inner {
             if st.connected.get(&id) == Some(&session) {
                 st.connected.remove(&id);
                 st.remote.remove(&id);
+                st.battery.remove(&id);
+                st.ringing.remove(&id);
                 disconnected = Some(id);
             }
         }

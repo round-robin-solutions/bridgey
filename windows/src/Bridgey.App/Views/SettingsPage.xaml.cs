@@ -18,6 +18,7 @@ public sealed partial class SettingsPage : UserControl
     public SettingsPage()
     {
         InitializeComponent();
+
         // Compiled bindings fill the list when the page loads.
         Loaded += (_, _) =>
         {
@@ -45,7 +46,16 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private IEnumerable<FrameworkElement> SectionPanels() =>
-        new FrameworkElement[] { ThisPc, DevicesSection, ClipboardSection, PrivacySection, GeneralSection, AboutSection };
+        new FrameworkElement[] { ThisPc, DevicesSection, ClipboardSection, FilesSection, MediaSection, PrivacySection, GeneralSection, AboutSection };
+
+    private void OnOpenReceiveFolder(object sender, RoutedEventArgs e) => ExplorerFiles.OpenFolder(Settings.ReceiveFolder);
+
+    private async void OnChangeReceiveFolder(object sender, RoutedEventArgs e)
+    {
+        if (App.Instance.Window is { } window && await window.PickFolder() is { } folder) Settings.ReceiveFolder = folder;
+    }
+
+    private void OnResetReceiveFolder(object sender, RoutedEventArgs e) => Settings.ResetReceiveFolder();
 
     private void OnNameCommitted(object sender, RoutedEventArgs e) => Settings.DeviceName = NameBox.Text;
 

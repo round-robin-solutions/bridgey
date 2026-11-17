@@ -26,6 +26,38 @@ public enum BridgeyEventKind : uint
     TrustChanged = 14,
     EventsDropped = 15,
     Error = 16,
+    /// <summary>A file is coming in. Id = transfer, Name, Extra = MIME type, Total = size.</summary>
+    FileIncoming = 17,
+    /// <summary>Id = transfer, Status = 1 incoming or 0 outgoing, Bytes, Total.</summary>
+    FileProgress = 18,
+    /// <summary>Id = transfer, Name = the name it was saved under, Status = 1 incoming, Text = where (incoming).</summary>
+    FileDone = 19,
+    /// <summary>Id = transfer, Name, Status = 1 incoming, Text = reason.</summary>
+    FileFailed = 20,
+    Link = 21,
+    LinkSent = 22,
+    Battery = 23,
+    FindRequested = 24,
+    FindState = 25,
+    /// <summary>
+    /// Not from the library: BridgeyClient folds the four file events into one per change, with the whole transfer as
+    /// <see cref="TransferInfo"/> JSON in Text and its <see cref="TransferState"/> in Status. Id = transfer.
+    /// </summary>
+    Transfer = 1000,
+}
+
+/// <summary>BridgeyTransferState: where a file going either way is.</summary>
+public enum TransferState
+{
+    Queued = 0,
+    Offered = 1,
+    Sending = 2,
+    Receiving = 3,
+    Done = 4,
+    Rejected = 5,
+    Cancelled = 6,
+    Failed = 7,
+    Interrupted = 8,
 }
 
 /// <summary>BridgeySendStatus: the result of a clipboard send or a ping.</summary>
@@ -38,7 +70,7 @@ public enum SendStatus
 }
 
 /// <summary>One event. Which fields are set depends on the kind (bridgey_core.h documents each).</summary>
-public sealed record BridgeyEvent(BridgeyEventKind Kind, int Status, ulong Id, string? DeviceId, string? Name, string? Text, string? Extra);
+public sealed record BridgeyEvent(BridgeyEventKind Kind, int Status, ulong Id, string? DeviceId, string? Name, string? Text, string? Extra, ulong Bytes = 0, ulong Total = 0);
 
 /// <summary>A call bridgey_core refused, with its BRIDGEY_ERR_* code.</summary>
 public sealed class BridgeyException(int code) : Exception(Describe(code))
@@ -58,8 +90,8 @@ public sealed class BridgeyException(int code) : Exception(Describe(code))
     {
         InvalidArgument => "That isn't valid.",
         NotConnected => "That device isn't connected.",
-        FeatureOff => "Clipboard is off on one of the devices.",
-        TooLarge => "That's too long to send. Text can be up to 32 KB.",
+        FeatureOff => "That's turned off on one of the devices.",
+        TooLarge => "That's too large to send.",
         UnknownDevice => "Bridgey can't find that device.",
         Stopped => "Bridgey has stopped.",
         Storage => "Bridgey couldn't read or save its pairing data.",
@@ -125,6 +157,15 @@ public interface IBridgeyClient : IDisposable
     void SetFeature(string? deviceId, string key, bool on);
     void AddDiscovered(string? deviceId, string? name, string? platform, string host, ushort port);
     void NetworkChanged();
+    /// <summary>Where received files go; null refuses files.</summary>
+    void SetReceiveDir(string? folder);
+    /// <summary>Queues a file for a connected device; the result is the request ID its Transfer events carry.</summary>
+    ulong SendFile(string deviceId, string path);
+    void CancelTransfer(ulong request);
+    /// <summary>This PC's battery, or null when it has none.</summary>
+    void SetBattery(int? level, bool charging);
+    void Find(string deviceId, bool ring);
+    void FindStopped(string deviceId);
 }
 
 /// <summary>
@@ -257,12 +298,13 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
             BridgeyEvent e;
             try
             {
-                e = new BridgeyEvent((BridgeyEventKind)native->Kind, native->Status, native->Id, native->DeviceId.Read(), native->Name.Read(), native->Text.Read(), native->Extra.Read());
+                e = new BridgeyEvent((BridgeyEventKind)native->Kind, native->Status, native->Id, native->DeviceId.Read(), native->Name.Read(), native->Text.Read(), native->Extra.Read(), native->Bytes, native->Total);
             }
             finally
             {
                 NativeMethods.bridgey_event_free(native);
             }
+            if (Transfers.Fold(e) is { } transfer) e = transfer;
             try { EventReceived?.Invoke(e); }
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Bridgey event handler failed: {ex}"); }
         }
@@ -318,6 +360,30 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
 
     public void NetworkChanged() => Check(NativeMethods.bridgey_network_changed(_handle));
 
+    public void SetReceiveDir(string? folder) => Check(NativeMethods.bridgey_set_receive_dir(_handle, folder));
+
+    public ulong SendFile(string deviceId, string path)
+    {
+        ulong transfer;
+        Check(NativeMethods.bridgey_send_file(_handle, deviceId, path, null, null, &transfer));
+        Transfers.Sent(transfer, deviceId, path);
+        return transfer;
+    }
+
+    public void CancelTransfer(ulong request) => Check(NativeMethods.bridgey_cancel_file(_handle, request));
+
+    /// <summary>Every transfer this client has seen, built from the library's file events.</summary>
+    internal TransferTracker Transfers { get; } = new();
+
+    public void SetBattery(int? level, bool charging) => Check(NativeMethods.bridgey_set_battery(_handle, level ?? -1, charging ? (byte)1 : (byte)0));
+
+    public void Find(string deviceId, bool ring) => Check(NativeMethods.bridgey_find(_handle, deviceId, ring ? (byte)1 : (byte)0));
+
+    public void FindStopped(string deviceId) => Check(NativeMethods.bridgey_find_stopped(_handle, deviceId));
+
+    /// <summary>Fast transfers with peers that show them; off sends JSON chunks (a test setting).</summary>
+    public void SetFastTransfers(bool on) => Check(NativeMethods.bridgey_set_fast_transfers(_handle, on ? (byte)1 : (byte)0));
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
@@ -325,6 +391,79 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
         _pump.Join(TimeSpan.FromSeconds(5));
         NativeMethods.bridgey_client_free(_handle);
         _store.Free();
+    }
+}
+
+/// <summary>
+/// Folds FileIncoming, FileProgress, FileDone and FileFailed into one <see cref="TransferInfo"/> per transfer, with a
+/// state, the name and size from the first event that has them, and a smoothed rate (bytes per second).
+/// </summary>
+public sealed class TransferTracker
+{
+    private readonly Dictionary<ulong, (TransferInfo Info, long Ticks)> _all = new();
+    private readonly object _gate = new();
+
+    /// <summary>A file this end queued: its row starts out waiting.</summary>
+    public void Sent(ulong transfer, string deviceId, string path)
+    {
+        long size = 0;
+        try { size = new FileInfo(path).Length; }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        lock (_gate) _all[transfer] = (new TransferInfo { Request = transfer, DeviceId = deviceId, Direction = "send", Name = System.IO.Path.GetFileName(path), Total = size, State = "queued", Path = path }, System.Diagnostics.Stopwatch.GetTimestamp());
+    }
+
+    /// <summary>The Transfer event for a file event, or null for any other event.</summary>
+    public BridgeyEvent? Fold(BridgeyEvent e)
+    {
+        if (e.Kind is not (BridgeyEventKind.FileIncoming or BridgeyEventKind.FileProgress or BridgeyEventKind.FileDone or BridgeyEventKind.FileFailed)) return null;
+        TransferInfo info;
+        lock (_gate)
+        {
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var incoming = e.Status == 1;
+            if (!_all.TryGetValue(e.Id, out var entry))
+                entry = (new TransferInfo { Request = e.Id, DeviceId = e.DeviceId ?? "", Direction = incoming ? "receive" : "send" }, now);
+            info = entry.Info;
+            if (!string.IsNullOrEmpty(e.Name)) info.Name = e.Name;
+            if (e.Total > 0) info.Total = (long)e.Total;
+            switch (e.Kind)
+            {
+                case BridgeyEventKind.FileIncoming:
+                    info.State = "receiving";
+                    info.Direction = "receive";
+                    break;
+                case BridgeyEventKind.FileProgress:
+                    var seconds = (now - entry.Ticks) / (double)System.Diagnostics.Stopwatch.Frequency;
+                    var delta = (long)e.Bytes - info.Bytes;
+                    if (seconds > 0 && delta > 0)
+                    {
+                        var rate = delta / seconds;
+                        info.Rate = info.Rate == 0 ? (long)rate : (long)(info.Rate * 0.6 + rate * 0.4);
+                    }
+                    info.Bytes = (long)e.Bytes;
+                    info.State = incoming ? "receiving" : e.Bytes == 0 ? "offered" : "sending";
+                    entry.Ticks = now;
+                    break;
+                case BridgeyEventKind.FileDone:
+                    info.State = "done";
+                    info.Bytes = info.Total = (long)e.Total;
+                    if (incoming) info.Path = e.Text;
+                    break;
+                case BridgeyEventKind.FileFailed:
+                    info.Reason = e.Text;
+                    info.State = e.Text switch
+                    {
+                        "cancelled" or "cancelled_remote" => "cancelled",
+                        "rejected" => "rejected",
+                        "interrupted" or "stopped" or "not_connected" => "interrupted",
+                        _ => "failed",
+                    };
+                    break;
+            }
+            _all[e.Id] = (info, entry.Ticks);
+        }
+        return new BridgeyEvent(BridgeyEventKind.Transfer, (int)info.StateValue, e.Id, info.DeviceId, info.Name, JsonSerializer.Serialize(info, BridgeyJson.Default.TransferInfo), null, (ulong)info.Bytes, (ulong)info.Total);
     }
 }
 
@@ -339,6 +478,53 @@ public sealed class Snapshot
     public Dictionary<string, bool> Defaults { get; set; } = new();
     public List<SnapshotDevice> Devices { get; set; } = new();
     public List<SnapshotNearby> Nearby { get; set; } = new();
+    public string? ReceiveDir { get; set; }
+    public List<TransferInfo> Transfers { get; set; } = new();
+}
+
+public sealed class SnapshotBattery
+{
+    public int Level { get; set; }
+    public bool Charging { get; set; }
+}
+
+/// <summary>A Transfer event's JSON, as <see cref="TransferTracker"/> builds it.</summary>
+public sealed class TransferInfo
+{
+    public ulong Request { get; set; }
+    public string TransferId { get; set; } = "";
+    public string DeviceId { get; set; } = "";
+    public string Direction { get; set; } = "send";
+    public string Name { get; set; } = "";
+    public long Bytes { get; set; }
+    public long Total { get; set; }
+    public string State { get; set; } = "queued";
+    public string? Path { get; set; }
+    public string? Reason { get; set; }
+    public long Rate { get; set; }
+
+    public bool Incoming => Direction == "receive";
+
+    [JsonIgnore]
+    public TransferState StateValue => State switch
+    {
+        "queued" => TransferState.Queued,
+        "offered" => TransferState.Offered,
+        "sending" => TransferState.Sending,
+        "receiving" => TransferState.Receiving,
+        "done" => TransferState.Done,
+        "rejected" => TransferState.Rejected,
+        "cancelled" => TransferState.Cancelled,
+        "interrupted" => TransferState.Interrupted,
+        _ => TransferState.Failed,
+    };
+
+    public static TransferInfo? Parse(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize(json, BridgeyJson.Default.TransferInfo); }
+        catch (JsonException) { return null; }
+    }
 }
 
 public sealed class SnapshotDevice
@@ -351,6 +537,8 @@ public sealed class SnapshotDevice
     public long? LastConnectedMs { get; set; }
     public Dictionary<string, bool> Local { get; set; } = new();
     public Dictionary<string, bool>? Remote { get; set; }
+    public SnapshotBattery? Battery { get; set; }
+    public bool Ringing { get; set; }
 }
 
 public sealed class SnapshotNearby
@@ -366,4 +554,5 @@ public sealed class SnapshotNearby
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(Snapshot))]
 [JsonSerializable(typeof(Dictionary<string, bool>))]
+[JsonSerializable(typeof(TransferInfo))]
 internal sealed partial class BridgeyJson : JsonSerializerContext;

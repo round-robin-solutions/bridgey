@@ -75,6 +75,27 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library)]
     public static partial int bridgey_network_changed(ulong handle);
 
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_set_receive_dir(ulong handle, string? dir);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_send_file(ulong handle, string deviceId, string path, string? name, string? mime, ulong* transfer);
+
+    [LibraryImport(Library)]
+    public static partial int bridgey_cancel_file(ulong handle, ulong transfer);
+
+    [LibraryImport(Library)]
+    public static partial int bridgey_set_battery(ulong handle, int level, byte charging);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_find(ulong handle, string deviceId, byte ring);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_find_stopped(ulong handle, string deviceId);
+
+    [LibraryImport(Library)]
+    public static partial int bridgey_set_fast_transfers(ulong handle, byte on);
+
     [LibraryImport(Library)]
     public static partial int bridgey_buffer_set(nint buffer, byte* data, nuint length);
 }
@@ -120,4 +141,8 @@ internal struct BridgeyNativeEvent
     public BridgeyStr Name;
     public BridgeyStr Text;
     public BridgeyStr Extra;
+    /// <summary>File events: bytes so far.</summary>
+    public ulong Bytes;
+    /// <summary>File events: the file's size.</summary>
+    public ulong Total;
 }

@@ -108,6 +108,45 @@ public sealed class ClientInteropTests
     }
 
     [Fact]
+    public void FilesBatteryAndFindThroughTheNativeLibrary()
+    {
+        using var pc = new Peer("Test PC");
+        using var phone = new Peer("Test phone");
+        foreach (var p in new[] { pc, phone })
+            foreach (var key in new[] { "files", "battery", "find_device" }) p.Client.SetFeature(null, key, true);
+        var inbox = Directory.CreateTempSubdirectory("bridgey-interop-");
+        phone.Client.SetReceiveDir(inbox.FullName);
+        phone.Client.AllowPairing(TimeSpan.FromMinutes(2));
+        pc.Client.Pair(null, "127.0.0.1", phone.Port);
+        pc.Expect(e => e.Kind == BridgeyEventKind.Features && e.Extra!.Contains("\"files\":true"), "the phone's files switch");
+
+        var source = Path.Combine(Path.GetTempPath(), $"bridgey-interop-{Guid.NewGuid():N}.bin");
+        var data = Enumerable.Range(0, 700_000).Select(i => (byte)(i * 7)).ToArray();
+        File.WriteAllBytes(source, data);
+        var request = pc.Client.SendFile(phone.Client.DeviceId, source);
+        var sent = pc.Expect(e => e.Kind == BridgeyEventKind.Transfer && e.Id == request && e.Status >= (int)TransferState.Done, "the file sent");
+        Assert.Equal((int)TransferState.Done, sent.Status);
+        var received = phone.Expect(e => e.Kind == BridgeyEventKind.Transfer && e.Status == (int)TransferState.Done, "the file received");
+        var info = TransferInfo.Parse(received.Text)!;
+        Assert.True(info.Incoming);
+        Assert.Equal(data, File.ReadAllBytes(info.Path!));
+        Assert.Equal(inbox.FullName, Path.GetDirectoryName(info.Path));
+
+        pc.Client.SetBattery(64, true);
+        var battery = phone.Expect(e => e.Kind == BridgeyEventKind.Battery, "the PC's battery");
+        Assert.Equal((64, 1UL), (battery.Status, battery.Id));
+
+        phone.Client.Find(pc.Client.DeviceId, true);
+        pc.Expect(e => e.Kind == BridgeyEventKind.FindRequested && e.Status == 1, "asked to ring");
+        phone.Expect(e => e.Kind == BridgeyEventKind.FindState && e.Status == 1, "the PC rings");
+        pc.Client.FindStopped(phone.Client.DeviceId);
+        phone.Expect(e => e.Kind == BridgeyEventKind.FindState && e.Status == 0, "the PC stopped");
+
+        File.Delete(source);
+        inbox.Delete(true);
+    }
+
+    [Fact]
     public void TheIdentitySurvivesARestartThroughTheStore()
     {
         var store = new MemorySecretStore();

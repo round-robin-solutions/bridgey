@@ -18,8 +18,12 @@ public partial class App : Application, ITrayHost
     private TrayIcon? _tray;
     private SettingsStore? _store;
     private readonly WindowsClipboard _clipboard = new();
+    private readonly Notifications _notifications = new();
     private DispatcherQueueTimer? _pairingTimer;
+    private DispatcherQueue? _queue;
     private bool _quitting;
+    /// <summary>Files from Send to that arrived before any device could take them (Bridgey just started).</summary>
+    private IReadOnlyList<string>? _pendingSend;
 
     public App()
     {
@@ -32,6 +36,8 @@ public partial class App : Application, ITrayHost
     }
 
     public bool Quitting => _quitting;
+
+    internal MainWindow? Window => _window;
 
     internal static void Log(string line)
     {
@@ -49,8 +55,10 @@ public partial class App : Application, ITrayHost
         var commandLine = Environment.GetCommandLineArgs();
         _store = new SettingsStore(Paths.DataFolder);
         var settings = _store.Load();
-        var settingsModel = new SettingsViewModel(settings, s => _store.Save(s), Environment.MachineName);
-        var queue = DispatcherQueue.GetForCurrentThread();
+        var settingsModel = new SettingsViewModel(settings, s => _store.Save(s), Environment.MachineName) { DefaultReceiveFolder = ReceiveFolder.Default };
+        var queue = _queue = DispatcherQueue.GetForCurrentThread();
+        _notifications.Start();
+        _notifications.Invoked += (arguments, input) => queue.TryEnqueue(() => NotificationAction(arguments, input));
         IBridgeyClient client;
         try
         {
@@ -69,9 +77,21 @@ public partial class App : Application, ITrayHost
             Exit();
             return;
         }
-        Model = new MainViewModel(client, settingsModel, new UiDispatcher(queue), _clipboard, new Alerts());
-        try { client.SetFeature(null, "clipboard", settings.Clipboard); }
-        catch (BridgeyException) { }
+        Model = new MainViewModel(client, settingsModel, new UiDispatcher(queue), _clipboard, new Alerts(_notifications, () => Model.Settings.Values), new ExplorerFiles());
+        if (client is BridgeyClient native && !settings.FastTransfers) native.SetFastTransfers(false);
+        Model.FilesRequested += device => _ = PickAndSend(device);
+        Model.ChooseDeviceForFiles += (paths, devices) => _ = ChooseAndSend(paths, devices);
+        Model.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainViewModel.HasConnected) && Model.HasConnected) TrySendPending();
+        };
+        settingsModel.SendToMenuChanged += SendTo.Apply;
+        SendTo.Apply(settings.SendToMenu);
+        PowerWatch.Start((level, charging) => queue.TryEnqueue(() =>
+        {
+            try { client.SetBattery(level, charging); }
+            catch (BridgeyException) { }
+        }));
 
         Model.ClipboardRequested += async device =>
         {
@@ -100,6 +120,7 @@ public partial class App : Application, ITrayHost
         Log("Client started; opening the window");
         _window = new MainWindow();
         _tray = new TrayIcon(this);
+        _notifications.Fallback = _tray;
         Log("Window and notification area icon ready");
         _tray.SetTooltip(Model.StatusText);
         _pairingTimer = queue.CreateTimer();
@@ -107,14 +128,101 @@ public partial class App : Application, ITrayHost
         _pairingTimer.Tick += (_, _) => Model.Pairing.KeepAllowing();
         _pairingTimer.Start();
 
-        if (!commandLine.Contains("--background") || !settings.SetupDone) _window.ShowAnimated();
+        var send = SendCommand.Paths(commandLine.Skip(1));
+        if ((!commandLine.Contains("--background") && send is null) || !settings.SetupDone) _window.ShowAnimated();
         if (commandLine.Contains("--tray-menu")) queue.TryEnqueue(() => _tray.ShowMenu());
+        if (send is not null) queue.TryEnqueue(() => SendFromShell(send));
+    }
+
+    /// <summary>Files from Explorer's Send to. Just after start no device is connected yet: wait up to 20 s for one.</summary>
+    private void SendFromShell(IReadOnlyList<string> paths)
+    {
+        if (paths.Count == 0) return;
+        if (Model.Devices.Any(d => d.FilesReady) || Model.Devices.Count == 0)
+        {
+            Model.SendFilesFromShell(paths);
+            return;
+        }
+        _pendingSend = paths;
+        var timer = _queue!.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(20);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            if (_pendingSend is { } waiting)
+            {
+                _pendingSend = null;
+                _window?.ShowAnimated();
+                Model.SendFilesFromShell(waiting);
+            }
+        };
+        timer.Start();
+    }
+
+    private void TrySendPending()
+    {
+        if (_pendingSend is not { } paths) return;
+        // Features arrive just after the connection; give them a moment.
+        var timer = _queue!.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(1.5);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            if (_pendingSend is null || !Model.Devices.Any(d => d.FilesReady)) return;
+            _pendingSend = null;
+            Model.SendFilesFromShell(paths);
+        };
+        timer.Start();
+    }
+
+    private async Task PickAndSend(DeviceItem device)
+    {
+        if (_window is null) return;
+        _window.ShowAnimated();
+        var paths = await _window.PickFiles();
+        if (paths.Count > 0) Model.SendFiles(device, paths);
+    }
+
+    private async Task ChooseAndSend(IReadOnlyList<string> paths, IReadOnlyList<DeviceItem> devices)
+    {
+        if (_window is null) return;
+        _window.ShowAnimated();
+        if (await _window.ChooseDevice(paths.Count, devices) is { } device) Model.SendFiles(device, paths);
+    }
+
+    /// <summary>A notification's button: open or show a received file, stop the ring.</summary>
+    private void NotificationAction(IDictionary<string, string> arguments, IDictionary<string, string> input)
+    {
+        arguments.TryGetValue("path", out var path);
+        switch (arguments.TryGetValue("action", out var action) ? action : "")
+        {
+            case "open" when path is not null:
+                new ExplorerFiles().Open(path);
+                break;
+            case "folder" when path is not null:
+                new ExplorerFiles().ShowInFolder(path);
+                break;
+            case "stopRinging":
+                Model.StopRinging();
+                break;
+            default:
+                Open();
+                break;
+        }
     }
 
     // ITrayHost
 
     public IReadOnlyList<(string Id, string Name)> ClipboardTargets() =>
         Model.Devices.Where(d => d.ClipboardReady).Select(d => (d.Id, d.Name)).ToList();
+
+    public IReadOnlyList<(string Id, string Name)> FileTargets() =>
+        Model.Devices.Where(d => d.FilesReady).Select(d => (d.Id, d.Name)).ToList();
+
+    public void SendFiles(string deviceId)
+    {
+        if (Model.Devices.FirstOrDefault(d => d.Id == deviceId) is { } device) _ = PickAndSend(device);
+    }
 
     public void Open() => _window?.ShowAnimated();
 
@@ -153,6 +261,11 @@ public partial class App : Application, ITrayHost
     {
         DispatcherQueue.GetForCurrentThread().TryEnqueue(() =>
         {
+            if (SendCommand.Parse(command) is { } paths)
+            {
+                SendFromShell(paths);
+                return;
+            }
             switch (command)
             {
                 case TrayIcon.CommandMenu: _tray?.ShowMenu(); break;
@@ -168,6 +281,8 @@ public partial class App : Application, ITrayHost
         if (_quitting) return;
         _quitting = true;
         _pairingTimer?.Stop();
+        Model.StopRinging();
+        _notifications.Dispose();
         _tray?.Dispose();
         _window?.Close();
         Model.Dispose();

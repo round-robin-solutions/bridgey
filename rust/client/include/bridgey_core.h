@@ -14,6 +14,33 @@
 #include <stdint.h>
 #include <stddef.h>
 
+// The first byte of a binary frame; it can never start a JSON frame or UTF-8 text.
+#define MARKER 177
+
+#define HEADER 6
+
+#define KIND_CHUNK 1
+
+#define KIND_SPEED 2
+
+#define MAX_PLAINTEXT 1048576
+
+#define MAX_ID 64
+
+// ID length, ID, sequence, nonce, the largest ciphertext and its tag.
+#define MAX_BODY (((((1 + MAX_ID) + 8) + 12) + MAX_PLAINTEXT) + 16)
+
+// What senders use; receivers take up to `MAX_PLAINTEXT`.
+#define CHUNK (256 * 1024)
+
+#define MAX_SEQUENCE 9007199254740991
+
+#define Pacer_LEGACY_CHUNKS 64
+
+#define Pacer_INITIAL ((2 * 1024) * 1024)
+
+#define Pacer_MAXIMUM ((32 * 1024) * 1024)
+
 // The C ABI version this header describes; compare with bridgey_abi_version() at start-up.
 #define BRIDGEY_ABI_VERSION 1
 
@@ -105,6 +132,13 @@ enum BridgeyEventKind
   BRIDGEY_EVENT_KIND_LINK = 21,
   // id = request, device_id, status = BridgeySendStatus, text = `opened` when the device opened it at once.
   BRIDGEY_EVENT_KIND_LINK_SENT = 22,
+  // A connected device's battery. device_id, status = level 0 to 100, id = 1 charging or 0.
+  BRIDGEY_EVENT_KIND_BATTERY = 23,
+  // The device asks this one to ring (status 1) or stop (0). device_id.
+  // Call bridgey_find_stopped when the person stops the sound here.
+  BRIDGEY_EVENT_KIND_FIND_REQUESTED = 24,
+  // The device says it is ringing (status 1) or has stopped (0), after bridgey_find. device_id.
+  BRIDGEY_EVENT_KIND_FIND_STATE = 25,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -368,6 +402,25 @@ int32_t bridgey_remove_discovered(uint64_t handle, const char *host, uint16_t po
 
 // The network changed: reconnect to trusted devices from the fast delays again.
 int32_t bridgey_network_changed(uint64_t handle);
+
+// This device's battery: `level` 0 to 100, or negative for no battery.
+int32_t bridgey_set_battery(uint64_t handle, int32_t level, uint8_t charging);
+
+// Rings a connected device until someone stops it (`ring` 1), or stops it (0).
+//
+// # Safety
+// `device_id` is a NUL-terminated string valid for the call.
+int32_t bridgey_find(uint64_t handle, const char *device_id, uint8_t ring);
+
+// The person stopped the sound a `FindRequested` started: the device that rang this one is told.
+//
+// # Safety
+// `device_id` is a NUL-terminated string valid for the call.
+int32_t bridgey_find_stopped(uint64_t handle, const char *device_id);
+
+// Binary file frames (files_fast_draft1) with devices that show them: on by default; 0 sends JSON chunks.
+int32_t bridgey_set_fast_transfers(uint64_t handle,
+                                   uint8_t on);
 
 // Copies `len` bytes into the buffer a storage `load` callback was given.
 //

@@ -132,7 +132,8 @@ fn files_go_both_ways_and_are_verified() {
     let second_src = b.write("second.txt", b"second");
     let t2 = b.client.send_file(&a.id(), &second_src, Some("notes.txt"), None).unwrap();
     b.wait("second saved", |e| matches!(e, Event::FileDone { transfer, incoming: false, .. } if *transfer == t2).then_some(()));
-    assert_eq!(std::fs::read(first.with_file_name("notes 2.txt")).unwrap(), b"second");
+    // "notes 2.txt", or "notes (1).txt" on Windows.
+    assert_eq!(std::fs::read(first.with_file_name(bridgey_core::transfer::numbered("notes.txt", 2))).unwrap(), b"second");
     // No partial files are left behind.
     let leftovers: Vec<_> = std::fs::read_dir(first.parent().unwrap()).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().ends_with(".part")).collect();
     assert!(leftovers.is_empty());

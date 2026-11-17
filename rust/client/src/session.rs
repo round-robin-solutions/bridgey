@@ -7,6 +7,7 @@
 //! network's `bridgey-auth-v1` transcript, the apps' 10 s heartbeat and the host deciding who may pair.
 
 use crate::crypto::{self, Ephemeral, SigningKey};
+use crate::fast::{self, Pacer};
 use crate::features::{self, FeatureMap};
 use crate::transfer::{self, FILE_CHUNK, MAX_CHUNK_IN, MAX_FILE, QUICK_MAX};
 use crate::wire::{Message, MAX_FRAME};
@@ -18,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Notify};
@@ -48,6 +49,12 @@ const ACK_STALL: Duration = Duration::from_secs(30);
 const MAX_INCOMING: usize = 4;
 /// Progress events at most this often per transfer.
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
+/// Bytes read ahead of the session loop. Above the largest window a fast sender keeps unacknowledged (32 MiB), so the
+/// reader always drains the socket while the loop writes. It also bounds what a misbehaving peer can make this end hold.
+const READ_BUDGET: usize = 48 * 1024 * 1024;
+const READ_QUEUE: usize = 4096;
+/// What every find-device message carries: Android takes no other alert ID (PairingCoordinator.kt).
+pub const FIND_ALERT: &str = "active";
 
 pub struct Local {
     pub device_id: String,
@@ -119,6 +126,11 @@ pub enum Event {
     Link { device_id: String, url: String },
     /// `quick.result` for a request this end sent.
     QuickResult { device_id: String, request_id: String, accepted: bool, opened: bool },
+    Battery { device_id: String, level: u8, charging: bool },
+    /// The other device asks this one to ring (`find.start`) or stop (`find.stop`); the session has answered.
+    Find { device_id: String, ring: bool },
+    /// The other device says it is ringing (`find.started`) or not (`find.stopped`).
+    FindAck { device_id: String, ringing: bool },
     Closed { session: u64, device_id: Option<String>, reason: String, authenticated: bool, paired: bool, answered: bool },
 }
 
@@ -138,6 +150,14 @@ pub trait Host: Send + Sync + 'static {
     fn next_id(&self) -> u64;
     /// Where received files go; None refuses them.
     fn receive_dir(&self) -> Option<PathBuf>;
+    /// The size of the chunks this end sends: 24 KiB as JSON, 256 KiB as binary frames (tests use smaller ones).
+    fn chunk_size(&self, fast: bool) -> usize {
+        if fast {
+            fast::CHUNK
+        } else {
+            FILE_CHUNK
+        }
+    }
 }
 
 /// A file to offer, hashed already (hashing a large file must not hold up the session).
@@ -159,6 +179,8 @@ pub enum Command {
     SendFile(OutgoingFile),
     CancelFile(u64),
     Link { url: String, request_id: String, open: bool },
+    /// Any other encrypted message (battery, find, ...): `plaintext` becomes the AES-GCM payload.
+    Encrypted { kind: &'static str, plaintext: Vec<u8>, message_id: String },
     Close(&'static str),
 }
 
@@ -206,6 +228,10 @@ impl Handle {
     pub fn send_link(&self, url: String, request_id: String, open: bool) -> bool {
         self.tx.try_send(Command::Link { url, request_id, open }).is_ok()
     }
+    /// Queues an encrypted message, or false when the queue is full or the session ended.
+    pub fn send_encrypted(&self, kind: &'static str, plaintext: Vec<u8>, message_id: String) -> bool {
+        self.tx.try_send(Command::Encrypted { kind, plaintext, message_id }).is_ok()
+    }
     pub fn close(&self, why: &'static str) {
         let _ = self.tx.try_send(Command::Close(why));
     }
@@ -223,6 +249,11 @@ struct State {
     remote_commitment: Option<String>,
     key: Option<[u8; 32]>,
     envelope: Option<[u8; 32]>,
+    /// The binary frame key (files_fast_draft1), from the session key.
+    fast_key: Option<[u8; 32]>,
+    fast_replay: fast::ReplayGuard,
+    /// The other device shows files_fast_draft1 (its latest `features.update`).
+    remote_fast: bool,
     local_confirmed: bool,
     remote_confirmed: bool,
     remote_identity: Option<String>,
@@ -280,6 +311,9 @@ struct Outgoing {
     sent: u64,
     deadline: Option<Instant>,
     reported: Option<Instant>,
+    /// Binary frames of up to 256 KiB, paced by the acknowledgements' round trip (files_fast_draft1 at both ends).
+    fast: bool,
+    pacer: Pacer,
 }
 
 /// Starts a session on a connected socket. Returns its handle at once; events go to the host.
@@ -374,6 +408,9 @@ impl Session {
                 remote_commitment: None,
                 key: None,
                 envelope: None,
+                fast_key: None,
+                fast_replay: fast::ReplayGuard::default(),
+                remote_fast: false,
                 local_confirmed: false,
                 remote_confirmed: false,
                 remote_identity: None,
@@ -421,7 +458,11 @@ impl Session {
             }
             Role::Accept => {}
         }
-        let mut reader = self.reader.take().expect("reader");
+        let reader = self.reader.take().expect("reader");
+        let (frames_tx, mut frames) = mpsc::channel::<(ReadFrame, Option<tokio::sync::OwnedSemaphorePermit>)>(READ_QUEUE);
+        // Reads run in their own task, so a frame split across several reads is never lost when another branch of
+        // the loop below wins (a select! branch must be cancel-safe; reading a frame is not).
+        let _reading = AbortOnDrop(tokio::spawn(read_frames(reader, frames_tx, Arc::new(tokio::sync::Semaphore::new(READ_BUDGET)))));
         let handshake = tokio::time::sleep(HANDSHAKE_TIMEOUT);
         tokio::pin!(handshake);
         let mut code_deadline: Option<tokio::time::Instant> = None;
@@ -429,7 +470,6 @@ impl Session {
         heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         heartbeat.tick().await;
         let mut last_heard = tokio::time::Instant::now();
-        let mut line = Vec::with_capacity(4096);
         loop {
             let code_wait = async {
                 match code_deadline {
@@ -460,20 +500,35 @@ impl Session {
                         return reason;
                     }
                 }
-                read = read_line(&mut reader, &mut line) => {
-                    match read {
-                        Ok(true) => {}
-                        Ok(false) => return if self.st.authenticated { "closed_by_peer".into() } else { "closed_before_pairing".into() },
-                        Err(reason) => return reason.into(),
-                    }
-                    last_heard = tokio::time::Instant::now();
-                    self.handle.heard.store(clock_ms(), Ordering::Relaxed);
-                    // A malformed frame closes the session before dispatch (protocol/messages.json transport).
-                    let message = match Message::decode(&line) {
-                        Ok(m) => m,
-                        Err(_) => return "bad_frame".into(),
+                read = frames.recv() => {
+                    // The permit goes back to the reader's budget once this frame is handled.
+                    let (read, _permit) = match read {
+                        Some((r, p)) => (r, p),
+                        None => return "read_failed".into(),
                     };
-                    match self.receive(message).await {
+                    let step = match read {
+                        ReadFrame::End => return if self.st.authenticated { "closed_by_peer".into() } else { "closed_before_pairing".into() },
+                        ReadFrame::Failed(reason) => return reason.into(),
+                        ReadFrame::Line(line) => {
+                            last_heard = tokio::time::Instant::now();
+                            self.handle.heard.store(clock_ms(), Ordering::Relaxed);
+                            // A malformed frame closes the session before dispatch (protocol/messages.json transport).
+                            match Message::decode(&line) {
+                                Ok(m) => self.receive(m).await,
+                                Err(_) => return "bad_frame".into(),
+                            }
+                        }
+                        ReadFrame::Binary { kind, body } => {
+                            // Before authentication the marker is just an invalid JSON frame, as it always was.
+                            if !self.st.authenticated {
+                                return "bad_frame".into();
+                            }
+                            last_heard = tokio::time::Instant::now();
+                            self.handle.heard.store(clock_ms(), Ordering::Relaxed);
+                            self.binary(kind, &body).await
+                        }
+                    };
+                    match step {
                         Step::Continue => if self.st.authenticated { code_deadline = None },
                         Step::AwaitCode => { self.st.awaiting_code = true; code_deadline = Some(tokio::time::Instant::now() + CODE_TIMEOUT) }
                         Step::Close(reason) => return reason,
@@ -557,6 +612,12 @@ impl Session {
                 self.start_next().await
             }
             Command::CancelFile(transfer) => self.cancel_file(transfer).await,
+            Command::Encrypted { kind, plaintext, message_id } => {
+                if !self.st.authenticated {
+                    return Step::Continue;
+                }
+                self.encrypted(kind, &plaintext, message_id).await
+            }
             Command::Link { url, request_id, open } => {
                 if !self.st.authenticated {
                     return Step::Continue;
@@ -619,6 +680,11 @@ impl Session {
 
     fn send_chunk(&self, m: Message) -> Result<(), ()> {
         let frame = self.frame(m);
+        self.send_chunk_bytes(frame)
+    }
+
+    /// A chunk's bytes as they go on the wire (a JSON frame or a binary frame).
+    fn send_chunk_bytes(&self, frame: Vec<u8>) -> Result<(), ()> {
         self.in_flight.fetch_add(1, Ordering::Relaxed);
         self.write.send((frame, true)).map_err(|_| ())
     }
@@ -696,6 +762,7 @@ impl Session {
         self.st.key = Some(key);
         // Both ends sent protocol 2 (checked before every agreement here), so frames carry tags from now on.
         self.st.envelope = Some(crypto::envelope_key(&key));
+        self.st.fast_key = Some(fast::frame_key(&key));
         prk
     }
 
@@ -965,6 +1032,7 @@ impl Session {
                 let Some(plain) = self.open(&m) else { return Step::Close("bad_features".into()) };
                 match features::decode(&plain) {
                     features::Decoded::State(features) => {
+                        self.st.remote_fast = features.get(fast::FEATURE);
                         self.host.event(Event::Features { session: self.session, device_id, features });
                         Step::Continue
                     }
@@ -1024,6 +1092,9 @@ impl Session {
                 if let (Some(a), Some(sequence)) = (self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref()), m.sequence) {
                     a.acks = true;
                     a.acked = a.acked.max(sequence.min(a.sequence - 1));
+                    if a.fast && sequence >= 0 {
+                        a.pacer.acknowledged(sequence as u64, Instant::now().into_std());
+                    }
                     if a.stage == Stage::Sending {
                         a.deadline = Some(Instant::now() + ACK_STALL);
                     }
@@ -1073,6 +1144,47 @@ impl Session {
                 self.start_next().await
             }
             "files.cancel.ack" => Step::Continue,
+            "battery.update" => {
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                let Some(plain) = self.open(&m) else { return Step::Close("bad_battery".into()) };
+                if !self.host.policy(&device_id).get("battery") {
+                    return Step::Continue;
+                }
+                // Out of range or malformed values are rejected; the session stays.
+                if let Some((level, charging)) = battery(&plain) {
+                    self.host.event(Event::Battery { device_id, level, charging });
+                }
+                Step::Continue
+            }
+            "find.start" | "find.stop" => {
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                let Some(plain) = self.open(&m) else { return Step::Close("bad_find".into()) };
+                if alert_id(&plain).is_none() {
+                    return Step::Close("bad_find".into());
+                }
+                let ring = m.kind == "find.start";
+                if ring && !self.host.policy(&device_id).get("find_device") {
+                    return Step::Continue;
+                }
+                self.host.event(Event::Find { device_id, ring });
+                let reply = if ring { "find.started" } else { "find.stopped" };
+                self.encrypted(reply, find_payload().as_bytes(), crypto::uuid4()).await
+            }
+            "find.started" | "find.stopped" => {
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                let Some(plain) = self.open(&m) else { return Step::Close("bad_find".into()) };
+                if alert_id(&plain).is_none() {
+                    return Step::Close("bad_find".into());
+                }
+                self.host.event(Event::FindAck { device_id, ringing: m.kind == "find.started" });
+                Step::Continue
+            }
             "quick.request" => self.quick_request(m).await,
             "quick.result" => {
                 let Some(plain) = self.open(&m).filter(|p| p.len() <= QUICK_MAX) else { return Step::Continue };
@@ -1126,6 +1238,8 @@ impl Session {
             };
             let id = crypto::uuid4();
             let offer = json!({"transferId": id, "name": file.name, "mimeType": file.mime, "size": file.size, "sha256": file.sha256});
+            // Binary frames when both ends show files_fast_draft1 (this end's switch is in its policy for the device).
+            let fast = self.st.remote_fast && self.st.fast_key.is_some() && self.host.policy(&self.st.remote_id).get(fast::FEATURE);
             self.active = Some(Outgoing {
                 file,
                 id: id.clone(),
@@ -1137,6 +1251,8 @@ impl Session {
                 sent: 0,
                 deadline: Some(Instant::now() + ACCEPT_TIMEOUT),
                 reported: None,
+                fast,
+                pacer: Pacer::new(fast, self.host.chunk_size(fast), None),
             });
             if let Some(a) = &self.active {
                 self.host.event(Event::FileProgress { transfer: a.file.transfer, device_id: self.st.remote_id.clone(), incoming: false, bytes: 0, total: a.file.size });
@@ -1146,17 +1262,29 @@ impl Session {
         Step::Continue
     }
 
-    /// A chunk may go when a file is being sent and, for receivers that acknowledge, the window has room.
-    fn chunk_ready(&self) -> bool {
-        self.st.authenticated && self.active.as_ref().is_some_and(|a| a.stage == Stage::Sending && (!a.acks || a.sequence - a.acked <= CHUNK_WINDOW))
+    /// A chunk may go when a file is being sent and, for receivers that acknowledge, the window has room. Fast
+    /// transfers keep their unacknowledged bytes within the pacer's window.
+    fn chunk_ready(&mut self) -> bool {
+        if !self.st.authenticated {
+            return false;
+        }
+        let Some(a) = self.active.as_mut().filter(|a| a.stage == Stage::Sending) else { return false };
+        if a.fast {
+            let chunk = a.pacer.chunk;
+            return a.pacer.room(chunk);
+        }
+        !a.acks || a.sequence - a.acked <= CHUNK_WINDOW
     }
 
     /// Queues the next chunk, or `files.complete` after the last one.
     fn next_chunk(&mut self) -> Step {
         let Some(key) = self.st.key else { return Step::Continue };
         let device_id = self.st.remote_id.clone();
+        let fast_key = self.st.fast_key;
+        let local = self.host.local().device_id.clone();
         let Some(a) = self.active.as_mut() else { return Step::Continue };
-        let mut buf = vec![0u8; FILE_CHUNK];
+        // The host's chunk size: 24 KiB as JSON, 256 KiB as binary frames (smaller in tests).
+        let mut buf = vec![0u8; a.pacer.chunk];
         let n = match read_full(&mut a.reader, &mut buf) {
             Ok(n) => n,
             Err(_) => usize::MAX,
@@ -1173,6 +1301,23 @@ impl Session {
             self.ended(&id);
             self.file_failed(a.file.transfer, false, &a.file.name, "changed");
             return Step::Continue;
+        }
+        if n > 0 && a.fast {
+            let Some(frame) = fast_key.and_then(|k| fast::seal(fast::KIND_CHUNK, &id, a.sequence as u64, &buf[..n], &k, &local, None)) else {
+                return Step::Close("send_failed".into());
+            };
+            a.pacer.sent(a.sequence as u64, n, Instant::now().into_std());
+            a.sequence += 1;
+            a.sent += n as u64;
+            let now = Instant::now();
+            if a.reported.is_none_or(|t| now.duration_since(t) >= PROGRESS_EVERY) {
+                a.reported = Some(now);
+                self.host.event(Event::FileProgress { transfer: a.file.transfer, device_id, incoming: false, bytes: a.sent, total: a.file.size });
+            }
+            return match self.send_chunk_bytes(frame) {
+                Ok(()) => Step::Continue,
+                Err(()) => Step::Close("send_failed".into()),
+            };
         }
         let m = if n == 0 {
             let plain = json!({"transferId": id, "sha256": a.file.sha256}).to_string();
@@ -1219,6 +1364,7 @@ impl Session {
             Stage::Offered => "not_accepted",
             Stage::Completing => "not_confirmed",
             // Only a receiver that acknowledges can stall a transfer; for others the wait just goes on.
+            Stage::Sending if a.fast && a.pacer.unacknowledged() > 0 => "stalled",
             Stage::Sending if a.acks && a.sequence - a.acked > CHUNK_WINDOW => "stalled",
             Stage::Sending => {
                 a.deadline = Some(now + ACK_STALL);
@@ -1313,16 +1459,44 @@ impl Session {
             return if self.ended.contains(&id) { Step::Continue } else { self.bad() };
         }
         let Some(data) = self.open(&m) else { return Step::Close("bad_files".into()) };
+        self.accept_chunk(id, m.sequence, &data, MAX_CHUNK_IN).await
+    }
+
+    /// A binary frame from an authenticated session (files_fast_draft1). A frame that fails its tag, is malformed or
+    /// replays counts as a bad frame; an unknown kind whose tag verifies is skipped, and so are speed test bytes (this
+    /// client never starts or accepts a test).
+    async fn binary(&mut self, kind: u8, body: &[u8]) -> Step {
+        let Some(key) = self.st.fast_key else { return self.bad() };
+        let frame = match fast::open_body(kind, body, &key, &self.st.remote_id) {
+            Ok(f) => f,
+            Err(_) => return self.bad(),
+        };
+        if frame.kind != fast::KIND_CHUNK {
+            return Step::Continue;
+        }
+        if !self.st.fast_replay.accept(frame.kind, &frame.id, frame.sequence) {
+            return self.bad();
+        }
+        if !self.incoming.contains_key(&frame.id) {
+            return if self.ended.contains(&frame.id) { Step::Continue } else { self.bad() };
+        }
+        let sequence = i64::try_from(frame.sequence).ok();
+        self.accept_chunk(frame.id, sequence, &frame.plaintext, fast::MAX_PLAINTEXT).await
+    }
+
+    /// One chunk of an incoming file, JSON or binary: in order, within the offered size, written and hashed, then
+    /// acknowledged. Anything else cancels the file.
+    async fn accept_chunk(&mut self, id: String, sequence: Option<i64>, data: &[u8], max: usize) -> Step {
         let device_id = self.st.remote_id.clone();
-        let i = self.incoming.get_mut(&id).unwrap();
-        let fits = m.sequence == Some(i.next_sequence) && !data.is_empty() && data.len() <= MAX_CHUNK_IN && i.received + data.len() as u64 <= i.size;
-        if !fits || i.file.write_all(&data).is_err() {
+        let Some(i) = self.incoming.get_mut(&id) else { return Step::Continue };
+        let fits = sequence == Some(i.next_sequence) && !data.is_empty() && data.len() <= max && i.received + data.len() as u64 <= i.size;
+        if !fits || i.file.write_all(data).is_err() {
             let reason = if fits { "storage" } else { "invalid" };
             let i = self.incoming.remove(&id).unwrap();
             self.drop_incoming(&id, i, reason);
             return self.outer("files.cancel", &id, None).await;
         }
-        i.hasher.update(&data);
+        i.hasher.update(data);
         i.received += data.len() as u64;
         i.next_sequence += 1;
         let now = Instant::now();
@@ -1330,8 +1504,9 @@ impl Session {
             i.reported = Some(now);
             self.host.event(Event::FileProgress { transfer: i.transfer, device_id, incoming: true, bytes: i.received, total: i.size });
         }
-        // Every chunk is acknowledged, as Android does; a Mac keeps at most 64 unacknowledged.
-        self.outer("files.chunk.ack", &id, m.sequence).await
+        // Every chunk is acknowledged, as Android does; a Mac keeps at most 64 unacknowledged, and a fast sender paces
+        // itself by the acknowledgements' round trip.
+        self.outer("files.chunk.ack", &id, sequence).await
     }
 
     async fn file_complete(&mut self, m: Message) -> Step {
@@ -1479,17 +1654,75 @@ pub fn clipboard_rich(plain: &[u8]) -> Option<(String, Option<String>)> {
     Some((text, html))
 }
 
-/// Reads one line of at most 65,536 bytes into `line` (without the LF). Ok(false) at the end of the stream.
-async fn read_line(reader: &mut BufReader<OwnedReadHalf>, line: &mut Vec<u8>) -> Result<bool, &'static str> {
+/// What the reader task hands the session loop.
+enum ReadFrame {
+    /// One JSON frame, without its LF.
+    Line(Vec<u8>),
+    /// A binary frame (files_fast_draft1): its kind and body, the length already checked.
+    Binary { kind: u8, body: Vec<u8> },
+    End,
+    Failed(&'static str),
+}
+
+/// Aborts the reader task when the session loop returns.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Reads frames until the stream ends or a frame breaks the rules: JSON lines of at most 65,536 bytes, and binary
+/// frames whose header declares 1 to 1,048,677 bytes (any other length closes: the stream can no longer be split).
+/// Each frame takes its size from `budget` until the session loop has handled it.
+async fn read_frames(mut reader: BufReader<OwnedReadHalf>, tx: mpsc::Sender<(ReadFrame, Option<tokio::sync::OwnedSemaphorePermit>)>, budget: Arc<tokio::sync::Semaphore>) {
+    let mut line = Vec::with_capacity(4096);
+    loop {
+        let read = match read_frame(&mut reader, &mut line).await {
+            Ok(Some(Frame::Line)) => ReadFrame::Line(std::mem::replace(&mut line, Vec::with_capacity(4096))),
+            Ok(Some(Frame::Binary(kind, body))) => ReadFrame::Binary { kind, body },
+            Ok(None) => ReadFrame::End,
+            Err(reason) => ReadFrame::Failed(reason),
+        };
+        let size = match &read {
+            ReadFrame::Line(l) => l.len(),
+            ReadFrame::Binary { body, .. } => body.len(),
+            _ => 0,
+        };
+        let last = matches!(read, ReadFrame::End | ReadFrame::Failed(_));
+        let permit = budget.clone().acquire_many_owned(size.max(1) as u32).await.ok();
+        if tx.send((read, permit)).await.is_err() || last {
+            return;
+        }
+    }
+}
+
+enum Frame {
+    Line,
+    Binary(u8, Vec<u8>),
+}
+
+/// One frame. Ok(None) at the end of the stream.
+async fn read_frame(reader: &mut BufReader<OwnedReadHalf>, line: &mut Vec<u8>) -> Result<Option<Frame>, &'static str> {
     line.clear();
     loop {
-        let buf = reader.fill_buf().await.map_err(|_| "read_failed")?;
+        let buf = match reader.fill_buf().await {
+            Ok(buf) => buf,
+            // Windows resets a connection the other end closed with data unread: between frames, that is the end.
+            Err(e) if line.is_empty() && matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => return Ok(None),
+            Err(_) => return Err("read_failed"),
+        };
         if buf.is_empty() {
-            return if line.is_empty() { Ok(false) } else { Err("truncated") };
+            return if line.is_empty() { Ok(None) } else { Err("truncated") };
         }
-        if line.is_empty() && buf[0] == 0xB1 {
-            // A binary frame: this client never advertises files_fast_draft1, so the peer must not send one.
-            return Err("binary_frame");
+        if line.is_empty() && buf[0] == fast::MARKER {
+            let mut header = [0u8; fast::HEADER];
+            reader.read_exact(&mut header).await.map_err(|_| "truncated")?;
+            let Some(len) = fast::body_length(&header) else { return Err("bad_binary_length") };
+            let mut body = vec![0u8; len];
+            reader.read_exact(&mut body).await.map_err(|_| "truncated")?;
+            return Ok(Some(Frame::Binary(header[1], body)));
         }
         match buf.iter().position(|b| *b == b'\n') {
             Some(i) => {
@@ -1498,7 +1731,7 @@ async fn read_line(reader: &mut BufReader<OwnedReadHalf>, line: &mut Vec<u8>) ->
                 if line.len() > MAX_FRAME {
                     return Err("frame_too_large");
                 }
-                return Ok(true);
+                return Ok(Some(Frame::Line));
             }
             None => {
                 let n = buf.len();
@@ -1510,6 +1743,27 @@ async fn read_line(reader: &mut BufReader<OwnedReadHalf>, line: &mut Vec<u8>) ->
             }
         }
     }
+}
+
+/// `battery.update`: `level` an integer 0 to 100 and `isCharging` a boolean, or nothing.
+pub fn battery(plain: &[u8]) -> Option<(u8, bool)> {
+    let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(plain) else { return None };
+    let level = o.get("level")?.as_u64().filter(|l| *l <= 100)?;
+    let charging = o.get("isCharging")?.as_bool()?;
+    Some((level as u8, charging))
+}
+
+pub fn battery_payload(level: u8, charging: bool) -> String {
+    json!({"level": level.min(100), "isCharging": charging}).to_string()
+}
+
+fn alert_id(plain: &[u8]) -> Option<String> {
+    let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(plain) else { return None };
+    o.get("alertId")?.as_str().filter(|a| !a.is_empty() && a.len() <= 128).map(str::to_string)
+}
+
+pub fn find_payload() -> String {
+    json!({"alertId": FIND_ALERT}).to_string()
 }
 
 /// Control, format (bidi, zero-width, tags), separator and private-use characters cannot be shown safely.

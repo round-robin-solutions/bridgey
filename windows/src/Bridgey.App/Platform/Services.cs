@@ -44,11 +44,6 @@ internal sealed class UiDispatcher(DispatcherQueue queue) : IUiDispatcher
     public void Post(Action action) => queue.TryEnqueue(() => action());
 }
 
-internal sealed class Alerts : IAlertService
-{
-    public void Ping(string deviceName) => Win32.MessageBeep(Win32.MB_ICONASTERISK);
-}
-
 /// <summary>The Windows clipboard. Text other apps mark as private (password managers) is never sent automatically.</summary>
 internal sealed class WindowsClipboard : IClipboardService
 {

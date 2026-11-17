@@ -30,6 +30,22 @@ public sealed class AppSettings
     public bool KeepRunningInTray { get; set; } = true;
     /// <summary>One-line previews of clipboard text in the activity list.</summary>
     public bool ShowPreviews { get; set; } = true;
+    /// <summary>Files on for devices without their own switch.</summary>
+    public bool Files { get; set; } = true;
+    /// <summary>Where received files go. Empty is Downloads\Bridgey.</summary>
+    public string ReceiveFolder { get; set; } = "";
+    /// <summary>A notification with Open and Show in folder when a file arrives.</summary>
+    public bool FileNotifications { get; set; } = true;
+    /// <summary>Bridgey in Explorer's Send to menu.</summary>
+    public bool SendToMenu { get; set; } = true;
+    /// <summary>This PC's battery on paired devices, and theirs here.</summary>
+    public bool Battery { get; set; } = true;
+    /// <summary>Paired devices can ring this PC, and it can ring them.</summary>
+    public bool FindDevice { get; set; } = true;
+    /// <summary>One short sound from a paired device.</summary>
+    public bool Ping { get; set; } = true;
+    /// <summary>Binary frames with devices that have them. Off only for a test (settings.json).</summary>
+    public bool FastTransfers { get; set; } = true;
     public bool SetupDone { get; set; }
 }
 

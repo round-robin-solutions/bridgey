@@ -1,4 +1,5 @@
 using Bridgey.Platform;
+using Bridgey.ViewModels;
 using Microsoft.UI;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
@@ -111,6 +112,61 @@ public sealed partial class MainWindow : Window
         _navigating = true;
         Nav.SelectedItem = Nav.MenuItems.Concat(Nav.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(i => (string)i.Tag == key);
         _navigating = false;
+    }
+
+    private nint Hwnd => WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+    /// <summary>Windows' file picker, several files at once. Empty when the person cancels.</summary>
+    public async Task<IReadOnlyList<string>> PickFiles()
+    {
+        var picker = new Windows.Storage.Pickers.FileOpenPicker { ViewMode = Windows.Storage.Pickers.PickerViewMode.List };
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
+        try
+        {
+            var files = await picker.PickMultipleFilesAsync();
+            return files?.Select(f => f.Path).Where(p => !string.IsNullOrEmpty(p)).ToList() ?? [];
+        }
+        catch (Exception e)
+        {
+            App.Log($"File picker failed: {e.Message}");
+            return [];
+        }
+    }
+
+    /// <summary>Windows' folder picker, for where received files go. Null when the person cancels.</summary>
+    public async Task<string?> PickFolder()
+    {
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
+        try { return (await picker.PickSingleFolderAsync())?.Path; }
+        catch (Exception e)
+        {
+            App.Log($"Folder picker failed: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>"Send 3 files to": one of the connected devices that can take files, or null.</summary>
+    public async Task<DeviceItem?> ChooseDevice(int count, IReadOnlyList<DeviceItem> devices)
+    {
+        var choices = new RadioButtons();
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(choices, "ChooseDevice");
+        foreach (var d in devices) choices.Items.Add(new RadioButton { Content = d.Name, Tag = d });
+        choices.SelectedIndex = 0;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            RequestedTheme = Root.ActualTheme,
+            Title = count == 1 ? "Send 1 file to" : $"Send {count} files to",
+            Content = choices,
+            PrimaryButtonText = "Send",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        var result = await dialog.ShowAsync();
+        return result == ContentDialogResult.Primary && choices.SelectedItem is RadioButton { Tag: DeviceItem device } ? device : null;
     }
 
     private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
