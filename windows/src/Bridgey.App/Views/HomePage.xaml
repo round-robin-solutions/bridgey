@@ -141,6 +141,12 @@
         <Grid Grid.Row="4" Visibility="{x:Bind Model.HasDevices, Mode=OneWay}">
             <ListView ItemsSource="{x:Bind Model.Activity}" SelectionMode="None" IsItemClickEnabled="False"
                       AutomationProperties.AutomationId="Activity" Padding="0">
+                <!-- The newest activity is added at the top: keep the scroll offset, so at the top it stays in view. -->
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsStackPanel ItemsUpdatingScrollMode="KeepScrollOffset" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
                 <ListView.ItemContainerStyle>
                     <Style TargetType="ListViewItem">
                         <Setter Property="Padding" Value="0" />
