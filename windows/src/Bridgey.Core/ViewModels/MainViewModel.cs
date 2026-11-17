@@ -23,6 +23,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// <summary>File rows by request ID, while their transfer runs.</summary>
     private readonly Dictionary<ulong, ActivityItem> _transfers = new();
     private string? _ringingFrom;
+    private readonly ILinkOpener? _links;
+    private readonly IMediaHost? _media;
+    private (string Device, string Url)? _pendingLink;
+    private string _connectState = "off";
+    private readonly Dictionary<ulong, ActivityItem> _linksOut = new();
     private string _draft = "";
     private string? _notice;
     private string? _requestId;
@@ -41,13 +46,16 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public NotificationsViewModel Notifications { get; }
 
     public MainViewModel(IBridgeyClient client, SettingsViewModel settings, IUiDispatcher ui, IClipboardService clipboard, IAlertService alerts, IFileService? files = null,
-        IPhoneNotifier? notifier = null, INotificationHistory? history = null, ICompanionAdvertiser? advertiser = null)
+        IPhoneNotifier? notifier = null, INotificationHistory? history = null, ICompanionAdvertiser? advertiser = null,
+        ILinkOpener? links = null, IMediaHost? media = null)
     {
         _client = client;
         _ui = ui;
         _clipboard = clipboard;
         _alerts = alerts;
         _files = files ?? new NoFiles();
+        _links = links;
+        _media = media;
         Settings = settings;
         Pairing = new PairingViewModel(this, client);
         Notifications = new NotificationsViewModel(client, settings, notifier ?? new NoNotifier(), clipboard, history, advertiser, NameOf);
@@ -69,7 +77,121 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         client.EventReceived += e => _ui.Post(() => Handle(e));
         foreach (var (key, on) in Settings.FeatureDefaults) Try(() => _client.SetFeature(null, key, on));
         if (Settings.ReceiveFolder.Length > 0) Try(() => _client.SetReceiveDir(Settings.ReceiveFolder));
+        Settings.LinksChanged += () => Try(() => _client.SetLinksOpen(Settings.OpenLinksRightAway));
+        Try(() => _client.SetLinksOpen(Settings.OpenLinksRightAway));
+        Settings.MediaChanged += ApplyMedia;
+        if (_media is not null) _media.Changed += state => _ui.Post(() => MediaChanged(state));
+        ApplyMedia();
+        Settings.ConnectChanged += ApplyConnect;
+        ApplyConnect();
         Refresh();
+    }
+
+    private void ApplyMedia()
+    {
+        if (_media is null) return;
+        if (Settings.Media) _media.Start();
+        else
+        {
+            _media.Stop();
+            Try(() => _client.SetMediaState(null));
+        }
+    }
+
+    private void MediaChanged(MediaState? state)
+    {
+        if (!Settings.Media) return;
+        Try(() => _client.SetMediaState(state?.ToJson()));
+    }
+
+    private void ApplyConnect()
+    {
+        try { _client.SetConnect(Settings.ConnectAway, Edition.ConnectControlUrl.Length > 0 ? Edition.ConnectControlUrl : null); }
+        catch (BridgeyException e)
+        {
+            // The UDP port or the network refused the node: this PC still works on the local network.
+            ConnectState = "unavailable";
+            Notice = $"Connect away from home couldn't start. {e.Message}";
+        }
+    }
+
+    /// <summary>off, disabled (no control service), connecting, unreachable, online, or unavailable.</summary>
+    public string ConnectState
+    {
+        get => _connectState;
+        private set
+        {
+            if (Set(ref _connectState, value)) Raise(nameof(ConnectStatus));
+        }
+    }
+
+    /// <summary>What Settings > Away from home says about the connection.</summary>
+    public string ConnectStatus => _connectState switch
+    {
+        "online" => "Online. Your devices can reach this PC from any network.",
+        "connecting" => "Connecting to Round Robin's service…",
+        "unreachable" => "Round Robin's service can't be reached. Your local and private networks still work.",
+        "disabled" => "Devices on your private networks can reach this PC.",
+        "unavailable" => "Not available on this PC right now.",
+        _ => "Off. Devices connect only on the same network.",
+    };
+
+    /// <summary>A link from a device, waiting for Open or Dismiss.</summary>
+    public bool HasPendingLink => _pendingLink is not null;
+    public string PendingLinkText => _pendingLink is { } p ? $"{NameOf(p.Device)} sent a link: {p.Url}" : "";
+
+    public void OpenPendingLink()
+    {
+        if (_pendingLink is not { } p) return;
+        if (_links?.Open(p.Url) == false) Notice = "Windows couldn't open the link.";
+        ClearPendingLink();
+    }
+
+    public void DismissPendingLink() => ClearPendingLink();
+
+    private void ClearPendingLink()
+    {
+        _pendingLink = null;
+        Raise(nameof(HasPendingLink));
+        Raise(nameof(PendingLinkText));
+    }
+
+    /// <summary>The send box holds a web link and the device takes links: Send link offers it to the phone.</summary>
+    public bool CanSendLink => _target is { LinksReady: true } && IsWebLink(_draft);
+
+    public static bool IsWebLink(string text)
+    {
+        var t = text.Trim();
+        return t.Length is > 0 and <= 4096 && !t.Any(char.IsWhiteSpace)
+            && Uri.TryCreate(t, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+            && uri.Host.Length > 0 && uri.UserInfo.Length == 0;
+    }
+
+    /// <summary>Sends the send box's link to the device, which keeps it for the person to open.</summary>
+    public void SendDraftAsLink()
+    {
+        if (_target is not { } device || !CanSendLink) return;
+        var url = _draft.Trim();
+        try
+        {
+            var request = _client.SendLink(device.Id, url);
+            var row = new ActivityItem { Direction = ActivityDirection.Sent, Title = $"Link to {device.Name}", Preview = url, Request = request, Status = "Sending" };
+            _linksOut[request] = row;
+            AddActivity(row);
+            Draft = "";
+        }
+        catch (BridgeyException e) { Notice = e.Message; }
+    }
+
+    private async void RunMedia(string device, string requestId, string action, long? value)
+    {
+        var ok = false;
+        if (Settings.Media && _media is not null)
+        {
+            try { ok = await _media.RunAsync(action, value); }
+            catch (Exception) { ok = false; }
+        }
+        Try(() => _client.MediaResult(device, requestId, ok));
     }
 
     private sealed class NoNotifier : IPhoneNotifier
@@ -140,7 +262,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         get => _draft;
         set
         {
-            if (Set(ref _draft, value)) Raise(nameof(CanSendDraft));
+            if (!Set(ref _draft, value)) return;
+            Raise(nameof(CanSendDraft));
+            Raise(nameof(CanSendLink));
         }
     }
 
@@ -153,6 +277,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (!Set(ref _target, value)) return;
             Raise(nameof(CanSendDraft));
             Raise(nameof(CanSendFiles));
+            Raise(nameof(CanSendLink));
         }
     }
 
@@ -218,10 +343,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             item.BatteryLevel = d.Battery?.Level;
             item.Charging = d.Battery?.Charging ?? false;
             item.IsRinging = d.Ringing;
+            item.Away = d.Away;
             if (d.Remote is not null) _remote[d.DeviceId] = d.Remote;
             UpdateReadiness(item, d.Local);
         }
         foreach (var gone in Devices.Where(d => !seen.Contains(d.Id)).ToList()) Devices.Remove(gone);
+        if (snapshot.Connect is { } connect) ConnectState = connect.State;
         foreach (var t in snapshot.Transfers.Where(t => t.State is "queued" or "offered" or "sending" or "receiving")) UpdateTransfer(t.Request, t);
         Nearby.Clear();
         foreach (var n in snapshot.Nearby.Where(n => !n.Trusted && n.Host is not null))
@@ -252,9 +379,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         item.PingReady = item.IsConnected && On(local, "ping") && On(remote, "ping");
         item.FilesReady = item.IsConnected && On(local, "files") && On(remote, "files");
         item.FindReady = item.IsConnected && On(local, "find_device") && On(remote, "find_device");
+        item.LinksReady = item.IsConnected && On(local, "links") && On(remote, "links");
         if (!(On(local, "battery") && On(remote, "battery"))) item.BatteryLevel = null;
         Raise(nameof(CanSendDraft));
         Raise(nameof(CanSendFiles));
+        Raise(nameof(CanSendLink));
     }
 
     private Dictionary<string, bool>? LocalPolicy(string id)
@@ -340,6 +469,36 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 break;
             case BridgeyEventKind.FindState when e.DeviceId is not null:
                 if (Find(e.DeviceId) is { } ringing) ringing.IsRinging = e.Status != 0;
+                break;
+            case BridgeyEventKind.Link when e.DeviceId is not null && e.Text is not null:
+                if (e.Status != 0)
+                {
+                    var opened = _links?.Open(e.Text) != false;
+                    AddActivity(new ActivityItem { Direction = ActivityDirection.Received, Title = $"Link from {NameOf(e.DeviceId)}", Preview = e.Text, Status = opened ? "" : "Couldn't open" });
+                }
+                else
+                {
+                    _pendingLink = (e.DeviceId, e.Text);
+                    Raise(nameof(HasPendingLink));
+                    Raise(nameof(PendingLinkText));
+                    AddActivity(new ActivityItem { Direction = ActivityDirection.Received, Title = $"Link from {NameOf(e.DeviceId)}", Preview = e.Text });
+                }
+                break;
+            case BridgeyEventKind.LinkSent:
+                if (_linksOut.Remove(e.Id, out var linkRow))
+                    linkRow.Status = (SendStatus)e.Status switch
+                    {
+                        SendStatus.Delivered => "",
+                        SendStatus.Rejected => "Declined: links are off there",
+                        SendStatus.TimedOut => "No answer",
+                        _ => "Not delivered",
+                    };
+                break;
+            case BridgeyEventKind.MediaCommand when e.DeviceId is not null && e.Text is not null && e.Name is not null:
+                RunMedia(e.DeviceId, e.Text, e.Name, e.Id != 0 ? e.Status : null);
+                break;
+            case BridgeyEventKind.ConnectState when e.Text is not null:
+                ConnectState = e.Text;
                 break;
             case BridgeyEventKind.Features when e.DeviceId is not null:
             {

@@ -79,6 +79,9 @@ pub struct Counters {
     pub direct_out: AtomicU64,
     pub relay_in: AtomicU64,
     pub relay_out: AtomicU64,
+    /// QUIC datagrams the OS refused to send (counted as lost), and the last reason, for diagnostics.
+    pub send_errors: AtomicU64,
+    pub last_send_error: Mutex<String>,
 }
 
 pub struct Mux {
@@ -472,7 +475,12 @@ impl quinn::AsyncUdpSocket for Mux {
         match self.send_path(path, transmit.contents) {
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
             // Unreachable networks and the like: QUIC treats the packet as lost.
-            _ => Ok(()),
+            Err(e) => {
+                self.counters.send_errors.fetch_add(1, Ordering::Relaxed);
+                *self.counters.last_send_error.lock().unwrap() = format!("{dest}: {e}");
+                Ok(())
+            }
+            Ok(()) => Ok(()),
         }
     }
 
@@ -495,7 +503,9 @@ impl quinn::AsyncUdpSocket for Mux {
             };
             let len = next.data.len().min(bufs[filled].len());
             bufs[filled][..len].copy_from_slice(&next.data[..len]);
-            meta[filled] = quinn::udp::RecvMeta { addr: next.src, len, stride: len, ecn: None, dst_ip: None };
+            // quinn keeps an IPv4 peer of a dual-stack endpoint as its mapped IPv6 address (Endpoint::connect_with),
+            // and drops handshake packets from any other form of it: hand IPv4 sources over the same way.
+            meta[filled] = quinn::udp::RecvMeta { addr: self.family(next.src), len, stride: len, ecn: None, dst_ip: None };
             filled += 1;
         }
         Poll::Ready(Ok(filled))
@@ -524,6 +534,25 @@ impl quinn::UdpPoller for Poller {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A QUIC handshake to an IPv4 address of a dual-stack endpoint: quinn tracks the server as ::ffff:a.b.c.d, so the
+    /// mux must hand its replies over in that form (a Windows PC on IPv4 only never brought a tunnel up before).
+    #[tokio::test]
+    async fn quic_completes_over_ipv4_on_a_dual_stack_socket() {
+        let runtime = Arc::new(quinn::TokioRuntime);
+        let server_mux = Mux::bind(0).unwrap();
+        let client_mux = Mux::bind(0).unwrap();
+        let identity = crate::quic::Identity::generate();
+        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity)), server_mux.clone(), runtime.clone()).unwrap();
+        let client = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), None, client_mux.clone(), runtime).unwrap();
+        let accept = tokio::spawn(async move { server.accept().await.unwrap().await.map(|c| c.remote_address()) });
+        let target: SocketAddr = format!("127.0.0.1:{}", server_mux.port()).parse().unwrap();
+        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5));
+        let conn = tokio::time::timeout(Duration::from_secs(5), client.connect_with(config, target, "bridgey").unwrap()).await.expect("handshake in time").expect("handshake");
+        assert_eq!(canonical(conn.remote_address()), target);
+        let seen = tokio::time::timeout(Duration::from_secs(5), accept).await.unwrap().unwrap().unwrap();
+        assert_eq!(canonical(seen).ip(), target.ip());
+    }
 
     /// Through a relay with a permission but no channel yet, a datagram leaves as a Send indication (so a relay
     /// pair works before any ChannelBind); without either it is not sent at all.

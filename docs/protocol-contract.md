@@ -603,7 +603,7 @@ Edition extension (links_open_draft1): Send to device sends links action open. T
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `media.state` | upstream-v1 | mac-to-phone | media | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.state` | upstream-v1 | mac-to-phone | media | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 | `media.list` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `media.page` | edition-draft | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `media.thumbnails` | edition-draft | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
@@ -1351,9 +1351,9 @@ Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNu
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `connect.setup` | edition-draft | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `connect.setup.ack` | edition-draft | either | connect_draft1 | yes | messageId | 64 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
-| `connect.addresses` | edition-draft | either | connect_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, cli |
+| `connect.setup` | edition-draft | either | connect_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `connect.setup.ack` | edition-draft | either | connect_draft1 | yes | messageId | 64 B | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
+| `connect.addresses` | edition-draft | either | connect_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, cli, client |
 | `connect.offer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
 | `connect.answer` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |
 | `connect.candidates` | designed | either | connect_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | not yet |

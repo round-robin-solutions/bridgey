@@ -160,6 +160,34 @@ pub struct TrustedDevice {
     /// This device's own switches for that device (per-device grants). Missing keys use the client's defaults.
     #[serde(default)]
     pub features: HashMap<String, bool>,
+    /// Connect away from home: the pair secret both devices derived with connect.setup (standard base64).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pair_secret: Option<String>,
+    /// The device's own addresses and UDP port from connect.addresses, for direct tunnels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub learned_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub learned: Vec<LearnedAddress>,
+}
+
+/// One of a device's own addresses (connect.addresses): an IP, `lan`, `vpn` or `public6`, and the VPN's name.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LearnedAddress {
+    pub a: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vpn: Option<String>,
+}
+
+/// The Connect anywhere node's key (P-256), separate from the identity: the control service sees only this one.
+pub fn node_key(storage: &dyn Storage) -> Result<SigningKey, String> {
+    if let Some(bytes) = storage.load("node")? {
+        let pkcs8 = crypto::unb64(std::str::from_utf8(&bytes).map_err(|_| "stored node key is unreadable")?).ok_or("stored node key is unreadable")?;
+        return SigningKey::from_pkcs8(&pkcs8).ok_or_else(|| "stored node key is unreadable".to_string());
+    }
+    let pkcs8 = SigningKey::generate_pkcs8();
+    storage.store("node", crypto::b64(&pkcs8).as_bytes())?;
+    SigningKey::from_pkcs8(&pkcs8).ok_or_else(|| "new node key".to_string())
 }
 
 pub const ADDRESSES_PER_DEVICE: usize = 4;
@@ -241,6 +269,12 @@ impl TrustStore {
                 }
             }
             device.addresses.truncate(ADDRESSES_PER_DEVICE);
+            // A pairing again with the same identity keeps Connect away from home; a new identity sets it up again.
+            if old.identity_key == device.identity_key && device.pair_secret.is_none() {
+                device.pair_secret = old.pair_secret.clone();
+                device.learned_port = old.learned_port;
+                device.learned = old.learned.clone();
+            }
         }
         self.devices.retain(|d| !d.device_id.eq_ignore_ascii_case(&device.device_id));
         self.devices.push(device);
@@ -289,6 +323,9 @@ mod tests {
             last_connected_ms: None,
             addresses: vec![],
             features: HashMap::new(),
+            pair_secret: None,
+            learned_port: None,
+            learned: vec![],
         };
         store.put(device("k1"));
         store.get_mut(&id).unwrap().features.insert("clipboard".into(), false);
@@ -314,6 +351,9 @@ mod tests {
             last_connected_ms: None,
             addresses: vec![],
             features: HashMap::new(),
+            pair_secret: None,
+            learned_port: None,
+            learned: vec![],
         };
         for i in 0..6 {
             d.remember(KnownAddress { host: format!("10.0.0.{i}"), port: 42458, source: "outbound".into(), last_seen_ms: i });

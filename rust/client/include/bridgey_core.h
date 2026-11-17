@@ -64,6 +64,11 @@
 
 #define BRIDGEY_ERR_INTERNAL -99
 
+// Requests and results are at most 8 KiB; media state 32 KiB.
+#define MAX_REQUEST 8192
+
+#define MAX_MEDIA_STATE 32768
+
 // The JSON transport's chunk: 24 KiB of file bytes before encryption.
 #define FILE_CHUNK (24 * 1024)
 
@@ -128,7 +133,8 @@ enum BridgeyEventKind
   // id = transfer, device_id, name, status = 1 incoming or 0 outgoing, text = reason (`BridgeyEvent` docs in
   // docs/session-client.md).
   BRIDGEY_EVENT_KIND_FILE_FAILED = 20,
-  // A link to open or dismiss; never opened by the library. device_id, text = the link.
+  // A link to open or dismiss; never opened by the library. device_id, text = the link, status = 1 when the host
+  // opens it now (the device asked for that and Open links right away is on), 0 to offer Open and Dismiss.
   BRIDGEY_EVENT_KIND_LINK = 21,
   // id = request, device_id, status = BridgeySendStatus, text = `opened` when the device opened it at once.
   BRIDGEY_EVENT_KIND_LINK_SENT = 22,
@@ -151,6 +157,13 @@ enum BridgeyEventKind
   // bridgey_codes_advertise_result) or to stop it (status 0, id = 1 when the link was made). device_id,
   // text = the service UUID.
   BRIDGEY_EVENT_KIND_CODES_ADVERTISE = 29,
+  // The phone's media control for this device's player. device_id, text = the request ID (pass it to
+  // bridgey_media_result), name = toggle, pause, next, previous, seek or volume, status = the value (seconds or 0 to
+  // 100), id = 1 when there is a value.
+  BRIDGEY_EVENT_KIND_MEDIA_COMMAND = 30,
+  // Connect away from home. text = off, disabled, connecting, unreachable or online, extra = JSON array of the
+  // paired device IDs the control service says are online.
+  BRIDGEY_EVENT_KIND_CONNECT_STATE = 31,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -479,6 +492,34 @@ int32_t bridgey_codes_advertise_result(uint64_t handle,
 int32_t bridgey_set_presence(uint64_t handle,
                              int32_t state,
                              uint32_t idle_seconds);
+
+// Connect away from home on (1, with the control service's URL, or NULL for learned addresses only) or off (0).
+//
+// # Safety
+// `control_url` is NULL or a NUL-terminated string valid for the call.
+int32_t bridgey_set_connect(uint64_t handle,
+                            uint8_t on,
+                            const char *control_url);
+
+// Open links from other devices right away (1, the default) or keep each for Open and Dismiss (0).
+int32_t bridgey_set_links_open(uint64_t handle, uint8_t on);
+
+// Whether the player did a MediaCommand (`accepted` 1) or could not (0).
+//
+// # Safety
+// The strings are NUL-terminated and valid for the call.
+int32_t bridgey_media_result(uint64_t handle,
+                             const char *device_id,
+                             const char *request_id,
+                             uint8_t accepted);
+
+// This device's player as JSON (player, title, artist, playing, position, duration, volume, controls, detail,
+// artwork), or NULL when nothing plays.
+//
+// # Safety
+// `state` is NULL or a NUL-terminated string valid for the call.
+int32_t bridgey_set_media_state(uint64_t handle,
+                                const char *state);
 
 // Copies `len` bytes into the buffer a storage `load` callback was given.
 //

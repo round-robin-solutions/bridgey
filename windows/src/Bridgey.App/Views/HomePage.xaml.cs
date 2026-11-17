@@ -18,6 +18,7 @@ public sealed partial class HomePage : UserControl
         Motion.ShowHide(RequestBar);
         Motion.ShowHide(NoticeBar);
         Motion.ShowHide(RingingBar);
+        Motion.ShowHide(LinkBar);
         Motion.ShowHide(DropOverlay);
         // Compiled bindings fill the list when the page loads; select the target then.
         Loaded += (_, _) => TargetBox.SelectedItem = Model.Target;
@@ -52,6 +53,12 @@ public sealed partial class HomePage : UserControl
     private void OnNoticeClosed(InfoBar sender, object args) => Model.DismissNotice();
 
     private void OnStopRinging(object sender, RoutedEventArgs e) => Model.StopRinging();
+
+    private void OnOpenLink(object sender, RoutedEventArgs e) => Model.OpenPendingLink();
+
+    private void OnLinkDismissed(InfoBar sender, object args) => Model.DismissPendingLink();
+
+    private void OnSendLink(object sender, RoutedEventArgs e) => Model.SendDraftAsLink();
 
     // Files dropped on the page go to the send bar's device; dropped on a device card, to that device.
 

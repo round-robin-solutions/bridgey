@@ -36,6 +36,15 @@
                     <Button Content="Stop" Style="{StaticResource AccentButtonStyle}" Click="OnStopRinging" AutomationProperties.AutomationId="StopRinging" />
                 </InfoBar.ActionButton>
             </InfoBar>
+            <InfoBar x:Name="LinkBar" IsOpen="{x:Bind Model.HasPendingLink, Mode=OneWay}" Severity="Informational"
+                     Message="{x:Bind Model.PendingLinkText, Mode=OneWay}" CloseButtonClick="OnLinkDismissed" AutomationProperties.AutomationId="LinkBar">
+                <InfoBar.IconSource>
+                    <FontIconSource Glyph="&#xE71B;" />
+                </InfoBar.IconSource>
+                <InfoBar.ActionButton>
+                    <Button Content="Open" Style="{StaticResource AccentButtonStyle}" Click="OnOpenLink" AutomationProperties.AutomationId="OpenLink" />
+                </InfoBar.ActionButton>
+            </InfoBar>
             <InfoBar x:Name="NoticeBar" IsOpen="{x:Bind Model.HasNotice, Mode=OneWay}" Severity="Warning"
                      Message="{x:Bind Model.Notice, Mode=OneWay}" CloseButtonClick="OnNoticeClosed" AutomationProperties.AutomationId="Notice" />
         </StackPanel>
@@ -205,8 +214,9 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBox Text="{x:Bind Model.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Type or paste text to send"
+                <TextBox Text="{x:Bind Model.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" PlaceholderText="Type or paste text or a link to send"
                          BorderThickness="0" Background="Transparent" KeyDown="OnDraftKeyDown" AutomationProperties.AutomationId="Draft" />
                 <ComboBox x:Name="TargetBox" Grid.Column="1" ItemsSource="{x:Bind Model.Devices}" MinWidth="160"
                           SelectionChanged="OnTargetChanged" AutomationProperties.Name="Send to">
@@ -216,7 +226,9 @@
                         </DataTemplate>
                     </ComboBox.ItemTemplate>
                 </ComboBox>
-                <Button Grid.Column="2" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="OnSend"
+                <Button Grid.Column="2" Content="Send link" Click="OnSendLink" Visibility="{x:Bind Model.CanSendLink, Mode=OneWay}"
+                        ToolTipService.ToolTip="The phone keeps it for you to open" AutomationProperties.AutomationId="SendLink" />
+                <Button Grid.Column="3" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="OnSend"
                         IsEnabled="{x:Bind Model.CanSendDraft, Mode=OneWay}" AutomationProperties.AutomationId="SendDraft" />
             </Grid>
         </Border>

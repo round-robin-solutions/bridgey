@@ -11,6 +11,8 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
     private bool _filesReady;
     private bool _findReady;
     private bool _ringing;
+    private bool _linksReady;
+    private bool _away;
     private bool _clipboardAllowed = true;
     private string _status = "Not connected";
     private int? _battery;
@@ -93,6 +95,20 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
 
     public string RingText => _ringing ? "Stop ringing" : "Ring";
 
+    /// <summary>Links on at both ends.</summary>
+    public bool LinksReady
+    {
+        get => _linksReady;
+        set => Set(ref _linksReady, value);
+    }
+
+    /// <summary>Connect away from home is set up with this device (it can reach this PC on other networks).</summary>
+    public bool Away
+    {
+        get => _away;
+        set => Set(ref _away, value);
+    }
+
     /// <summary>The device's battery, when it shares it.</summary>
     public int? BatteryLevel
     {
@@ -149,6 +165,8 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         new(owner, id, "find_device", "Find device"),
         new(owner, id, "ping", "Ping"),
         new(owner, id, "notifications", "Notifications"),
+        new(owner, id, "links", "Links"),
+        new(owner, id, "media", "Media controls"),
     ];
 
     internal void ShowSwitches(Dictionary<string, bool> local)

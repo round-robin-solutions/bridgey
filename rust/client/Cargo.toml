@@ -19,6 +19,7 @@ mdns = ["dep:mdns-sd"]
 [dependencies]
 bridgey-connect-proto = { path = "../proto" }
 bridgey-codes = { path = "../codes" }
+bridgey-connect = { path = "../core" }
 base64.workspace = true
 ring.workspace = true
 serde.workspace = true

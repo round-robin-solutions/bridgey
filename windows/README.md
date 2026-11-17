@@ -5,6 +5,11 @@ battery, clipboard text and files in both directions, and find device both ways.
 Phone notifications show as Windows notifications with the phone's own buttons, a reply box and Dismiss, and on the
 Notifications page. Notifications from other milestones follow ([plan](../docs/session-client.md)).
 
+Links go both ways: a link the phone sends opens at once (or waits on Home with Open), and a link typed or pasted
+into the send box goes to the phone with **Send link**. With Media controls on (off by default), the phone's media
+buttons control whatever plays on this PC through Windows' media controls and show what it is. Connect away from home
+(on by default) lets the phone and Mac reach this PC from other networks.
+
 When the phone routes alerts to the device in use, this PC tells it whether it's in use (whether there was input
 in the last two minutes, or the PC is locked; never keys or apps) and keeps notifications the phone marks quiet without
 showing a banner. Codes from messages (off by default) shows one-time codes with Copy code. Windows finds them with
@@ -77,8 +82,10 @@ The settings that change the app's behaviour are in Settings:
 - Notifications, on: Windows notifications (on), which apps show banners, history (off; 7 days, at most 200,
   encrypted), Codes from messages (off), Also read codes in email (off), Copy codes automatically (off), and Share
   when I'm using this PC (on);
-- Battery, Find device and Ping, all on;
-- for each paired device, its own Clipboard, Files, Battery, Find device, Ping and Notifications switches;
+- Away from home: Connect away from home, on, and its status;
+- Links (on) and Open links right away (on), Media controls (off), Battery, Find device and Ping (on);
+- for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links and Media controls
+  switches;
 - start at sign-in, on by default;
 - keep running in the notification area, on by default;
 - appearance;
@@ -89,7 +96,7 @@ A second copy of `Bridgey.exe` doesn't start another app. It brings the running 
 
 Test hooks: `BRIDGEY_DATA_DIR` runs a separate profile. That profile has its own pairing data, never touches the
 sign-in items or the Send to menu, and runs as its own single instance. `BRIDGEY_PORT` and `BRIDGEY_DISCOVERY=0`
-change the port and turn off discovery. `BRIDGEY_RECEIVE_DIR` and `BRIDGEY_SENDTO_DIR` move the default receive
+change the port and turn off discovery. `BRIDGEY_NO_BROWSER=1` logs links instead of opening them. `BRIDGEY_RECEIVE_DIR` and `BRIDGEY_SENDTO_DIR` move the default receive
 folder and the Send to shortcut. `"fastTransfers": false` in settings.json sends JSON chunks instead of binary frames.
 
 ## Not yet
@@ -97,7 +104,6 @@ folder and the Send to shortcut. `"fastTransfers": false` in settings.json sends
 - Signing: Azure Trusted Signing or another certificate is a later decision.
 - MSIX and winget.
 - Self-update on the Stable, Beta and Nightly feeds (M2).
-- Links, media, and Connect away from home (M2).
 - Replying to text messages from the Messages window (M3); a notification's own Reply works now.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.

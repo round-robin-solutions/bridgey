@@ -16,6 +16,7 @@ pub mod fast;
 pub mod features;
 pub mod ffi;
 pub mod notifications;
+pub mod quick;
 pub mod session;
 pub mod transfer;
 pub mod trust;

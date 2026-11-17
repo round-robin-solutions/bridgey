@@ -79,7 +79,7 @@ public partial class App : Application, ITrayHost
             return;
         }
         Model = new MainViewModel(client, settingsModel, new UiDispatcher(queue), _clipboard, new Alerts(_notifications, () => Model.Settings.Values), new ExplorerFiles(),
-            new PhoneNotifier(_notifications), new ProtectedHistory(Paths.DataFolder), new CompanionAdvertiser());
+            new PhoneNotifier(_notifications), new ProtectedHistory(Paths.DataFolder), new CompanionAdvertiser(), new BrowserLinks(), new SystemMedia());
         if (client is BridgeyClient native && !settings.FastTransfers) native.SetFastTransfers(false);
         Model.FilesRequested += device => _ = PickAndSend(device);
         Model.ChooseDeviceForFiles += (paths, devices) => _ = ChooseAndSend(paths, devices);
