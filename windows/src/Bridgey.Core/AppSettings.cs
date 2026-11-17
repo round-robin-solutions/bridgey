@@ -44,6 +44,22 @@ public sealed class AppSettings
     public bool FindDevice { get; set; } = true;
     /// <summary>One short sound from a paired device.</summary>
     public bool Ping { get; set; } = true;
+    /// <summary>Phone notifications on this PC.</summary>
+    public bool Notifications { get; set; } = true;
+    /// <summary>Windows notifications for phone notifications (off: they only appear in Bridgey).</summary>
+    public bool NotificationBanners { get; set; } = true;
+    /// <summary>Apps whose notifications show no banner here (Android package names).</summary>
+    public List<string> MutedApps { get; set; } = new();
+    /// <summary>Keep phone notifications for seven days (at most 200), encrypted for this Windows user.</summary>
+    public bool NotificationHistory { get; set; }
+    /// <summary>Show one-time codes from text messages with Copy code. Found on this PC; nothing leaves it.</summary>
+    public bool CodesFromMessages { get; set; }
+    /// <summary>Also look for codes in Gmail, Outlook, Proton Mail and Spark notifications.</summary>
+    public bool CodesFromEmail { get; set; }
+    /// <summary>Put a found code on the clipboard straight away.</summary>
+    public bool CopyCodes { get; set; }
+    /// <summary>Tell the phone when this PC is in use, so its alerts come here (activity only: never keys or apps).</summary>
+    public bool ShareActivity { get; set; } = true;
     /// <summary>Binary frames with devices that have them. Off only for a test (settings.json).</summary>
     public bool FastTransfers { get; set; } = true;
     public bool SetupDone { get; set; }

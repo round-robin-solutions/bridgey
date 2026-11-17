@@ -96,6 +96,24 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library)]
     public static partial int bridgey_set_fast_transfers(ulong handle, byte on);
 
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_notification_dismiss(ulong handle, string deviceId, string notificationId);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_notification_action(ulong handle, string deviceId, string notificationId, string token, string? reply);
+
+    [LibraryImport(Library)]
+    public static partial int bridgey_set_codes(ulong handle, byte sms, byte email);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_codes_link_request(ulong handle, string deviceId);
+
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial int bridgey_codes_advertise_result(ulong handle, string deviceId, string serviceUuid, byte ok, string? reason);
+
+    [LibraryImport(Library)]
+    public static partial int bridgey_set_presence(ulong handle, int state, uint idleSeconds);
+
     [LibraryImport(Library)]
     public static partial int bridgey_buffer_set(nint buffer, byte* data, nuint length);
 }

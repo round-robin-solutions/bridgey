@@ -131,6 +131,8 @@ pub enum Event {
     Find { device_id: String, ring: bool },
     /// The other device says it is ringing (`find.started`) or not (`find.stopped`).
     FindAck { device_id: String, ringing: bool },
+    /// An encrypted message the client decodes itself (notifications, codes), already opened.
+    Payload { device_id: String, kind: &'static str, plain: Vec<u8> },
     Closed { session: u64, device_id: Option<String>, reason: String, authenticated: bool, paired: bool, answered: bool },
 }
 
@@ -1174,6 +1176,36 @@ impl Session {
                 let reply = if ring { "find.started" } else { "find.stopped" };
                 self.encrypted(reply, find_payload().as_bytes(), crypto::uuid4()).await
             }
+            "notifications.post" | "notifications.remove" => {
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                // Upstream v1: a payload that does not open closes the session.
+                let Some(plain) = self.open(&m) else { return Step::Close("bad_notification".into()) };
+                if !self.host.policy(&device_id).get("notifications") {
+                    return Step::Continue;
+                }
+                let kind = if m.kind == "notifications.post" { "notifications.post" } else { "notifications.remove" };
+                self.host.event(Event::Payload { device_id, kind, plain });
+                Step::Continue
+            }
+            "codes.status" | "codes.advertise" | "codes.advertise_stop" => {
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                // Drafts: a payload that does not open is dropped and the session stays.
+                let Some(plain) = self.open(&m).filter(|p| p.len() <= 1_024) else { return Step::Continue };
+                if !self.host.policy(&device_id).get(crate::notifications::SMS_CODES) {
+                    return Step::Continue;
+                }
+                let kind = match m.kind.as_str() {
+                    "codes.status" => "codes.status",
+                    "codes.advertise" => "codes.advertise",
+                    _ => "codes.advertise_stop",
+                };
+                self.host.event(Event::Payload { device_id, kind, plain });
+                Step::Continue
+            }
             "find.started" | "find.stopped" => {
                 if m.message_id.is_none() {
                     return Step::Continue;
@@ -1810,11 +1842,13 @@ mod tests {
         assert_eq!(sanitized_name(Some(&"x".repeat(100))).chars().count(), 64);
     }
 
-    /// Every kind this client sends or handles is listed for `client` in protocol/messages.json, and nothing else.
+    /// Every kind this client sends or handles (session.rs and client.rs) is listed for `client` in
+    /// protocol/messages.json, and nothing else.
     #[test]
     fn contract_lists_the_kinds_this_client_uses() {
-        let source = include_str!("session.rs");
-        let code = &source[..source.find("#[cfg(test)]\nmod tests").unwrap()];
+        let session = include_str!("session.rs");
+        let client = include_str!("client.rs");
+        let code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
         let is_kind = |s: &str| {
             let mut parts = s.split('.');
             let first = parts.next().unwrap_or("");

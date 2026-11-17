@@ -21,7 +21,9 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Fast transfers (`files_fast_draft1`): binary frames of 256 KiB, their replay guard and the delay-based window | `FastTransfer.kt` | `FastTransfer.swift` | none | yes (`fast.rs`), from Windows M2, checked against `files-fast-v1.json` |
 | Battery (`battery.update`) and find device (`find.*`) | yes | yes | CLI | yes, from Windows M2 |
 | Links (`quick.request` / `quick.result`, feature `links`, `open` to a Mac with `links_open_draft1`) | yes | yes | none | yes, from iOS I1; a received link is an event, never opened by the library |
-| Everything else (notifications, media, calls, SMS, folders, screen, Connect anywhere tunnels, settings sync, updates) | yes | yes | Connect anywhere core, codes | not yet: each moves when a new platform needs it (Windows M2 and M3, iOS I2) |
+| Phone notifications (`notifications.post`, `remove`, `dismiss`, `action` with reply), quiet presentation (`notification_routing_draft1`) and presence (`device_presence_draft1`) | yes (phone side) | yes | none | yes, the desktop side: checked and bounded posts, quiet honoured, presence every ten seconds and on change |
+| Codes from messages and email (`codes.*`, the code in a notification) | phone side | model or relay | `rust/codes` (candidate, gate, guard, model) | yes, with a rules reader instead of the model (`codes.rs`); the shared candidate rules and guard decide |
+| Everything else (media, calls, SMS, folders, screen, Connect anywhere tunnels, settings sync, updates) | yes | yes | Connect anywhere core | not yet: each moves when a new platform needs it (Windows M2 and M3, iOS I2) |
 
 ## How it works
 
@@ -78,7 +80,14 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 - `protocol/test-vectors/session-client-v1.json` is a real session between two clients, recorded on the wire.
   `SessionClientVectorTest.kt` (Android) and `SessionClientVectorTests.swift` (Mac) check every frame with the
   apps' own decoder, commitment, code, proof, signature, envelope tag, AES-GCM and feature code.
-- `protocol/messages.json` lists `client` for the 30 kinds it speaks; a test fails if the sources and the list
+- `protocol/test-vectors/session-client-notifications-v1.json` is a recorded session where one client sends what a
+  phone sends (notifications, codes messages) and the Windows side answers (an action with a reply, dismiss, link
+  request, advertising result, presence). `SessionClientNotificationsVectorTest.kt` reads every Windows message with
+  the phone's own checks (64-character action tokens, presence decoding, codes payloads);
+  `SessionClientNotificationsVectorTests.swift` decodes the posts' presentation as the Mac does.
+- The codes rules reader shows the right code for every sample in `otp-samples.json` that has one (30 of 30) and
+  nothing for the 12 without.
+- `protocol/messages.json` lists `client` for the 40 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The

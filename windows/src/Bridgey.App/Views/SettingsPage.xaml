@@ -142,6 +142,141 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Notifications -->
+                <StackPanel x:Name="NotificationsSection" Spacing="8" Tag="notifications">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Notifications" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Show your phone's notifications on this PC. Each device can be turned off in Devices." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Notifications, Mode=TwoWay}" AutomationProperties.Name="Notifications" AutomationProperties.AutomationId="NotificationsOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Show as Windows notifications" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="With the phone's own buttons, a reply box and Dismiss." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.NotificationBanners, Mode=TwoWay}" AutomationProperties.Name="Show as Windows notifications" AutomationProperties.AutomationId="NotificationBanners" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}" Visibility="{x:Bind Notifications.HasApps, Mode=OneWay}">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Show notifications from" Style="{StaticResource BrandBody}" />
+                            <ItemsRepeater ItemsSource="{x:Bind Notifications.Apps}" AutomationProperties.AutomationId="NotificationApps">
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AppFilterItem">
+                                        <Grid ColumnSpacing="16" Padding="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" Style="{StaticResource BrandSecondary}" VerticalAlignment="Center" />
+                                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind IsShown, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0"
+                                                          AutomationProperties.Name="{x:Bind Name, Mode=OneWay}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Keep notification history" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="The last 7 days, at most 200, encrypted on this PC. Codes are never kept." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.NotificationHistory, Mode=TwoWay}" AutomationProperties.Name="Keep notification history" AutomationProperties.AutomationId="NotificationHistory" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Codes from messages" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Shows one-time codes from text messages with Copy code. They're found on this PC and never sent anywhere." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.CodesFromMessages, Mode=TwoWay}" AutomationProperties.Name="Codes from messages" AutomationProperties.AutomationId="CodesFromMessages" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Also read codes in email" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Gmail, Outlook, Proton Mail and Spark." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.CodesFromEmail, Mode=TwoWay}" AutomationProperties.Name="Also read codes in email" AutomationProperties.AutomationId="CodesFromEmail" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Copy codes automatically" Style="{StaticResource BrandBody}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.CopyCodes, Mode=TwoWay}" AutomationProperties.Name="Copy codes automatically" AutomationProperties.AutomationId="CopyCodes" />
+                        </Grid>
+                    </Border>
+                    <ItemsRepeater ItemsSource="{x:Bind Notifications.CodesDevices}">
+                        <ItemsRepeater.Layout>
+                            <StackLayout Spacing="8" />
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="vm:CodesDevice">
+                                <Border Style="{StaticResource BrandCard}" Padding="16,12">
+                                    <Grid ColumnSpacing="16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Text, Mode=OneWay}" Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                                   AutomationProperties.AutomationId="CodesStatus" />
+                                        <Button Grid.Column="1" Content="Link" Click="{x:Bind Link}" Visibility="{x:Bind NeedsLink, Mode=OneWay}" VerticalAlignment="Center"
+                                                AutomationProperties.AutomationId="LinkPhone" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Share when I'm using this PC" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Your phone sends its alerts to the device you're using. Only whether there was recent input is shared." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.ShareActivity, Mode=TwoWay}" AutomationProperties.Name="Share when I'm using this PC" AutomationProperties.AutomationId="ShareActivity" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
                 <!-- Files -->
                 <StackPanel x:Name="FilesSection" Spacing="8" Tag="files">
                     <Border Style="{StaticResource Row}">

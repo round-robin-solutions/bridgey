@@ -139,6 +139,18 @@ enum BridgeyEventKind
   BRIDGEY_EVENT_KIND_FIND_REQUESTED = 24,
   // The device says it is ringing (status 1) or has stopped (0), after bridgey_find. device_id.
   BRIDGEY_EVENT_KIND_FIND_STATE = 25,
+  // A phone notification. device_id, status = 1 quiet (history only: no banner, no sound) or 0, text = JSON:
+  // packageName, applicationName, notificationId, title, text, timestamp, icon (base64 PNG), callType, actions
+  // ([{token, title, allowsReply}]), quiet, redacted, code ({code, service, channel} when one was found).
+  BRIDGEY_EVENT_KIND_NOTIFICATION = 26,
+  // The phone's notification went away. device_id, text = notificationId, status = 1 when a call ended.
+  BRIDGEY_EVENT_KIND_NOTIFICATION_REMOVED = 27,
+  // Whether the phone shows Bridgey the text of code messages. device_id, text = allowed, hidden or not_linked.
+  BRIDGEY_EVENT_KIND_CODES_STATUS = 28,
+  // The phone asks for a Bluetooth LE advertisement of a service for 60 s (status 1; answer with
+  // bridgey_codes_advertise_result) or to stop it (status 0, id = 1 when the link was made). device_id,
+  // text = the service UUID.
+  BRIDGEY_EVENT_KIND_CODES_ADVERTISE = 29,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -421,6 +433,52 @@ int32_t bridgey_find_stopped(uint64_t handle, const char *device_id);
 // Binary file frames (files_fast_draft1) with devices that show them: on by default; 0 sends JSON chunks.
 int32_t bridgey_set_fast_transfers(uint64_t handle,
                                    uint8_t on);
+
+// Dismisses a phone notification on the phone.
+//
+// # Safety
+// The strings are NUL-terminated and valid for the call.
+int32_t bridgey_notification_dismiss(uint64_t handle,
+                                     const char *device_id,
+                                     const char *notification_id);
+
+// Runs a phone notification's action; `reply` (NULL for none) is the text for an action that allows a reply.
+//
+// # Safety
+// The strings are NULL (reply only) or NUL-terminated and valid for the call.
+int32_t bridgey_notification_action(uint64_t handle,
+                                    const char *device_id,
+                                    const char *notification_id,
+                                    const char *token,
+                                    const char *reply);
+
+// Codes from messages (`sms` 1) and Also read codes in email (`email` 1) on this device; both off by default.
+int32_t bridgey_set_codes(uint64_t handle,
+                          uint8_t sms,
+                          uint8_t email);
+
+// Asks the phone to show its prompt for linking this device (codes from messages).
+//
+// # Safety
+// `device_id` is a NUL-terminated string valid for the call.
+int32_t bridgey_codes_link_request(uint64_t handle, const char *device_id);
+
+// The answer to a `CodesAdvertise` start: `ok` 1, or 0 with `reason` (bluetooth_off, unauthorized, unsupported,
+// failed).
+//
+// # Safety
+// The strings are NULL (reason only) or NUL-terminated and valid for the call.
+int32_t bridgey_codes_advertise_result(uint64_t handle,
+                                       const char *device_id,
+                                       const char *service_uuid,
+                                       uint8_t ok,
+                                       const char *reason);
+
+// This device's activity, sampled by the host every two seconds: `state` 0 with `idle_seconds` since the last
+// input, 1 locked, 2 unknown.
+int32_t bridgey_set_presence(uint64_t handle,
+                             int32_t state,
+                             uint32_t idle_seconds);
 
 // Copies `len` bytes into the buffer a storage `load` callback was given.
 //

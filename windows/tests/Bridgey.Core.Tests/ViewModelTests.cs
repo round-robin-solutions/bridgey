@@ -47,6 +47,12 @@ internal sealed class FakeClient : IBridgeyClient
     public void SetBattery(int? level, bool charging) => Calls.Add($"battery {level} {charging}");
     public void Find(string deviceId, bool ring) => Calls.Add($"find {deviceId} {ring}");
     public void FindStopped(string deviceId) => Calls.Add($"find-stopped {deviceId}");
+    public void DismissNotification(string deviceId, string notificationId) => Calls.Add($"dismiss {deviceId} {notificationId}");
+    public void NotificationAction(string deviceId, string notificationId, string token, string? reply) => Calls.Add($"action {notificationId} {token} {reply}");
+    public void SetCodes(bool sms, bool email) => Calls.Add($"codes {sms} {email}");
+    public void CodesLinkRequest(string deviceId) => Calls.Add($"link {deviceId}");
+    public void CodesAdvertiseResult(string deviceId, string serviceUuid, bool ok, string? reason) => Calls.Add($"advertised {serviceUuid} {ok} {reason}");
+    public void SetPresence(PresenceState state, uint idleSeconds) => Calls.Add($"presence {state} {idleSeconds}");
     public void Dispose() { }
 }
 

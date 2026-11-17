@@ -148,6 +148,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         new(owner, id, "battery", "Battery"),
         new(owner, id, "find_device", "Find device"),
         new(owner, id, "ping", "Ping"),
+        new(owner, id, "notifications", "Notifications"),
     ];
 
     internal void ShowSwitches(Dictionary<string, bool> local)

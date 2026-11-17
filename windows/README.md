@@ -2,7 +2,13 @@
 
 The Windows app: pairing with the Android and Mac apps (protocol 2), a home screen with each device's status and
 battery, clipboard text and files in both directions, and find device both ways. It runs from the notification area.
-Notifications and the other features follow in later milestones ([plan](../docs/session-client.md)).
+Phone notifications show as Windows notifications with the phone's own buttons, a reply box and Dismiss, and on the
+Notifications page. Notifications from other milestones follow ([plan](../docs/session-client.md)).
+
+When the phone routes alerts to the device in use, this PC tells it whether it's in use (whether there was input
+in the last two minutes, or the PC is locked; never keys or apps) and keeps notifications the phone marks quiet without
+showing a banner. Codes from messages (off by default) shows one-time codes with Copy code. Windows finds them with
+rules on this PC, where the Mac asks its model; nothing is sent anywhere.
 
 Files go from the device card's **Send files**, by dragging them onto the window or a device card, from the
 notification area menu, or from Explorer: right-click, **Send to**, **Bridgey**. Received files go to
@@ -68,8 +74,11 @@ The settings that change the app's behaviour are in Settings:
 - Clipboard, on for paired devices;
 - Automatic clipboard, off by default;
 - Files, on, the folder received files go to, a notification when one arrives (on) and Bridgey in Send to (on);
+- Notifications, on: Windows notifications (on), which apps show banners, history (off; 7 days, at most 200,
+  encrypted), Codes from messages (off), Also read codes in email (off), Copy codes automatically (off), and Share
+  when I'm using this PC (on);
 - Battery, Find device and Ping, all on;
-- for each paired device, its own Clipboard, Files, Battery, Find device and Ping switches;
+- for each paired device, its own Clipboard, Files, Battery, Find device, Ping and Notifications switches;
 - start at sign-in, on by default;
 - keep running in the notification area, on by default;
 - appearance;
@@ -88,7 +97,8 @@ folder and the Send to shortcut. `"fastTransfers": false` in settings.json sends
 - Signing: Azure Trusted Signing or another certificate is a later decision.
 - MSIX and winget.
 - Self-update on the Stable, Beta and Nightly feeds (M2).
-- Notifications as toasts, links, media, codes, and Connect away from home (M2).
+- Links, media, and Connect away from home (M2).
+- Replying to text messages from the Messages window (M3); a notification's own Reply works now.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.
 - Messages, calls, phone files, and screen view and control (M3).

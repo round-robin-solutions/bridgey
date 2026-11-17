@@ -204,6 +204,8 @@ struct State {
     battery: HashMap<String, (u8, bool)>,
     /// Connected devices that said they are ringing.
     ringing: HashSet<String>,
+    /// presence.state per device: the session it went on, the last sequence, when and what was sent.
+    presence: HashMap<String, (u64, u64, Instant, crate::notifications::Presence)>,
 }
 
 /// A file to hash before it is offered.
@@ -232,6 +234,10 @@ pub(crate) struct Inner {
     events: EventQueue,
     ids: AtomicU64,
     stopped: AtomicBool,
+    /// Codes from messages, and Also read codes in email (both off by default).
+    codes: Mutex<(bool, bool)>,
+    /// This device's activity, for presence.state.
+    activity: Mutex<crate::notifications::Presence>,
     rt: tokio::runtime::Handle,
     me: Weak<Inner>,
     #[cfg(feature = "mdns")]
@@ -271,6 +277,8 @@ impl Client {
             events: EventQueue::new(config.event_capacity),
             ids: AtomicU64::new(1),
             stopped: AtomicBool::new(false),
+            codes: Mutex::new((false, false)),
+            activity: Mutex::new(crate::notifications::Presence::Unknown),
             rt: runtime.handle().clone(),
             me: me.clone(),
             #[cfg(feature = "mdns")]
@@ -295,6 +303,20 @@ impl Client {
         let trusted: Vec<String> = inner.trust.lock().unwrap().all().iter().map(|d| d.device_id.clone()).collect();
         for id in trusted {
             inner.ensure_loop(&id);
+        }
+        {
+            let me = Arc::downgrade(&inner);
+            runtime.spawn(async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    let Some(inner) = me.upgrade() else { return };
+                    // The presence keepalive, even when the host stops sampling.
+                    let connected: Vec<String> = inner.state.lock().unwrap().connected.keys().cloned().collect();
+                    for id in connected {
+                        inner.send_presence(&id, false);
+                    }
+                }
+            });
         }
         Ok(Client { inner, runtime: Mutex::new(Some(runtime)) })
     }
@@ -701,6 +723,62 @@ impl Client {
         for id in connected {
             self.inner.send_policy(&id);
         }
+    }
+
+    /// Dismisses a phone notification on the phone (`notifications.dismiss`).
+    pub fn dismiss_notification(&self, device_id: &str, notification_id: &str) -> Result<(), ClientError> {
+        self.inner.encrypted_to(device_id, "notifications", "notifications.dismiss", crate::notifications::dismiss_payload(notification_id))
+    }
+
+    /// Runs one of a phone notification's actions, with a reply where the action takes one (`notifications.action`).
+    pub fn notification_action(&self, device_id: &str, notification_id: &str, token: &str, reply: Option<&str>) -> Result<(), ClientError> {
+        if token.is_empty() || token.chars().count() > 64 || notification_id.is_empty() {
+            return Err(ClientError::InvalidArgument("action"));
+        }
+        self.inner.encrypted_to(device_id, "notifications", "notifications.action", crate::notifications::action_payload(notification_id, token, reply))
+    }
+
+    /// Codes from messages and Also read codes in email, on this device.
+    pub fn set_codes(&self, sms: bool, email: bool) {
+        *self.inner.codes.lock().unwrap() = (sms, email);
+    }
+
+    /// Asks the phone to show its "link this phone" prompt (`codes.link_request`).
+    pub fn codes_link_request(&self, device_id: &str) -> Result<(), ClientError> {
+        self.inner.encrypted_to(device_id, crate::notifications::SMS_CODES, "codes.link_request", serde_json::json!({"version": 1}).to_string())
+    }
+
+    /// Whether the Bluetooth LE advertisement the phone asked for started (`codes.advertise_result`).
+    pub fn codes_advertise_result(&self, device_id: &str, service_uuid: &str, ok: bool, reason: Option<&str>) -> Result<(), ClientError> {
+        if !crate::crypto::is_uuid(service_uuid) {
+            return Err(ClientError::InvalidArgument("service UUID"));
+        }
+        self.inner.encrypted_to(device_id, crate::notifications::SMS_CODES, "codes.advertise_result", crate::notifications::advertise_result_payload(service_uuid, ok, reason))
+    }
+
+    /// This device's activity (the host samples it every two seconds). Phones that show device presence get it when
+    /// it changes and every ten seconds, so they can send alerts to the device in use.
+    pub fn set_presence(&self, presence: crate::notifications::Presence) {
+        *self.inner.activity.lock().unwrap() = presence;
+        let connected: Vec<String> = self.inner.state.lock().unwrap().connected.keys().cloned().collect();
+        for id in connected {
+            self.inner.send_presence(&id, false);
+        }
+    }
+
+    /// Tests and the scripted peer only (not in the C ABI): sends what a phone sends, so a desktop client can be
+    /// tested against it. `payload` is the JSON plaintext.
+    #[doc(hidden)]
+    pub fn send_as_phone_for_tests(&self, device_id: &str, kind: &str, payload: &str) -> Result<(), ClientError> {
+        let (kind, feature): (&'static str, &str) = match kind {
+            "notifications.post" => ("notifications.post", "notifications"),
+            "notifications.remove" => ("notifications.remove", "notifications"),
+            "codes.status" => ("codes.status", crate::notifications::SMS_CODES),
+            "codes.advertise" => ("codes.advertise", crate::notifications::SMS_CODES),
+            "codes.advertise_stop" => ("codes.advertise_stop", crate::notifications::SMS_CODES),
+            _ => return Err(ClientError::InvalidArgument("kind")),
+        };
+        self.inner.encrypted_to(device_id, feature, kind, payload.to_string())
     }
 
     /// Tests and recorded vectors only: chunks of this many bytes (0: the protocol's 24 KiB or 256 KiB).
@@ -1406,12 +1484,14 @@ impl session::Host for Inner {
                 if battery {
                     self.send_battery(&device_id);
                 }
+                self.send_presence(&device_id, true);
             }
             session::Event::Battery { device_id, level, charging } => {
                 self.state.lock().unwrap().battery.insert(device_id.clone(), (level, charging));
                 self.emit(Event::Battery { device_id, level, charging });
             }
             session::Event::Find { device_id, ring } => self.emit(Event::FindRequested { device_id, ring }),
+            session::Event::Payload { device_id, kind, plain } => self.payload(device_id, kind, &plain),
             session::Event::FindAck { device_id, ringing } => {
                 {
                     let mut st = self.state.lock().unwrap();
@@ -1486,6 +1566,7 @@ impl Inner {
                 st.remote.remove(&id);
                 st.battery.remove(&id);
                 st.ringing.remove(&id);
+                st.presence.remove(&id);
                 disconnected = Some(id);
             }
         }
@@ -1530,6 +1611,92 @@ impl Inner {
             if let Some(n) = loop_notify {
                 n.notify_one();
             }
+        }
+    }
+}
+
+/// Notifications, codes and presence (docs/session-client.md).
+impl Inner {
+    fn encrypted_to(&self, device_id: &str, feature: &str, kind: &'static str, plaintext: String) -> Result<(), ClientError> {
+        self.check()?;
+        let (handle, _) = self.feature_session(device_id, feature)?;
+        if handle.send_encrypted(kind, plaintext.into_bytes(), crate::crypto::uuid4()) {
+            Ok(())
+        } else {
+            Err(ClientError::NotConnected)
+        }
+    }
+
+    /// presence.state to one device that shows device presence at both ends: when the state changed, every ten
+    /// seconds as a keepalive (the phone forgets a sample after 20), or at once (`force`, after its features arrive).
+    fn send_presence(&self, device_id: &str, force: bool) {
+        use crate::notifications::{presence_payload, Presence, PRESENCE};
+        let Ok((handle, _)) = self.feature_session(device_id, PRESENCE) else { return };
+        let presence = *self.activity.lock().unwrap();
+        let payload = {
+            let mut st = self.state.lock().unwrap();
+            let Some(&session) = st.connected.get(device_id) else { return };
+            let entry = st.presence.entry(device_id.to_string()).or_insert((session, 0, Instant::now() - Duration::from_secs(60), Presence::Unknown));
+            if entry.0 != session {
+                *entry = (session, 0, Instant::now() - Duration::from_secs(60), Presence::Unknown);
+            }
+            // Active idle seconds change every sample; the class (active, idle, locked) is what counts as a change.
+            let class = |p: Presence| match p {
+                Presence::Input { idle } if idle < 120 => 0,
+                Presence::Input { .. } => 1,
+                Presence::Locked => 2,
+                Presence::Unknown => 3,
+            };
+            let due = force || entry.1 == 0 || class(entry.3) != class(presence) || entry.2.elapsed() >= Duration::from_secs(10);
+            if !due {
+                return;
+            }
+            entry.1 += 1;
+            entry.2 = Instant::now();
+            entry.3 = presence;
+            presence_payload(entry.1, presence)
+        };
+        handle.send_encrypted("presence.state", payload.into_bytes(), crate::crypto::uuid4());
+    }
+
+    /// A notification or codes message the session opened.
+    fn payload(&self, device_id: String, kind: &str, plain: &[u8]) {
+        use crate::notifications as n;
+        match kind {
+            "notifications.post" => {
+                let routing = self.policy_for(&device_id).get(n::ROUTING) && self.state.lock().unwrap().remote.get(&device_id).is_some_and(|r| r.get(n::ROUTING));
+                let Some(mut notification) = n::decode_post(plain, routing) else { return };
+                let (sms, email) = *self.codes.lock().unwrap();
+                if sms {
+                    let fields = bridgey_codes::NotificationFields {
+                        package_name: notification.package_name.clone(),
+                        sms_default_app: notification.sms_default_app,
+                        redacted: notification.redacted,
+                        text: notification.text.clone(),
+                        email_app: notification.email_app,
+                        preview: notification.preview.clone(),
+                        email_codes: email,
+                    };
+                    notification.code = crate::codes::find(&fields, &notification.title, &notification.application_name);
+                }
+                self.emit(Event::Notification { device_id, notification: Box::new(notification) });
+            }
+            "notifications.remove" => {
+                if let Some((notification_id, call_ended)) = n::decode_remove(plain) {
+                    self.emit(Event::NotificationRemoved { device_id, notification_id, call_ended });
+                }
+            }
+            "codes.status" => {
+                if let Some(status) = n::decode_codes_status(plain) {
+                    self.emit(Event::CodesStatus { device_id, status });
+                }
+            }
+            "codes.advertise" | "codes.advertise_stop" => {
+                if let Some((service_uuid, linked)) = n::decode_advertise(plain) {
+                    self.emit(Event::CodesAdvertise { device_id, service_uuid, start: kind == "codes.advertise", linked: linked.unwrap_or(false) });
+                }
+            }
+            _ => {}
         }
     }
 }

@@ -91,6 +91,7 @@ public sealed partial class AppTests : IDisposable
                 {
                     PairWithPeer(window);
                     FilesBatteryAndFind(window);
+                    PhoneNotifications(window);
                 }
                 else
                 {
@@ -112,7 +113,16 @@ public sealed partial class AppTests : IDisposable
                 Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
                 Shot(window, $"home-paired-{t}");
 
+                if (theme == "Dark")
+                {
+                    PeerCommand($"notify {NotificationJson("dark-1", "Asha", "Lunch at one?", reply: true)}");
+                    Click(window, "NavNotifications");
+                    Find(window, "ReplyBox");
+                    Shot(window, "notifications-dark");
+                }
                 Click(window, "NavSettings");
+                SelectSection(window, "Notifications");
+                Shot(window, $"settings-notifications-{t}");
                 SelectSection(window, "Files");
                 Assert.Equal(_inbox, Find(window, "ReceiveFolder").Name);
                 Shot(window, $"settings-files-{t}");
@@ -225,6 +235,60 @@ public sealed partial class AppTests : IDisposable
         Shot(window, "home-ringing-light");
         Click(window, "StopRinging");
         PeerEvent("ringing", e => !e.GetProperty("ringing").GetBoolean());
+    }
+
+    private static string NotificationJson(string id, string title, string text, bool reply = false, string package = "com.whatsapp", string app = "WhatsApp", bool sms = false)
+    {
+        var actions = reply
+            ? new object[]
+            {
+                new Dictionary<string, object> { ["actionToken"] = new string('a', 64), ["title"] = "Reply", ["allowsReply"] = true },
+                new Dictionary<string, object> { ["actionToken"] = new string('b', 64), ["title"] = "Mark as read", ["allowsReply"] = false },
+            }
+            : Array.Empty<object>();
+        return JsonSerializer.Serialize(new Dictionary<string, object>
+        {
+            ["packageName"] = package, ["applicationName"] = app, ["notificationId"] = id, ["title"] = title, ["text"] = text,
+            ["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ["actions"] = actions, ["smsDefaultApp"] = sms, ["redacted"] = false,
+        });
+    }
+
+    /// <summary>
+    /// Phone notifications from the peer: a message with Reply and Mark as read, an SMS code (after Codes from messages
+    /// is turned on) with Copy code, a reply, Dismiss, the phone removing one, and the link prompt for hidden codes.
+    /// </summary>
+    private void PhoneNotifications(Window window)
+    {
+        Click(window, "NavSettings");
+        SelectSection(window, "Notifications");
+        var codes = Find(window, "CodesFromMessages");
+        if (codes.Patterns.Toggle.IsSupported) codes.Patterns.Toggle.Pattern.Toggle();
+        PeerCommand("codes-status hidden");
+        WaitFor(() => Find(window, "CodesStatus").Name.Contains("hides code messages") ? "ok" : null, "the codes status");
+        Shot(window, "settings-notifications-codes-light");
+        Click(window, "LinkPhone");
+
+        PeerCommand($"notify {NotificationJson("wa-1", "Ravi", "On my way, ten minutes", reply: true)}");
+        PeerCommand($"notify {NotificationJson("sms-1", "VM-HDFCBK", "OTP is 482913 for txn of INR 2,499.00 at AMAZON PAY. Do not share OTP.", package: "com.google.android.apps.messaging", app: "Messages", sms: true)}");
+        Click(window, "NavNotifications");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("NotificationCode"))?.Name == "482913" ? "ok" : null, "the code on the Notifications page");
+        Find(window, "ReplyBox");
+        Shot(window, "notifications-light");
+        NotificationCenter("notification-phone-light");
+
+        Click(window, "CopyCode");
+        WaitFor(() => ClipboardText() == "482913" ? "ok" : null, "the code on the clipboard");
+
+        var reply = Find(window, "ReplyBox").AsTextBox();
+        reply.Text = "Thanks";
+        Click(window, "SendReply");
+        WaitFor(() => Find(window, "ReplyBox").AsTextBox().Text == "" ? "ok" : null, "the reply sent and the box cleared");
+
+        // The phone removes the SMS; the WhatsApp message is dismissed here.
+        PeerCommand("unnotify sms-1");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("NotificationCode")) is null ? "ok" : null, "the SMS gone");
+        Click(window, "DismissNotification");
+        Find(window, "NoNotifications");
     }
 
     private void PeerCommand(string line)
