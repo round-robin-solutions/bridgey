@@ -9,3 +9,9 @@ edition_value() {
 }
 
 die() { echo "error: $*" >&2; exit 1; }
+
+# KEY's value in a KEY=value file such as a job's release.env, without a carriage return: files written on Windows
+# may end their lines with CRLF.
+env_value() {
+  tr -d '\r' < "$1" | sed -n "s/^$2=//p" | tail -n 1
+}

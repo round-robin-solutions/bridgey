@@ -99,7 +99,7 @@ if [ -n "$WIN_ARTIFACTS" ]; then
     [ -f "$zip" ] || die "no Windows $arch zip ($PREFIX-windows-$arch.zip or $PREFIX-$VERSION_NAME-windows-$arch.zip) in $WIN_ARTIFACTS"
     set -- "$@" --windows-$arch "$zip"
   done
-  WIN_BUILD=$(sed -n 's/^BUILD_NUMBER=//p' "$WIN_ARTIFACTS/release.env" 2>/dev/null || true)
+  WIN_BUILD=$( [ -f "$WIN_ARTIFACTS/release.env" ] && env_value "$WIN_ARTIFACTS/release.env" BUILD_NUMBER || true)
   [ -z "$WIN_BUILD" ] || set -- "$@" --windows-build "$WIN_BUILD"
   [ ! -f "$WIN_ARTIFACTS/windows.build-info" ] || set -- "$@" --windows-build-info "$WIN_ARTIFACTS/windows.build-info"
   [ ! -f "$WIN_ARTIFACTS/windows-rust-dependencies.txt" ] || set -- "$@" --windows-deps "$WIN_ARTIFACTS/windows-rust-dependencies.txt"

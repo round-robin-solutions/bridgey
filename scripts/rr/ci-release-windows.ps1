@@ -45,6 +45,11 @@ $env:BRIDGEY_VERSION_NAME = $values['VERSION_NAME']
 $env:BRIDGEY_BUILD_NUMBER = $values['BUILD_NUMBER']
 Write-Host "== Windows for $($values['CHANNEL']) $($values['VERSION_NAME']) build $($values['BUILD_NUMBER'])"
 
+# Text files for rr-dev-1 (Linux) to read: LF line ends and UTF-8 without a BOM, whatever Windows writes by default.
+function Write-Lines([string] $Path, [string[]] $Lines) {
+    [IO.File]::WriteAllText($Path, (($Lines -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+}
+
 $build = Join-Path ([IO.Path]::GetTempPath()) "bridgey-windows-release"
 if (Test-Path $build) { Remove-Item -Recurse -Force $build }
 & pwsh -NoProfile -File (Join-Path $Root 'scripts/rr/build-windows.ps1') -SkipUiTests -Output $build
@@ -61,16 +66,15 @@ $sums = foreach ($arch in @('x64', 'arm64')) {
     Copy-Item $zip.FullName (Join-Path $Output $name)
     "$((Get-FileHash -Algorithm SHA256 (Join-Path $Output $name)).Hash.ToLowerInvariant())  $name"
 }
-Set-Content -Path (Join-Path $Output 'SHA256SUMS') -Value $sums -Encoding ascii
+Write-Lines (Join-Path $Output 'SHA256SUMS') $sums
 $revision = (& git -C $Root rev-parse HEAD).Trim()
-@(
+Write-Lines (Join-Path $Output 'release.env') @(
     "NOW=$now", "CHANNEL=$($values['CHANNEL'])", "VERSION_NAME=$($values['VERSION_NAME'])", "BUILD_NUMBER=$($values['BUILD_NUMBER'])",
     "TAG=$($values['TAG'])", "REVISION=$revision"
-) | Set-Content -Path (Join-Path $Output 'release.env') -Encoding ascii
+)
 $dotnet = (& dotnet --version).Trim()
 $rust = (& rustc --version).Trim()
-@("host=$env:COMPUTERNAME", "os=$([Environment]::OSVersion.VersionString)", "dotnet=$dotnet", "rust=$rust") |
-    Set-Content -Path (Join-Path $Output 'windows.build-info') -Encoding ascii
-& cargo tree -p bridgey-client --target x86_64-pc-windows-msvc -e normal --prefix none --manifest-path (Join-Path $Root 'rust/Cargo.toml') |
-    Sort-Object -Unique | Set-Content -Path (Join-Path $Output 'windows-rust-dependencies.txt') -Encoding utf8
+Write-Lines (Join-Path $Output 'windows.build-info') @("host=$env:COMPUTERNAME", "os=$([Environment]::OSVersion.VersionString)", "dotnet=$dotnet", "rust=$rust")
+$deps = & cargo tree -p bridgey-client --target x86_64-pc-windows-msvc -e normal --prefix none --manifest-path (Join-Path $Root 'rust/Cargo.toml') | Sort-Object -Unique
+Write-Lines (Join-Path $Output 'windows-rust-dependencies.txt') @($deps)
 Get-ChildItem $Output | ForEach-Object { Write-Host ("{0}: {1:N1} MB" -f $_.Name, ($_.Length / 1MB)) }

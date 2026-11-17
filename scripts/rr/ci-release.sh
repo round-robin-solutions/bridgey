@@ -90,19 +90,19 @@ if [ -n "${RR_CI_INPUT_DIR:-}" ]; then
   done
 fi
 if [ -n "$WIN_DIR" ]; then
-  [ "$(sed -n 's/^REVISION=//p' "$WIN_DIR/release.env")" = "$HEAD" ] || die "the Windows build is not of $HEAD"
-  WIN_VERSION=$(sed -n 's/^VERSION_NAME=//p' "$WIN_DIR/release.env")
-  WIN_NOW=$(sed -n 's/^NOW=//p' "$WIN_DIR/release.env")
+  [ "$(env_value "$WIN_DIR/release.env" REVISION)" = "$HEAD" ] || die "the Windows build is not of $HEAD"
+  WIN_VERSION=$(env_value "$WIN_DIR/release.env" VERSION_NAME)
+  WIN_NOW=$(env_value "$WIN_DIR/release.env" NOW)
   echo "== Windows $WIN_VERSION from RR CI's Windows job"
 else
   echo "note: no Windows job output in this release; the channel feed keeps its previous Windows entry" >&2
 fi
 
 if [ -n "$MAC_DIR" ]; then
-  MAC_NOW=$(sed -n 's/^NOW=//p' "$MAC_DIR/release.env")
-  [ "$(sed -n 's/^REVISION=//p' "$MAC_DIR/release.env")" = "$HEAD" ] || die "the Mac build is not of $HEAD"
+  MAC_NOW=$(env_value "$MAC_DIR/release.env" NOW)
+  [ "$(env_value "$MAC_DIR/release.env" REVISION)" = "$HEAD" ] || die "the Mac build is not of $HEAD"
   WANT=$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$@" --now "$MAC_NOW" | grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=')
-  GOT=$(grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=' "$MAC_DIR/release.env")
+  GOT=$(tr -d '\r' < "$MAC_DIR/release.env" | grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=')
   [ "$WANT" = "$GOT" ] || die "the Mac build's version differs from this release's"
   if [ -n "$WIN_DIR" ]; then
     [ "$(printf '%s\n' "$WANT" | sed -n 's/^VERSION_NAME=//p')" = "$WIN_VERSION" ] || die "the Windows build's version ($WIN_VERSION) differs from this release's"
