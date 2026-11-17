@@ -45,6 +45,12 @@
                     <Button Content="Open" Style="{StaticResource AccentButtonStyle}" Click="OnOpenLink" AutomationProperties.AutomationId="OpenLink" />
                 </InfoBar.ActionButton>
             </InfoBar>
+            <InfoBar x:Name="UpdateBar" IsOpen="{x:Bind Model.Updates.ShowBanner, Mode=OneWay}" Severity="Success"
+                     Message="{x:Bind Model.Updates.OfferLabel, Mode=OneWay}" CloseButtonClick="OnUpdateLater" AutomationProperties.AutomationId="UpdateBar">
+                <InfoBar.ActionButton>
+                    <Button Content="Install" Style="{StaticResource AccentButtonStyle}" Click="OnInstallUpdate" AutomationProperties.AutomationId="BannerInstall" />
+                </InfoBar.ActionButton>
+            </InfoBar>
             <InfoBar x:Name="NoticeBar" IsOpen="{x:Bind Model.HasNotice, Mode=OneWay}" Severity="Warning"
                      Message="{x:Bind Model.Notice, Mode=OneWay}" CloseButtonClick="OnNoticeClosed" AutomationProperties.AutomationId="Notice" />
         </StackPanel>

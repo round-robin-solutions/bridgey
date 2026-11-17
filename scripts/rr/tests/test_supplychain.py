@@ -290,3 +290,29 @@ class ScriptWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowsSbomTests(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parents[3]
+
+    def common(self):
+        return dict(app_name="Bridgey by Round Robin", app_id="in.roundrobin.bridgey", version="1.1.0-beta.1", build="263201200", timestamp="2026-11-16T12:00:00Z")
+
+    def projects(self):
+        return [(self.ROOT / p).read_text(encoding="utf-8") for p in supplychain.WINDOWS_PROJECTS]
+
+    def test_cargo_tree_list_and_nuget_packages(self):
+        tree = "bridgey-client v0.1.0 (C:\\b\\rust\\client)\nring v0.17.14\nserde v1.0.228\nring v0.17.14\nwindows-sys v0.59.0\n"
+        doc = supplychain.windows_sbom("", self.projects(), rust_deps=tree, **self.common())
+        refs = [c["bom-ref"] for c in doc["components"]]
+        self.assertIn("pkg:cargo/ring@0.17.14", refs)
+        self.assertIn("pkg:cargo/windows-sys@0.59.0", refs)
+        self.assertNotIn("pkg:cargo/bridgey-client@0.1.0", refs, "the app's own crates are the app")
+        self.assertTrue(any(r.startswith("pkg:nuget/Microsoft.WindowsAppSDK@") for r in refs))
+        self.assertEqual(doc["metadata"]["component"]["name"], "Bridgey by Round Robin (Windows)")
+        supplychain.check_sbom(doc, "windows")
+
+    def test_cargo_lock_fallback_reaches_the_client_crates(self):
+        doc = supplychain.windows_sbom((self.ROOT / "rust/Cargo.lock").read_text(encoding="utf-8"), self.projects(), **self.common())
+        refs = {c["name"] for c in doc["components"]}
+        self.assertTrue({"ring", "tokio", "serde_json"} <= refs)

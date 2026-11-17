@@ -11,6 +11,9 @@ public static class Program
     private static int Main(string[] args)
     {
         AppDomain.CurrentDomain.UnhandledException += (_, e) => App.Log($"Unhandled (domain): {e.ExceptionObject}");
+        // The unpacked update finishing an install: no window, no single-instance lock (the old Bridgey is ending).
+        if (args.Length == 4 && args[0] == "--install-update" && int.TryParse(args[3], out var pid))
+            return UpdateInstaller.Run(args[1], args[2], pid);
         WinRT.ComWrappersSupport.InitializeComWrappers();
         using var mutex = new Mutex(initiallyOwned: true, "Local\\" + TrayIcon.ClassName, out var first);
         if (!first)

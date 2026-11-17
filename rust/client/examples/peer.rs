@@ -15,6 +15,7 @@
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
 //!        [--receive-dir <folder>] [--seconds 300]
+//!   peer --sign-update <file>    a test release key's signature over a file (self-update tests), then exit
 //!
 //! Files, battery, find device and notifications (with routing, presence and code status) are on. It never touches a real device's settings: identity and trust live in
 //! memory and end with the process.
@@ -41,6 +42,16 @@ fn main() {
     let mut discover = false;
     let mut receive_dir: Option<String> = None;
     let mut args = std::env::args().skip(1);
+    if std::env::args().nth(1).as_deref() == Some("--sign-update") {
+        // A fixed test key, never the release key: self-update tests serve a feed signed by it.
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+        let path = std::env::args().nth(2).expect("--sign-update needs a file");
+        let key = Ed25519KeyPair::from_seed_unchecked(&[0x42; 32]).expect("test key");
+        let data = std::fs::read(&path).expect("file");
+        let b64 = |b: &[u8]| bridgey_core::crypto::b64(b);
+        out(json!({"publicKey": b64(key.public_key().as_ref()), "signature": b64(key.sign(&data).as_ref())}));
+        return;
+    }
     while let Some(arg) = args.next() {
         let mut value = || args.next().unwrap_or_else(|| panic!("{arg} needs a value"));
         match arg.as_str() {

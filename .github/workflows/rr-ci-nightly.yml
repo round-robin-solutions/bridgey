@@ -4,7 +4,8 @@
 # RR_CI_DISPATCH_KEY and that the run is on the protected rr/main head before anything else runs.
 # Secrets live in the rr-ci-release environment, whose deployment rule allows rr/main only, and are
 # read by name only in the jobs that need them: the Android keystore in "android", the Sparkle key
-# in "publish". The macOS build has no secrets (ad-hoc signed; Sparkle trusts the EdDSA signature).
+# in "publish". The macOS and Windows builds have no secrets (the Mac's is ad-hoc signed; Sparkle and the
+# Windows updater trust the EdDSA signature "publish" makes over each zip).
 # "publish" uses this run's GITHUB_TOKEN with contents: write, and scripts/rr/publish.sh takes the
 # channels lock shared with beta and stable releases from rr-dev-1.
 name: RR CI nightly
@@ -168,8 +169,32 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  windows:
+    needs: authorize
+    if: needs.authorize.outputs.go == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build the x64 and Arm64 zips
+        env:
+          RR_CI_RELEASE_NOW: ${{ needs.authorize.outputs.now }}
+        shell: pwsh
+        run: pwsh -NoProfile -File scripts/rr/ci-release-windows.ps1 -Mode nightly -Output "$env:RUNNER_TEMP/out"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: ${{ runner.temp }}/out/*
+          retention-days: 1
+          if-no-files-found: error
+
   publish:
-    needs: [authorize, android, macos]
+    needs: [authorize, android, macos, windows]
     if: needs.authorize.outputs.go == 'true'
     runs-on: ubuntu-latest
     environment: rr-ci-release
@@ -189,6 +214,10 @@ jobs:
         with:
           name: macos
           path: ${{ runner.temp }}/macos
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: windows
+          path: ${{ runner.temp }}/windows
       - name: Sign the appcast and publish
         env:
           SPARKLE_KEY: ${{ secrets.BRIDGEY_SPARKLE_ED_KEY }}
@@ -205,6 +234,7 @@ jobs:
           set +e
           BRIDGEY_RR_SPARKLE_KEY="$RUNNER_TEMP/sparkle.key" sh scripts/rr/release.sh nightly --now "$NOW" \
             --apk "$RUNNER_TEMP/android/app-release.apk" --macos-artifacts "$RUNNER_TEMP/macos" \
+            --windows-artifacts "$RUNNER_TEMP/windows" \
             --notes-file "$RUNNER_TEMP/notes.md" --publish
           status=$?
           rm -f "$RUNNER_TEMP/sparkle.key"

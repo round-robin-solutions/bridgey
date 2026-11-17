@@ -119,6 +119,7 @@ public partial class App : Application, ITrayHost
         SignIn.Apply(settings.StartAtSignIn);
         Win32.SetMenuTheme((int)settings.Theme);
 
+        Model.Updates = new UpdatesViewModel(settingsModel, new UpdateHost(() => _window, Quit), UpdateSourceFor());
         Log("Client started; opening the window");
         _window = new MainWindow();
         _tray = new TrayIcon(this);
@@ -138,6 +139,26 @@ public partial class App : Application, ITrayHost
         if ((!commandLine.Contains("--background") && send is null) || !settings.SetupDone) _window.ShowAnimated();
         if (commandLine.Contains("--tray-menu")) queue.TryEnqueue(() => _tray.ShowMenu());
         if (send is not null) queue.TryEnqueue(() => SendFromShell(send));
+        // A quiet check when Bridgey opens (at most every six hours), once the window is up.
+        queue.TryEnqueue(async () => await Model.Updates!.CheckOnOpenAsync());
+    }
+
+    /// <summary>
+    /// The edition's feeds, trusted download prefix and release key. A separate profile (tests) may point all three
+    /// at a local test server; a normal install never reads these overrides.
+    /// </summary>
+    private static UpdateSource UpdateSourceFor()
+    {
+        string Env(string name, string fallback) => Paths.IsSeparateProfile && Environment.GetEnvironmentVariable(name) is { Length: > 0 } v ? v : fallback;
+        var arch = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
+        ulong.TryParse(Edition.BuildNumber, out var build);
+        return new UpdateSource(
+            Env("BRIDGEY_UPDATE_FEED_BASE", Edition.UpdateFeedBase),
+            Env("BRIDGEY_UPDATE_TRUSTED_PREFIX", Edition.UpdateAssetPrefix),
+            Env("BRIDGEY_UPDATE_PUBLIC_KEY", Edition.UpdatePublicKey),
+            arch,
+            ulong.TryParse(Env("BRIDGEY_UPDATE_CURRENT_BUILD", ""), out var test) ? test : build,
+            Edition.AppId);
     }
 
     /// <summary>Files from Explorer's Send to. Just after start no device is connected yet: wait up to 20 s for one.</summary>

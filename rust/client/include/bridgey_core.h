@@ -84,6 +84,11 @@
 // A link's longest form.
 #define LINK_MAX (4 * 1024)
 
+#define SCHEMA 1
+
+// The largest update the feed may offer (rrrelease.py checks the same).
+#define MAX_SIZE ((150 * 1024) * 1024)
+
 // What an event is. Fields not listed for a kind are empty.
 enum BridgeyEventKind
 #if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
@@ -520,6 +525,31 @@ int32_t bridgey_media_result(uint64_t handle,
 // `state` is NULL or a NUL-terminated string valid for the call.
 int32_t bridgey_set_media_state(uint64_t handle,
                                 const char *state);
+
+// Self-update: what a channel feed (`feed`, its JSON) offers this device, as JSON: `{"ok":true,"offer":{version,
+// build, url, sha256, size, signature, notes, notesUrl}}` (offer null when nothing is newer than `current_build`), or
+// `{"ok":false,"error":...}` for a feed not to trust. `arch` is x64 or arm64; downloads must start with
+// `trusted_prefix`. Needs no client. Free the result with bridgey_string_free.
+//
+// # Safety
+// The strings are NUL-terminated and valid for the call.
+char *bridgey_update_check(const char *feed,
+                           const char *app_id,
+                           const char *channel,
+                           const char *arch,
+                           uint64_t current_build,
+                           const char *trusted_prefix);
+
+// Self-update: checks a downloaded file's size, SHA-256 (hex) and Ed25519 signature by the release key (base64).
+// Returns NULL when it checks out, else what is wrong (free it with bridgey_string_free).
+//
+// # Safety
+// The strings are NUL-terminated and valid for the call.
+char *bridgey_update_verify(const char *path,
+                            const char *sha256,
+                            uint64_t size,
+                            const char *signature,
+                            const char *public_key);
 
 // Copies `len` bytes into the buffer a storage `load` callback was given.
 //

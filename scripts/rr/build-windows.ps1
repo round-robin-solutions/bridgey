@@ -30,7 +30,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 Set-StrictMode -Version Latest
 
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$Out = Join-Path $Root $Output
+$Out = if ([IO.Path]::IsPathRooted($Output)) { $Output } else { Join-Path $Root $Output }
 $Logs = Join-Path $Out 'logs'
 $Shots = Join-Path $Out 'screenshots'
 $Results = Join-Path $Out 'test-results'
@@ -160,6 +160,8 @@ try {
                 }
             }
             $env:BRIDGEY_PEER_EXE = $peer
+            # The self-update test serves a signed copy of this zip from a local test feed.
+            $env:BRIDGEY_UPDATE_ZIP = Join-Path $Out "$prefix-$version-windows-x64.zip"
             $env:BRIDGEY_SCREENSHOTS = $Shots
             # A smoke launch first: if the app dies at start, say how (exit code and Windows' error report).
             $smokeData = Join-Path ([IO.Path]::GetTempPath()) 'bridgey-ui-smoke'

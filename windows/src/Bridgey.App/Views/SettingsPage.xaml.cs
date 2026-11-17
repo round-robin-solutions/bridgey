@@ -12,6 +12,7 @@ public sealed partial class SettingsPage : UserControl
     public MainViewModel Model => App.Model;
     public SettingsViewModel Settings => App.Model.Settings;
     public NotificationsViewModel Notifications => App.Model.Notifications;
+    public UpdatesViewModel Updates => App.Model.Updates!;
     public List<SettingsSection> Sections { get; } = new(SettingsViewModel.Sections);
     public Uri UpstreamUri => new(Settings.UpstreamUrl);
     public Uri EditionUri => new(Settings.RepositoryUrl);
@@ -47,7 +48,11 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private IEnumerable<FrameworkElement> SectionPanels() =>
-        new FrameworkElement[] { ThisPc, DevicesSection, AwaySection, ClipboardSection, NotificationsSection, FilesSection, MediaSection, PrivacySection, GeneralSection, AboutSection };
+        new FrameworkElement[] { ThisPc, DevicesSection, AwaySection, ClipboardSection, NotificationsSection, FilesSection, MediaSection, PrivacySection, UpdatesSection, GeneralSection, AboutSection };
+
+    private async void OnCheckUpdates(object sender, RoutedEventArgs e) => await Updates.CheckAsync();
+
+    private async void OnInstallUpdate(object sender, RoutedEventArgs e) => await Updates.InstallAsync();
 
     private void OnOpenReceiveFolder(object sender, RoutedEventArgs e) => ExplorerFiles.OpenFolder(Settings.ReceiveFolder);
 

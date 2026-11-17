@@ -91,3 +91,34 @@ progress on a phone), and exits 0, 3 or 2 (1 for anything else). Blocked means n
 run it again later, or leave it to the automatic checks. Other Macs update through a phone's
 automatic run or their own checks, because Macs are not connected to each other. Add `--json` for
 the raw answer lines.
+
+### Windows
+
+Every release and nightly can carry the Windows app: `Bridgey-RR-<version>-windows-x64.zip` and `...-arm64.zip`, in
+SHA256SUMS, with a CycloneDX SBOM (`...-Windows.sbom.cdx.json`: the Rust crates `bridgey_core.dll` links for the
+Windows target, from `cargo tree`, and the app's NuGet packages) and in the provenance file.
+
+- **Where they're built:** a Windows runner, never rr-dev-1. Nightlies: the `windows` job of
+  `.github/workflows/rr-ci-nightly.yml`, with the time the other jobs use. Betas and Stable: the RR CI
+  `release-windows` (and `nightly-windows`) task runs `scripts/rr/ci-release-windows.ps1` and hands its folder to the
+  publishing job like the Mac job's; `scripts/rr/ci-release.sh` checks the revision and the version name. Without a
+  Windows build, a release goes out as before and the feed keeps its previous Windows entry.
+- **The feed:** each channel feed gains a `windows` entry next to `android` and `macos` (which keep their fields and
+  the legacy names 0.x apps read): `version`, `build` (the Windows job's own build time), `minimumOsBuild`, and per
+  architecture `url`, `sha256`, `size` and `edSignature`, an Ed25519 signature made with the Sparkle key that signs the
+  Mac's updates.
+- **The app:** checks its channel's feed when it opens (at most every six hours, Settings > Updates can turn that off)
+  and from Settings. It trusts only downloads under `UPDATE_ASSET_URL_PREFIX`, checks the size, SHA-256 and signature
+  (`rust/client/src/update.rs`) before installing, and asks first. Installing hands over to the unpacked update, which
+  replaces the app's files once Bridgey has closed and opens it again. Builds aren't Authenticode-signed yet, so the
+  release key's signature is the check that a download is ours.
+
+A dry run with Windows: put the two zips (`Bridgey-RR-windows-x64.zip` and `...-arm64.zip`, as the Windows job names
+them, or build-windows.ps1's versioned names), `release.env`, `windows.build-info` and `windows-rust-dependencies.txt`
+in a folder (the Windows job's artifacts), then
+
+```sh
+scripts/rr/release.sh nightly --skip-android --skip-macos --windows-artifacts <folder>
+```
+
+leaves the release in `dist/<tag>` without publishing.

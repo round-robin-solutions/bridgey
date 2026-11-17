@@ -3,7 +3,8 @@
 
 Subcommands
   version   Print VERSION_NAME, BUILD_NUMBER, TAG and PRERELEASE for a channel (shell KEY=value lines).
-  assemble  Copy built artifacts into <dist>/release with release file names, write the CycloneDX SBOMs
+  assemble  Copy built artifacts (APK, Mac DMG and ZIP, Windows x64 and Arm64 zips) into <dist>/release with
+            release file names, write the CycloneDX SBOMs
             and <prefix>-<version>-provenance.json (see supplychain.py), write SHA256SUMS,
             <dist>/channels/<channel>.json and the merged, EdDSA-signed <dist>/channels/appcast.xml.
   verify    Validate every feed and appcast item in <dist>/channels against the files in <dist>/release,
@@ -46,6 +47,9 @@ SCHEMA = 1
 CHANNELS = ("stable", "beta", "nightly")
 ANDROID_MIN_SDK = 26
 MACOS_MINIMUM_SYSTEM_VERSION = "13.0"
+# Windows 10 version 2004 (build 19041), the Windows App SDK's floor (windows/src/Bridgey.App TargetPlatformMinVersion).
+WINDOWS_MINIMUM_OS_BUILD = 19041
+WINDOWS_ARCHES = ("x64", "arm64")
 # Appcast items kept per channel. Nightly matches the number of nightly releases kept on GitHub.
 APPCAST_RETENTION = {"stable": 5, "beta": 5, "nightly": 10}
 MAX_NOTES_LENGTH = 4000
@@ -231,7 +235,24 @@ def validate_feed(feed: dict, channel: str, app_id: str, asset_prefix: str) -> N
         except ValueError:
             signature = b""
         require(len(signature) == 64, "macOS EdDSA signature is invalid")
-    require(android is not None or macos is not None, "feed has no platform entry")
+    windows = feed.get("windows")
+    if windows is not None:
+        # Windows starts at 1.0: no 0.x reader, so no legacy name. The Windows app checks these same fields
+        # (rust/client/src/update.rs) and the Ed25519 signature over each zip, made with the Sparkle key.
+        version = str(windows.get("version", ""))
+        require(versions.matches_channel(version, channel, legacy=False), f"Windows version {version!r} does not match channel")
+        require(isinstance(windows.get("build"), int) and windows["build"] > 0, "Windows build is invalid")
+        require(isinstance(windows.get("minimumOsBuild"), int) and windows["minimumOsBuild"] > 0, "Windows minimumOsBuild is invalid")
+        arches = [arch for arch in WINDOWS_ARCHES if windows.get(arch) is not None]
+        require(bool(arches), "Windows entry has no x64 or arm64 zip")
+        for arch in arches:
+            check_asset(windows[arch], f"Windows {arch} zip")
+            try:
+                signature = base64.b64decode(windows[arch].get("edSignature", ""), validate=True)
+            except ValueError:
+                signature = b""
+            require(len(signature) == 64, f"Windows {arch} EdDSA signature is invalid")
+    require(android is not None or macos is not None or windows is not None, "feed has no platform entry")
 
 
 # ---------------------------------------------------------------- appcast
@@ -334,8 +355,9 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     dist = Path(args.dist)
     if not versions.CURRENT[channel].match(version):
         raise ReleaseError(f"{version!r} is not a valid {channel} version")
-    if not args.apk and not args.zip:
-        raise ReleaseError("Nothing to release: pass --apk and/or --dmg and --zip")
+    windows_zips = {arch: getattr(args, f"windows_{arch}") for arch in WINDOWS_ARCHES if getattr(args, f"windows_{arch}", None)}
+    if not args.apk and not args.zip and not windows_zips:
+        raise ReleaseError("Nothing to release: pass --apk, --dmg and --zip, and/or --windows-x64 and --windows-arm64")
     if bool(args.dmg) != bool(args.zip):
         raise ReleaseError("macOS needs both --dmg and --zip")
 
@@ -448,6 +470,24 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
         print(f"note: no macOS build in this release; {channel}.json keeps macOS {entry_version(previous_feed['macos'], 'shortVersion')}", file=sys.stderr)
         feed["macos"] = previous_feed["macos"]
 
+    if windows_zips:
+        if not args.ed_key:
+            raise ReleaseError("--ed-key is required to sign the Windows update")
+        windows_key = load_private_key(Path(args.ed_key))
+        expected_public = args.ed_public_key or sparkle_public_key()
+        if public_key_b64(windows_key) != expected_public:
+            raise ReleaseError("Sparkle private key does not match SUPublicEDKey in Info.plist")
+        # The Windows job may build at another minute than the Mac's; its own build number orders Windows updates.
+        windows: dict = {"version": version, "build": int(args.windows_build or build), "minimumOsBuild": WINDOWS_MINIMUM_OS_BUILD}
+        for arch, source in windows_zips.items():
+            name = f"{prefix}-{version}-windows-{arch}.zip"
+            path, digest, size = stage(source, name)
+            windows[arch] = {"url": download_base + name, "sha256": digest, "size": size, "edSignature": ed_sign(windows_key, path)}
+        feed["windows"] = windows
+    elif previous_feed and previous_feed.get("windows"):
+        print(f"note: no Windows build in this release; {channel}.json keeps Windows {previous_feed['windows'].get('version')}", file=sys.stderr)
+        feed["windows"] = previous_feed["windows"]
+
     validate_feed(feed, channel, app_id, asset_prefix)
     write_supply_chain(args, props, release_dir, sums, published, prefix)
     (release_dir / "SHA256SUMS").write_text("".join(f"{digest}  {name}\n" for digest, name in sorted(sums, key=lambda s: s[1])))
@@ -470,7 +510,7 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
 def write_supply_chain(
     args: argparse.Namespace, props: dict[str, str], release_dir: Path, sums: list[tuple[str, str]], published: dt.datetime, prefix: str
 ) -> None:
-    """Write the SBOMs (macOS always, Android when --android-deps is given) and the provenance file,
+    """Write the SBOMs (macOS and Windows when built, Android when --android-deps is given) and the provenance file,
     and add them to the checksum list."""
     root = Path(args.repo_root)
     common = {
@@ -503,6 +543,16 @@ def write_supply_chain(
             builds["macos"] = supplychain.build_record(
                 info, {"swift": info.get("swift", "unknown"), "xcode": info.get("xcode", "unknown")}
             )
+        if getattr(args, "windows_x64", None) or getattr(args, "windows_arm64", None):
+            document = supplychain.windows_sbom(
+                (root / "rust/Cargo.lock").read_text(encoding="utf-8"),
+                [(root / p).read_text(encoding="utf-8") for p in supplychain.WINDOWS_PROJECTS],
+                rust_deps=Path(args.windows_deps).read_text(encoding="utf-8") if getattr(args, "windows_deps", None) else None,
+                **common,
+            )
+            add(f"{prefix}-{args.version}-Windows.sbom.cdx.json", supplychain.dump_json(document))
+            info = supplychain.read_build_info(Path(args.windows_build_info) if getattr(args, "windows_build_info", None) else None)
+            builds["windows"] = supplychain.build_record(info, {"dotnet": info.get("dotnet", "unknown"), "rust": info.get("rust", "unknown")})
         provenance = supplychain.build_provenance(
             app_id=props["EDITION_APP_ID"], repo=props["GITHUB_REPO"], channel=args.channel, version=args.version,
             build=int(args.build), tag=args.tag, built_at=iso(published), git=supplychain.git_info(root), builds=builds,
@@ -539,6 +589,10 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
             assets.append(feed["android"])
         if feed.get("macos"):
             assets += [feed["macos"]["dmg"], feed["macos"]["zip"]]
+        windows = feed.get("windows") or {}
+        for arch in WINDOWS_ARCHES:
+            if windows.get(arch):
+                assets.append(windows[arch])
         for asset in assets:
             local = release_dir / asset["url"].rsplit("/", 1)[-1]
             if local.is_file():
@@ -552,6 +606,14 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
                 if not ed_verify(public_key, local_zip, feed["macos"]["edSignature"]):
                     raise ReleaseError(f"EdDSA signature in {channel}.json does not verify")
                 report.append(f"{channel}: {local_zip.name} EdDSA ok")
+        for arch in WINDOWS_ARCHES:
+            if not windows.get(arch):
+                continue
+            local = release_dir / windows[arch]["url"].rsplit("/", 1)[-1]
+            if local.is_file():
+                if not ed_verify(public_key, local, windows[arch]["edSignature"]):
+                    raise ReleaseError(f"Windows {arch} EdDSA signature in {channel}.json does not verify")
+                report.append(f"{channel}: {local.name} EdDSA ok")
     if not found:
         raise ReleaseError(f"No channel feeds in {channels_dir}")
     appcast = channels_dir / "appcast.xml"
@@ -606,7 +668,11 @@ def rebase(dist: Path, previous_dir: Path, props: dict[str, str]) -> list[str]:
     if fresh and (int(fresh.get("build", 0)) > build or (int(fresh.get("build", 0)) == build and fresh.get("tag") != tag)):
         raise Superseded(f"{channel} already has build {fresh['build']} ({fresh.get('tag')}), newer than {build}")
     names = {path.name for path in release_dir.iterdir()} if release_dir.is_dir() else set()
-    included = {"android": any(n.endswith("-Android.apk") for n in names), "macos": any(n.endswith("-macOS.zip") for n in names)}
+    included = {
+        "android": any(n.endswith("-Android.apk") for n in names),
+        "macos": any(n.endswith("-macOS.zip") for n in names),
+        "windows": any(n.endswith("-windows-x64.zip") or n.endswith("-windows-arm64.zip") for n in names),
+    }
     for platform, present in included.items():
         if present:
             continue
@@ -662,6 +728,11 @@ def main(argv: list[str] | None = None) -> int:
     assemble_parser.add_argument("--android-deps", help="output of ./gradlew :app:dependencies --configuration releaseRuntimeClasspath (adds the Android SBOM)")
     assemble_parser.add_argument("--android-build-info", help="<apk>.build-info written by build-android.sh")
     assemble_parser.add_argument("--mac-build-info", help="build-info file written by build-macos.sh")
+    assemble_parser.add_argument("--windows-x64", help="the Windows x64 zip from scripts/rr/build-windows.ps1")
+    assemble_parser.add_argument("--windows-arm64", help="the Windows Arm64 zip from scripts/rr/build-windows.ps1")
+    assemble_parser.add_argument("--windows-build", type=int, help="the build number the Windows zips carry, when another than --build")
+    assemble_parser.add_argument("--windows-build-info", help="windows.build-info written by ci-release-windows.ps1")
+    assemble_parser.add_argument("--windows-deps", help="windows-rust-dependencies.txt (cargo tree for the Windows target) from the Windows job")
     assemble_parser.add_argument("--repo-root", default=str(REPO_ROOT), help=argparse.SUPPRESS)
     previous = assemble_parser.add_mutually_exclusive_group()
     previous.add_argument("--previous-channels", help="directory with the currently published <channel>.json/appcast.xml")

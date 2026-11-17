@@ -70,6 +70,10 @@ cd windows && dotnet test --project tests/Bridgey.Core.Tests
 1. Unzip the folder anywhere, for example into `%LOCALAPPDATA%\Programs`.
 2. Run `Bridgey.exe`.
 
+Bridgey updates itself from the edition's Stable, Beta and Nightly feeds: it offers a new version on Home or in
+Settings > Updates, checks the download's size, checksum and the release key's signature, and installs it when you
+say so. Keep the folder somewhere you can write to (not Program Files).
+
 Builds aren't signed yet, so Windows SmartScreen says "Windows protected your PC" on the first run. Choose
 **More info**, then **Run anyway**. The first time Bridgey listens for your devices, Windows Firewall asks whether
 it may use private networks. Allow it, or your phone and Mac can't connect.
@@ -86,6 +90,8 @@ The settings that change the app's behaviour are in Settings:
 - Links (on) and Open links right away (on), Media controls (off), Battery, Find device and Ping (on);
 - for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links and Media controls
   switches;
+- Updates: the channel (the build's own: Beta for a beta), Check for updates when Bridgey opens (on, at most every
+  six hours), Check now and Install;
 - start at sign-in, on by default;
 - keep running in the notification area, on by default;
 - appearance;
@@ -97,13 +103,13 @@ A second copy of `Bridgey.exe` doesn't start another app. It brings the running 
 Test hooks: `BRIDGEY_DATA_DIR` runs a separate profile. That profile has its own pairing data, never touches the
 sign-in items or the Send to menu, and runs as its own single instance. `BRIDGEY_PORT` and `BRIDGEY_DISCOVERY=0`
 change the port and turn off discovery. `BRIDGEY_NO_BROWSER=1` logs links instead of opening them. `BRIDGEY_RECEIVE_DIR` and `BRIDGEY_SENDTO_DIR` move the default receive
-folder and the Send to shortcut. `"fastTransfers": false` in settings.json sends JSON chunks instead of binary frames.
+folder and the Send to shortcut. `BRIDGEY_UPDATE_FEED_BASE`, `BRIDGEY_UPDATE_TRUSTED_PREFIX`, `BRIDGEY_UPDATE_PUBLIC_KEY`
+and `BRIDGEY_UPDATE_CURRENT_BUILD` point a separate profile's updater at a test feed (a normal install ignores them). `"fastTransfers": false` in settings.json sends JSON chunks instead of binary frames.
 
 ## Not yet
 
 - Signing: Azure Trusted Signing or another certificate is a later decision.
 - MSIX and winget.
-- Self-update on the Stable, Beta and Nightly feeds (M2).
 - Replying to text messages from the Messages window (M3); a notification's own Reply works now.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.

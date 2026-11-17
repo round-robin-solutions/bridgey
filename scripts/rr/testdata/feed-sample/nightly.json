@@ -33,5 +33,22 @@
       "size": 900
     },
     "edSignature": "d2Yvza3O9wjVH4vR3nIKFt5ss8UK1xkQe+YFknNi+luqkOQVqaqMrJMTxiASk9oW4Fp7GlgOrDNMAqnGg7ShBA=="
+  },
+  "windows": {
+    "version": "1.0.0-nightly.20261116",
+    "build": 263200900,
+    "minimumOsBuild": 19041,
+    "x64": {
+      "url": "https://github.com/round-robin-solutions/bridgey/releases/download/nightly-20261116.0900/Bridgey-RR-1.0.0-nightly.20261116-windows-x64.zip",
+      "sha256": "e21e4a6675e92841012cf2acf6de0414dbef303fa8953455cdad187491d834c8",
+      "size": 1300,
+      "edSignature": "WdBQDOpop0+i8Wwto/timqWg2kiB00kFQIVXKZlYx11PhtZn2OVbbrUUqR6q/nWO3jhi3mXAnYe/3IDJp/lPAg=="
+    },
+    "arm64": {
+      "url": "https://github.com/round-robin-solutions/bridgey/releases/download/nightly-20261116.0900/Bridgey-RR-1.0.0-nightly.20261116-windows-arm64.zip",
+      "sha256": "3e0409b1021c9ae734b9dd9328256d59e3fd53621ed8ae9ae7879df2afb76af0",
+      "size": 1500,
+      "edSignature": "DCAggf/VjVH9sD0anc7VxlCObeB2GMxibi/8fVh96zE5t9mFr6t4w8z/5X0xhM6TeaXbFt/nLiFPGOn/rUKyCQ=="
+    }
   }
 }

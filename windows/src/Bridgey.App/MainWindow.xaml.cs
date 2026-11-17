@@ -170,6 +170,24 @@ public sealed partial class MainWindow : Window
         return result == ContentDialogResult.Primary && choices.SelectedItem is RadioButton { Tag: DeviceItem device } ? device : null;
     }
 
+    /// <summary>A question with one action (Install) and Cancel.</summary>
+    public async Task<bool> Confirm(string title, string text, string action)
+    {
+        ShowAnimated();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            RequestedTheme = Root.ActualTheme,
+            Title = title,
+            Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap },
+            PrimaryButtonText = action,
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(dialog, "ConfirmDialog");
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
     private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
         if (_navigating || args.SelectedItem is not NavigationViewItem { Tag: string key }) return;

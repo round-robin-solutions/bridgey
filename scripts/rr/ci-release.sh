@@ -8,7 +8,9 @@
 # The revision must be on RELEASE_BRANCH (rr/main). Builds Android here, then publishes (release.sh --publish).
 # The Mac app comes from this release's RR CI Mac job (release-macos or nightly-macos, which run
 # scripts/rr/ci-release-macos.sh) when RR CI hands its files over in RR_CI_INPUT_DIR; otherwise it is
-# built on BRIDGEY_RR_MAC_HOST (default personal) over SSH.
+# built on BRIDGEY_RR_MAC_HOST (default personal) over SSH. The Windows zips come from the RR CI Windows job
+# (release-windows or nightly-windows, scripts/rr/ci-release-windows.ps1) the same way; without it the release
+# goes out without Windows and the channel feed keeps its previous Windows entry.
 # RR CI gives jobs a private HOME, so the keys, the GitHub token and the toolchains come from the
 # worker account's home (RR_CI_HOST_HOME): ~/.config/bridgey-rr/{rr-bridgey.jks,android-signing.env,
 # sparkle_ed25519_private.key,github-token}. Nothing secret is printed.
@@ -79,15 +81,38 @@ if [ -n "${RR_CI_INPUT_DIR:-}" ]; then
     if [ -f "$d/release.env" ]; then MAC_DIR=$d; break; fi
   done
 fi
+# The Windows zips from RR CI's Windows job: same revision and the same version name (its own build number orders
+# Windows updates; the Windows job may build at another minute than the Mac's).
+WIN_DIR=""
+if [ -n "${RR_CI_INPUT_DIR:-}" ]; then
+  for d in "$RR_CI_INPUT_DIR/release-windows" "$RR_CI_INPUT_DIR/nightly-windows"; do
+    if [ -f "$d/release.env" ]; then WIN_DIR=$d; break; fi
+  done
+fi
+if [ -n "$WIN_DIR" ]; then
+  [ "$(sed -n 's/^REVISION=//p' "$WIN_DIR/release.env")" = "$HEAD" ] || die "the Windows build is not of $HEAD"
+  WIN_VERSION=$(sed -n 's/^VERSION_NAME=//p' "$WIN_DIR/release.env")
+  WIN_NOW=$(sed -n 's/^NOW=//p' "$WIN_DIR/release.env")
+  echo "== Windows $WIN_VERSION from RR CI's Windows job"
+else
+  echo "note: no Windows job output in this release; the channel feed keeps its previous Windows entry" >&2
+fi
+
 if [ -n "$MAC_DIR" ]; then
   MAC_NOW=$(sed -n 's/^NOW=//p' "$MAC_DIR/release.env")
   [ "$(sed -n 's/^REVISION=//p' "$MAC_DIR/release.env")" = "$HEAD" ] || die "the Mac build is not of $HEAD"
   WANT=$(python3 "$RR_ROOT/scripts/rr/rrrelease.py" version "$@" --now "$MAC_NOW" | grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=')
   GOT=$(grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER|TAG)=' "$MAC_DIR/release.env")
   [ "$WANT" = "$GOT" ] || die "the Mac build's version differs from this release's"
+  if [ -n "$WIN_DIR" ]; then
+    [ "$(printf '%s\n' "$WANT" | sed -n 's/^VERSION_NAME=//p')" = "$WIN_VERSION" ] || die "the Windows build's version ($WIN_VERSION) differs from this release's"
+  fi
   echo "== $* from $BRANCH @$SHORT, Mac build from RR CI's Mac job"
-  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --now "$MAC_NOW" --notes-file "$NOTES" --macos-artifacts "$MAC_DIR" --publish
+  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --now "$MAC_NOW" --notes-file "$NOTES" --macos-artifacts "$MAC_DIR" ${WIN_DIR:+--windows-artifacts "$WIN_DIR"} --publish
 else
+  # Without the Mac job, the release takes its time from the Windows job (when there is one), so the version
+  # name it derives is the one built into the Windows zips.
+  [ -z "$WIN_DIR" ] || set -- "$@" --now "$WIN_NOW"
   echo "== $* from $BRANCH @$SHORT, Mac build on $MAC_HOST"
-  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --mac-host "$MAC_HOST" --publish
+  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --mac-host "$MAC_HOST" ${WIN_DIR:+--windows-artifacts "$WIN_DIR"} --publish
 fi

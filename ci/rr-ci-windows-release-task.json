@@ -1,0 +1,25 @@
+{
+  "_comment": "Proposed RR CI tasks for the Windows half of Bridgey releases (the CI owner thread adds them to the coordinator, like release-macos and nightly-macos). They run on GitHub's hosted windows-latest runners through .github/workflows/rr-ci-hosted.yml with no secrets: the zips are signed with the release key when scripts/rr/ci-release.sh assembles the release on rr-dev-1, which reads this task's output from RR_CI_INPUT_DIR/<task>. The hosted nightly (.github/workflows/rr-ci-nightly.yml) has its own windows job. See docs/releasing.md, Windows.",
+  "release-windows": {
+    "kind": "release",
+    "command": ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/rr/ci-release-windows.ps1", "-Mode", "tag", "-Output", "windows/release-out"],
+    "runs_on": "windows-latest",
+    "setup": { "python": "3.12" },
+    "pass_env": ["RR_CI_REF", "RR_CI_RELEASE_NOW"],
+    "timeout_minutes": 60,
+    "output_dir": "windows/release-out",
+    "artifacts": ["windows/release-out/*"],
+    "feeds": "release"
+  },
+  "nightly-windows": {
+    "kind": "release",
+    "command": ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/rr/ci-release-windows.ps1", "-Mode", "nightly", "-Output", "windows/release-out"],
+    "runs_on": "windows-latest",
+    "setup": { "python": "3.12" },
+    "pass_env": ["RR_CI_RELEASE_NOW"],
+    "timeout_minutes": 60,
+    "output_dir": "windows/release-out",
+    "artifacts": ["windows/release-out/*"],
+    "feeds": "release"
+  }
+}
