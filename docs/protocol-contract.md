@@ -106,6 +106,9 @@ the tables at the end of this page are generated from it with
   (`settingsPayload`: records kept, entries skipped one by one, the first-connect flags, invalid messages, unsupported
   schemas), pick the same winner between two records (`settingsMerge`), treat a snapshot record alike (`settingsSnapshot`),
   pick the same device to ask on a first connect (`settingsAsker`) and stamp a local edit alike (`settingsStamp`).
+- Resuming files (`files_resume_draft1`): [`protocol/test-vectors/files-resume-v1.json`](../protocol/test-vectors/files-resume-v1.json)
+  pins the prefix hashes, both payloads, the receiver's and the sender's decisions, retention and the designed folder
+  rules. `rust/client` checks every vector today; the Android and Mac suites decode them when they build the feature.
 - Fuzz tests on both platforms feed random bytes, truncated and oversized frames, wrong types,
   unknown kinds, replayed IDs and huge counts to the frame decoder and the payload decoders, and
   check that nothing crashes, memory stays bounded and a valid message still works afterwards. The
@@ -152,6 +155,7 @@ the tables at the end of this page are generated from it with
 | `updates_draft1` | edition-draft | no | false |
 | `screen_draft1` | edition-draft | no | false |
 | `files_fast_draft1` | edition-draft | no | false |
+| `files_resume_draft1` | edition-draft | no | false |
 | `sms_draft1` | edition-draft | no | false |
 | `settings_sync_draft1` | edition-draft | no | false |
 | `connect_draft1` | edition-draft | no | false |
@@ -195,7 +199,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-185 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+187 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -356,6 +360,8 @@ Explicit Android share only. Requires Clipboard grants at both ends. Copies with
 | `files.complete.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
 | `files.cancel` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
 | `files.cancel.ack` | upstream-v1 | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.resume` | edition-draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | client |
+| `files.resume.ack` | edition-draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | client |
 
 `files.offer`
 
@@ -369,8 +375,9 @@ Explicit Android share only. Requires Clipboard grants at both ends. Copies with
 - `entry`: edition extension: manifest index
 - `path`: edition extension: manifest path
 - `cameraRequestId`: edition extension (camera_draft1): string, UUID of the Mac's open camera.request that this photo answers; older Macs ignore it and simply receive a file
+- `resumable`: edition extension (files_resume_draft1): boolean, true only to a peer that shows the key, on a single file of more than 1 MiB without purpose; the receiver may answer files.resume instead of files.accept
 
-Answered by `files.accept`, `files.rejected`.
+Answered by `files.accept`, `files.rejected`, `files.resume`.
 
 `files.rejected`
 
@@ -398,6 +405,26 @@ Answered by `files.complete.ack`.
 Answered by `files.cancel.ack`.
 
 Idempotent.
+
+`files.resume`
+
+- `version`: integer, 1
+- `transferId`: string, the offer's, exactly
+- `offset`: integer: a positive multiple of 1,048,576 not above the offer's size, or the size itself; the receiver's verified bytes
+- `prefixSha256`: string, base64 SHA-256 of the file's first offset bytes
+
+Answered by `files.resume.ack`.
+
+From the receiver, instead of files.accept, to a files.offer marked resumable from a peer that shows files_resume_draft1, when it kept a partial of that size and SHA-256 from that device and has just read its bytes again and found them as recorded. Never names a path or a partial; the receiver chose it by the authenticated device and the content.
+
+`files.resume.ack`
+
+- `version`: integer, 1
+- `transferId`: string
+- `offset`: integer: the offset proposed (prefixSha256 matched the sender's own file) or 0 (from byte zero)
+- `reason`: optional, with offset 0: mismatch, invalid or unreadable; a receiver reads any other reason as a plain 0
+
+From the sender. Chunks follow from that offset with sequence 0 under the same transferId; files.complete as usual, and the receiver checks the whole file's SHA-256 before saving it. Any other offset makes the receiver cancel the file (files.cancel) and discard the partial.
 
 #### `notifications.*`
 

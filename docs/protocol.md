@@ -128,7 +128,7 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `lan_first_draft1`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
+`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `files_resume_draft1`, `lan_first_draft1`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
 `ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -627,7 +627,10 @@ which appends a number such as `photo (1).jpg`.
 Version 1 does not resume a partial file stream. If a connection is interrupted,
 the receiver deletes its pending partial file and both clients mark the transfer
 as interrupted. A user-initiated retry creates a new transfer identifier,
-recomputes the digest, and sends the file again from byte zero.
+recomputes the digest, and sends the file again from byte zero. Between peers that
+show `files_resume_draft1` the receiver keeps a verified partial and the retry
+continues after it; see
+[Resuming files](#draft-resuming-files-files_resume_draft1).
 
 The Android v1 receiver writes through `MediaStore` to `Download/Bridgey` with
 `IS_PENDING` set until verification, so partial files are hidden and deleted on
@@ -1407,7 +1410,9 @@ reconnect the sender resends the offer with the same `folderTransferId`,
 `manifestSha256` answers `folders.accept` with its stored choice and
 `completedBitmap` (base64, bit `i` set when entry `i` is done, least significant
 bit first), else `folders.rejected` `resume_unavailable`. Finished files are not
-sent again; an interrupted file restarts from byte 0 under a new transfer ID.
+sent again; an interrupted file restarts from byte 0 under a new transfer ID
+(with `files_resume_draft1` at both ends it continues after its verified bytes
+instead: designed, see [Resuming files](#resuming-inside-folders-designed-not-built)).
 
 **Names and limits.** Every new name (root, path components, created folders) is
 a portable name: NFC; U+0000 to U+001F, U+007F and `" * / : < > ? \ |` replaced
@@ -2145,6 +2150,121 @@ While any transfer or a speed test runs, the phone holds a low-latency Wi-Fi loc
 high-performance one (Android 13 and older) and a partial wake lock, and lets them go two seconds after the last one
 ends. Android applies the low-latency lock only while the screen is on and Bridgey is in front, so with the screen off
 Wi-Fi power saving can still slow a transfer; the speed test reports `screenOn`.
+
+## Draft: resuming files (`files_resume_draft1`)
+
+**Draft, edition only.** Design and trade-offs: [file-resume.md](file-resume.md). Built in the session client
+(`rust/client`, used by Windows and iOS); the Android and Mac apps follow. Shared vectors:
+`protocol/test-vectors/files-resume-v1.json`. Peers without the key keep [Files](#files-filesv1) as it is: an
+interruption deletes the partial file and a retry sends every byte again.
+
+### Negotiation
+
+`features.update` gains the boolean key `files_resume_draft1`. Like `files_fast_draft1` it is a capability, advertised
+whenever a client supports it, and used only on a protocol 2 session (envelope tags on). A sender marks an offer
+resumable only while the receiver's latest map shows the key; a receiver answers `files.resume` only to an offer marked
+resumable, from a peer whose latest map shows the key, while its own map shows it too.
+
+### Which partial an offer resumes
+
+Every attempt is a new transfer: a fresh `transferId`, sequences from 0, and the replay and ownership rules of any
+transfer. An attempt is linked to a partial by its content, as the offer states it, and by who sent it, as the session
+authenticated it. The receiver resumes a partial only when all of these hold:
+
+- it came from the same device (the authenticated device ID, never a name or an address);
+- the offer's `size` and `sha256` are the partial's (senders hash the file before every offer, so the SHA-256 always
+  describes the file as it is now);
+- it lies in the folder the receiver saves files to now;
+- no other transfer is using it.
+
+A sender never names a partial, a path or an earlier transfer.
+
+### Messages
+
+1. `files.offer` gains `resumable: true` (an edition extension older receivers ignore) on a single file larger than
+   1 MiB (1,048,576 bytes) without `purpose`, between two peers that show the key.
+2. The receiver looks for its partial (rules above). Without one, or when the partial's bytes no longer match its
+   record (below), it answers `files.accept` as always and the file comes from byte zero. With one whose bytes check
+   out it answers `files.resume` instead: encrypted, with `messageId` and the outer `transferId`, plaintext at most
+   1,024 bytes, `{version: 1, transferId, offset, prefixSha256}`. `offset` is its verified length: a positive multiple
+   of 1 MiB not above `size`, or `size` itself. `prefixSha256` is the base64 SHA-256 of the file's first `offset`
+   bytes.
+3. The sender compares `prefixSha256` with the SHA-256 of its own file's first `offset` bytes. It keeps that hash at
+   every 1 MiB boundary from the pass that hashed the file for the offer, so this needs no second read of the file
+   (reading the prefix again gives the same answer). It answers `files.resume.ack`, encrypted like `files.resume`:
+   `{version: 1, transferId, offset, reason?}` with the receiver's `offset` when the two hashes are equal, otherwise
+   `offset: 0` and `reason` `mismatch` (the hashes differ), `invalid` (the `files.resume` broke a rule above) or
+   `unreadable` (the sender could not seek its file). A receiver treats any other reason like these: 0 is 0.
+4. Chunks follow from that offset: `files.chunk` messages or binary frames, `sequence` from 0, carry the bytes from
+   `offset` on, under the same `transferId`, paced and acknowledged as any transfer. `files.complete` follows as
+   always; with `offset` equal to `size` it follows at once, without chunks. The receiver continues its running
+   SHA-256 from the verified prefix and saves the file only when the whole file's SHA-256 is the offer's. With
+   `offset: 0` the receiver empties the partial and takes the file from byte zero. A `files.resume.ack` with any other
+   offset, or a chunk before it, makes the receiver cancel the file (`files.cancel`) and delete the partial.
+5. A sender waits up to 120 seconds for the answer to a resumable offer, because the receiver first reads up to
+   10 GiB again; other offers keep their timeout. A receiver allows the same for `files.resume.ack`.
+
+A `files.resume` or `files.resume.ack` that fails decryption closes the session, as any `files.*` message does; one
+that decrypts but breaks the rules falls back as above.
+
+### Keeping a partial
+
+The receiver keeps the partial of a resumable file when the session ends without a cancel: a disconnect, a timeout,
+either app quitting or being stopped. It deletes it, as today, on `files.cancel` from either side, a failed whole-file
+check, a chunk that breaks the rules, a storage error, or when its person forgets the device.
+
+- **Record.** A small record in the app's private storage, never beside the received files: the sender's device ID,
+  the offer's `size`, `sha256` and name, where the partial is, the verified length and the SHA-256 of those bytes, and
+  when it last grew. The partial stays where it was being written (session client: the hidden `.bridgey-<uuid>.part`
+  in the receive folder; Android: its pending MediaStore entry; Mac: its `.bridgey-part`), never shown or opened for
+  the person.
+- **Verified length.** Only whole 1 MiB blocks, or the whole file, and only bytes already on stable storage: the
+  receiver syncs the partial before it writes a record that names them. While a resumable file comes in, the record
+  follows it every 64 MiB; when the session ends, the receiver syncs and records all it has. A crash loses at most the
+  bytes since the last record, and bytes past the record are cut off before a resume. `files.chunk.ack` stays flow
+  control and says nothing about stable storage.
+- **Read again before use.** Before it answers `files.resume`, the receiver reads the recorded length of the partial
+  again and compares its SHA-256 with the record, off the thread that runs the session. A partial that is missing,
+  shorter or different (damaged, or changed by something else) is emptied and the file comes from byte zero. A record
+  is never taken as proof of what is on disk.
+- **Limits.** A partial lives until 24 hours after it last grew (the folders journal's window). At most 4 per device,
+  and 16 and 20 GiB of verified bytes in all; a new one pushes out the oldest not in use. When the app starts it
+  deletes partials that expired, have nothing verified (a record is written as a resumable file starts, so a crash
+  leaves nothing behind), or whose file is gone or shorter than its record. A receiver may keep less; keeping less
+  only means more files start from zero.
+- **Source changed.** An offer from the same device with the same name but another `size` or `sha256` means its source
+  changed: the partial of the old content is deleted at once, since it can never be finished, and the new file comes
+  from byte zero.
+
+### Resuming inside folders (designed, not built)
+
+Inside a folder transfer the existing resume (journal, `completedBitmap`) skips finished files. With the key at both
+ends the interrupted file continues too:
+
+- The receiver keeps the interrupted entry's partial, its verified length and prefix SHA-256 in its folder journal,
+  under the rules above and within the journal's 24 hours.
+- `folders.accept` for a resumed offer gains `partial` `{entry, offset, prefixSha256}` or null: `entry` is a manifest
+  index and `offset` follows the rules of `files.resume` against that entry's `size`.
+- The sender checks the prefix against its own file (reading it again: a folder sender keeps no block hashes). When it
+  reaches that entry, its `files.offer` carries `offset` with the agreed value and chunks start there. Without
+  `offset` the entry comes from byte zero and the receiver deletes the partial. An `offset` that is not the
+  receiver's for that entry fails the entry (`folders.entry_failed`, `invalid_message`).
+
+This adds no round trip: the folder's accept is one already. The vectors `folderAccept` and `entryOffer` pin these
+rules for when the apps build them.
+
+### Security
+
+- Authenticated protocol 2 sessions only. Both messages are encrypted and pass the replay window: a prefix hash tells
+  something about the file, so it never travels in the clear.
+- The receiver takes no path, name or size from the peer to find a partial. It matches by the authenticated device and
+  the content the offer states, in its own receive folder, so a peer reaches only partials it sent itself.
+- The receiver decides the offset, from bytes it read again and checked against its private record. The sender can
+  accept that offset or start from zero, nothing else.
+- The sender skips bytes only when the receiver shows it holds them: the prefix SHA-256 must equal its own.
+- The whole file's SHA-256 is checked before the file is saved, as for every file. Resuming adds no way to save bytes
+  that do not match the offer.
+- Partials and records are bounded in number, bytes and time, and go with a cancel or when the device is forgotten.
 
 ## Compatibility
 
