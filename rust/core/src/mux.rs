@@ -3,19 +3,28 @@
 //! First byte 0 to 3 is STUN; 64 to 79 from a TURN server we use is ChannelData; anything else is
 //! QUIC. Paths found by ICE get a stable virtual address, so quinn sees one peer address while the
 //! path underneath moves between pairs (a relay, a direct pair) without dropping the connection.
+//!
+//! The socket goes through quinn-udp: batches of datagrams per system call (GSO and GRO on Linux and
+//! Android, recvmmsg where the platform has it) and no IP fragmentation, so QUIC can find a path's MTU.
+//! Once quinn polls the socket it reads it directly, and QUIC datagrams from direct senders stay where
+//! they landed; STUN and TURN are handled on the way. Each relayed datagram keeps its own ChannelData
+//! header and stays within 1,280 bytes.
 
 use crate::addrs::canonical;
 use crate::stun::{self, Message};
-use std::collections::{HashMap, HashSet};
+use quinn::udp::{RecvMeta, Transmit, UdpSocketState};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::future::Future;
 use std::io::{self, IoSliceMut};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::io::Interest;
+use tokio::sync::{mpsc, oneshot, Notify};
 
 /// How a datagram travels: straight from our socket, or through our allocation on a TURN server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -86,10 +95,20 @@ pub struct Counters {
 
 pub struct Mux {
     sock: tokio::net::UdpSocket,
+    udp: UdpSocketState,
     local: SocketAddr,
     v6: bool,
-    quic_tx: mpsc::Sender<Datagram>,
-    quic_rx: Mutex<mpsc::Receiver<Datagram>>,
+    /// QUIC datagrams that could not stay where they landed (relayed ones that arrive mixed, Data indications, or
+    /// any read before quinn first polled): quinn gets these first.
+    pending: Mutex<VecDeque<Datagram>>,
+    /// quinn polls the socket itself; until it starts, a small reader serves STUN and TURN.
+    attached: AtomicBool,
+    attach: Notify,
+    recv_waker: Mutex<Option<Waker>>,
+    /// After an unexpected receive error, reading pauses briefly instead of spinning.
+    recv_backoff: Mutex<Option<Pin<Box<tokio::time::Sleep>>>>,
+    /// ChannelData frames of one relayed transmit.
+    relay_scratch: Mutex<Vec<u8>>,
     state: Mutex<State>,
     /// Debug and tests: no direct traffic at all, as if every network blocked it.
     pub relay_only: AtomicBool,
@@ -115,16 +134,22 @@ impl Mux {
     /// Binds `port` (dual-stack where possible), or any free port when it is taken.
     pub fn bind(port: u16) -> io::Result<Arc<Mux>> {
         let std_sock = bind_socket(port).or_else(|_| bind_socket(0))?;
+        // Turns on GRO where there is one and turns off fragmentation (quinn's own sockets do the same).
+        let udp = UdpSocketState::new((&std_sock).into())?;
         std_sock.set_nonblocking(true)?;
         let sock = tokio::net::UdpSocket::from_std(std_sock)?;
         let local = sock.local_addr()?;
-        let (quic_tx, quic_rx) = mpsc::channel(QUIC_QUEUE);
         let mux = Arc::new(Mux {
             v6: local.is_ipv6(),
             sock,
+            udp,
             local,
-            quic_tx,
-            quic_rx: Mutex::new(quic_rx),
+            pending: Mutex::new(VecDeque::new()),
+            attached: AtomicBool::new(false),
+            attach: Notify::new(),
+            recv_waker: Mutex::new(None),
+            recv_backoff: Mutex::new(None),
+            relay_scratch: Mutex::new(Vec::new()),
             state: Mutex::new(State::default()),
             relay_only: AtomicBool::new(false),
             counters: Counters::default(),
@@ -149,22 +174,39 @@ impl Mux {
         }
     }
 
+    /// Serves STUN and TURN until quinn polls the socket itself (a mux without a QUIC endpoint, as in tests and the
+    /// relay checks, keeps it for good).
     async fn read_loop(self: Arc<Self>) {
-        let mut buf = vec![0u8; 65_536];
+        let mut storage = vec![0u8; RECV_BUF * BATCH];
+        let mut meta = [RecvMeta::default(); BATCH];
         loop {
-            let (n, src) = match self.sock.recv_from(&mut buf).await {
-                Ok(x) => x,
-                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    continue;
-                }
+            let read = tokio::select! {
+                _ = self.attach.notified() => return,
+                read = self.sock.async_io(Interest::READABLE, || {
+                    let mut bufs: Vec<IoSliceMut<'_>> = storage.chunks_mut(RECV_BUF).map(IoSliceMut::new).collect();
+                    self.udp.recv((&self.sock).into(), &mut bufs, &mut meta)
+                }) => read,
             };
-            let src = canonical(src);
-            self.receive(&buf[..n], src);
+            match read {
+                Ok(n) => {
+                    for (i, m) in meta.iter().enumerate().take(n) {
+                        let data = &storage[i * RECV_BUF..i * RECV_BUF + m.len];
+                        let src = canonical(m.addr);
+                        for segment in data.chunks(m.stride.max(1)) {
+                            self.receive(segment, src);
+                        }
+                    }
+                    if let Some(waker) = self.recv_waker.lock().unwrap().take() {
+                        waker.wake();
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
         }
     }
 
+    /// One datagram the fast path could not keep in place: STUN and TURN are handled here, QUIC waits for quinn.
     fn receive(&self, data: &[u8], src: SocketAddr) {
         let from_turn = self.state.lock().unwrap().turns.contains_key(&src);
         if from_turn {
@@ -214,17 +256,34 @@ impl Mux {
             }
             return;
         }
-        let mapped = {
-            let state = self.state.lock().unwrap();
-            match state.v_by_path.get(&path) {
-                Some(v) => Some(*v),
-                None if path.via == Via::Direct => Some(path.remote),
-                None => None,
+        if let Some(src) = self.quic_source(path) {
+            let mut pending = self.pending.lock().unwrap();
+            if pending.len() < PENDING_MAX {
+                pending.push_back(Datagram { data: data.to_vec(), src });
             }
-        };
-        if let Some(src) = mapped {
-            let _ = self.quic_tx.try_send(Datagram { data: data.to_vec(), src });
         }
+    }
+
+    /// The address quinn knows the sender of a QUIC datagram on `path` by, if any.
+    fn quic_source(&self, path: Path) -> Option<SocketAddr> {
+        let state = self.state.lock().unwrap();
+        match state.v_by_path.get(&path) {
+            Some(v) => Some(*v),
+            None if path.via == Via::Direct => Some(path.remote),
+            None => None,
+        }
+    }
+
+    /// Where QUIC datagrams from `src` can stay in quinn's buffer as they are: a direct sender, not a relay we use.
+    fn direct_source(&self, src: SocketAddr) -> Option<SocketAddr> {
+        if self.relay_only() {
+            return None;
+        }
+        let state = self.state.lock().unwrap();
+        if state.turns.contains_key(&src) {
+            return None;
+        }
+        Some(state.v_by_path.get(&Path::direct(src)).copied().unwrap_or(src))
     }
 
     fn deliver(&self, msg: Message, path: Path) {
@@ -264,6 +323,66 @@ impl Mux {
                 self.sock.try_send_to(&framed, self.family(server)).map(|_| ())
             }
         }
+    }
+
+    /// A QUIC transmit from quinn along `path`: one datagram, or several of `segment` bytes (the last may be
+    /// shorter) that leave in one system call where the OS can segment them (GSO).
+    fn send_quic(&self, path: Path, contents: &[u8], segment: Option<usize>) -> io::Result<()> {
+        let size = segment.unwrap_or(contents.len());
+        match path.via {
+            Via::Direct => {
+                if self.relay_only() {
+                    return Ok(());
+                }
+                self.counters.direct_out.fetch_add(contents.len() as u64, Ordering::Relaxed);
+                self.send_batch(self.family(path.remote), contents, size)
+            }
+            Via::Turn(server) => {
+                // Relayed datagrams stay within 1,280 bytes of UDP payload, ChannelData header included. A larger one
+                // (an MTU probe, or packets sized for a direct pair before quinn notices the move) is lost on purpose.
+                if size > RELAY_MAX_QUIC {
+                    return Ok(());
+                }
+                let channel = self.state.lock().unwrap().turns.get(&server).and_then(|c| c.by_peer.get(&path.remote).copied());
+                let Some(channel) = channel else {
+                    // No channel yet: Send indications (or nothing), one per datagram.
+                    for datagram in contents.chunks(size.max(1)) {
+                        self.send_path(path, datagram)?;
+                    }
+                    return Ok(());
+                };
+                // Each datagram keeps its own ChannelData header; frames of one size still leave as one batch (over
+                // UDP ChannelData needs no padding, RFC 8656 section 12.5).
+                let mut framed = self.relay_scratch.lock().unwrap();
+                framed.clear();
+                for datagram in contents.chunks(size.max(1)) {
+                    framed.extend_from_slice(&channel.to_be_bytes());
+                    framed.extend_from_slice(&(datagram.len() as u16).to_be_bytes());
+                    framed.extend_from_slice(datagram);
+                }
+                self.counters.relay_out.fetch_add(framed.len() as u64, Ordering::Relaxed);
+                self.send_batch(self.family(server), &framed, size + 4)
+            }
+        }
+    }
+
+    /// Datagrams of `size` bytes (the last may be shorter) to `dest`: one GSO send where the socket has it, else one
+    /// send each.
+    fn send_batch(&self, dest: SocketAddr, contents: &[u8], size: usize) -> io::Result<()> {
+        let size = size.max(1);
+        if contents.len() > size && self.udp.max_gso_segments() <= 1 {
+            for datagram in contents.chunks(size) {
+                self.send_one(dest, datagram, None)?;
+            }
+            return Ok(());
+        }
+        self.send_one(dest, contents, (contents.len() > size).then_some(size))
+    }
+
+    fn send_one(&self, dest: SocketAddr, contents: &[u8], segment_size: Option<usize>) -> io::Result<()> {
+        // No ECN marks and no source address, as before: the same packets on the wire, only fewer system calls.
+        let transmit = Transmit { destination: dest, ecn: None, contents, segment_size, src_ip: None };
+        self.sock.try_io(Interest::WRITABLE, || self.udp.try_send((&self.sock).into(), &transmit))
     }
 
     /// Sends to a TURN or STUN server itself (allowed in relay-only mode).
@@ -438,8 +557,15 @@ impl Mux {
 }
 
 const SOCKET_BUFFER: usize = 4 << 20;
-/// Datagrams waiting for QUIC: a full window of 1,200-byte packets (16 MiB) fits.
-const QUIC_QUEUE: usize = 16_384;
+/// QUIC datagrams waiting outside quinn's buffers (relayed ones, mostly; at most a few batches at a time).
+const PENDING_MAX: usize = 4_096;
+/// The largest QUIC datagram a relay path carries: 1,280 bytes of UDP payload less the 4-byte ChannelData header.
+pub const RELAY_MAX_QUIC: usize = 1_276;
+/// The reader used before quinn polls: datagrams per call and room for each (GRO merges up to 64 datagrams).
+const BATCH: usize = 4;
+const RECV_BUF: usize = 1 << 17;
+/// Reads in one quinn poll that only found STUN, TURN or nothing for quinn, before letting other work run.
+const RECV_ROUNDS: usize = 64;
 
 fn bind_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
@@ -457,12 +583,69 @@ fn bind_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     }
 }
 
+impl Mux {
+    /// QUIC datagrams waiting outside quinn's buffers go into slots `filled..room`; returns the slots now in use.
+    fn take_pending(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta], mut filled: usize, room: usize) -> usize {
+        let mut pending = self.pending.lock().unwrap();
+        while filled < room {
+            let Some(next) = pending.pop_front() else { break };
+            let len = next.data.len().min(bufs[filled].len());
+            bufs[filled][..len].copy_from_slice(&next.data[..len]);
+            // quinn keeps an IPv4 peer of a dual-stack endpoint as its mapped IPv6 address (Endpoint::connect_with),
+            // and drops handshake packets from any other form of it: hand IPv4 sources over the same way.
+            meta[filled] = RecvMeta { addr: self.family(next.src), len, stride: len, ecn: None, dst_ip: None };
+            filled += 1;
+        }
+        filled
+    }
+
+    /// After a read of `n` slots: QUIC from direct senders stays where it landed (moved down over slots handled
+    /// here), everything else is handled or queued. Returns how many slots quinn gets.
+    fn sort(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta], n: usize) -> usize {
+        let mut kept = 0;
+        for i in 0..n {
+            let RecvMeta { addr, len, stride, .. } = meta[i];
+            let src = canonical(addr);
+            let stride = stride.clamp(1, len.max(1));
+            // GRO only merges datagrams of one size from one sender; a STUN message among them is still handled.
+            let quic_only = !bufs[i][..len].chunks(stride).any(stun::is_stun);
+            match quic_only.then(|| self.direct_source(src)).flatten() {
+                Some(source) => {
+                    self.counters.direct_in.fetch_add(len as u64, Ordering::Relaxed);
+                    if kept != i {
+                        let (low, high) = bufs.split_at_mut(i);
+                        low[kept][..len].copy_from_slice(&high[0][..len]);
+                    }
+                    meta[kept] = RecvMeta { addr: self.family(source), len, stride, ecn: None, dst_ip: None };
+                    kept += 1;
+                }
+                None => {
+                    for segment in bufs[i][..len].chunks(stride) {
+                        self.receive(segment, src);
+                    }
+                }
+            }
+        }
+        kept
+    }
+}
+
+/// The OS refused a datagram larger than the path (an MTU probe found the limit); not a failure to report.
+fn too_big(e: &io::Error) -> bool {
+    #[cfg(unix)]
+    let code = libc::EMSGSIZE;
+    // WSAEMSGSIZE
+    #[cfg(windows)]
+    let code = 10040;
+    e.raw_os_error() == Some(code)
+}
+
 impl quinn::AsyncUdpSocket for Mux {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn quinn::UdpPoller>> {
         Box::pin(Poller { mux: self })
     }
 
-    fn try_send(&self, transmit: &quinn::udp::Transmit) -> io::Result<()> {
+    fn try_send(&self, transmit: &Transmit) -> io::Result<()> {
         let dest = canonical(transmit.destination);
         let path = if is_virtual(dest) {
             match self.selected(dest) {
@@ -472,8 +655,10 @@ impl quinn::AsyncUdpSocket for Mux {
         } else {
             Path::direct(dest)
         };
-        match self.send_path(path, transmit.contents) {
+        match self.send_quic(path, transmit.contents, transmit.segment_size) {
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
+            // Larger than the path allows (an MTU probe): QUIC treats it as lost and tries a smaller size.
+            Err(e) if too_big(&e) => Ok(()),
             // Unreachable networks and the like: QUIC treats the packet as lost.
             Err(e) => {
                 self.counters.send_errors.fetch_add(1, Ordering::Relaxed);
@@ -484,31 +669,54 @@ impl quinn::AsyncUdpSocket for Mux {
         }
     }
 
-    fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [quinn::udp::RecvMeta]) -> Poll<io::Result<usize>> {
-        let mut rx = self.quic_rx.lock().unwrap();
-        // As many waiting datagrams as quinn has buffers for, in one call (one wake-up per batch, not per packet).
-        let mut filled = 0;
-        while filled < bufs.len().min(meta.len()) {
-            let next = if filled == 0 {
-                match rx.poll_recv(cx) {
-                    Poll::Ready(Some(d)) => d,
-                    Poll::Ready(None) => return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),
-                    Poll::Pending => return Poll::Pending,
-                }
-            } else {
-                match rx.try_recv() {
-                    Ok(d) => d,
-                    Err(_) => break,
-                }
-            };
-            let len = next.data.len().min(bufs[filled].len());
-            bufs[filled][..len].copy_from_slice(&next.data[..len]);
-            // quinn keeps an IPv4 peer of a dual-stack endpoint as its mapped IPv6 address (Endpoint::connect_with),
-            // and drops handshake packets from any other form of it: hand IPv4 sources over the same way.
-            meta[filled] = quinn::udp::RecvMeta { addr: self.family(next.src), len, stride: len, ecn: None, dst_ip: None };
-            filled += 1;
+    fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> Poll<io::Result<usize>> {
+        if !self.attached.swap(true, Ordering::AcqRel) {
+            self.attach.notify_one();
         }
-        Poll::Ready(Ok(filled))
+        let room = bufs.len().min(meta.len());
+        {
+            // Before looking at the queue, so a datagram the early reader queues meanwhile still wakes us.
+            let mut waker = self.recv_waker.lock().unwrap();
+            if !waker.as_ref().is_some_and(|w| w.will_wake(cx.waker())) {
+                *waker = Some(cx.waker().clone());
+            }
+        }
+        // As many datagrams as quinn has buffers for, in one call (one wake-up per batch, not per packet).
+        let filled = self.take_pending(bufs, meta, 0, room);
+        if filled > 0 {
+            return Poll::Ready(Ok(filled));
+        }
+        for _ in 0..RECV_ROUNDS {
+            {
+                let mut backoff = self.recv_backoff.lock().unwrap();
+                if let Some(sleep) = backoff.as_mut() {
+                    if sleep.as_mut().poll(cx).is_pending() {
+                        return Poll::Pending;
+                    }
+                    *backoff = None;
+                }
+            }
+            if self.sock.poll_recv_ready(cx)?.is_pending() {
+                return Poll::Pending;
+            }
+            let read = self.sock.try_io(Interest::READABLE, || self.udp.recv((&self.sock).into(), &mut bufs[..room], &mut meta[..room]));
+            match read {
+                Ok(n) => {
+                    let kept = self.sort(bufs, meta, n);
+                    let filled = self.take_pending(bufs, meta, kept, room);
+                    if filled > 0 {
+                        return Poll::Ready(Ok(filled));
+                    }
+                }
+                Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::ConnectionReset) => {}
+                // Anything else: pause briefly instead of spinning (as the reader always did); quinn would end the
+                // endpoint on an error.
+                Err(_) => *self.recv_backoff.lock().unwrap() = Some(Box::pin(tokio::time::sleep(Duration::from_millis(50)))),
+            }
+        }
+        // Only STUN, TURN or junk for a while: let other work run, then carry on.
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -516,7 +724,15 @@ impl quinn::AsyncUdpSocket for Mux {
     }
 
     fn may_fragment(&self) -> bool {
-        true
+        self.udp.may_fragment()
+    }
+
+    fn max_transmit_segments(&self) -> usize {
+        self.udp.max_gso_segments()
+    }
+
+    fn max_receive_segments(&self) -> usize {
+        self.udp.gro_segments()
     }
 }
 
