@@ -1711,6 +1711,43 @@ carry QUIC, never plain TCP:
   the newer one if that side dialled both. The QUIC client of an ICE tunnel is always the lower
   device ID.
 
+### LAN first (`lan_first_draft1`)
+
+Status: **draft, edition-only** (24 November 2026). A session on the local network replaces a tunnel
+or VPN session for the same device, and no switch cancels a transfer. Builds that have it advertise
+`lan_first_draft1` (a capability, always `true`, also to agent devices) in every `features.update`;
+decoders read it outside the golden vectors' draft list. Peers without it see no change.
+
+Each session has a tier that both ends work out alike:
+
+| Tier | Session |
+| --- | --- |
+| 2 `lan` | A socket session (not a tunnel) whose remote address is private: IPv4 10/8, 172.16/12, 192.168/16, 169.254/16; IPv6 fe80::/10 and fc00::/7 except Tailscale's fd7a:115c:a1e0::/48; loopback. IPv4-mapped IPv6 counts as its IPv4. |
+| 1 `socket` | Any other socket session: Tailscale (100.64.0.0/10, fd7a:115c:a1e0::/48), other VPNs, public addresses. |
+| 0 `tunnel` | A session on a Connect anywhere tunnel, whatever its route label (the two ends can label one tunnel differently). |
+
+When a session authenticates for a device that already has one, in this order:
+
+1. The live session is stale (silent 15 s, 40 s on a tunnel): the new one wins.
+2. The live session's peer did not advertise `lan_first_draft1`: the rule above (lower dialler).
+3. The live session has an active transfer: the new one closes quietly, whatever its tier.
+4. The higher tier wins; equal tiers fall back to the lower dialler.
+
+An active transfer is, with that peer: a file transfer offered and not finished, a folder being sent or
+received (Phone files downloads included), a clipboard push or paste fetch, or a speed test. Files and
+folders still in a queue do not count, since the peer has not heard of them.
+
+A device connected below tier 2 whose peer advertised the key keeps trying its LAN address: one it is
+seen at by Bonjour or NSD on this network now, or a `lan` address from its `connect.addresses` on one of
+this device's current subnets. The dial is an ordinary reconnect (same handshake and checks, no prompt).
+At most one such dial is in flight per device; one goes at once when the session comes up, discovery or
+the network changes or a transfer ends, then every 30 s, and after 3 failures on one network every
+5 minutes until the network changes. None goes while a transfer runs. `connect.addresses` never lists a
+virtual interface's address (bridges, vmnet, utun, docker, OrbStack's 192.168.139.0/24 and
+192.168.215.0/24). Diagnostics log each dial as `transport` / `lan_upgrade` with outcome `dial`, `won`,
+`failed` or `skipped_transfer`; `duplicate_replaced` and `duplicate_closed` carry detail `tier` or
+`transfer` when this rule decided.
+
 ### In-session messages
 
 Encrypted payloads in the current session format (`kind`, `sessionId`, `messageId`, `nonce`,
@@ -1774,30 +1811,6 @@ one for that session. Relay credentials are TURN REST style:
 valid 2 hours. A node's warm relay username is `"<expiry>:w.<tag>"`, tag = base64url(HMAC-SHA256(secret,
 "bridgey-warm-v1" \0 nodeId \0 expiry)[0..9]), with the same credential rule, valid 12 hours. Vectors for all of
 this: `protocol/test-vectors/connect-v1.json` (`nodeAuthV2`, `turnWarm`).
-
-### LAN first (`lan_first_draft1`)
-
-Status: **draft, edition-only**. Builds that have it send `lan_first_draft1: true` in `features.update` to every peer
-(a capability, not a setting). On the same network two devices keep a direct LAN socket instead of a tunnel, and no
-session switch cancels a transfer. Peers without the key keep the rules below unchanged.
-
-- **Session tier**, the same on both ends: 2 for a socket session whose remote address is private (IPv4 10/8,
-  172.16/12, 192.168/16, 169.254/16; IPv6 fe80::/10 and fc00::/7 except Tailscale's fd7a:115c:a1e0::/48; loopback;
-  IPv4-mapped IPv6 counts as its IPv4); 1 for any other socket (Tailscale's 100.64.0.0/10, other VPNs, public
-  addresses); 0 for a session on a Connect anywhere tunnel, whatever its route (the two ends can label one tunnel
-  differently).
-- **Duplicate rule**, when the existing session's peer advertised the key, in this order: a stale existing session
-  loses; while this device has a transfer with that peer (a file, a folder, a Phone files download, a clipboard push
-  or fetch, a speed test) the new session is rejected; the higher tier wins; equal tiers keep the dialled-by-lower-ID
-  rule. Without the key the rule is exactly as before.
-- **Upgrade dial**: a device connected below tier 2 to a peer with the key, with no transfer running, dials the peer
-  over TCP at a LAN address (seen by discovery now, or a `lan` address from its `connect.addresses` on one of this
-  device's networks), the same handshake as a reconnect. At most one dial per device: at once, then every 30 s, and
-  every 5 minutes after 3 failures on one network until the network changes. The new session wins on tier and the
-  tunnel session closes; when it drops, reconnect and the tunnel take over as before.
-- `connect.addresses` leaves out `lan` addresses on this device's virtual interfaces (Internet Sharing and virtual
-  machine bridges, container and VPN interfaces, OrbStack's 192.168.139.0/24 and 192.168.215.0/24).
-- Diagnostics: `transport`/`lan_upgrade` with outcome `dial`, `won`, `failed` or `skipped_transfer`.
 
 ## Draft: agent devices (`agent_draft1`)
 

@@ -129,8 +129,8 @@ private fun parseIPv4Literal(text: String): IntArray? {
     }
 }
 
-/** Eight 16-bit groups, or null; accepts `::` once and a trailing dotted IPv4. */
-private fun parseIPv6Literal(text: String): IntArray? {
+/** Eight 16-bit groups, or null; accepts `::` once and a trailing dotted IPv4. Also the LAN tier check (LanFirst.kt). */
+internal fun parseIPv6Literal(text: String): IntArray? {
     if (text.isEmpty() || text.length > 45 || '%' in text || !text.contains(':')) return null
     if (text.any { !(it.isDigit() || it in 'a'..'f' || it in 'A'..'F' || it == ':' || it == '.') }) return null
     val halves = text.split("::")

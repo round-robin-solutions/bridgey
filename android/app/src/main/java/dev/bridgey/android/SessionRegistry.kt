@@ -38,6 +38,8 @@ data class DeviceLinkState(
     val remoteAgentsMirror: Boolean = false,
     /** An agent advertised codes_detect_draft1: it has the code model and reads codes.candidate. */
     val remoteCodesDetect: Boolean = false,
+    /** The device advertised lan_first_draft1: the duplicate rule ranks sessions by tier (LanFirst.kt). */
+    val remoteLanFirst: Boolean = false,
     /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
     val connectRoute: dev.bridgey.android.connect.ConnectRoute? = null,
     val battery: RemoteBatteryStatus? = null,
@@ -103,7 +105,9 @@ enum class PairingFailure {
  * Duplicates: when two sockets authenticate as the same device (both sides dialled at once, or a
  * reconnect raced a stale socket), both ends must keep the same one or both die. The rule, applied
  * identically on the phone and the Mac: keep the socket dialled by the side with the lower device
- * id; if both were dialled by the same side, keep the newer one.
+ * id; if both were dialled by the same side, keep the newer one. With a peer that advertised
+ * lan_first_draft1, a live transfer keeps the live session and otherwise the higher tier wins first
+ * ([duplicateVerdict]).
  */
 internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
     private class Entry<S>(val session: S, val initiatedLocally: Boolean) {
@@ -139,12 +143,23 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
 
     fun isPending(session: S): Boolean = synchronized(lock) { session in pending }
 
-    /** Moves an authenticated [session] to the device map, resolving duplicates. */
     /**
+     * Moves an authenticated [session] to the device map, resolving duplicates ([duplicateVerdict]).
+     *
      * [isStale]: the session has heard nothing for longer than a healthy heartbeat allows ([sessionLooksStale]). A stale
-     * live session loses to [session] whichever side dialled it.
+     * live session loses to [session] whichever side dialled it. [tierOf] and [activeTransfer] (worked out before the
+     * call, never under this lock) count only when the live session's peer advertised lan_first_draft1. [onVerdict]
+     * hears how a duplicate was settled, for diagnostics. [isStale] stays last, so a trailing lambda still means it.
      */
-    fun authenticate(session: S, deviceId: String, peerName: String, isStale: (S) -> Boolean = { false }): Admission<S> = synchronized(lock) {
+    fun authenticate(
+        session: S,
+        deviceId: String,
+        peerName: String,
+        tierOf: (S) -> SessionTier = { SessionTier.TUNNEL },
+        activeTransfer: Boolean = false,
+        onVerdict: (DuplicateVerdict) -> Unit = {},
+        isStale: (S) -> Boolean = { false },
+    ): Admission<S> = synchronized(lock) {
         val entry = pending.remove(session) ?: active.values.firstOrNull { it.session === session }
             ?: return Admission.Rejected
         entry.deviceId = deviceId
@@ -154,18 +169,22 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
             active[deviceId] = entry
             return Admission.Accepted(null)
         }
-        if (!isStale(existing.session) && !prefers(entry, existing)) return Admission.Rejected
+        val verdict = duplicateVerdict(
+            existingStale = isStale(existing.session),
+            peerLanFirst = existing.state.remoteLanFirst,
+            activeTransfer = activeTransfer,
+            candidateTier = tierOf(entry.session),
+            existingTier = tierOf(existing.session),
+            candidateDialledByLower = dialledByLowerId(entry),
+            existingDialledByLower = dialledByLowerId(existing),
+        )
+        onVerdict(verdict)
+        if (!verdict.newWins) return Admission.Rejected
         // The survivor keeps what the device already reported (features, battery) until it updates.
         entry.state = existing.state
         active.remove(deviceId)
         active[deviceId] = entry
         Admission.Accepted(existing.session)
-    }
-
-    private fun prefers(candidate: Entry<S>, existing: Entry<S>): Boolean {
-        val candidateLower = dialledByLowerId(candidate)
-        val existingLower = dialledByLowerId(existing)
-        return if (candidateLower != existingLower) candidateLower else true
     }
 
     private fun dialledByLowerId(entry: Entry<S>): Boolean {

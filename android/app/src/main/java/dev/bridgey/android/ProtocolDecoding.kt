@@ -327,6 +327,13 @@ internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {
     return FeatureStateDecoding.State(features, drafts)
 }
 
+/**
+ * One boolean key of a features.update that is not in [KNOWN_DRAFT_FEATURE_KEYS] (lan_first_draft1): true only when it
+ * is JSON true. Kept out of [decodeFeatureState] so the golden vectors stay as they are; the Mac has decodeFeatureFlag.
+ */
+internal fun decodeFeatureFlag(plaintext: ByteArray, key: String): Boolean =
+    (strictJsonObject(plaintext)?.opt("features") as? JSONObject)?.opt(key) == true
+
 /** A battery.update payload, or null when malformed or out of range. */
 internal fun decodeBatteryStatus(plaintext: ByteArray): RemoteBatteryStatus? {
     val payload = strictJsonObject(plaintext) ?: return null
