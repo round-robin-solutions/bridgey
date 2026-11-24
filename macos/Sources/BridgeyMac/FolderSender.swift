@@ -965,7 +965,8 @@ final class FolderSender {
             retryable: !active && (summary.canResume || summary.canSendAgain),
             queued: item.state == .queued,
             folder: summary,
-            localURL: item.into ? item.roots.first : item.root
+            localURL: item.into ? item.roots.first : item.root,
+            deviceID: item.phoneID
         ))
     }
 

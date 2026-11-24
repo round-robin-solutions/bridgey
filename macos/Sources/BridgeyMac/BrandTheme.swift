@@ -561,6 +561,8 @@ struct PopUpMenuItem {
     var checked = false
     var enabled = true
     var isSeparator = false
+    /// A submenu ("Send to" and its devices); the item's own action is not used.
+    var submenu: [PopUpMenuItem]? = nil
     let action: () -> Void
 
     static var separator: PopUpMenuItem { PopUpMenuItem(title: "", isSeparator: true, action: {}) }
@@ -584,6 +586,13 @@ enum PopUpMenuPresenter {
         for item in items {
             if item.isSeparator {
                 menu.addItem(.separator())
+                continue
+            }
+            if let children = item.submenu {
+                let menuItem = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
+                menuItem.submenu = self.menu(children)
+                menuItem.isEnabled = item.enabled && !children.isEmpty
+                menu.addItem(menuItem)
                 continue
             }
             let target = Target(item.action)
