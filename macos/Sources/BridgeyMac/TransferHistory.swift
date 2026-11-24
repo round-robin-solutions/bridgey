@@ -35,10 +35,13 @@ struct TransferHistoryEntry: Codable, Equatable, Identifiable {
     let destination: String?
     /// A download the Mac asked for from the Phone files window (not something the phone pushed).
     let download: Bool
+    /// The average speed of a completed transfer, for the Transfers window's "fastest". Nil when unknown (older
+    /// entries, small files).
+    var bytesPerSecond: Double?
 
     init(id: String, date: Date, direction: Direction, deviceID: String, deviceName: String, name: String,
          isFolder: Bool = false, fileCount: Int = 1, bytes: Int64, outcome: Outcome, localPath: String? = nil,
-         destination: String? = nil, download: Bool = false) {
+         destination: String? = nil, download: Bool = false, bytesPerSecond: Double? = nil) {
         self.id = id
         self.date = date
         self.direction = direction
@@ -52,6 +55,7 @@ struct TransferHistoryEntry: Codable, Equatable, Identifiable {
         self.localPath = localPath
         self.destination = destination
         self.download = download
+        self.bytesPerSecond = bytesPerSecond
     }
 
     var localURL: URL? { localPath.map { URL(fileURLWithPath: $0) } }

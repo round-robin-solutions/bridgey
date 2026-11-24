@@ -633,7 +633,8 @@ final class FolderReceiver {
             retryable: false,
             queued: false,
             folder: summary,
-            localURL: top.count == 1 ? top[0] : top.first?.deletingLastPathComponent()
+            localURL: top.count == 1 ? top[0] : top.first?.deletingLastPathComponent(),
+            deviceID: item.phoneID
         ))
     }
 }

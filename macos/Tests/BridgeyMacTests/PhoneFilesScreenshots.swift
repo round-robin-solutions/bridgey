@@ -158,10 +158,15 @@ final class PhoneFilesScreenshots: XCTestCase {
             TransferHistoryEntry(id: "6", date: now.addingTimeInterval(-86_400 * 3), direction: .received, deviceID: phone, deviceName: "OnePlus 11",
                                  name: "Lease agreement.docx", bytes: 132_000, outcome: .completed, localPath: "/tmp/Lease agreement.docx"),
         ]
+        var state = TransfersWindowState()
+        state.items = TransferItems.make(entries: entries, rows: [], deviceName: { $0 })
+        state.missing = Set(entries.filter { $0.localPath == "/tmp/missing.mp4" }.map(\.id))
+        state.devices = [TransferDevice(id: phone, name: "OnePlus 11"), TransferDevice(id: "p8", name: "Pixel 8")]
+        state.now = now
         for scheme in [ColorScheme.light, .dark] {
             let view = BrandRoot(reduceMotion: false) {
-                TransferHistoryView(entries: entries, filter: .constant(TransferHistoryFilter()), exists: { $0.lastPathComponent != "missing.mp4" }, now: now)
-                    .frame(width: TransferHistoryView.size.width, height: TransferHistoryView.size.height)
+                TransfersWindowView(state: state, filter: .constant(TransfersFilter()), selection: .constant(nil), pendingSend: .constant(nil))
+                    .frame(width: TransfersWindowView.size.width, height: TransfersWindowView.size.height)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             try write(view.padding(24).background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0)), scheme: scheme,

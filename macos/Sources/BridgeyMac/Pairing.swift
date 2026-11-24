@@ -76,6 +76,16 @@ struct FileTransferRow: Identifiable, Equatable {
     /// When this row last showed progress (bytes moved, a step finished). A transfer that has not moved for
     /// `TransferStall.timeout` is failed, and no longer counts as busy for an automatic update.
     var lastProgressAt: Date
+    /// The device on the other end, when known: the Transfers window's To and From, route chip and device filter.
+    var deviceID: String?
+    /// A single file the phone sends to this Mac (folders say so in `folder.incoming`).
+    var incoming: Bool
+    /// A single file's bytes moved and size, once the transfer runs (nil before).
+    var bytesDone: Int64?
+    var bytesTotal: Int64?
+    /// When bytes first moved and how many had by then, for the average speed its history entry keeps.
+    var movingSince: Date?
+    var movingSinceBytes: Int64
 
     /// Still moving: active, and progress within the stall timeout. A stalled row is not what the person is doing.
     func isBusy(now: Date) -> Bool {
@@ -92,7 +102,13 @@ struct FileTransferRow: Identifiable, Equatable {
         queued: Bool = false,
         folder: FolderRowSummary? = nil,
         localURL: URL? = nil,
-        lastProgressAt: Date = Date()
+        lastProgressAt: Date = Date(),
+        deviceID: String? = nil,
+        incoming: Bool = false,
+        bytesDone: Int64? = nil,
+        bytesTotal: Int64? = nil,
+        movingSince: Date? = nil,
+        movingSinceBytes: Int64 = 0
     ) {
         self.id = id
         self.name = name
@@ -104,6 +120,23 @@ struct FileTransferRow: Identifiable, Equatable {
         self.folder = folder
         self.localURL = localURL
         self.lastProgressAt = lastProgressAt
+        self.deviceID = deviceID
+        self.incoming = incoming
+        self.bytesDone = bytesDone
+        self.bytesTotal = bytesTotal
+        self.movingSince = movingSince
+        self.movingSinceBytes = movingSinceBytes
+    }
+
+    /// Keeps the first moment bytes moved (from `previous`), or starts it now when `bytes` is the first count above 0.
+    mutating func markMoving(previous: FileTransferRow?, bytes: Int64?, now: Date = Date()) {
+        if let since = previous?.movingSince {
+            movingSince = since
+            movingSinceBytes = previous?.movingSinceBytes ?? 0
+        } else if let bytes, bytes > 0 {
+            movingSince = now
+            movingSinceBytes = bytes
+        }
     }
 }
 
@@ -2375,7 +2408,8 @@ final class PairingCoordinator: ObservableObject {
                 status: status,
                 active: true,
                 startedAt: queuedAt.addingTimeInterval(Double(index) / 1_000),
-                queued: true
+                queued: true,
+                deviceID: targetID
             )
             queue.enqueue(id: transferID, item: .file(url))
         }
@@ -2582,11 +2616,12 @@ final class PairingCoordinator: ObservableObject {
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
     }
 
-    func showFileTransferWindow() {
+    /// The Transfers window; `history` scrolls to the history (the History entry points).
+    func showFileTransferWindow(history: Bool = false) {
         if fileTransferWindow == nil {
             fileTransferWindow = FileTransferWindowController(pairing: self)
         }
-        fileTransferWindow?.show()
+        fileTransferWindow?.show(history: history)
     }
 
     func showFileDropWindow() {
@@ -3832,15 +3867,23 @@ final class PairingCoordinator: ObservableObject {
 
     private func updateFileTransfer(id: String, name: String, status: String, active: Bool, localURL: URL? = nil) {
         let previous = fileTransfers[id]
-        fileTransfers[id] = FileTransferRow(
+        let incoming = incomingFiles[id], outgoing = outgoingFiles[id]
+        let bytesDone = incoming?.receivedSize ?? outgoing?.progressBytes ?? previous?.bytesDone
+        var row = FileTransferRow(
             id: id,
             name: name,
             status: status,
             active: active,
             startedAt: previous?.startedAt ?? Date(),
             retryable: !active && outgoingFileSources[id] != nil,
-            localURL: localURL ?? previous?.localURL ?? outgoingFileSources[id]
+            localURL: localURL ?? previous?.localURL ?? outgoingFileSources[id],
+            deviceID: transferDevices[id] ?? previous?.deviceID,
+            incoming: incoming != nil || previous?.incoming == true,
+            bytesDone: bytesDone,
+            bytesTotal: incoming?.expectedSize ?? (outgoing?.progressBytes != nil ? outgoing?.offer.size : nil) ?? previous?.bytesTotal
         )
+        row.markMoving(previous: previous, bytes: bytesDone)
+        fileTransfers[id] = row
         pruneTransferHistory()
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
         if active { armTransferStallTimer() }
@@ -3892,10 +3935,36 @@ final class PairingCoordinator: ObservableObject {
     /// The History window's record of one finished file (Files 2.0).
     private func recordFileHistory(_ id: String, direction: TransferHistoryEntry.Direction, outcome: TransferHistoryEntry.Outcome, name: String,
                                    bytes: Int64, localURL: URL?, phoneID: String) {
-        transferHistory.record(TransferHistoryEntry(
+        transferHistory.record(withAverageSpeed(TransferHistoryEntry(
             id: id, date: Date(), direction: direction, deviceID: phoneID, deviceName: phoneName(phoneID), name: name,
             bytes: bytes, outcome: outcome, localPath: localURL?.path
-        ))
+        )))
+    }
+
+    /// A completed entry keeps its average speed, from when its row first moved bytes (the Transfers window's "fastest").
+    private func withAverageSpeed(_ entry: TransferHistoryEntry) -> TransferHistoryEntry {
+        guard entry.outcome == .completed, let row = fileTransfers[entry.id], let since = row.movingSince else { return entry }
+        var timed = entry
+        timed.bytesPerSecond = TransferSpeed.average(bytes: entry.bytes - row.movingSinceBytes, since: since, now: Date())
+        return timed
+    }
+
+    /// The Transfers window's route chip for a connected device: its session's tier, and a tunnel's own route.
+    func transferRouteChip(for deviceID: String) -> TransferRouteChip? {
+        guard let current = registry.session(for: deviceID) else { return nil }
+        let host = tierHost(current.connection)
+        return makeTransferRouteChip(tier: tier(of: current), socketRoute: connectionRoute(forHost: host),
+                                     tunnelRoute: current.tunnel?.route, relay: current.tunnel?.relay ?? current.tunnel?.vpn)
+    }
+
+    /// Remove from History on a row this session still holds (a failed file, a finished folder).
+    func removeFinishedTransfer(id transferID: String) {
+        guard let row = fileTransfers[transferID], !row.active else { return }
+        fileTransfers.removeValue(forKey: transferID)
+        if row.folder == nil {
+            outgoingFileSources.removeValue(forKey: transferID)
+            transferDevices.removeValue(forKey: transferID)
+        }
     }
 
     private func markFileTransferFinished(id: String, status: String) {
@@ -3907,7 +3976,11 @@ final class PairingCoordinator: ObservableObject {
             active: false,
             startedAt: transfer.startedAt,
             retryable: outgoingFileSources[id] != nil,
-            localURL: transfer.localURL
+            localURL: transfer.localURL,
+            deviceID: transfer.deviceID ?? transferDevices[id],
+            incoming: transfer.incoming,
+            bytesDone: transfer.bytesDone,
+            bytesTotal: transfer.bytesTotal
         )
         pruneTransferHistory()
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
@@ -6069,6 +6142,9 @@ extension PairingCoordinator: FolderSenderHost {
     }
 
     func folderRowChanged(_ row: FileTransferRow) {
+        var row = row
+        if row.deviceID == nil { row.deviceID = transferDevices[row.id] }
+        row.markMoving(previous: fileTransfers[row.id], bytes: row.folder?.progress.bytesDone)
         fileTransfers[row.id] = row
         pruneTransferHistory()
         fileTransferActive = fileTransfers.values.contains(where: { $0.active })
@@ -6115,7 +6191,7 @@ extension PairingCoordinator: FolderReceiverHost {
     var folderConflictPolicy: MacFolderConflictPolicy { settings.folderConflictPolicy }
     var tagsReceivedFiles: Bool { settings.tagReceivedFiles }
     func receiveDirectoryAccess() -> ReceiveDirectoryAccess { settings.receiveDirectoryAccess() }
-    func recordHistory(_ entry: TransferHistoryEntry) { transferHistory.record(entry) }
+    func recordHistory(_ entry: TransferHistoryEntry) { transferHistory.record(withAverageSpeed(entry)) }
 
     func receivedItems(_ urls: [URL], phoneID: String, purpose: PhoneDownloadPurpose?) {
         // Previews are private; a Finder drop is already where the user put it.
@@ -6578,7 +6654,11 @@ private final class OutgoingFileTransfer {
     private var cancelled = false
     private let acknowledgement = NSCondition()
     private var acknowledgedSequence: Int64 = -1
+    private var sentBytes: Int64?
     var isCancelled: Bool { lock.withLock { cancelled } }
+    /// Bytes the phone has taken so far, once sending started (nil before), for the Transfers window.
+    var progressBytes: Int64? { lock.withLock { sentBytes } }
+    private func setProgressBytes(_ value: Int64) { lock.withLock { sentBytes = value } }
 
     func cancel() {
         lock.withLock { cancelled = true }
@@ -6647,6 +6727,7 @@ private final class OutgoingFileTransfer {
                 var sent: Int64 = 0
                 var sequence: Int64 = 0
                 let progress = MacTransferProgress(totalBytes: self.offer.size)
+                self.setProgressBytes(0)
                 if fast {
                     // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.swift).
                     let pacer = self.pacer
@@ -6659,6 +6740,7 @@ private final class OutgoingFileTransfer {
                         }
                         sequence += 1
                         sent += Int64(chunk.count)
+                        self.setProgressBytes(max(0, sent - pacer.unacknowledgedBytes))
                         if let detail = progress.status(transferred: max(0, sent - pacer.unacknowledgedBytes)) {
                             DispatchQueue.main.async { status("Sending \(self.displayName): \(detail)") }
                         }
@@ -6683,6 +6765,7 @@ private final class OutgoingFileTransfer {
                     }
                     sequence += 1
                     sent += Int64(chunk.count)
+                    self.setProgressBytes(sent)
                     if let detail = progress.status(transferred: sent) {
                         DispatchQueue.main.async { status("Sending \(self.displayName): \(detail)") }
                     }

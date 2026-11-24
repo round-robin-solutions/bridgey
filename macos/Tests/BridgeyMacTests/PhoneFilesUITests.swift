@@ -686,8 +686,8 @@ final class PhoneFilesUITests: XCTestCase {
             TransferHistoryEntry(id: "3", date: now.addingTimeInterval(-86_400 * 2), direction: .received, deviceID: "other", deviceName: "Pixel",
                                  name: "Notes.txt", bytes: 5, outcome: .completed),
         ]
-        let groups = TransferHistoryView.groups(entries, now: now)
-        XCTAssertEqual(groups.map(\.entries.count), [2, 1])
+        let groups = TransferDays.group(TransferItems.make(entries: entries, rows: [], deviceName: { $0 }), now: now)
+        XCTAssertEqual(groups.map { $0.media.count + $0.rows.count }, [2, 1])
         var filter = TransferHistoryFilter()
         filter.query = "trip"
         XCTAssertEqual(entries.filter(filter.matches).map(\.id), ["2"], "destination is searched")

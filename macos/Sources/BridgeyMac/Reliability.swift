@@ -71,7 +71,11 @@ func recoverInterruptedTransfers(_ transfers: [String: FileTransferRow]) -> [Str
                 active: false,
                 startedAt: transfer.startedAt,
                 retryable: transfer.retryable,
-                folder: transfer.folder
+                folder: transfer.folder,
+                deviceID: transfer.deviceID,
+                incoming: transfer.incoming,
+                bytesDone: transfer.bytesDone,
+                bytesTotal: transfer.bytesTotal
             )
         }
         .sorted { $0.startedAt > $1.startedAt }
