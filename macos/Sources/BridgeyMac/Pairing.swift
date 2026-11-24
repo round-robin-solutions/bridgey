@@ -4506,8 +4506,9 @@ final class PairingCoordinator: ObservableObject {
 
     private func transferActivity(_ id: String) -> DeviceTransferActivity {
         let received = folderReceiver.activity(with: id)
+        // Only transfers the peer already knows about count, as on Android: a file still waiting in the send queue goes
+        // out on whichever session is current, and counting it would let the two ends decide differently.
         let files = transferDevices.contains { $0.value == id && (incomingFiles[$0.key] != nil || outgoingFiles[$0.key] != nil) }
-            || fileSendQueues[id].map { !$0.isEmpty } == true
         return DeviceTransferActivity(files: files, folders: folders.hasActiveTransfer(with: id) || received.folders,
                                       phoneFiles: received.phoneFiles,
                                       clipboard: clipboardInbox.hasTransfer(from: id) || clipboardOutbox.hasTransfer(for: id),
