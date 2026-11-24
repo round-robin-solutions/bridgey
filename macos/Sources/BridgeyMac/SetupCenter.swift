@@ -42,6 +42,8 @@ final class SetupCenter: ObservableObject {
     private var closingSetup = false
     private var whatsNewWindow: NSWindow?
     private let localNetwork = LocalNetworkProbe()
+    /// One automation probe per app at a time (a probe can wait on its app for good).
+    private let automationProbes = AutomationProbeGate()
     private var bluetoothRequest: BluetoothPermissionRequest?
     private var cancellables = Set<AnyCancellable>()
     private var systemStates: [SetupPermission: PermissionSystemState] = [:]
@@ -485,8 +487,8 @@ final class SetupCenter: ObservableObject {
         }
         for (permission, bundleID) in [(SetupPermission.automation, automationBundleID), (.browserAutomation, browserBundleID)] {
             let lastKnown = store.lastAutomation(bundleID)
-            DispatchQueue.global(qos: .utility).async { [weak self] in
-                let state = PermissionMapping.automation(AutomationProbe.state(bundleID: bundleID, ask: false), lastKnown: lastKnown)
+            automationProbes.run(bundleID: bundleID, ask: false) { [weak self] status in
+                let state = PermissionMapping.automation(status, lastKnown: lastKnown)
                 Task { @MainActor in
                     self?.store.rememberAutomation(state, for: bundleID)
                     self?.systemStates[permission] = state
@@ -568,8 +570,7 @@ final class SetupCenter: ObservableObject {
             if NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).isEmpty {
                 NSWorkspace.shared.open(permission.settingsURL)
             } else {
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    _ = AutomationProbe.state(bundleID: bundleID, ask: true)
+                automationProbes.run(bundleID: bundleID, ask: true) { [weak self] _ in
                     Task { @MainActor in self?.refreshPermissions() }
                 }
             }

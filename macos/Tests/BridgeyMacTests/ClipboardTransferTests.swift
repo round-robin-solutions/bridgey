@@ -211,6 +211,50 @@ final class ClipboardTransferTests: XCTestCase {
         XCTAssertEqual(sent.last, "cancel")
     }
 
+    /// The app being pasted into waits at most the limit, then gets nothing and the notice; the transfer goes on into
+    /// the cache, so pasting again is instant.
+    @MainActor func testAPasteWaitsAtMostTheLimitWhileTheTransferGoesOn() throws {
+        let inbox = makeInbox()
+        inbox.pasteWaitLimit = { 0.3 }
+        var pasted: [ClipboardOfferSummary] = []
+        inbox.onPasted = { summary, _ in pasted.append(summary) }
+        let data = Data((0..<60_000).map { UInt8($0 % 251) })
+        let clip = offer([ClipboardOfferItem(index: 0, kind: .file, mime: "video/mp4", name: "video.mp4", size: Int64(data.count), sha256: nil, inline: nil)])
+        inbox.accept(clip, deviceID: "mac", peerName: "Work Mac")
+        let received = ClipboardInbox.Received(offer: clip, deviceID: "mac", peerName: "Work Mac")
+        // The other device answers the fetch, then its chunks are slow to come.
+        pending.append {
+            let id = self.fetches[0].transferId
+            inbox.handleTransferOffer(ClipboardTransferOffer(transferId: id, name: "video.mp4", mimeType: "video/mp4", size: Int64(data.count),
+                                                             sha256: nil, offerId: clip.offerId, index: 0), outerTransferID: id)
+        }
+        let started = Date()
+        guard case .failure(.stillReceiving) = inbox.waitForFile(received, index: 0) else { return XCTFail("expected stillReceiving") }
+        let waited = Date().timeIntervalSince(started)
+        XCTAssertGreaterThanOrEqual(waited, 0.3)
+        XCTAssertLessThan(waited, 5, "never the 15 + 30 s of the transfer timeouts")
+        let transferID = fetches[0].transferId
+        XCTAssertTrue(inbox.isTransfer(transferID, from: "mac"), "still running in the background")
+        XCTAssertEqual(sent, ["fetch", "accept"], "not cancelled")
+
+        XCTAssertTrue(inbox.handleChunk(transferID: transferID, sequence: 0, data: data.prefix(24_576)))
+        XCTAssertTrue(inbox.handleChunk(transferID: transferID, sequence: 1, data: data.subdata(in: 24_576..<49_152)))
+        XCTAssertTrue(inbox.handleChunk(transferID: transferID, sequence: 2, data: data.suffix(from: 49_152)))
+        inbox.handleComplete(transferID: transferID, sha256: hash(data))
+        XCTAssertEqual(pasted, [], "no paste got it: the one that gave up already had its notice")
+        guard case let .success(file) = inbox.waitForFile(received, index: 0) else { return XCTFail("expected the cached file") }
+        XCTAssertEqual(try Data(contentsOf: file), data)
+        XCTAssertEqual(fetches.count, 1, "the second paste is served from the cache")
+    }
+
+    @MainActor func testPasteWaitSettingIsClamped() {
+        XCTAssertEqual(ClipboardPasteWait.clamped(nil), 5)
+        XCTAssertEqual(ClipboardPasteWait.clamped(0), 1)
+        XCTAssertEqual(ClipboardPasteWait.clamped(12), 12)
+        XCTAssertEqual(ClipboardPasteWait.clamped(600), 60)
+        XCTAssertEqual(ClipboardPasteWait.clamped(.nan), 5)
+    }
+
     // MARK: Clipboard-purpose transfers
 
     @MainActor func testEagerPushGoesToTheCacheWithoutAnyFilesPath() throws {
@@ -449,6 +493,33 @@ final class ClipboardTransferTests: XCTestCase {
         other.begin(offer: again, sources: againSources, changeCount: 1, deviceID: "phone")
         other.startEagerPushes(limit: ClipboardEagerLimit.askWhenPasting.bytes, for: "phone")
         XCTAssertEqual(otherLog(), [], "Always ask when pasting pushes nothing")
+    }
+
+    /// A send that breaks off (no acknowledgements, a chunk the session refuses, no session to send on) tells the
+    /// device: it otherwise waits for chunks until its 30 s stall timeout (seen live between two Macs, 24 Nov 2026).
+    @MainActor func testASendThatBreaksOffCancelsOnTheOtherDevice() throws {
+        for sender in [ClipboardChunkSender { _, _, _ in false }, nil] {
+            var log: [String] = []
+            let outbox = ClipboardOutbox(cache: cache)
+            outbox.available = { true }
+            outbox.pasteboardChangeCount = { 1 }
+            outbox.transport = ClipboardOutboxTransport(
+                isConnected: { _ in true },
+                sendEncrypted: { kind, _, _, _ in log.append(kind); return true },
+                sendCancel: { _, deviceID in log.append("cancel:\(deviceID)") },
+                chunkSender: { _ in sender }
+            )
+            let image = ClipboardImageClip(data: Data(repeating: 7, count: 40_000), mime: "image/png")
+            let (draft, sources) = try XCTUnwrap(ClipboardOfferBuilder.images([image], cache: cache))
+            outbox.begin(offer: draft, sources: sources, changeCount: 1, deviceID: "mac")
+            let fetch = ClipboardFetchPayload(offerId: draft.offerId, index: 0, transferId: UUID().uuidString.lowercased())
+            outbox.handleFetch(fetch, from: "mac")
+            outbox.handleAccept(fetch.transferId)
+            let deadline = Date().addingTimeInterval(5)
+            while outbox.activeCount > 0 && Date() < deadline { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
+            XCTAssertEqual(log, ["files.offer", "cancel:mac"], sender == nil ? "no session" : "a refused chunk")
+            XCTAssertEqual(outbox.activeCount, 0)
+        }
     }
 
     @MainActor func testOutgoingTransferHashesWhileStreamingWithAcknowledgements() throws {

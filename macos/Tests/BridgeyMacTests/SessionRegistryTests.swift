@@ -66,6 +66,95 @@ final class SessionRegistryTests: XCTestCase {
         XCTAssertEqual(mac.session(for: "m-phone")?.value, "A")
     }
 
+    // MARK: LAN first (lan_first_draft1)
+
+    private final class TieredSession {
+        let name: String
+        let tier: SessionTier
+        init(_ name: String, _ tier: SessionTier) {
+            self.name = name
+            self.tier = tier
+        }
+    }
+
+    /// One side of the pair. `peerSupports`: the existing session's peer advertised lan_first_draft1.
+    private func duplicate(local: String, remote: String, existing: (SessionTier, Bool), candidate: (SessionTier, Bool),
+                           peerSupports: Bool, stale: Bool = false, transfer: Bool = false) -> String {
+        let registry = SessionRegistry<TieredSession>(localDeviceID: local)
+        let old = TieredSession("existing", existing.0)
+        let new = TieredSession("candidate", candidate.0)
+        registry.addPending(old, initiatedLocally: existing.1)
+        _ = registry.authenticate(old, deviceID: remote, peerName: "Peer")
+        registry.update(remote) { $0.remoteLanFirst = peerSupports }
+        registry.addPending(new, initiatedLocally: candidate.1)
+        _ = registry.authenticate(new, deviceID: remote, peerName: "Peer", isStale: { $0 === old && stale },
+                                  tier: { $0.tier }, hasActiveTransfer: { $0 == remote && transfer })
+        return registry.session(for: remote)?.name ?? "none"
+    }
+
+    func testLanFirstHigherTierWinsWhicheverSideDialled() {
+        for (existingLocal, candidateLocal) in [(true, true), (true, false), (false, true), (false, false)] {
+            XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.tunnel, existingLocal), candidate: (.lan, candidateLocal),
+                                     peerSupports: true), "candidate", "LAN replaces the tunnel")
+            XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.socket, existingLocal), candidate: (.lan, candidateLocal),
+                                     peerSupports: true), "candidate", "LAN replaces Tailscale")
+            XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.tunnel, existingLocal), candidate: (.socket, candidateLocal),
+                                     peerSupports: true), "candidate", "a socket replaces the tunnel")
+            XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, existingLocal), candidate: (.tunnel, candidateLocal),
+                                     peerSupports: true), "existing", "a tunnel never replaces LAN")
+            XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, existingLocal), candidate: (.socket, candidateLocal),
+                                     peerSupports: true), "existing", "Tailscale never replaces LAN")
+        }
+    }
+
+    func testLanFirstEqualTiersKeepTheDialledByLowerIDRule() {
+        // m-mac < z-phone: the Mac's dial wins; a-phone < m-mac: the phone's dial wins; same side dialled: the newer one.
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, true), candidate: (.lan, false), peerSupports: true), "existing")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, false), candidate: (.lan, true), peerSupports: true), "candidate")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneA, existing: (.tunnel, true), candidate: (.tunnel, false), peerSupports: true), "candidate")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneA, existing: (.tunnel, false), candidate: (.tunnel, true), peerSupports: true), "existing")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.socket, true), candidate: (.socket, true), peerSupports: true), "candidate")
+    }
+
+    func testLanFirstNeverReplacesASessionWithATransferRunning() {
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.tunnel, false), candidate: (.lan, true),
+                                 peerSupports: true, transfer: true), "existing", "no switch cancels a transfer")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, false), candidate: (.lan, true),
+                                 peerSupports: true, transfer: true), "existing")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.tunnel, false), candidate: (.lan, true),
+                                 peerSupports: true, stale: true, transfer: true), "candidate", "a stale session loses first")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, true), candidate: (.tunnel, false),
+                                 peerSupports: true, stale: true), "candidate", "even to a lower tier")
+    }
+
+    /// A peer without the key: exactly the rule before, tiers and transfers aside.
+    func testWithoutTheKeyTodaysRuleExactly() {
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, true), candidate: (.tunnel, true), peerSupports: false), "candidate")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.tunnel, true), candidate: (.lan, false), peerSupports: false), "existing")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.tunnel, false), candidate: (.lan, true),
+                                 peerSupports: false, transfer: true), "candidate", "the transfer rule needs the key")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneZ, existing: (.lan, true), candidate: (.tunnel, false),
+                                 peerSupports: false, stale: true), "candidate")
+    }
+
+    /// Both ends of one pair, each with its own view of who dialled, keep the same session.
+    func testBothEndsAgree() {
+        let tiers: [SessionTier] = [.tunnel, .socket, .lan]
+        for existingTier in tiers {
+            for candidateTier in tiers {
+                for macDialledExisting in [true, false] {
+                    for macDialledCandidate in [true, false] {
+                        let mac = duplicate(local: macID, remote: phoneZ, existing: (existingTier, macDialledExisting),
+                                            candidate: (candidateTier, macDialledCandidate), peerSupports: true)
+                        let phone = duplicate(local: phoneZ, remote: macID, existing: (existingTier, !macDialledExisting),
+                                              candidate: (candidateTier, !macDialledCandidate), peerSupports: true)
+                        XCTAssertEqual(mac, phone, "\(existingTier) then \(candidateTier)")
+                    }
+                }
+            }
+        }
+    }
+
     func testPerPhoneStateIsIsolated() {
         let registry = SessionRegistry<FakeSession>(localDeviceID: macID)
         _ = connect(registry, FakeSession("a"), phoneA, local: false)

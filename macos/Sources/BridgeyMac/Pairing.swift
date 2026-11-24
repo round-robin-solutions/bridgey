@@ -426,6 +426,10 @@ final class PairingCoordinator: ObservableObject {
     private let clock: ReconnectClock = MainQueueClock()
     private lazy var reconnect = ReconnectEngine(addressBook: KnownAddressBook(store: UserDefaultsAddressBookStore()), clock: clock)
     private var discoveryRestartTimer: ScheduledTask?
+    /// LAN first upgrade dials (LanFirst.swift).
+    private let lanUpgrade = LanUpgradeScheduler()
+    private var lanUpgradeTimer: ScheduledTask?
+    private var lanUpgradeCheckQueued = false
     private var lastDiscoveryRestart = Date.distantPast
     /// Periodic discovery restarts run for `discoveryRestartWindow` after this moment.
     private var discoveryWindowStart: Date?
@@ -1557,6 +1561,7 @@ final class PairingCoordinator: ObservableObject {
         clipboardCache.enforceLimits()
         clipboardInbox.progress = ClipboardPasteProgressPanel()
         clipboardInbox.eagerLimit = { [weak self] in self?.settings.clipboardEagerLimit ?? 0 }
+        clipboardInbox.pasteWaitLimit = { [weak self] in self?.settings.clipboardPasteWait ?? ClipboardPasteWait.default }
         clipboardInbox.protectedOfferIDs = { [weak self] in
             self?.clipboardOutbox.current.map { [$0.offer.offerId] } ?? []
         }
@@ -1580,7 +1585,7 @@ final class PairingCoordinator: ObservableObject {
             self?.recordClipActivity(.clipPasted, summary: summary, deviceID: received.deviceID, deviceName: received.peerName)
         }
         clipboardInbox.onPasteFailed = { [weak self] failure, received in
-            self?.diagnostics.record(category: "clipboard", event: "paste_failed")
+            self?.diagnostics.record(category: "clipboard", event: "paste_failed", outcome: failure.diagnosticToken, device: received.deviceID)
             self?.recordClipActivity(.clipPasteFailed, summary: ClipboardOfferSummary(received.offer),
                                      deviceID: received.deviceID, deviceName: received.peerName)
             self?.postPasteFailure(failure, peerName: received.peerName)
@@ -1774,7 +1779,10 @@ final class PairingCoordinator: ObservableObject {
         content.title = failure == .notConnected
             ? String(format: L10n.text("paste.failed.offline", fallback: "Couldn\u{2019}t paste: %@ is not connected"), peerName)
             : String(format: L10n.text("paste.failed", fallback: "Couldn\u{2019}t paste from %@"), peerName)
-        content.body = L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
+        // Still on its way: the transfer goes on, so pasting again works; copying again would start it over.
+        content.body = failure == .stillReceiving
+            ? L10n.text("paste.failed.receiving", fallback: "Still on its way. Paste again in a moment.")
+            : L10n.text("stream.clip.failed.detail", fallback: "Copy it again and paste")
         let request = UNNotificationRequest(identifier: "bridgey.clipboard.paste-failed", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
@@ -2683,7 +2691,7 @@ final class PairingCoordinator: ObservableObject {
                 } else {
                     self.failPairing(current.failure ?? self.endedWithoutReason(current))
                 }
-            } else if let dialed = current.dialDeviceID, !current.authenticated {
+            } else if let dialed = current.dialDeviceID, !current.authenticated, !current.lanUpgrade {
                 // A reconnect that never authenticated: the schedule tries again.
                 BridgeyLog.reconnect.notice("dial failed peer=\(shortDeviceID(dialed), privacy: .public) reason=\(reason, privacy: .public)")
                 // Which address failed (v4.<last octet>, v6, name): a dial to an expired IPv6 temporary address shows here.
@@ -3010,6 +3018,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     link.remoteConnect = draftKeys[connectFeatureKey] == true
                     link.remoteHandoffTakeover = handoffTakeover
+                    link.remoteLanFirst = decodeFeatureFlag(plaintext, lanFirstFeatureKey)
                     link.remoteAgentsMirror = draftKeys[agentsMirrorFeatureKey] == true && !AgentPeerRules.isAgent(draftKeys)
                     if !link.remoteAgentsMirror { link.agentsStateReceived = false }
                     if features[.battery] == false { link.battery = nil }
@@ -3060,6 +3069,7 @@ final class PairingCoordinator: ObservableObject {
                 // Settings sync: a snapshot once both sides show the key, or the end of syncing when one stops.
                 settingsSync.refresh(phoneID)
                 if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
+                scheduleLanUpgradeCheck()
             case "ping.request":
                 try receivePing(message, in: current)
             case "ping.ack":
@@ -3616,11 +3626,12 @@ final class PairingCoordinator: ObservableObject {
         guard current.localConfirmed, current.remoteConfirmed, !current.authenticated, !current.ended else { return }
         let id = current.remoteDeviceID
         let stale: (Session) -> Bool = { sessionLooksStale(supported: $0.heartbeatSupported, lastReceivedAt: $0.lastReceivedAt, tunnel: $0.tunnel != nil) }
-        switch registry.authenticate(current, deviceID: id, peerName: current.peerName, isStale: stale) {
+        switch registry.authenticate(current, deviceID: id, peerName: current.peerName, isStale: stale,
+                                     tier: { self.tier(of: $0) }, hasActiveTransfer: { self.hasActiveTransfer($0) }) {
         case .rejected:
             // A live session for this phone wins the duplicate rule; this socket closes quietly.
-            BridgeyLog.transport.notice("duplicate session closed peer=\(shortDeviceID(id), privacy: .public)")
-            diagnostics.record(category: "transport", event: "duplicate_closed", device: id)
+            BridgeyLog.transport.notice("duplicate session closed peer=\(shortDeviceID(id), privacy: .public) tier=\(self.tier(of: current).token, privacy: .public)")
+            diagnostics.record(category: "transport", event: "duplicate_closed", device: id, detail: tier(of: current).token)
             if pairingSession === current {
                 pairingSession = nil
                 pairingFlow = .idle
@@ -3639,14 +3650,16 @@ final class PairingCoordinator: ObservableObject {
             }
             if let replaced {
                 BridgeyLog.transport.notice("duplicate session replaced peer=\(shortDeviceID(id), privacy: .public)")
-                // "stale": the old session had gone silent, so the new one won whichever side dialled it.
-                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id, detail: stale(replaced) ? "stale" : nil)
+                // "stale": the old session had gone silent, so the new one won whichever side dialled it; else the tiers.
+                diagnostics.record(category: "transport", event: "duplicate_replaced", device: id,
+                                   detail: stale(replaced) ? "stale" : "\(tier(of: replaced).token)_to_\(tier(of: current).token)")
                 replaced.dropReason = "replaced"
                 replaced.connectionTimeout?.cancel()
                 replaced.heartbeat?.cancel()
                 replaced.close()
                 // The registry already gave this phone to the new session, so the old one's close finds nothing to
-                // disconnect: its transfers end here, or they would stay active for good.
+                // disconnect: its transfers end here, or they would stay active for good. With a LAN first peer the
+                // rule never replaces a session with a transfer running, so this is only a safety net there.
                 cancelTransfers(for: id)
             }
         }
@@ -3695,6 +3708,10 @@ final class PairingCoordinator: ObservableObject {
     private func dialFinished(_ current: Session) {
         guard let dialed = current.dialDeviceID, !current.dialFinished else { return }
         current.dialFinished = true
+        if current.lanUpgrade {
+            lanUpgradeDialEnded(current, deviceID: dialed)
+            return
+        }
         reconnect.dialEnded(dialed)
     }
 
@@ -3758,6 +3775,8 @@ final class PairingCoordinator: ObservableObject {
         features[filesFastFeatureKey] = FastTransferSettings.enabled
         // Mac only: this device applies Let Bridgey handle copy and paste, so other Macs sync it here. Phones never send it.
         features[handoffTakeoverFeatureKey] = true
+        // Draft, edition only: LAN first (LanFirst.swift). A capability, so always on.
+        features[lanFirstFeatureKey] = true
         // Draft, edition only: agent devices. A capability, so always on: this Mac finds codes and shows the phone's agents.
         features[agentsMirrorFeatureKey] = true
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),
@@ -4066,6 +4085,7 @@ final class PairingCoordinator: ObservableObject {
         lastPeers = peers
         publishHealth()
         reconnect.discoveryChanged(peers)
+        scheduleLanUpgradeCheck()
     }
 
     /// At launch every trusted phone that is not connected is tried straight away at its last
@@ -4242,6 +4262,7 @@ final class PairingCoordinator: ObservableObject {
         reconnect.resetAll(ids)
         discoveryWindowStart = ids.isEmpty ? nil : now
         armDiscoveryRestartTimer()
+        scheduleLanUpgradeCheck()
     }
 
     private func restartDiscoveryNow(reason: String) {
@@ -4464,7 +4485,111 @@ final class PairingCoordinator: ObservableObject {
     private func sendConnectAddresses(to current: Session) {
         guard connectAdvertised, let local = connect.localAddresses() else { return }
         let check = connect.store.pairSecret(current.remoteDeviceID).map(ConnectCrypto.pairCheck)
-        _ = sendQuickPayload(kind: "connect.addresses", payload: ConnectAddresses(port: local.port, addrs: local.addrs, pairCheck: check).payload, to: current)
+        // LAN first: a virtual interface's address (a VM or container bridge, OrbStack) is not this Mac's LAN.
+        let interfaces = localInterfaceNames()
+        let addrs = local.addrs.filter { !isVirtualLanAddress($0, interface: interfaces[$0.a.lowercased()]) }
+        _ = sendQuickPayload(kind: "connect.addresses", payload: ConnectAddresses(port: local.port, addrs: addrs, pairCheck: check).payload, to: current)
+    }
+
+    // MARK: LAN first (LanFirst.swift, docs/protocol.md "Draft: LAN first")
+
+    /// The session's tier for the duplicate rule, the same on both ends.
+    private func tier(of current: Session) -> SessionTier {
+        sessionTier(tunnel: current.tunnel != nil, remoteHost: tierHost(current.connection))
+    }
+
+    /// LAN first rule 2: a transfer with this device runs, in any form.
+    private func hasActiveTransfer(_ id: String) -> Bool { transferActivity(id).isActive }
+
+    private func transferActivity(_ id: String) -> DeviceTransferActivity {
+        let received = folderReceiver.activity(with: id)
+        let files = transferDevices.contains { $0.value == id && (incomingFiles[$0.key] != nil || outgoingFiles[$0.key] != nil) }
+            || fileSendQueues[id].map { !$0.isEmpty } == true
+        return DeviceTransferActivity(files: files, folders: folders.hasActiveTransfer(with: id) || received.folders,
+                                      phoneFiles: received.phoneFiles,
+                                      clipboard: clipboardInbox.hasTransfer(from: id) || clipboardOutbox.hasTransfer(for: id),
+                                      speedTest: speedTest.isRunning(with: id))
+    }
+
+    /// Looks for LAN upgrades on the next main-queue turn (several events often come together).
+    private func scheduleLanUpgradeCheck() {
+        guard !lanUpgradeCheckQueued else { return }
+        lanUpgradeCheckQueued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.lanUpgradeCheckQueued = false
+            self.runLanUpgradeCheck()
+        }
+    }
+
+    /// A device connected over a tunnel or a VPN, whose peer has lan_first_draft1, with no transfer running and a LAN
+    /// address to try, gets a TCP dial there like a reconnect; the new session wins the duplicate rule on both ends.
+    private func runLanUpgradeCheck() {
+        lanUpgradeTimer?.cancel()
+        lanUpgradeTimer = nil
+        guard !testLanBlocked, identity != nil else { return }
+        let networks = localIPv4Networks()
+        lanUpgrade.networkChanged(networks.map { "\($0.address)/\($0.netmask)" }.joined(separator: ","))
+        let candidates = registry.connectedIDs.compactMap { id -> LanUpgradeCandidate? in
+            guard let current = registry.session(for: id), current.authenticated, let link = registry.state(for: id) else { return nil }
+            let tier = tier(of: current)
+            guard tier < .lan, link.remoteLanFirst else {
+                return LanUpgradeCandidate(deviceID: id, tier: tier, peerSupports: link.remoteLanFirst, activeTransfer: false, addresses: [])
+            }
+            return LanUpgradeCandidate(deviceID: id, tier: tier, peerSupports: true, activeTransfer: hasActiveTransfer(id),
+                                       addresses: lanUpgradeAddresses(for: id, networks: networks))
+        }
+        let plan = lanUpgrade.evaluate(candidates, now: clock.now)
+        for decision in plan.decisions {
+            switch decision {
+            case let .skippedTransfer(id):
+                diagnostics.record(category: "transport", event: "lan_upgrade", outcome: "skipped_transfer", device: id)
+            case let .dial(id, address):
+                guard let port = NWEndpoint.Port(rawValue: UInt16(clamping: address.port)) else {
+                    lanUpgrade.dialEnded(id, won: false, now: clock.now)
+                    continue
+                }
+                let from = registry.session(for: id).map { tier(of: $0).token } ?? "none"
+                BridgeyLog.transport.notice("lan upgrade dial peer=\(shortDeviceID(id), privacy: .public) from=\(from, privacy: .public) address=\(addressTag(address.host), privacy: .public) origin=\(address.origin, privacy: .public)")
+                diagnostics.record(category: "transport", event: "lan_upgrade", outcome: "dial", device: id,
+                                   detail: "\(from)_\(address.origin)_\(addressTag(address.host))")
+                let session = dial(host: address.host, port: port, peerName: trustedName(id), deviceID: id)
+                session.lanUpgrade = true
+            }
+        }
+        if let wake = plan.wakeAt {
+            lanUpgradeTimer = clock.schedule(after: max(0, wake.timeIntervalSince(clock.now))) { [weak self] in self?.runLanUpgradeCheck() }
+        }
+    }
+
+    /// Where to dial `id` on the LAN: what Bonjour shows now, then a `lan` address from its connect.addresses on a
+    /// network this Mac is on. Only private addresses (LanFirst.swift), so the new session is a LAN one on both ends.
+    private func lanUpgradeAddresses(for id: String, networks: [LocalIPv4Network]) -> [LanUpgradeAddress] {
+        guard !networks.isEmpty else { return [] }
+        func onLink(_ host: String) -> Bool { isLanAddress(host) && isDialable(host, on: networks) }
+        var seen = Set<String>()
+        var list: [LanUpgradeAddress] = []
+        for peer in reconnect.livePeers where peer.deviceIDHint == id && !peer.tailnet {
+            for host in peer.addresses where onLink(host) && seen.insert(host).inserted {
+                list.append(LanUpgradeAddress(host: host, port: peer.port ?? ReconnectPolicy.listeningPort, origin: "bonjour"))
+            }
+        }
+        for learned in connect.store.addresses(id) where learned.kind == "lan" && parseIPv4(learned.a) != nil {
+            guard onLink(learned.a), seen.insert(learned.a).inserted else { continue }
+            // connect.addresses carries the tunnel's port; the session listens on Bridgey's own.
+            list.append(LanUpgradeAddress(host: learned.a, port: ReconnectPolicy.listeningPort, origin: "learned"))
+        }
+        return list
+    }
+
+    /// An upgrade dial ended: it won when its session is now the device's session.
+    private func lanUpgradeDialEnded(_ current: Session, deviceID id: String) {
+        let won = current.authenticated && registry.isActive(current)
+        lanUpgrade.dialEnded(id, won: won, now: clock.now)
+        BridgeyLog.transport.notice("lan upgrade \(won ? "won" : "failed", privacy: .public) peer=\(shortDeviceID(id), privacy: .public)")
+        diagnostics.record(category: "transport", event: "lan_upgrade", outcome: won ? "won" : "failed", device: id,
+                           detail: won ? nil : (current.dropReason ?? (current.localConfirmed && current.remoteConfirmed ? "rejected" : "closed")))
+        scheduleLanUpgradeCheck()
     }
 
     /// Opens a connect.setup exchange: this side's contribution to a new pair secret.
@@ -6214,6 +6339,8 @@ final class Session {
     var heartbeatSupported = false
     /// Connect anywhere: the QUIC tunnel this session runs on (nil for today's TCP).
     var tunnel: ConnectTunnel?
+    /// A LAN first upgrade dial (LanFirst.swift) to a device that is already connected over a tunnel or VPN.
+    var lanUpgrade = false
     /// connect.setup: this side's contribution while an exchange is open.
     var connectContribution: Data?
     var onMessage: ((PairingMessage) -> Void)?

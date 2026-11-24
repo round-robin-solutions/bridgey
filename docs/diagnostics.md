@@ -78,12 +78,12 @@ Categories seen in the code, with example events (not a complete list):
 | --- | --- |
 | `discovery` | `restart`, `found_trusted`, `manual`, `manual_done` |
 | `pairing` | `connection_started`, `connected`, `failed` (with the reason) |
-| `transport` | `listener_started`, `connected` (with the address source and attempt count), `disconnected` (with the reason), `duplicate_closed`, `duplicate_replaced`, `local_network_denied` (Mac) |
+| `transport` | `listener_started`, `connected` (with the address source and attempt count), `disconnected` (with the reason), `duplicate_closed`, `duplicate_replaced` (with the tiers, LAN first), `lan_upgrade` (`dial`, `won`, `failed`, `skipped_transfer`), `local_network_denied` (Mac) |
 | `reconnect` | `dial`, `dial_failed`, `no_address` (with a reason and attempt number) |
 | `protocol` | `message_rejected`, `session_failed` |
 | `transfer` | `send_started`, `send_completed` (Android), `interrupted`, `retry_started`, `cancelled` |
 | `folder` (Android) | the end state of a folder transfer, with its end code |
-| `clipboard` | `text_received`, `rich_received`, `offer_sent`, `offer_received`, `paste_fetched`, `paste_failed`, `item_pasted`, `screenshot_sent` |
+| `clipboard` | `text_received`, `rich_received`, `offer_sent`, `offer_received`, `paste_fetched`, `paste_failed` (with the reason, Mac), `item_pasted`, `screenshot_sent` |
 | `notification` | `dismiss_requested`, `dismiss_sent`, `action_requested`, `reply_requested`, `removed_remotely`, and on the Mac `code_read` (outcome: found, none, or a failure reason), `code_copied`, `code_copied_auto` |
 | `call` and `calls` | call state changes with a short reason, and the result of a call request |
 | `remote` | remote control session start and end, with a short detail |

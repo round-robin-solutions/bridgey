@@ -128,7 +128,7 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
+`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `lan_first_draft1`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
 `ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -1774,6 +1774,30 @@ one for that session. Relay credentials are TURN REST style:
 valid 2 hours. A node's warm relay username is `"<expiry>:w.<tag>"`, tag = base64url(HMAC-SHA256(secret,
 "bridgey-warm-v1" \0 nodeId \0 expiry)[0..9]), with the same credential rule, valid 12 hours. Vectors for all of
 this: `protocol/test-vectors/connect-v1.json` (`nodeAuthV2`, `turnWarm`).
+
+### LAN first (`lan_first_draft1`)
+
+Status: **draft, edition-only**. Builds that have it send `lan_first_draft1: true` in `features.update` to every peer
+(a capability, not a setting). On the same network two devices keep a direct LAN socket instead of a tunnel, and no
+session switch cancels a transfer. Peers without the key keep the rules below unchanged.
+
+- **Session tier**, the same on both ends: 2 for a socket session whose remote address is private (IPv4 10/8,
+  172.16/12, 192.168/16, 169.254/16; IPv6 fe80::/10 and fc00::/7 except Tailscale's fd7a:115c:a1e0::/48; loopback;
+  IPv4-mapped IPv6 counts as its IPv4); 1 for any other socket (Tailscale's 100.64.0.0/10, other VPNs, public
+  addresses); 0 for a session on a Connect anywhere tunnel, whatever its route (the two ends can label one tunnel
+  differently).
+- **Duplicate rule**, when the existing session's peer advertised the key, in this order: a stale existing session
+  loses; while this device has a transfer with that peer (a file, a folder, a Phone files download, a clipboard push
+  or fetch, a speed test) the new session is rejected; the higher tier wins; equal tiers keep the dialled-by-lower-ID
+  rule. Without the key the rule is exactly as before.
+- **Upgrade dial**: a device connected below tier 2 to a peer with the key, with no transfer running, dials the peer
+  over TCP at a LAN address (seen by discovery now, or a `lan` address from its `connect.addresses` on one of this
+  device's networks), the same handshake as a reconnect. At most one dial per device: at once, then every 30 s, and
+  every 5 minutes after 3 failures on one network until the network changes. The new session wins on tier and the
+  tunnel session closes; when it drops, reconnect and the tunnel take over as before.
+- `connect.addresses` leaves out `lan` addresses on this device's virtual interfaces (Internet Sharing and virtual
+  machine bridges, container and VPN interfaces, OrbStack's 192.168.139.0/24 and 192.168.215.0/24).
+- Diagnostics: `transport`/`lan_upgrade` with outcome `dial`, `won`, `failed` or `skipped_transfer`.
 
 ## Draft: agent devices (`agent_draft1`)
 
