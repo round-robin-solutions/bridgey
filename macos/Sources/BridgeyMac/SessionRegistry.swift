@@ -46,6 +46,8 @@ struct PhoneLinkState: Equatable {
     var remoteConnect = false
     /// The peer advertised `handoff_takeover_draft1`: it is a Mac, so the settings only Macs share sync with it.
     var remoteHandoffTakeover = false
+    /// The peer advertised `lan_first_draft1` (LanFirst.swift): the duplicate rule weighs routes and transfers with it.
+    var remoteLanFirst = false
     /// The phone advertised `agents_mirror_draft1` (AgentsMirror.swift), and sent agents.state in this session.
     var remoteAgentsMirror = false
     var agentsStateReceived = false
@@ -129,6 +131,10 @@ func pairingOldVersionText(_ name: String) -> String {
 /// same duplicate rule so both ends keep the same socket: keep the one dialled by the side with
 /// the lower device id; if both were dialled by the same side, keep the newer one. A live session that looks stale
 /// (silent past `ReconnectPolicy.staleSessionAfter`) loses to the new one whoever dialled it.
+///
+/// With a peer that advertised `lan_first_draft1` (docs/protocol.md "Draft: LAN first"), in this order: a stale session
+/// loses; while a transfer with the device runs, a new session is rejected (no switch cancels a transfer); then the
+/// higher tier wins (LAN socket, other socket, tunnel); equal tiers keep the dialled-by-lower-ID rule.
 final class SessionRegistry<S: AnyObject> {
     enum Admission: Equatable {
         /// The session is now the device's session; `replaced` (if any) must be closed.
@@ -178,7 +184,10 @@ final class SessionRegistry<S: AnyObject> {
     func isActive(_ session: S) -> Bool { active.contains { $0.session === session } }
 
     /// `isStale`: the session has heard nothing for longer than a healthy heartbeat allows (`sessionLooksStale`).
-    func authenticate(_ session: S, deviceID: String, peerName: String, isStale: (S) -> Bool = { _ in false }) -> Admission {
+    /// `tier` and `hasActiveTransfer` count only with a peer that advertised `lan_first_draft1`.
+    func authenticate(_ session: S, deviceID: String, peerName: String, isStale: (S) -> Bool = { _ in false },
+                      tier: (S) -> SessionTier = { _ in .socket },
+                      hasActiveTransfer: (String) -> Bool = { _ in false }) -> Admission {
         let entry: Entry
         if let index = pending.firstIndex(where: { $0.session === session }) {
             entry = pending.remove(at: index)
@@ -194,7 +203,9 @@ final class SessionRegistry<S: AnyObject> {
             return .accepted(replaced: nil)
         }
         let existing = active[index]
-        guard isStale(existing.session) || prefers(entry, over: existing) else { return .rejected }
+        guard admits(entry, over: existing, deviceID: deviceID, isStale: isStale, tier: tier, hasActiveTransfer: hasActiveTransfer) else {
+            return .rejected
+        }
         entry.state = existing.state
         entry.state.smsProviderConfirmed = false
         entry.state.smsFeaturesReceived = false
@@ -202,6 +213,17 @@ final class SessionRegistry<S: AnyObject> {
         active.remove(at: index)
         active.append(entry)
         return .accepted(replaced: existing.session)
+    }
+
+    /// The duplicate rule (see the type's note). Without the peer's `lan_first_draft1`, exactly the rule before it.
+    private func admits(_ candidate: Entry, over existing: Entry, deviceID: String, isStale: (S) -> Bool,
+                        tier: (S) -> SessionTier, hasActiveTransfer: (String) -> Bool) -> Bool {
+        if isStale(existing.session) { return true }
+        guard existing.state.remoteLanFirst else { return prefers(candidate, over: existing) }
+        if hasActiveTransfer(deviceID) { return false }
+        let new = tier(candidate.session)
+        let old = tier(existing.session)
+        return new != old ? new > old : prefers(candidate, over: existing)
     }
 
     private func prefers(_ candidate: Entry, over existing: Entry) -> Bool {

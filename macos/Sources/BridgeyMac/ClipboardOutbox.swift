@@ -197,9 +197,11 @@ final class ClipboardOutgoingTransfer: @unchecked Sendable {
         if isCancelled { throw ClipboardStreamError.cancelled }
     }
 
-    /// Streams every chunk, then reports the SHA-256 of what was sent.
+    /// Streams every chunk, then reports the SHA-256 of what was sent. On a serial queue of its own: that gets a thread
+    /// even when GCD's shared pool is full (on 24 Nov 2026 a stuck permission check filled it on the work Mac, and
+    /// clipboard sends queued on a global queue never started).
     func stream(with sender: ClipboardChunkSender, completion: @escaping (Result<String, ClipboardStreamError>) -> Void) {
-        DispatchQueue.global(qos: .userInitiated).async {
+        DispatchQueue(label: "in.roundrobin.bridgey.clipboard.send", qos: .userInitiated).async {
             do {
                 completion(.success(try self.streamChunks(sender)))
             } catch let error as ClipboardStreamError {
@@ -344,6 +346,9 @@ final class ClipboardOutbox {
         return transferDevices[transferID] == deviceID
     }
 
+    /// A transfer to `deviceID` is running (a fetch it asked for or an eager push).
+    func hasTransfer(for deviceID: String) -> Bool { transferDevices.values.contains(deviceID) }
+
     /// The device a running transfer serves.
     func device(for transferID: String?) -> String? {
         transferID.flatMap { transferDevices[$0] }
@@ -464,7 +469,11 @@ final class ClipboardOutbox {
     func handleAccept(_ transferID: String) {
         guard let transfer = transfers[transferID], let deviceID = transferDevices[transferID] else { return }
         timeouts.removeValue(forKey: transferID)?.cancel()
-        guard let sender = transport.chunkSender(deviceID) else { finish(transferID); return }
+        guard let sender = transport.chunkSender(deviceID) else {
+            transport.sendCancel(transferID, deviceID)
+            finish(transferID)
+            return
+        }
         transfer.stream(with: sender) { [weak self] result in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { self?.streamFinished(transfer, result) }
@@ -486,7 +495,9 @@ final class ClipboardOutbox {
             switch error {
             case .changed: sendError(.changed, offerID: transfer.offerID, index: transfer.index, transferID: transfer.transferID, to: deviceID)
             case .unavailable: sendError(.unavailable, offerID: transfer.offerID, index: transfer.index, transferID: transfer.transferID, to: deviceID)
-            case .cancelled, .connection: break
+            // The device still waits for chunks: tell it, so a paste there fails now instead of after its 30 s stall timeout.
+            case .connection: transport.sendCancel(transfer.transferID, deviceID)
+            case .cancelled: break
             }
             finish(transfer.transferID)
         }
