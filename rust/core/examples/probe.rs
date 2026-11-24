@@ -7,6 +7,9 @@
 //! cargo run --example probe -- --id A --peer B --side 0 --secret <base64 32 bytes> \
 //!     --control ws://127.0.0.1:18450/v1/ws [--relay-only] [--address 10.0.0.2:42459] [--port 42459] [--state file] [--key file]
 //!     [--binary-mb 64]   both sides exchange 64 MiB of binary frames (as fast transfers send) instead of text lines
+//!     [--binary-once]    time one transfer, not one per racing tunnel: side 0 sends on its first tunnel that answers
+//!     [--settle-ms 500]  with --binary-once, wait this long before timing (MTU discovery starts with the handshake)
+//! Without --control, the nodes only dial the --address given (no ICE beside it on the same sockets).
 
 use bridgey_connect::ffi;
 use bridgey_connect_proto::b64;
@@ -191,6 +194,23 @@ fn run_binary(mut stream: TcpStream, mb: usize, client: bool, tunnel: &str, star
         }
         println!("{}", json!({"probe": "binary_echo_closed", "tunnel": tunnel}));
         return;
+    }
+    if flag("--binary-once") {
+        // Only side 0 sends, on the first of its tunnels whose 1-byte hello comes back (one the other side dropped never
+        // answers); the others stay idle.
+        static TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let mut hello = [0x42u8];
+        stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
+        let answered = arg("--side").as_deref() == Some("0") && stream.write_all(&hello).is_ok() && stream.read_exact(&mut hello).is_ok();
+        stream.set_read_timeout(None).ok();
+        if !answered || TAKEN.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let mut sink = vec![0u8; 1 << 16];
+            while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
+            return;
+        }
+        if let Some(ms) = arg("--settle-ms").and_then(|m| m.parse().ok()) {
+            std::thread::sleep(Duration::from_millis(ms));
+        }
     }
     let total = mb << 20;
     let mut frame = vec![0u8; 6 + 256 * 1024];

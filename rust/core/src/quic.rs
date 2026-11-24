@@ -102,8 +102,28 @@ impl ClientCertVerifier for AnyClient {
     }
 }
 
+/// How large a connection's datagrams may grow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mtu {
+    /// 1,200 bytes on every path, as phase 1 always sent: ICE tunnels. ICE moves them between pairs and onto a relay
+    /// without QUIC seeing it, and a relay carries 1,280 bytes with the ChannelData header. The side whose peer holds
+    /// the relay often knows its address only as a peer-reflexive candidate, so it could not keep its datagrams to
+    /// that size; and each move onto a path that carries less would stall the tunnel until quinn's black-hole detection
+    /// falls back to 1,200 bytes.
+    Base,
+    /// One address dialled as it is (LAN, VPN or public): path MTU discovery (DPLPMTUD, RFC 8899) from 1,200 up to
+    /// [MAX_UDP] bytes. A probe the path cannot carry is lost without counting as congestion, and the search settles
+    /// below it (Tailscale, MTU 1,280, settles at 1,230). If the path later carries less (the network changed under
+    /// the connection, a VPN came up), quinn's black-hole detection falls back to 1,200 bytes: about 5 seconds of stall
+    /// at a 100 ms round trip in a test.
+    Discover,
+}
+
+/// The largest UDP payload MTU discovery tries: Ethernet's 1,500 bytes less the IPv6 and UDP headers.
+pub const MAX_UDP: u16 = 1_452;
+
 /// Spec 7.4 values; keep-alive 15 s on NATed paths and 25 s on LAN and VPN.
-pub fn transport(keep_alive: Duration) -> Arc<quinn::TransportConfig> {
+pub fn transport(keep_alive: Duration, mtu: Mtu) -> Arc<quinn::TransportConfig> {
     let mut t = quinn::TransportConfig::default();
     t.keep_alive_interval(Some(keep_alive));
     t.max_idle_timeout(Some(quinn::IdleTimeout::try_from(Duration::from_secs(45)).expect("idle")));
@@ -112,13 +132,22 @@ pub fn transport(keep_alive: Duration) -> Arc<quinn::TransportConfig> {
     t.send_window(16 << 20);
     t.max_concurrent_uni_streams(quinn::VarInt::from_u32(16));
     t.max_concurrent_bidi_streams(quinn::VarInt::from_u32(4));
-    // Relay paths carry at most 1,280-byte UDP payloads; path MTU discovery stays off in phase 1.
+    // Every path starts at 1,200 bytes; relay paths carry at most 1,280-byte UDP payloads with the ChannelData header.
     t.initial_mtu(1_200);
-    t.mtu_discovery_config(None);
+    t.mtu_discovery_config(match mtu {
+        Mtu::Base => None,
+        Mtu::Discover => {
+            let mut discovery = quinn::MtuDiscoveryConfig::default();
+            discovery.upper_bound(MAX_UDP);
+            Some(discovery)
+        }
+    });
     Arc::new(t)
 }
 
-pub fn server_config(identity: &Identity) -> quinn::ServerConfig {
+/// Accepted connections: [Mtu::Base] for the endpoint (ICE tunnels arrive from virtual addresses), [Mtu::Discover]
+/// for a direct dial to one of our addresses (`Incoming::accept_with`).
+pub fn server_config(identity: &Identity, mtu: Mtu) -> quinn::ServerConfig {
     let provider = provider();
     let mut tls = rustls::ServerConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])
@@ -129,12 +158,12 @@ pub fn server_config(identity: &Identity) -> quinn::ServerConfig {
     tls.alpn_protocols = vec![ALPN.to_vec()];
     tls.max_early_data_size = 0;
     let mut config = quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls).expect("QUIC server")));
-    config.transport_config(transport(Duration::from_secs(15)));
+    config.transport_config(transport(Duration::from_secs(15), mtu));
     config.migration(true);
     config
 }
 
-pub fn client_config(identity: &Identity, pin: Option<String>, keep_alive: Duration) -> quinn::ClientConfig {
+pub fn client_config(identity: &Identity, pin: Option<String>, keep_alive: Duration, mtu: Mtu) -> quinn::ClientConfig {
     let provider = provider();
     let mut tls = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])
@@ -146,7 +175,7 @@ pub fn client_config(identity: &Identity, pin: Option<String>, keep_alive: Durat
     tls.alpn_protocols = vec![ALPN.to_vec()];
     tls.enable_early_data = false;
     let mut config = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls).expect("QUIC client")));
-    config.transport_config(transport(keep_alive));
+    config.transport_config(transport(keep_alive, mtu));
     config
 }
 

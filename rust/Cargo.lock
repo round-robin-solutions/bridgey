@@ -246,6 +246,7 @@ dependencies = [
  "futures-util",
  "if-addrs 0.14.0",
  "jni",
+ "libc",
  "md-5",
  "quinn",
  "rcgen",

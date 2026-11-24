@@ -117,6 +117,7 @@ mod tests {
     use crate::stun::{self, Message};
     use crate::turn::{self, Allocation};
     use bridgey_connect_proto::rdv::Msg;
+    use std::sync::Arc;
 
     /// A TURN server at the far end of a stream: 401 with a realm and nonce to a request without credentials, then
     /// success to Allocate and CreatePermission whose MESSAGE-INTEGRITY checks out under the long-term key.
@@ -157,6 +158,82 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A QUIC tunnel whose one end goes through a relay over a stream (as TURN over TLS), paced like a Cloudflare
+    /// allocation: quinn on that end polls only its UDP socket, so datagrams that come down the stream must wake it.
+    /// 2 MiB go out and back intact, and every frame on the stream stays within 1,280 bytes with its padding.
+    #[tokio::test]
+    async fn quic_runs_through_a_stream_relay() {
+        const CHANNEL: u16 = 0x4321;
+        let (mux_a, mux_b) = (Mux::bind(0).unwrap(), Mux::bind(0).unwrap());
+        let addr_b: std::net::SocketAddr = format!("127.0.0.1:{}", mux_b.port()).parse().unwrap();
+        let (ours, mut theirs) = tokio::io::duplex(1 << 20);
+        let key = attach(&mux_a, ours);
+        let relayed = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let relayed_addr = crate::addrs::canonical(relayed.local_addr().unwrap());
+        let largest = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        {
+            // The relay: frames from the stream go to B over UDP unwrapped; B's datagrams come back framed and padded.
+            let largest = largest.clone();
+            tokio::spawn(async move {
+                let (mut buf, mut chunk, mut down) = (Vec::new(), vec![0u8; 65_536], vec![0u8; 65_536]);
+                loop {
+                    tokio::select! {
+                        read = theirs.read(&mut chunk) => {
+                            let Ok(n) = read else { return };
+                            if n == 0 { return }
+                            buf.extend_from_slice(&chunk[..n]);
+                            while let Ok(Some((len, padded))) = frame(&buf) {
+                                largest.fetch_max(padded, std::sync::atomic::Ordering::Relaxed);
+                                if let Some((CHANNEL, payload)) = stun::parse_channel_data(&buf[..len]) {
+                                    let _ = relayed.send_to(payload, addr_b).await;
+                                }
+                                buf.drain(..padded);
+                            }
+                        }
+                        Ok((n, _)) = relayed.recv_from(&mut down) => {
+                            let mut framed = stun::channel_data(CHANNEL, &down[..n]);
+                            pad(&mut framed);
+                            if theirs.write_all(&framed).await.is_err() { return }
+                        }
+                    }
+                }
+            });
+        }
+        mux_a.bound(key, addr_b, CHANNEL);
+        mux_a.set_pace(key, 40_000);
+        let (va, vb) = (mux_a.new_virtual(), mux_b.new_virtual());
+        let via_relay = Path { via: Via::Turn(key), remote: addr_b };
+        mux_a.map_path(via_relay, va);
+        mux_a.select_path(va, via_relay);
+        mux_b.map_path(Path::direct(relayed_addr), vb);
+        mux_b.select_path(vb, Path::direct(relayed_addr));
+        let runtime = Arc::new(quinn::TokioRuntime);
+        let identity = crate::quic::Identity::generate();
+        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity, crate::quic::Mtu::Base)), mux_b.clone(), runtime.clone()).unwrap();
+        let client = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), None, mux_a.clone(), runtime).unwrap();
+        tokio::spawn(async move {
+            let conn = server.accept().await.unwrap().await.unwrap();
+            let (mut send, mut recv) = conn.accept_bi().await.unwrap();
+            let mut buf = vec![0u8; 64 << 10];
+            while let Ok(Some(n)) = recv.read(&mut buf).await {
+                if send.write_all(&buf[..n]).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5), crate::quic::Mtu::Base);
+        let conn = tokio::time::timeout(Duration::from_secs(10), client.connect_with(config, va, "bridgey").unwrap()).await.expect("handshake in time").expect("handshake");
+        let (mut send, mut recv) = conn.open_bi().await.unwrap();
+        let data: Vec<u8> = (0..2usize << 20).map(|i| (i % 251) as u8).collect();
+        let mut back = vec![0u8; data.len()];
+        let (written, read) = tokio::time::timeout(Duration::from_secs(60), async { tokio::join!(send.write_all(&data), recv.read_exact(&mut back)) }).await.expect("the echo in time");
+        written.unwrap();
+        read.unwrap();
+        assert!(back == data, "the echo differs");
+        let largest = largest.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(largest <= 1_280, "largest frame on the stream: {largest}");
     }
 
     /// A Cloudflare grant as the control service sends it, used over TLS: its URLs give UDP 3478 first and TLS on 443
