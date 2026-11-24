@@ -280,10 +280,13 @@ dependencies = [
  "bridgey-connect-proto",
  "futures-util",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-rustls",
  "toml",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]

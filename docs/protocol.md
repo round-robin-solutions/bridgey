@@ -1771,7 +1771,7 @@ most 16 KiB, the type in `t`:
 
 | Message | Fields |
 | --- | --- |
-| `hello` | `v` 1, `node` (P-256 SEC1 public key, base64url), `app`, `keepalive` (60 to 270 s) |
+| `hello` | `v` 1, `node` (P-256 SEC1 public key, base64url), `app`, `keepalive` (60 to 270 s); optional `caps` (`["relay.cloudflare"]`: the client can use Cloudflare relay grants) |
 | `challenge` | `nonce` (base64url, 32 bytes), `pow` (leading zero bits, 0 = off) |
 | `auth` | `sig`: DER ECDSA-P256-SHA256 over `"bridgey-rdv-auth-v1\0" ‖ nonce ‖ node`, base64url; `pow` when asked: a solution with `SHA-256("bridgey-pow-v1" ‖ nonce ‖ node ‖ solution)` starting with that many zero bits |
 | `welcome` | `nodeId` (base64url of SHA-256(node)[0..16]), `now`, `limits`; optional `relays` (`[{id, stun}]`: the pool and each relay's STUN `host:port`) |
@@ -1780,13 +1780,13 @@ most 16 KiB, the type in `t`:
 | `signal` | `rdv`, `side` (0 for the lower device ID), `sid` (base64url, 16 bytes), `body` (sealed, at most 6 KiB) |
 | `undeliverable` | `rdv`, `sid` |
 | `relay.request` / `relay.claim` | `rdv`, `sid`, `side` (`rtts`, `need`, `estBytes`, `exclude` optional on the request). The claim gets the same relay, with its own credentials. |
-| `relay.grant` | `sid`, `relay`: `id`, `kind`, `urls`, `username`, `credential`, `expiresAt`, `maxKbps` |
+| `relay.grant` | `sid`, `relay`: `id`, `kind` (`coturn`, or `cloudflare` only for clients that sent `relay.cloudflare`: no `spki`, Web PKI on `turns:`, paced by the client at `maxKbps`), `urls`, `username`, `credential`, optional `spki`, `expiresAt`, `maxKbps` |
 | `relay.warm` | Optional `rtts`, `exclude`, `reclaim` (`{relay, username}`). The node's own relay credentials come back as `relay.grant` with `sid` `"warm"`; a `reclaim` of this node's earlier warm username also returns its credential as `relay.grant` with `sid` `"reclaim"` |
 | `relay.denied`, `error` | `code`, `retryAfterMs` |
 
 **Single-flight sign-in.** A client may put hello, sign-in, registration and its warm relay request into the
 upgrade request: header `x-bridgey-hello` = base64url(JSON `{v, node, app, keepalive, ts, cnonce, sig, ids?,
-warm?}`), `sig` over `"bridgey-rdv-auth-v2\0" ‖ host ‖ "\0" ‖ ts (8 bytes, big-endian Unix ms) ‖ cnonce (16 bytes)
+warm?, caps?}`), `sig` over `"bridgey-rdv-auth-v2\0" ‖ host ‖ "\0" ‖ ts (8 bytes, big-endian Unix ms) ‖ cnonce (16 bytes)
 ‖ node`, where `host` is the request's authority (the service compares it with its configured host and takes no
 single-flight sign-in without one). The service
 takes it within two minutes of `ts` and once per (node, cnonce); then it answers the upgrade with

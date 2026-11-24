@@ -139,6 +139,40 @@ network), no 1 s relay grace (a 50 ms head start for direct pairs instead), no 3
 each device keeps its own relay warm (off mobile data) with permissions for the whole pool; and a killed app
 reclaims the allocation it left on the relay instead of losing that relay for 10 minutes.
 
+### Cloudflare first (2026-11-24, branch `rr/cloudflare-relay`)
+
+Rahul decided on 2026-11-24: "we will use Cloudflare from now on" for the relay, with the own coturn pool (`bom`,
+`sin`, `sxb`) as the backup. At home his phone had fallen onto `sxb` in France at 419 ms and `sin` at up to
+1,167 ms; Cloudflare's anycast relay answers from the nearest Cloudflare location. What changed:
+
+- **Choice (section 9.3).** A client that says it can use Cloudflare grants gets Cloudflare first, whatever the
+  round trips, while the month's usage is under the soft cap; between the soft and hard caps only when no own relay
+  can take the grant; never at or above the hard cap, without a fresh usage reading, or for 1 to 15 minutes after a
+  failed mint. Everything else gets the own pool as before.
+- **Old clients see no change.** The capability is the `caps` entry `relay.cloudflare` in the hello (section 6.2).
+  Clients without it (1.0.0-beta.1 apps and older) never get a Cloudflare grant, and `welcome` does not list `cf` to
+  them. A session grant goes to Cloudflare only when every node on the session sent the capability; a claim from a
+  client without it gets the own pool.
+- **Credentials per grant.** The control service mints them with the TURN key through Cloudflare's API (section
+  9.4); a failed, slow (3 s) or unusable answer gives the client an own-pool grant instead.
+- **Never a charge.** Usage comes from Cloudflare's GraphQL analytics every 15 minutes (5 minutes past the soft
+  cap): TURN plus SFU egress over the last 31 days, which is at least what any billing month counts. Soft 800 GB, hard
+  950 GB of the free 1,000 GB. No payment method or billing setting was touched.
+- **The core.** It sends the capability, uses `turn:turn.cloudflare.com:3478` over UDP and falls back to
+  `turns:turn.cloudflare.com:443` (TLS, Web PKI) when UDP gets no answer, reaches Cloudflare over IPv4, paces what
+  leaves through a Cloudflare allocation to the grant's 40 Mbit/s, and ranks Cloudflare relay candidates above the
+  own pool's (section 4.2). Coturn grants work as before.
+- **Live check from rr-dev-1** (`rust/core/examples/turn_check.rs --cloudflare`, fresh credentials): STUN 5 ms;
+  UDP allocation 8 ms (relayed address IPv4, `104.30.x.x`); TLS on 443 connected in 28 ms and allocated in 40 ms; a
+  STUN check relayed both ways between the UDP and TLS allocations; paced traffic 18 to 34 Mbit/s through the
+  relay with rr-dev-1 at load 40 to 57 (the pace is 40 Mbit/s); a wrong credential refused. Cloudflare refuses a
+  permission for its own address (403), so the core leaves it out (section 9.4).
+- **End to end on rr-dev-1** (this branch's control service, also as its `scratch` image, with the four variables;
+  two headless core nodes, `probe.rs --relay-only`): usage read over HTTPS from inside the image, warm grants minted
+  per node, both nodes allocated on Cloudflare, the tunnel up through `cf` 204 to 607 ms after the race started, echo
+  median 42 ms, an 8 MiB binary echo identical at both ends. Throughput on a loaded host is no guide; real devices
+  are still to be measured.
+
 ## 1. Summary
 
 Connect anywhere lets two paired devices reach each other from any network, with no VPN on the
@@ -159,10 +193,9 @@ Sending to other people comes later.
   sealed signalling between the two sides of a pair and hands out short-lived relay credentials.
   It knows devices only by a self-generated key and by rendezvous IDs derived from a secret that
   only the two paired devices hold.
-- **Relay pool:** coturn on oracle (Mumbai), rb-vps (Singapore) and rr-dev-1 (France), with
-  Cloudflare Realtime TURN as overflow and failover. The pool keeps each server under its traffic
-  allowance with soft and hard caps per cycle and prefers the cheapest healthy relay near both
-  devices.
+- **Relay pool:** Cloudflare Realtime TURN first (since 2026-11-24), within its free tier, with coturn on
+  oracle (Mumbai), rb-vps (Singapore) and rr-dev-1 (France) as the backup and for older clients. The pool keeps each
+  server under its traffic allowance with soft and hard caps per cycle.
 - **Large transfers:** 1 MiB chunks with a SHA-256 each, a root hash per file, up to 8 parallel
   QUIC streams, and resume from the last durable chunk after reconnects and app restarts.
 - **Agent CLI:** a headless Rust node, paired like any device, with nothing granted until Rahul
@@ -213,7 +246,7 @@ VPN on the phone" and "Blip replacement, agent CLI, relay pool, gallery". In sho
   - Bridgey upgrades on network change, on foreground and every minute.
 - **Relay pool:**
   - Self-hosted relays on oracle, rr-dev-1 and rb-vps. Production `rr-web` is excluded.
-  - Cloudflare Realtime TURN is the backup.
+  - Cloudflare Realtime TURN is the backup (first since 2026-11-24, see "Cloudflare first" above).
   - Each server has a soft and a hard cap; the pool prefers the cheapest healthy relay near both devices.
   - A dashboard shows usage against allowance.
 - **CLI:**
@@ -255,7 +288,7 @@ Corrections from Rahul, 2026-10-25:
 | CLI node | A full Bridgey device without UI, for agents | rr-dev-1, oracle, the Macs |
 | Control service (`bridgey-rendezvous`) | Presence mailbox, sealed signalling, node auth, relay credentials, pool selection, usage collection, ops view, alerts | Round Robin Dokploy on `rr-web` (section 6.7) |
 | Relays | coturn plus a small relay agent that counts traffic and enforces caps | oracle (`bom`), rb-vps (`sin`), rr-dev-1 (`sxb`) |
-| Cloudflare Realtime TURN | Overflow and failover relay (`cf`) | Cloudflare, one account |
+| Cloudflare Realtime TURN | The first relay (`cf`) for clients that can use it, within the free tier (since 2026-11-24) | Cloudflare, one account |
 
 What stays as it is:
 
@@ -298,8 +331,8 @@ route order:
 | Peer reflexive (learned from an incoming check) | 100 | direct |
 | Port-mapped by the router (PCP, NAT-PMP or UPnP; phase 2 stretch) | 96 | direct |
 | Server reflexive IPv4 (STUN) | 90 | direct |
+| Relay, Cloudflare | 3 | relay |
 | Relay, own pool | 2 | relay |
-| Relay, Cloudflare | 1 | relay |
 
 The local preference puts IPv6 before IPv4 and Wi-Fi before mobile data. Loopback, link-local,
 Docker and bridge interfaces (`docker0`, `br-*`, `veth*`) are never offered. Each side offers at
@@ -574,12 +607,17 @@ The connection is a WebSocket at `wss://connect.roundrobin.in/v1/ws`. Frames are
 most 16 KiB each; `t` is the message type.
 
 ```text
-C: {"t":"hello","v":1,"node":"<base64url P-256 SEC1 public key>","app":"bridgey-rr/0.7.0 android","keepalive":120}
+C: {"t":"hello","v":1,"node":"<base64url P-256 SEC1 public key>","app":"bridgey-rr/0.7.0 android","keepalive":120,
+    "caps":["relay.cloudflare"]}
 S: {"t":"challenge","nonce":"<base64url 32 bytes>","pow":0}
 C: {"t":"auth","sig":"<base64url DER ECDSA-P256-SHA256 over 'bridgey-rdv-auth-v1\0' ‖ nonce ‖ node>","pow":"<solution or omitted>"}
 S: {"t":"welcome","nodeId":"<base64url SHA-256(node)[0..16]>","now":1761400000000,
     "limits":{"maxIds":64,"maxSignalBytes":6144,"signalsPerMinute":120}}
 ```
+
+`caps` (optional, since 2026-11-24) lists what the client can do beyond the base protocol. `relay.cloudflare`: it
+can use relay grants of kind `cloudflare`. The single-flight sign-in carries the same `caps`. Older services ignore
+it; older clients send none and are treated as before.
 
 Proof of work is off (`pow: 0`) until abuse appears. When it is on, the client finds a
 `solution` such that `SHA-256("bridgey-pow-v1" ‖ nonce ‖ node ‖ solution)` starts with `pow`
@@ -623,10 +661,21 @@ by `relay.claim` from its own authenticated socket.
   "expiresAt":1761407200000,"maxKbps":50000}}
 ```
 
-A Cloudflare grant has `"kind":"cloudflare"`, the URLs, username and credential returned by
-Cloudflare, `maxKbps` 40,000 and no `spki`: `turn.cloudflare.com` uses the Web PKI. Clients
-re-request at 75% of the grant lifetime and move to the new allocation before the old one ends
-(make before break).
+A Cloudflare grant has `"kind":"cloudflare"`, the username and credential returned by Cloudflare, those of
+Cloudflare's URLs that the settings list (`turn:turn.cloudflare.com:3478?transport=udp` and
+`turns:turn.cloudflare.com:443?transport=tcp`), `maxKbps` 40,000 and no `spki`: `turn.cloudflare.com` uses the Web
+PKI. The client uses UDP and falls back to TLS on 443 when UDP gets no answer, and paces what leaves through the
+allocation to `maxKbps`. Only clients that sent `relay.cloudflare` get one; a session grant only when every node on
+the session did. Clients re-request at 75% of the grant lifetime and move to the new allocation before the old one
+ends (make before break).
+
+```json
+{"t":"relay.grant","sid":"warm","relay":{
+  "id":"cf","kind":"cloudflare",
+  "urls":["turn:turn.cloudflare.com:3478?transport=udp","turns:turn.cloudflare.com:443?transport=tcp"],
+  "username":"<from Cloudflare>","credential":"<from Cloudflare>",
+  "expiresAt":1761407200000,"maxKbps":40000}}
+```
 
 ### 6.4 Sealed peer signalling
 
@@ -715,7 +764,7 @@ remote pairing is required for phase 1.
 | Retention | 5-minute samples for 35 days, hourly for 13 months, daily kept. Session rows 30 days, then folded into daily totals. Alert history 90 days. Nodes unseen for 180 days are deleted. Logs 14 days, with no IP addresses at info level. |
 | Backups | A nightly `VACUUM INTO` snapshot in the app plus a Dokploy volume backup to `rr-dokploy-backups`, keep 14 (the Forms relay pattern). Everything can be rebuilt; relay agents keep their own cycle counters too. |
 | Health | `/health` (static), `/health/ready` (SQLite writable, config loaded), `/v1/status` (relay health, for the dashboard) |
-| Settings | One file, `bridgey-rendezvous.toml`: relays, caps, cycles, penalties, limits, alert thresholds. Only secrets come from the environment: TURN secrets per relay, relay agent tokens, Cloudflare TURN key ID and API token, Telegram token and chat, the Access audience tag. Vault note `Keychain/Bridgey Connect`. |
+| Settings | One file, `bridgey-rendezvous.toml`: relays, caps, cycles, penalties, limits, alert thresholds. Only secrets come from the environment: TURN secrets per relay, relay agent tokens, the Cloudflare TURN key (`CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN`) and usage reading (`CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN`), Telegram token and chat, the Access audience tag. Vault note `Keychain/Bridgey Connect`; the Cloudflare values are in 1Password (Infra, "Bridgey Connect: Cloudflare Realtime TURN"). |
 | Staging | oracle personal Dokploy at `connect.rbansal.xyz`, with a staging coturn on oracle (ports 3480/udp and tcp, relay range 59000 to 59499) capped at 10 GB a month. Nightly builds may point at staging. |
 
 ### 6.8 When the control service is down
@@ -1028,7 +1077,7 @@ from this layer:
 | `bom` | oracle | OCI Always Free, A1 Flex 4 OCPU / 24 GB; personal tenancy, Always Free only since 2026-10-25 | Mumbai, `ap-mumbai-1` ([OCI ranges](https://docs.oracle.com/en-us/iaas/tools/public_ip_ranges.json)) | 10 TB/month outbound ([Always Free](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)), shared with everything in the tenancy; inbound free ([price list](https://www.oracle.com/cloud/price-list/)) | 141 GB out since 2026-10-06 (`enp0s6`), about 0.23 TB a month | Host egress: soft 6 TB, hard 8 TB | 1 Gbit/s in total; 50 Mbit/s per session | No (no public IPv6 on the VCN today) |
 | `sin` | rb-vps | OVH VPS-2 (4 vCores, 8 GB, 75 GB) | Singapore ([ARIN: VPS-SGP2](https://rdap.arin.net/registry/ip/15.235.211.41)) | 1 TB/month quota in Asia-Pacific, "Beyond this, the bandwidth is capped at 10 Mbps" ([OVHcloud Asia VPS](https://www.ovhcloud.com/asia/vps/)) | 566 GB in and 502 GB out since 2026-07-08 (`ens3`), about 0.3 TB a month both ways | Host total (in plus out, the conservative reading): soft 700 GB, hard 900 GB | 200 Mbit/s in total; 50 Mbit/s per session | Yes |
 | `sxb` | rr-dev-1 | Contabo Cloud VPS 12 (12 vCPU, 48 GB, 400 GB), 800 Mbit/s port | Lauterbourg, France (AS51167) | "Unlimited*": "No default bandwidth cap; a fair usage policy applies" and Contabo "reserves the right to throttle affected servers" ([Contabo docs](https://docs.contabo.com/docs/servers-hosting/vps/), [help](https://help.contabo.com/en/support/solutions/articles/103000271195-are-there-any-bandwidth-or-traffic-limits-at-contabo-)) | 140 GB out since 2026-10-18 (`eth0`), about 0.6 TB a month (builds, pushes, Syncthing) | Host egress: soft 8 TB, hard 10 TB; also a 24-hour average of at most 100 Mbit/s. All tunable. | 300 Mbit/s in total; 50 Mbit/s per session; lowest traffic priority | Yes |
-| `cf` | Cloudflare Realtime TURN | One TURN key in the Round Robin Solutions account | Anycast, the nearest Cloudflare location | 1,000 GB/month free, shared with the SFU; then USD 0.05/GB; only "data sent from the Cloudflare edge to the TURN client" is billed ([FAQ](https://developers.cloudflare.com/realtime/turn/faq/), [pricing](https://developers.cloudflare.com/realtime/sfu/platform/pricing/)) | 0 | Free tier: soft 800 GB, hard 950 GB. Paid: a monthly spend cap (proposed USD 5, about 100 GB; Rahul decides) | 40 Mbit/s per session (client paced) | No (relays are IPv4 only) |
+| `cf` | Cloudflare Realtime TURN | One TURN key (`bridgey-relay`, made 2026-11-24) in the Round Robin Solutions account | Anycast, the nearest Cloudflare location | 1,000 GB/month free, shared with the SFU; then USD 0.05/GB; only "data sent from the Cloudflare edge to the TURN client" is billed ([FAQ](https://developers.cloudflare.com/realtime/turn/faq/), [pricing](https://developers.cloudflare.com/realtime/sfu/platform/pricing/)) | 0 | Free tier only (spend cap USD 0, decision 5): soft 800 GB, hard 950 GB over the last 31 days | 40 Mbit/s per allocation (client paced) | No (relays are IPv4 only) |
 
 Notes on the members:
 
@@ -1095,7 +1144,21 @@ month, 00:00 UTC; `sin` keeps a 10% margin because its reset date is unknown.
 
 ### 9.3 Selection policy
 
-When a `relay.request` arrives, the control service picks one relay for both sides of the session.
+When a `relay.request` arrives, the control service picks one relay for both sides of the session. A node's own
+(warm) relay, asked for with `relay.warm`, is picked the same way.
+
+**Cloudflare first (Rahul, 2026-11-24).** Built:
+
+| Cloudflare state | A client with `relay.cloudflare` (for a session: every node on it) | Any other client |
+| --- | --- | --- |
+| Usage under the soft cap (800 GB), a reading under an hour old, no recent failed mint | Cloudflare | Own pool |
+| Between the soft and hard caps | Own pool; Cloudflare only when no own relay can take it | Own pool |
+| At or above the hard cap (950 GB), no fresh reading, a failed mint in the last 1 to 15 minutes (doubling), or `exclude` lists `cf` | Own pool | Own pool |
+
+A claim reuses the session's relay, except that a client without the capability never gets Cloudflare (it gets the
+own pool). When a mint fails the grant goes to the own pool and the session's claim follows it there. The own pool is
+chosen as before: the lowest round trip plus penalty among the coturn relays with a secret (steps 1 to 5 below are
+the full design; phase 1 built the round trip and penalty only).
 
 1. **Eligible relays:**
    - healthy: last health check under 60 s old, and the agent reported within the last 3 minutes;
@@ -1109,23 +1172,24 @@ When a `relay.request` arrives, the control service picks one relay for both sid
      `stun.cloudflare.com` while gathering, and cache it per network for 1 hour.
    - Penalties are config: `bom` 0, `sin` 10 ms, `sxb` 40 ms (it is the build server), `cf` 0.
 3. **Near enough:** keep relays with `rtt` at most 400 ms; if none qualify, keep them all.
-4. **Cost tier:**
+4. **Cost tier** (the design before 2026-11-24; Cloudflare now comes first while it is under its soft cap):
    - 0: an own relay under its soft cap;
    - 1: an own relay between soft and hard cap, only if its projection stays under the hard cap
      until the cycle ends;
    - 2: Cloudflare under the free-tier hard cap;
-   - 3: Cloudflare paid, under the spend cap.
+   - 3: Cloudflare paid, under the spend cap (USD 0 by decision 5, so never).
 5. **Choice:** sort by (tier, rtt) and take the first.
 
-There is no country table and no GeoIP. The relay with the lowest round trip is naturally the
+There is no country table and no GeoIP. Among the own relays, the one with the lowest round trip is naturally the
 regional one:
 
 | Devices in | Usual order |
 | --- | --- |
-| India (and the Gulf) | `bom`, then `sin`, then `sxb`, then `cf` |
+| Anywhere, with a client that can use Cloudflare | `cf`, then the own relays below |
+| India (and the Gulf) | `bom`, then `sin`, then `sxb` |
 | South-East Asia | `sin`, then `bom` |
 | Europe | `sxb` |
-| Elsewhere | Lowest round trip, with `cf` as overflow and failover |
+| Elsewhere | Lowest round trip |
 
 **Stickiness and failover:**
 
@@ -1151,8 +1215,22 @@ Relaying to the peer is UDP only, IPv4 only.
 
 **Credentials.** The control service calls
 `POST https://rtc.live.cloudflare.com/v1/turn/keys/{keyId}/credentials/generate-ice-servers` with
-`{"ttl":7200}` ([credentials](https://developers.cloudflare.com/realtime/turn/generate-credentials/)).
-The maximum lifetime is 48 hours. A grant ends early through `.../credentials/{username}/revoke`.
+`{"ttl":7200}` ([credentials](https://developers.cloudflare.com/realtime/turn/generate-credentials/)), or the warm
+lifetime (12 hours) for a node's own relay. The maximum lifetime is 48 hours. A grant ends early through
+`.../credentials/{username}/revoke` (not used yet). The answer lists a STUN entry and a TURN entry with
+`turn:...:3478?transport=udp`, `turn:...:3478?transport=tcp`, `turns:...:5349?transport=tcp`,
+`turn:...:443?transport=udp`, `turn:...:80?transport=tcp` and `turns:...:443?transport=tcp`; grants carry the UDP
+3478 and TLS 443 ones (the relay's `urls` in the settings file). The service keeps each node's current warm
+credential in memory, so that node alone can take it back after a crash (the reclaim, as on coturn). It talks to the
+API with its own small HTTPS client and the Web PKI roots built in, so the image stays `scratch`.
+
+**Usage and the cap.** Every 15 minutes (5 past the soft cap; 2 after a failed read) the service asks Cloudflare's
+GraphQL API (`https://api.cloudflare.com/client/v4/graphql`, token with Account Analytics Read on the account) for
+the sum of `egressBytes` in `callsTurnUsageAdaptiveGroups` and `callsUsageAdaptiveGroups` (the SFU shares the free
+tier) since the start of the window. The window is the last 31 days (`cycle_day = 0`), which covers any billing
+month whatever day it starts; once the billing day is confirmed, `cycle_day` sets it. Both datasets allow 32 days.
+GB here is 10^9 bytes. No reading under an hour old means no Cloudflare grants. `/v1/status` shows the reading, the
+tier and the last mint error.
 
 **Billing direction.** Cloudflare bills "data sent from the Cloudflare edge to the TURN client";
 traffic from the relay to a peer that is not a TURN client is "not part of billing"
@@ -1164,7 +1242,10 @@ acknowledgements are billed. The cost projection does not count on this: billing
 
 - Cloudflare drops packets above about "50-100 Mbps" or "5-10 kpps" per allocation, so sessions
   are paced at 40 Mbit/s.
-- It "denies CreatePermission or ChannelBind requests if private IP ranges ... are used".
+- It "denies CreatePermission or ChannelBind requests if private IP ranges ... are used", and (seen on
+  2026-11-24) a permission for its own anycast address, with a 403 for the whole request. On a Cloudflare
+  allocation the core therefore asks only for public peer addresses and leaves Cloudflare's own out of the pool
+  permissions; on the own pool it asks as before.
 
 **Terms caution.** The Cloudflare Realtime service terms say it may be used "to enable video call
 functionality for your Internet Properties", and forbid using it "to operate or enable any
@@ -1172,8 +1253,9 @@ telecommunications service"
 ([service-specific terms, 2026-09-28](https://www.cloudflare.com/service-specific-terms-developer-platform/)).
 On the other side, the docs say "You can use TURN directly in your application too"
 ([what is TURN](https://developers.cloudflare.com/realtime/turn/what-is-turn/)). Relaying file
-transfers is therefore a grey area. The pool works without Cloudflare: it is a backup, kept behind
-a provider interface so it can be switched off or replaced (open question 1).
+transfers is therefore a grey area. Rahul allowed Cloudflare on 2026-10-25 (decision 1) and made it the first relay
+on 2026-11-24. The pool still works without it: removing the TURN key from the environment, or `enabled = false` on
+the `cf` relay, sends every client back to the own pool.
 
 **One account.** Splitting relay traffic over several Cloudflare accounts to multiply the free tier
 would breach the Self-Serve Subscription Agreement:
@@ -1332,7 +1414,7 @@ deployed.
 | oracle (`bom`) | Compose stack "Bridgey relay (bom)" in the personal Dokploy | Opening the relay ports in the OCI security list and host firewall. Adding coturn to `DEPLOYMENT.md` "Third-party pinned images" and the stack to "Compose stacks". The optional Traefik TCP router for 443 is its own change. |
 | rr-dev-1 (`sxb`) | It is the Dokploy build server (`rr-dev-1-builder`), not a deploy server, and DEPLOYMENT.md says it has "No production apps" | Exception, for example: "2026-1x-xx: Bridgey relay (coturn + relay agent) on rr-dev-1 as a compose stack, host network, CPU 1.5, 512 MiB, relay traffic capped at 300 Mbit/s and in the lowest traffic class, drains while the build slot is busy. Rahul: <quote>." Choose between registering rr-dev-1 as a deploy-type server in the personal Dokploy, or a plain compose stack like the reels-worker exception. Plus the firewall and `tc` changes. |
 | rb-vps (`sin`) | Dokploy was removed on 2026-10-08, and rb-vps runs "never production apps" | Exception for a public relay: attach rb-vps to the personal Dokploy as a deploy server, or run a plain compose stack. Record in DEPLOYMENT.md and plan.md that its retirement is cancelled (Rahul, 2026-10-25). Plus firewall changes. |
-| Cloudflare | One Realtime TURN key in the Round Robin Solutions account (`POST /accounts/{id}/calls/turn_keys`); a Zero Trust organisation for Access | Spending: the free tier, then paid overage under a cap Rahul sets. Access is free for under 50 users ([Access plans](https://www.cloudflare.com/sase/products/access/)). |
+| Cloudflare | One Realtime TURN key in the Round Robin Solutions account (`POST /accounts/{id}/calls/turn_keys`; `bridgey-relay`, made 2026-11-24), a user API token with Account Analytics Read on that account only for the usage reading; a Zero Trust organisation for Access | Free tier only (decision 5); no payment method or billing setting changed. Access is free for under 50 users ([Access plans](https://www.cloudflare.com/sase/products/access/)). |
 | Vault | `Keychain/Bridgey Connect`: TURN secrets per relay, relay agent tokens, Cloudflare TURN key ID and API token, Access audience tag, Telegram (reuse `@rahul_deploy_bot`) | Rule 1 of AGENTS.md |
 
 ### 9.10 Protecting rr-dev-1 builds
@@ -1349,6 +1431,9 @@ deployed.
 6. **Draining.** `drain_when_building` makes `sxb` drain while a build runs.
 
 ## 10. Cost projection
+
+Since 2026-11-24 Cloudflare carries relay traffic first, up to its hard cap of 950 GB a month, and the own pool takes
+the rest; the totals below still hold, because Cloudflare never goes past its free tier.
 
 Conservative assumptions (memory note "frugal by default"):
 
@@ -1722,7 +1807,7 @@ External sources, read 2026-10-25 unless dated:
 
 ## Decisions confirmed by Rahul (2026-10-25)
 
-1. **Cloudflare TURN is allowed** for relaying Bridgey traffic (Rahul's decision on the terms question). Use it as backup and overflow behind our own pool, through the provider interface, on one Round Robin Cloudflare account. No splitting across accounts.
+1. **Cloudflare TURN is allowed** for relaying Bridgey traffic (Rahul's decision on the terms question). Use it as backup and overflow behind our own pool, through the provider interface, on one Round Robin Cloudflare account. No splitting across accounts. **Changed 2026-11-24 (Rahul: "we will use Cloudflare from now on"):** Cloudflare is the first relay, the own pool the backup.
 2. **Control service:** on `rr-web` through Dokploy, like other Round Robin product services. LAN and private-network routes keep working if it is down.
 3. **Hostnames:** under `roundrobin.in`: `connect.roundrobin.in` for the control service, `relay-in.roundrobin.in` (oracle, Mumbai), `relay-sg.roundrobin.in` (rb-vps, Singapore), `relay-eu.roundrobin.in` (rr-dev-1, France), and a private ops dashboard.
 4. **Relays on rr-dev-1 and rb-vps run as Dokploy deploy targets:** add rr-dev-1 as a Dokploy deploy server (it stays the build server, so the relay is rate-limited and lowest priority), and reinstall Dokploy's agent on rb-vps as a deploy server. All three relays deploy through Dokploy, so no AGENTS.md exception is needed for them.
