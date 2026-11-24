@@ -5156,6 +5156,9 @@ class PairingCoordinator(
                 // disconnect: its transfers end here, or they would stay active for good. With LAN first a session
                 // carrying a transfer is never replaced (only a stale one), so this is a safety net.
                 cancelTransfers(current.remoteDeviceId)
+                // Clipboard pushes and paste fetches ran on the old session, which is gone: they fail now instead of
+                // waiting out the 30 s stall timeout, so a paste in progress ends at once.
+                clipboardSessionEnded(current.remoteDeviceId)
             }
         }
         devicePresence.remove(current.remoteDeviceId)
