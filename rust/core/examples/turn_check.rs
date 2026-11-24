@@ -87,6 +87,27 @@ async fn cloudflare() {
     };
     println!("TLS 443: connected in {tls_ms} ms, allocation OK in {} ms total, relayed {}", started.elapsed().as_millis(), alloc_b.relayed);
 
+    // The permissions a warm allocation installs for the whole pool (each own relay, and Cloudflare's own address).
+    let mut pool: Vec<std::net::IpAddr> = vec![server.ip()];
+    for relay in ["relay-sg.roundrobin.in:3478", "relay-eu.roundrobin.in:3478"] {
+        if let Some(addr) = tokio::net::lookup_host(relay).await.ok().and_then(|mut it| it.find(|a| a.is_ipv4())) {
+            pool.push(addr.ip());
+        }
+    }
+    // Cloudflare refuses its own address (and private ranges) with a 403 for the whole request, so the core asks for
+    // the own relays only; each address alone shows which one it refuses.
+    for ip in &pool {
+        match alloc_a.permit(&[*ip]).await {
+            Ok(()) => println!("Permission for {ip}: OK"),
+            Err(e) => println!("Permission for {ip}: refused ({e})"),
+        }
+    }
+    let own: Vec<std::net::IpAddr> = pool.iter().copied().filter(|ip| *ip != server.ip()).collect();
+    match alloc_a.permit(&own).await {
+        Ok(()) => println!("Pool permissions as the core asks for them ({} own relays): OK", own.len()),
+        Err(e) => fail(&format!("pool permissions FAILED: {e}")),
+    }
+
     // Each side lets the other's relayed address in, then a STUN check goes A -> relay -> relay -> B and back.
     alloc_a.permit(&[alloc_b.relayed.ip()]).await.unwrap_or_else(|e| fail(&format!("UDP permission FAILED: {e}")));
     alloc_b.permit(&[alloc_a.relayed.ip()]).await.unwrap_or_else(|e| fail(&format!("TLS permission FAILED: {e}")));

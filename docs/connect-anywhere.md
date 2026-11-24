@@ -1236,7 +1236,10 @@ acknowledgements are billed. The cost projection does not count on this: billing
 
 - Cloudflare drops packets above about "50-100 Mbps" or "5-10 kpps" per allocation, so sessions
   are paced at 40 Mbit/s.
-- It "denies CreatePermission or ChannelBind requests if private IP ranges ... are used".
+- It "denies CreatePermission or ChannelBind requests if private IP ranges ... are used", and (seen on
+  2026-11-24) a permission for its own anycast address, with a 403 for the whole request. On a Cloudflare
+  allocation the core therefore asks only for public peer addresses and leaves Cloudflare's own out of the pool
+  permissions; on the own pool it asks as before.
 
 **Terms caution.** The Cloudflare Realtime service terms say it may be used "to enable video call
 functionality for your Internet Properties", and forbid using it "to operate or enable any

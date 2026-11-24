@@ -229,6 +229,8 @@ pub struct Node {
     warm: Mutex<Warm>,
     /// Each relay's realm and nonce, so an allocation there carries credentials at once.
     realms: Mutex<HashMap<SocketAddr, Realm>>,
+    /// Relays whose grants were Cloudflare's (by relay ID): their allocations ask permissions for public addresses only.
+    cloudflare_relays: Mutex<HashSet<String>>,
     /// When foreground last asked for a fresh control connection.
     last_refresh: Mutex<Option<Instant>>,
 }
@@ -300,6 +302,7 @@ impl Node {
             rdv_changed: tokio::sync::Notify::new(),
             warm: Mutex::new(Warm::default()),
             realms: Mutex::new(HashMap::new()),
+            cloudflare_relays: Mutex::new(HashSet::new()),
             last_refresh: Mutex::new(None),
         });
         node.restore_state();
@@ -1095,7 +1098,7 @@ impl Node {
         }
         self.mark("turn.allocated", Some(&session.peer), Some(&grant.id));
         // Every relay in the pool may carry the other side's relay candidate.
-        let pool: Vec<std::net::IpAddr> = self.warm.lock().unwrap().relays.iter().map(|(_, a)| a.ip()).collect();
+        let pool = self.pool_permissions(&allocation);
         let _ = allocation.permit(&pool).await;
         let local = Local {
             via: Via::Turn(allocation.server),
@@ -1144,6 +1147,31 @@ impl Node {
         }
     }
 
+    /// The pool addresses `allocation` lets in up front (a peer's relay candidate may sit on any of them). On a
+    /// Cloudflare allocation, only what Cloudflare relays to: its own addresses and private ranges are refused (403),
+    /// which would fail the whole request, and peers' Cloudflare relayed addresses are not its anycast address anyway.
+    fn pool_permissions(&self, allocation: &Allocation) -> Vec<std::net::IpAddr> {
+        let cloudflare = self.cloudflare_relays.lock().unwrap().clone();
+        let relays = self.warm.lock().unwrap().relays.clone();
+        if !cloudflare.contains(&allocation.relay_id) {
+            return relays.iter().map(|(_, a)| a.ip()).collect();
+        }
+        relays.iter().filter(|(id, a)| !cloudflare.contains(id) && addrs::route_of(a.ip()) == Route::Direct).map(|(_, a)| a.ip()).collect()
+    }
+
+    /// Which peer addresses a relay can be asked to let in: on Cloudflare public ones only (it refuses private ranges
+    /// and its own addresses with a 403 for the whole request); on the own pool every one, as before.
+    fn relay_reaches(&self, allocation: &Allocation) -> impl Fn(std::net::IpAddr) -> bool {
+        let cloudflare = self.cloudflare_relays.lock().unwrap().contains(&allocation.relay_id);
+        let own: Vec<std::net::IpAddr> = if cloudflare {
+            let ids = self.cloudflare_relays.lock().unwrap().clone();
+            self.warm.lock().unwrap().relays.iter().filter(|(id, _)| ids.contains(id)).map(|(_, a)| a.ip()).collect()
+        } else {
+            Vec::new()
+        };
+        move |ip| !cloudflare || (addrs::route_of(ip) == Route::Direct && !own.contains(&ip))
+    }
+
     /// One allocation per relay for this socket, shared by every session (a second Allocate there is refused
     /// with 437). Carries credentials in the first request when the relay's realm and nonce are known.
     async fn allocate_on(&self, server: SocketAddr, grant: &RelayGrant) -> Result<Arc<Allocation>, String> {
@@ -1160,6 +1188,7 @@ impl Node {
         if grant.is_cloudflare() {
             // Cloudflare drops packets above about 50 to 100 Mbit/s per allocation: keep to the grant's rate.
             self.mux.set_pace(server, grant.max_kbps);
+            self.cloudflare_relays.lock().unwrap().insert(grant.id.clone());
         }
         self.realms.lock().unwrap().insert(server, allocation.realm());
         self.allocations.lock().unwrap().insert(server, allocation.clone());
@@ -1175,7 +1204,8 @@ impl Node {
     /// can then send at once, as Send indications), then a channel per address in the background (smaller frames).
     fn prepare_relay_paths(self: &Arc<Self>, session: &Arc<IceSession>) {
         let Some(allocation) = session.allocation.lock().unwrap().clone() else { return };
-        let remotes: Vec<SocketAddr> = session.agent.remote_addresses().into_iter().filter(|a| a.is_ipv4() == allocation.relayed.is_ipv4()).collect();
+        let reachable = self.relay_reaches(&allocation);
+        let remotes: Vec<SocketAddr> = session.agent.remote_addresses().into_iter().filter(|a| a.is_ipv4() == allocation.relayed.is_ipv4() && reachable(a.ip())).collect();
         let mut ips: Vec<std::net::IpAddr> = remotes.iter().map(|a| a.ip()).filter(|ip| !self.mux.has_permission(allocation.server, *ip)).collect();
         ips.sort();
         ips.dedup();
@@ -1482,7 +1512,7 @@ impl Node {
                 Ok(allocation) => {
                     warm.failures = 0;
                     warm.allocation = Some(allocation.clone());
-                    Ok((allocation, warm.relays.iter().map(|(_, a)| a.ip()).collect::<Vec<std::net::IpAddr>>()))
+                    Ok(allocation)
                 }
                 Err(e) if e == turn::MISMATCH && warm.reclaimed_at.is_some_and(|t| t.elapsed() < Duration::from_secs(3)) => {
                     // The relay frees the reclaimed allocation on its next timer tick (about a second).
@@ -1504,9 +1534,10 @@ impl Node {
             }
         };
         match next {
-            Ok((allocation, pool)) => {
+            Ok(allocation) => {
                 self.mark("relay.warm_allocated", None, Some(&grant.id));
                 // Every relay in the pool may carry a peer's relay candidate: permit them all now.
+                let pool = self.pool_permissions(&allocation);
                 let _ = allocation.permit(&pool).await;
                 self.emit_state();
             }
