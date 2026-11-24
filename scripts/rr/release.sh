@@ -13,6 +13,8 @@
 #                        windows-rust-dependencies.txt from D (scripts/rr/ci-release-windows.ps1); without it the
 #                        channel feed keeps the previous Windows entry
 #   --apk FILE           use an existing signed APK instead of building one
+#   --android-deps FILE  the Android dependency listing for the SBOM (scripts/rr/android-deps.sh output), instead of
+#                        running Gradle for it here (the hosted Android job makes it next to the APK)
 #   --now ISO            UTC time the version, build number and tag derive from (default now; the hosted
 #                        nightly passes one value to its Android, macOS and publish jobs)
 #   --publish            create the GitHub release and update the channel feeds (default: dry run into dist/)
@@ -27,8 +29,8 @@ set -eu
 . "$(dirname -- "$0")/common.sh"
 
 CHANNEL=${1:-}
-case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,22p' "$0"; exit 2 ;; esac
-VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0} WIN_ARTIFACTS=""
+case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,24p' "$0"; exit 2 ;; esac
+VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" ANDROID_DEPS_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0} WIN_ARTIFACTS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
@@ -40,6 +42,7 @@ while [ $# -gt 0 ]; do
     --skip-android) SKIP_ANDROID=1; shift ;;
     --windows-artifacts) WIN_ARTIFACTS=$2; shift 2 ;;
     --apk) APK_IN=$2; shift 2 ;;
+    --android-deps) ANDROID_DEPS_IN=$2; shift 2 ;;
     --now) NOW=$2; shift 2 ;;
     --publish) PUBLISH=1; shift ;;
     --bump-cask) BUMP_CASK=1; shift ;;
@@ -73,7 +76,11 @@ if [ $SKIP_ANDROID = 0 ]; then
   set -- "$@" --apk "$WORK/app-release.apk"
   [ ! -f "$WORK/app-release.apk.build-info" ] || set -- "$@" --android-build-info "$WORK/app-release.apk.build-info"
   # SBOM input. A listing that fails stops beta and stable; a nightly ships without the Android SBOM.
-  if sh "$RR_ROOT/scripts/rr/android-deps.sh" "$WORK/android-dependencies.txt"; then
+  if [ -n "$ANDROID_DEPS_IN" ]; then
+    [ -s "$ANDROID_DEPS_IN" ] || die "the Android dependency listing $ANDROID_DEPS_IN is empty or missing"
+    cp "$ANDROID_DEPS_IN" "$WORK/android-dependencies.txt"
+    set -- "$@" --android-deps "$WORK/android-dependencies.txt"
+  elif sh "$RR_ROOT/scripts/rr/android-deps.sh" "$WORK/android-dependencies.txt"; then
     set -- "$@" --android-deps "$WORK/android-dependencies.txt"
   elif [ "$CHANNEL" = nightly ]; then
     echo "warning: no Android SBOM in this nightly (the dependency listing failed)" >&2

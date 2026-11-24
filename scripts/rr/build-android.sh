@@ -1,20 +1,26 @@
 #!/bin/sh
-# Builds the signed release APK (run on rr-dev-1 or any Linux host with the Android SDK).
-# Usage: BRIDGEY_VERSION_NAME=... BRIDGEY_BUILD_NUMBER=... scripts/rr/build-android.sh <output.apk>
-# Signing: keystore BRIDGEY_RR_KEYSTORE (default ~/.config/bridgey-rr/rr-bridgey.jks) and the
+# Builds the release APK (run on rr-dev-1, a GitHub-hosted runner or any Linux host with the Android SDK).
+# Usage: BRIDGEY_VERSION_NAME=... BRIDGEY_BUILD_NUMBER=... scripts/rr/build-android.sh [--unsigned] <output.apk>
+# Signed (default): keystore BRIDGEY_RR_KEYSTORE (default ~/.config/bridgey-rr/rr-bridgey.jks) and the
 # ANDROID_* passwords from BRIDGEY_RR_SIGNING_ENV (default ~/.config/bridgey-rr/android-signing.env).
 # Secrets are loaded only into the Gradle process environment and never printed.
+# --unsigned: no keys at all (the hosted release job); scripts/rr/sign-android.sh signs the APK on rr-dev-1.
 set -eu
 . "$(dirname -- "$0")/common.sh"
 . "$RR_ROOT/scripts/rr/rust-env.sh"
+. "$RR_ROOT/scripts/rr/android-apk-check.sh"
 
-OUTPUT=${1:?usage: build-android.sh <output.apk>}
+UNSIGNED=0
+[ "${1:-}" = --unsigned ] && { UNSIGNED=1; shift; }
+OUTPUT=${1:?usage: build-android.sh [--unsigned] <output.apk>}
 : "${BRIDGEY_VERSION_NAME:?set BRIDGEY_VERSION_NAME}"
 : "${BRIDGEY_BUILD_NUMBER:?set BRIDGEY_BUILD_NUMBER}"
 KEYSTORE=${BRIDGEY_RR_KEYSTORE:-$HOME/.config/bridgey-rr/rr-bridgey.jks}
 SIGNING_ENV=${BRIDGEY_RR_SIGNING_ENV:-$HOME/.config/bridgey-rr/android-signing.env}
-[ -f "$KEYSTORE" ] || die "keystore not found at $KEYSTORE"
-[ -f "$SIGNING_ENV" ] || die "signing env not found at $SIGNING_ENV"
+if [ $UNSIGNED = 0 ]; then
+  [ -f "$KEYSTORE" ] || die "keystore not found at $KEYSTORE"
+  [ -f "$SIGNING_ENV" ] || die "signing env not found at $SIGNING_ENV"
+fi
 
 # The Connect anywhere core is part of every APK (Gradle builds it with cargo-ndk).
 sh "$(dirname -- "$0")/rust-toolchain.sh" android
@@ -24,39 +30,30 @@ export PATH
 SLOT=""
 command -v iieon-slot >/dev/null 2>&1 && SLOT=iieon-slot
 
-(
-  cd "$RR_ROOT/android"
-  set -a
-  . "$SIGNING_ENV"
-  set +a
-  BRIDGEY_ANDROID_KEYSTORE="$KEYSTORE" BRIDGEY_VERSION_NAME="$BRIDGEY_VERSION_NAME" BRIDGEY_BUILD_NUMBER="$BRIDGEY_BUILD_NUMBER" \
-    env -u GH_TOKEN -u GITHUB_TOKEN $SLOT ./gradlew --console=plain :app:testDebugUnitTest :app:assembleRelease
-)
-
-APK="$RR_ROOT/android/app/build/outputs/apk/release/app-release.apk"
+if [ $UNSIGNED = 1 ]; then
+  # No signing config at all, so Gradle writes app-release-unsigned.apk; nothing from the environment can sign it.
+  (
+    cd "$RR_ROOT/android"
+    BRIDGEY_VERSION_NAME="$BRIDGEY_VERSION_NAME" BRIDGEY_BUILD_NUMBER="$BRIDGEY_BUILD_NUMBER" \
+      env -u GH_TOKEN -u GITHUB_TOKEN -u BRIDGEY_ANDROID_KEYSTORE -u BRIDGEY_ANDROID_STORE_PASSWORD \
+      -u BRIDGEY_ANDROID_KEY_ALIAS -u BRIDGEY_ANDROID_KEY_PASSWORD -u ANDROID_STORE_PASSWORD -u ANDROID_KEY_ALIAS \
+      -u ANDROID_KEY_PASSWORD $SLOT ./gradlew --console=plain :app:testDebugUnitTest :app:assembleRelease
+  )
+  APK="$RR_ROOT/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+else
+  (
+    cd "$RR_ROOT/android"
+    set -a
+    . "$SIGNING_ENV"
+    set +a
+    BRIDGEY_ANDROID_KEYSTORE="$KEYSTORE" BRIDGEY_VERSION_NAME="$BRIDGEY_VERSION_NAME" BRIDGEY_BUILD_NUMBER="$BRIDGEY_BUILD_NUMBER" \
+      env -u GH_TOKEN -u GITHUB_TOKEN $SLOT ./gradlew --console=plain :app:testDebugUnitTest :app:assembleRelease
+  )
+  APK="$RR_ROOT/android/app/build/outputs/apk/release/app-release.apk"
+fi
 [ -f "$APK" ] || die "release APK was not produced"
 
-SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}
-# The newest build-tools that has both tools (CI images carry several versions, some partial).
-BUILD_TOOLS=""
-for dir in $(ls -d "$SDK"/build-tools/* | sort -V -r); do
-  [ -x "$dir/apksigner" ] && [ -x "$dir/aapt2" ] && { BUILD_TOOLS=$dir; break; }
-done
-[ -n "$BUILD_TOOLS" ] || die "no build-tools with apksigner and aapt2 under $SDK"
-EXPECTED_CERT=$(edition_value ANDROID_CERT_SHA256 | tr -d ':' | tr 'A-F' 'a-f')
-CERTS=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK") || die "apksigner could not verify the APK"
-# Every signer's certificate, whatever apksigner calls it: build-tools 36 prints "Signer #1 certificate
-# SHA-256 digest:", 37 prints "V2 Signer: certificate SHA-256 digest:". All of them must be ours.
-ACTUAL_CERT=$(printf '%s\n' "$CERTS" | sed -n '/^Source Stamp/d; s/^.*[Ss]igner.* certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f' | sort -u | tr '\n' ' ' | sed 's/ $//')
-# Certificate fingerprints are public, so a mismatch names both.
-[ "$ACTUAL_CERT" = "$EXPECTED_CERT" ] || die "APK is not signed with the Round Robin release key (signed with ${ACTUAL_CERT:-nothing}, expected $EXPECTED_CERT; $(basename "$BUILD_TOOLS") apksigner)"
-for abi in arm64-v8a x86_64; do
-  unzip -l "$APK" "lib/$abi/libbridgey_connect.so" >/dev/null 2>&1 || die "the APK has no Connect anywhere core for $abi (lib/$abi/libbridgey_connect.so)"
-done
-BADGING=$("$BUILD_TOOLS/aapt2" dump badging "$APK" | head -n 1)
-echo "$BADGING" | grep -q "name='$(edition_value EDITION_APP_ID)'" || die "unexpected package: $BADGING"
-echo "$BADGING" | grep -q "versionCode='$BRIDGEY_BUILD_NUMBER'" || die "unexpected versionCode: $BADGING"
-echo "$BADGING" | grep -q "versionName='$BRIDGEY_VERSION_NAME'" || die "unexpected versionName: $BADGING"
+if [ $UNSIGNED = 1 ]; then check_release_apk "$APK" unsigned; else check_release_apk "$APK" signed; fi
 
 mkdir -p "$(dirname -- "$OUTPUT")"
 cp "$APK" "$OUTPUT"

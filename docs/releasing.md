@@ -94,6 +94,14 @@ the raw answer lines.
 
 ### Windows
 
+The Android app of a release or nightly is built on a GitHub-hosted runner, with no secrets there: the RR CI
+`release-android` (and `nightly-android`) task runs `scripts/rr/build-android-unsigned.sh` and hands
+`rrci-release-out/android` (the unsigned APK, its dependency listing for the SBOM and `release.env`) to the publishing
+job. `scripts/rr/ci-release.sh` checks the revision, version and build number, then signs the APK on rr-dev-1 with
+`scripts/rr/sign-android.sh` (APK Signature Scheme v2 only, as Gradle signs it; native libraries kept on 16 KB pages;
+the same certificate, core and version checks as a local build). Without the hosted job's files it builds and signs
+the APK on rr-dev-1 as before.
+
 Every release and nightly can carry the Windows app: `Bridgey-RR-<version>-windows-x64.zip` and `...-arm64.zip`, in
 SHA256SUMS, with a CycloneDX SBOM (`...-Windows.sbom.cdx.json`: the Rust crates `bridgey_core.dll` links for the
 Windows target, from `cargo tree`, and the app's NuGet packages) and in the provenance file.

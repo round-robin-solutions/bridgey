@@ -35,3 +35,5 @@ windows/**/bin/
 windows/**/obj/
 windows/.vs/
 *.user
+# RR CI hosted Android job output (scripts/rr/build-android-unsigned.sh)
+/rrci-release-out/
