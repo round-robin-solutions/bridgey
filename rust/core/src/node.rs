@@ -10,7 +10,7 @@
 use crate::addrs::{self, Route};
 use crate::ice::{IceAgent, IceEvent, Local};
 use crate::mux::{is_virtual, Mux, Via};
-use crate::quic::{self, Identity};
+use crate::quic::{self, Identity, Mtu};
 use crate::rdv_client::{self, RdvClient, RdvEvent, Signer};
 use crate::turn::{self, Allocation, Realm};
 use bridgey_connect_proto::rdv::{self as rdvproto, Msg, Reclaim, RelayGrant, RelayInfo, WarmRequest};
@@ -262,7 +262,7 @@ impl Node {
         let identity = Arc::new(Identity::generate());
         let endpoint = quinn::Endpoint::new_with_abstract_socket(
             quic::endpoint_config(),
-            Some(quic::server_config(&identity)),
+            Some(quic::server_config(&identity, Mtu::Base)),
             mux.clone(),
             Arc::new(quinn::TokioRuntime),
         )
@@ -768,7 +768,7 @@ impl Node {
     }
 
     async fn dial_direct(self: Arc<Self>, peer: String, addr: SocketAddr, route: Route, vpn: Option<String>) {
-        let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route));
+        let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route), Mtu::for_route(route));
         let connecting = match self.endpoint.connect_with(config, addr, "bridgey") {
             Ok(c) => c,
             Err(e) => {
@@ -1220,7 +1220,7 @@ impl Node {
             self.end_ice(&session.agent.sid, "no_pin");
             return;
         }
-        let config = quic::client_config(&self.identity.read().unwrap(), pin, keep_alive(route));
+        let config = quic::client_config(&self.identity.read().unwrap(), pin, keep_alive(route), Mtu::Base);
         let Ok(connecting) = self.endpoint.connect_with(config, session.agent.vaddr, "bridgey") else { return };
         match tokio::time::timeout(Duration::from_secs(8), connecting).await {
             Ok(Ok(conn)) => {
@@ -1625,9 +1625,23 @@ impl Node {
                 incoming.refuse();
                 continue;
             }
+            // A direct dial to one of our LAN or VPN addresses may grow its datagrams; ICE tunnels (virtual sources)
+            // and public addresses keep the endpoint's 1,200 bytes (quic::Mtu).
+            let mtu = if is_virtual(source) { Mtu::Base } else { Mtu::for_route(addrs::route_of(source.ip())) };
+            let connecting = match mtu {
+                Mtu::Base => incoming.accept(),
+                Mtu::Discover => {
+                    let identity = self.identity.read().unwrap().clone();
+                    incoming.accept_with(Arc::new(quic::server_config(&identity, mtu)))
+                }
+            };
             let node = self.clone();
             tokio::spawn(async move {
-                let conn = match tokio::time::timeout(Duration::from_secs(10), incoming).await {
+                let accepted = match connecting {
+                    Ok(connecting) => tokio::time::timeout(Duration::from_secs(10), connecting).await,
+                    Err(e) => Ok(Err(e)),
+                };
+                let conn = match accepted {
                     Ok(Ok(conn)) => conn,
                     Ok(Err(e)) => {
                         node.mark("accept.error", None, Some(&format!("{source}: {e}")));
@@ -1869,7 +1883,7 @@ impl Node {
             if since_identity >= Duration::from_secs(86_400) {
                 since_identity = Duration::ZERO;
                 let identity = Arc::new(Identity::generate());
-                self.endpoint.set_server_config(Some(quic::server_config(&identity)));
+                self.endpoint.set_server_config(Some(quic::server_config(&identity, Mtu::Base)));
                 *self.identity.write().unwrap() = identity;
             }
         }
@@ -2021,7 +2035,7 @@ impl Node {
             .values()
             .map(|t| {
                 let (route, relay) = t.route.lock().unwrap().clone();
-                json!({"tunnel": t.id, "peer": t.peer, "route": route.as_str(), "relay": relay, "rttMs": t.conn.rtt().as_millis() as u64, "quicClient": t.quic_client, "claimed": t.claimed.load(Ordering::Relaxed)})
+                json!({"tunnel": t.id, "peer": t.peer, "route": route.as_str(), "relay": relay, "rttMs": t.conn.rtt().as_millis() as u64, "mtu": t.conn.stats().path.current_mtu, "quicClient": t.quic_client, "claimed": t.claimed.load(Ordering::Relaxed)})
             })
             .collect();
         let c = &self.mux.counters;

@@ -750,6 +750,7 @@ impl quinn::UdpPoller for Poller {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::quic::Mtu;
 
     /// A QUIC handshake to an IPv4 address of a dual-stack endpoint: quinn tracks the server as ::ffff:a.b.c.d, so the
     /// mux must hand its replies over in that form (a Windows PC on IPv4 only never brought a tunnel up before).
@@ -759,15 +760,151 @@ mod tests {
         let server_mux = Mux::bind(0).unwrap();
         let client_mux = Mux::bind(0).unwrap();
         let identity = crate::quic::Identity::generate();
-        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity)), server_mux.clone(), runtime.clone()).unwrap();
+        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity, crate::quic::Mtu::Base)), server_mux.clone(), runtime.clone()).unwrap();
         let client = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), None, client_mux.clone(), runtime).unwrap();
         let accept = tokio::spawn(async move { server.accept().await.unwrap().await.map(|c| c.remote_address()) });
         let target: SocketAddr = format!("127.0.0.1:{}", server_mux.port()).parse().unwrap();
-        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5));
+        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5), crate::quic::Mtu::Base);
         let conn = tokio::time::timeout(Duration::from_secs(5), client.connect_with(config, target, "bridgey").unwrap()).await.expect("handshake in time").expect("handshake");
         assert_eq!(canonical(conn.remote_address()), target);
         let seen = tokio::time::timeout(Duration::from_secs(5), accept).await.unwrap().unwrap().unwrap();
         assert_eq!(canonical(seen).ip(), target.ip());
+    }
+
+    struct Pair {
+        client: quinn::Connection,
+        server: quinn::Connection,
+        _endpoints: (quinn::Endpoint, quinn::Endpoint),
+    }
+
+    /// A QUIC connection from `client_mux` to `target` on `server_mux`, whose server echoes the first stream.
+    async fn connect(server_mux: &Arc<Mux>, client_mux: &Arc<Mux>, target: SocketAddr, server_mtu: Mtu, client_mtu: Mtu) -> Pair {
+        let runtime = Arc::new(quinn::TokioRuntime);
+        let identity = crate::quic::Identity::generate();
+        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity, server_mtu)), server_mux.clone(), runtime.clone()).unwrap();
+        let client = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), None, client_mux.clone(), runtime).unwrap();
+        let accept = {
+            let server = server.clone();
+            tokio::spawn(async move { server.accept().await.unwrap().await.unwrap() })
+        };
+        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5), client_mtu);
+        let client_conn = tokio::time::timeout(Duration::from_secs(5), client.connect_with(config, target, "bridgey").unwrap()).await.expect("handshake in time").expect("handshake");
+        let server_conn = tokio::time::timeout(Duration::from_secs(5), accept).await.unwrap().unwrap();
+        let echo = server_conn.clone();
+        tokio::spawn(async move {
+            let Ok((mut send, mut recv)) = echo.accept_bi().await else { return };
+            let mut buf = vec![0u8; 64 << 10];
+            while let Ok(Some(n)) = recv.read(&mut buf).await {
+                if send.write_all(&buf[..n]).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Pair { client: client_conn, server: server_conn, _endpoints: (server, client) }
+    }
+
+    /// `bytes` out and back through the echo, compared byte for byte.
+    async fn echo(send: &mut quinn::SendStream, recv: &mut quinn::RecvStream, bytes: usize, seed: u8) {
+        let data: Vec<u8> = (0..bytes).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed ^ (i >> 8) as u8)).collect();
+        let mut back = vec![0u8; bytes];
+        let (written, read) = tokio::join!(send.write_all(&data), recv.read_exact(&mut back));
+        written.unwrap();
+        read.unwrap();
+        assert!(back == data, "the echo differs");
+    }
+
+    fn loopback(mux: &Mux) -> SocketAddr {
+        format!("127.0.0.1:{}", mux.port()).parse().unwrap()
+    }
+
+    /// A LAN or VPN dial finds the path's MTU (1,452 on loopback) while the data stays intact, also against a peer that
+    /// never looks, as 1.0.0-beta.1 (MTU discovery off, 1,200 bytes): it acknowledges the probes like any packet.
+    #[tokio::test]
+    async fn mtu_discovery_on_fixed_paths_and_with_old_peers() {
+        let expect = |mtu| if mtu == Mtu::Discover { crate::quic::FIXED_MAX_UDP } else { 1_200 };
+        for (server_mtu, client_mtu) in [(Mtu::Discover, Mtu::Discover), (Mtu::Base, Mtu::Discover), (Mtu::Discover, Mtu::Base), (Mtu::Base, Mtu::Base)] {
+            let server_mux = Mux::bind(0).unwrap();
+            let client_mux = Mux::bind(0).unwrap();
+            let pair = connect(&server_mux, &client_mux, loopback(&server_mux), server_mtu, client_mtu).await;
+            let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
+            let settled = || pair.client.stats().path.current_mtu == expect(client_mtu) && pair.server.stats().path.current_mtu == expect(server_mtu);
+            for round in 0..40u8 {
+                echo(&mut send, &mut recv, 256 << 10, round).await;
+                if round >= 3 && settled() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            let mtus = (pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu);
+            assert_eq!(mtus, (expect(client_mtu), expect(server_mtu)), "client {client_mtu:?}, server {server_mtu:?}");
+            assert_eq!(client_mux.counters.send_errors.load(Ordering::Relaxed) + server_mux.counters.send_errors.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    /// An ICE tunnel moves from a direct pair onto a relay (as when the direct path dies): the data carries on, every
+    /// datagram to and from the relay has one ChannelData header and stays within 1,280 bytes, and a datagram too large
+    /// for a relay never leaves.
+    #[tokio::test]
+    async fn ice_tunnel_moves_onto_a_relay_within_its_size() {
+        const CHANNEL: u16 = 0x4123;
+        let mux_a = Mux::bind(0).unwrap();
+        let mux_b = Mux::bind(0).unwrap();
+        let (addr_a, addr_b) = (loopback(&mux_a), loopback(&mux_b));
+        // Each side knows the other by a virtual address, as ICE sets up.
+        let (va, vb) = (mux_a.new_virtual(), mux_b.new_virtual());
+        mux_a.map_path(Path::direct(addr_b), va);
+        mux_a.select_path(va, Path::direct(addr_b));
+        mux_b.map_path(Path::direct(addr_a), vb);
+        mux_b.select_path(vb, Path::direct(addr_a));
+        // A stand-in relay: A's ChannelData goes to B unwrapped from the relayed address; B's datagrams to that address
+        // come back to A framed.
+        let turn = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let relayed = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (server, relayed_addr) = (canonical(turn.local_addr().unwrap()), canonical(relayed.local_addr().unwrap()));
+        let largest = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let frames = Arc::new(AtomicU64::new(0));
+        {
+            let (largest, frames) = (largest.clone(), frames.clone());
+            tokio::spawn(async move {
+                let (mut up, mut down) = (vec![0u8; 65_536], vec![0u8; 65_536]);
+                loop {
+                    tokio::select! {
+                        Ok((n, _)) = turn.recv_from(&mut up) => {
+                            largest.fetch_max(n, Ordering::Relaxed);
+                            let (number, payload) = stun::parse_channel_data(&up[..n]).expect("ChannelData from the mux");
+                            assert_eq!((number, payload.len() + 4), (CHANNEL, n), "one header per datagram");
+                            frames.fetch_add(1, Ordering::Relaxed);
+                            let _ = relayed.send_to(payload, addr_b).await;
+                        }
+                        Ok((n, _)) = relayed.recv_from(&mut down) => {
+                            let framed = stun::channel_data(CHANNEL, &down[..n]);
+                            largest.fetch_max(framed.len(), Ordering::Relaxed);
+                            let _ = turn.send_to(&framed, addr_a).await;
+                        }
+                    }
+                }
+            });
+        }
+        mux_a.add_turn(server);
+        mux_a.bound(server, addr_b, CHANNEL);
+        let pair = connect(&mux_b, &mux_a, va, Mtu::Base, Mtu::Base).await;
+        let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
+        echo(&mut send, &mut recv, 1 << 20, 1).await;
+        assert_eq!(frames.load(Ordering::Relaxed), 0);
+        // ICE moves both ends: A sends through its allocation, B to A's relayed address.
+        let via_relay = Path { via: Via::Turn(server), remote: addr_b };
+        mux_a.map_path(via_relay, va);
+        mux_a.select_path(va, via_relay);
+        mux_b.map_path(Path::direct(relayed_addr), vb);
+        mux_b.select_path(vb, Path::direct(relayed_addr));
+        tokio::time::timeout(Duration::from_secs(30), echo(&mut send, &mut recv, 4 << 20, 2)).await.expect("the transfer carries on through the relay");
+        let before = frames.load(Ordering::Relaxed);
+        assert!(before > 3_000, "the data went through the relay ({before} frames)");
+        mux_a.send_quic(via_relay, &[0x40; RELAY_MAX_QUIC + 1], None).unwrap();
+        mux_a.send_quic(via_relay, &[0x40; 3 * RELAY_MAX_QUIC], Some(RELAY_MAX_QUIC)).unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(largest.load(Ordering::Relaxed) <= 1_280, "largest datagram at the relay: {}", largest.load(Ordering::Relaxed));
+        assert_eq!((pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu), (1_200, 1_200));
     }
 
     /// Through a relay with a permission but no channel yet, a datagram leaves as a Send indication (so a relay
