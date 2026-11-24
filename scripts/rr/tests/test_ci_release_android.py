@@ -114,7 +114,7 @@ class CiReleaseTests(Fixture):
         (self.home / '.config' / 'bridgey-rr' / 'github-token').write_text('test-token')
         (self.home / 'Android' / 'Sdk').mkdir(parents=True)
         self.jdk = self.tmp / 'jdk'
-        write_exe(self.jdk / 'bin' / 'java', '#!/bin/sh\necho 17\n')
+        write_exe(self.jdk / 'bin' / 'java', '#!/bin/sh\necho \'openjdk version "17.0.16" 2025-07-15\' >&2\n')
         self.inputs = self.tmp / 'inputs'
         self.now = '2026-11-24T18:00:00Z'
         self.version = self.derived('nightly', '--now', self.now)

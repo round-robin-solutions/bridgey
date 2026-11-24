@@ -31,9 +31,11 @@ GH_TOKEN=$(cat "$CONFIG/github-token")
 export GH_TOKEN
 
 # Toolchains as the RR CI Gradle profiles find them; no Gradle or Kotlin daemon outlives the job.
-# A JDK 17 RR CI names in JAVA_HOME comes first, then the worker's packaged one.
+# JAVA_HOME when it is a JDK 17, then the worker's packaged JDK 17.
 JDK=""
-for j in ${JAVA_HOME:-} /usr/lib/jvm/java-17-openjdk-amd64 /usr/lib/jvm/java-17-openjdk-arm64; do [ -z "$JDK" ] && [ -x "$j/bin/java" ] && JDK="$j"; done
+for j in ${JAVA_HOME:-} /usr/lib/jvm/java-17-openjdk-amd64 /usr/lib/jvm/java-17-openjdk-arm64; do
+  [ -z "$JDK" ] && [ -x "$j/bin/java" ] && "$j/bin/java" -version 2>&1 | head -n 1 | grep -q '"17[."]' && JDK="$j"
+done
 JAVA_HOME=$JDK
 [ -n "$JAVA_HOME" ] || die "JDK 17 is not installed on this worker"
 ANDROID_HOME=""
