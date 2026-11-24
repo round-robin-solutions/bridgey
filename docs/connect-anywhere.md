@@ -165,7 +165,13 @@ Rahul decided on 2026-11-24: "we will use Cloudflare from now on" for the relay,
 - **Live check from rr-dev-1** (`rust/core/examples/turn_check.rs --cloudflare`, fresh credentials): STUN 5 ms;
   UDP allocation 8 ms (relayed address IPv4, `104.30.x.x`); TLS on 443 connected in 28 ms and allocated in 40 ms; a
   STUN check relayed both ways between the UDP and TLS allocations; paced traffic 18 to 34 Mbit/s through the
-  relay with rr-dev-1 at load 40 to 57 (the pace is 40 Mbit/s); a wrong credential refused.
+  relay with rr-dev-1 at load 40 to 57 (the pace is 40 Mbit/s); a wrong credential refused. Cloudflare refuses a
+  permission for its own address (403), so the core leaves it out (section 9.4).
+- **End to end on rr-dev-1** (this branch's control service, also as its `scratch` image, with the four variables;
+  two headless core nodes, `probe.rs --relay-only`): usage read over HTTPS from inside the image, warm grants minted
+  per node, both nodes allocated on Cloudflare, the tunnel up through `cf` 204 to 607 ms after the race started, echo
+  median 42 ms, an 8 MiB binary echo identical at both ends. Throughput on a loaded host is no guide; real devices
+  are still to be measured.
 
 ## 1. Summary
 
