@@ -16,6 +16,9 @@ pub const FAST_HELLO_WINDOW_MS: u64 = 120_000;
 /// `relay.grant` session IDs for a node's own (warm) relay credentials and a reclaimed allocation's.
 pub const WARM_SID: &str = "warm";
 pub const RECLAIM_SID: &str = "reclaim";
+/// A `caps` entry in `hello`: the client can use relay grants of kind `cloudflare` (Cloudflare Realtime TURN: Web PKI
+/// on `turns:`, an IPv4 relay, client pacing at the grant's `maxKbps`). Clients without it only ever get `coturn` grants.
+pub const CAP_CLOUDFLARE: &str = "relay.cloudflare";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +76,9 @@ pub struct FastHello {
     pub ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub warm: Option<WarmRequest>,
+    /// What this client can do beyond the base protocol ([CAP_CLOUDFLARE]). Older clients send none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caps: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -86,14 +92,31 @@ pub struct RelayGrant {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spki: Option<String>,
     pub expires_at: u64,
+    /// The rate the client keeps to on this relay, in kbit/s (coturn enforces its own; Cloudflare grants are paced by
+    /// the client).
     pub max_kbps: u32,
+}
+
+impl RelayGrant {
+    /// A Cloudflare Realtime TURN grant (kind `cloudflare`): no `spki`, the Web PKI on `turns:`.
+    pub fn is_cloudflare(&self) -> bool {
+        self.kind == "cloudflare"
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "t")]
 pub enum Msg {
     #[serde(rename = "hello")]
-    Hello { v: u32, node: String, app: String, keepalive: u32 },
+    Hello {
+        v: u32,
+        node: String,
+        app: String,
+        keepalive: u32,
+        /// As [FastHello::caps].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caps: Option<Vec<String>>,
+    },
     #[serde(rename = "challenge")]
     Challenge { nonce: String, pow: u32 },
     #[serde(rename = "auth")]
@@ -228,8 +251,14 @@ mod tests {
 
     #[test]
     fn wire_names() {
-        let hello = Msg::Hello { v: 1, node: "n".into(), app: "a".into(), keepalive: 120 };
+        let hello = Msg::Hello { v: 1, node: "n".into(), app: "a".into(), keepalive: 120, caps: None };
         assert_eq!(hello.to_text(), r#"{"t":"hello","v":1,"node":"n","app":"a","keepalive":120}"#);
+        // Capabilities ride along; a hello from an older client (none) still parses, and an older service ignores them.
+        let hello = Msg::Hello { v: 1, node: "n".into(), app: "a".into(), keepalive: 120, caps: Some(vec![CAP_CLOUDFLARE.into()]) };
+        assert_eq!(hello.to_text(), r#"{"t":"hello","v":1,"node":"n","app":"a","keepalive":120,"caps":["relay.cloudflare"]}"#);
+        assert!(matches!(Msg::parse(r#"{"t":"hello","v":1,"node":"n","app":"a","keepalive":120}"#), Some(Msg::Hello { caps: None, .. })));
+        let fast: FastHello = serde_json::from_str(r#"{"v":1,"node":"n","app":"a","keepalive":60,"ts":1,"cnonce":"c","sig":"s"}"#).unwrap();
+        assert_eq!(fast.caps, None);
         let welcome = Msg::parse(r#"{"t":"welcome","nodeId":"x","now":1,"limits":{"maxIds":64,"maxSignalBytes":6144,"signalsPerMinute":120}}"#);
         assert!(matches!(welcome, Some(Msg::Welcome { relays: None, .. })));
         let welcome = Msg::parse(r#"{"t":"welcome","nodeId":"x","now":1,"limits":{"maxIds":64,"maxSignalBytes":6144,"signalsPerMinute":120},"relays":[{"id":"sin","stun":"relay-sg.roundrobin.in:3478"}]}"#);
