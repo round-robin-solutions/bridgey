@@ -2,6 +2,14 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 2 (1.0.0-beta.2), 24 November 2026
+
+- On the same Wi-Fi your devices now connect directly, so files and clipboard move at your network's full speed. Before, they often went through the away-from-home connection even at home.
+- Pasting between Macs no longer gets stuck on "Pasting from…". If something is still on its way, the paste waits a few seconds and then asks you to paste again in a moment, instead of freezing the app.
+- Switching connections no longer stops a transfer or a paste.
+- Away from home, Bridgey now relays through Cloudflare, and the connection is faster.
+- Windows is in the beta for the first time, for x64 and Arm64.
+
 ## 1.0 Beta 1 (1.0.0-beta.1), 15 November 2026
 
 Bridgey by Round Robin now has its own version numbers, starting at 1.0. Betas are 1.0.0-beta.N; Stable comes later.
