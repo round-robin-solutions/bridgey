@@ -2,6 +2,12 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 3 (1.0.0-beta.3), 24 November 2026
+
+- A new Transfers window on the Mac: what's moving now, with speed, time left and how your devices are connected, plus your history in the same place.
+- Photos and videos show as thumbnails. Filter by type or device, search, and press Space to preview.
+- Send files from the window, or drop them on it. Failed transfers have Retry.
+
 ## 1.0 Beta 2 (1.0.0-beta.2), 24 November 2026
 
 - On the same Wi-Fi your devices now connect directly, so files and clipboard move at your network's full speed. Before, they often went through the away-from-home connection even at home.
