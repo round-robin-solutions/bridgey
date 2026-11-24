@@ -165,6 +165,28 @@ that start with the `0xB1` marker and hold every byte value. **Measured:** every
 relay at 2.3 to 3.9 MB/s (6 runs). These tunnels are far slower than the local network on the same host, so away from
 home the tunnel, not the frame code, will set the speed; that is for the Connect anywhere work to look at.
 
+**Tunnel speed work (24 Nov 2026).** Three changes in `rust/core`: release builds optimise for speed (`opt-level`
+3, not `"z"`); the mux drives its socket through quinn-udp (GSO and GRO batches on Linux and Android, QUIC datagrams
+left in quinn's buffers instead of copied through a queue, each relayed datagram still in its own ChannelData frame);
+and direct dials to LAN and VPN addresses look for a larger MTU (up to 1,452 bytes; Tailscale settles at 1,230). ICE
+tunnels and dials to public addresses stay at 1,200 bytes: ICE can move a connection onto a relay or a smaller path
+without QUIC seeing it, and a full-size packet would then be lost every time.
+
+**Measured** with the probe, one transfer of 64 MiB each way per run (`--binary-once`), builds run in turn:
+
+| Path | Before | After |
+| --- | --- | --- |
+| Direct dial, rr-dev-1 (Linux), load average 30 to 65 | 5.6 to 10.4 MB/s, median 8.0 (7 runs) | 16.3 to 39.6 MB/s, median 22.8 (7 runs) |
+| Direct dial, MacBook Pro M1, LAN address | 66.2 to 69.2 MB/s (3 runs) | 82.9 to 85.7 MB/s (3 runs) |
+| Relay only, local coturn limited to one CPU (16 MiB) | 2.9 to 4.6 MB/s (3 runs) | 1.8 to 3.3 MB/s (3 runs) |
+
+The relay rows are set by the relay, not the core (a build between the two, with the same relay code, gave 4.1 to 4.9
+MB/s): coturn sat at 85 to 92% of its CPU while the probes stayed mostly idle (both nodes' allocations are on it, so
+every byte crosses it twice). On rr-dev-1 the two probes used 64 to 87 CPU-seconds per GiB before and 21 to 42 after
+(the probe's own hashing included). The apps' own AES-GCM on each frame costs about 0.7 CPU-seconds per GiB (seal and
+open on the personal Mac, section 2); the tunnel used about 20 per GiB on the M1, so the second layer of encryption is
+not what limits it.
+
 ## 5. Security of the binary path
 
 A fresh reviewer checked the binary frame path on 2026-10-30, including what is parsed before authentication.
@@ -238,3 +260,12 @@ adb shell 'CLASSPATH=/data/local/tmp/app-debug.apk:/data/local/tmp/bench.dex app
 
 `BRIDGEY_BENCH_MB` (Mac) and `-Pbench.mb` or `-Dbridgey.benchMb` (Android) change the file size;
 `-Dbridgey.benchDir=/sdcard/Download` writes the received file through shared storage.
+
+The tunnel (section 4): two probes on one host, from `rust/` after `cargo build --release --example probe`. Leave
+out `--control` for a direct dial only; add `--control ws://<host>:18450/v1/ws --relay-only` on both for the relay.
+
+```sh
+P=target/release/examples/probe; S=$(head -c32 /dev/urandom | base64); IP=100.121.85.33
+$P --id aa --peer bb --side 0 --secret "$S" --port 42600 --address $IP:42601 --binary-mb 64 --binary-once --settle-ms 500 &
+$P --id bb --peer aa --side 1 --secret "$S" --port 42601 --address $IP:42600 --binary-mb 64 --binary-once
+```
