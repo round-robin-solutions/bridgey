@@ -526,11 +526,12 @@ impl Hub {
         let key = (rdv.clone(), sid.clone());
         let capable = self.conns[&id].cloudflare;
         // The service picks one relay per session for both sides (spec 9.3): a claim reuses it, unless it is Cloudflare
-        // and this client cannot use it (then the own pool, as before Cloudflare). Cloudflare is chosen only when every
-        // node on the session can use it.
+        // and this client cannot use it, or Cloudflare has since gone off (the hard cap, a failed mint); then the own
+        // pool, as before Cloudflare. Cloudflare is chosen only when every node on the session can use it.
         let pending = self.pending.get(&key).map(|grant| grant.relay.clone());
+        let reusable = |relay: &String| !self.is_cf(relay) || (capable && self.cf_tier(now, &exclude) != CfTier::Off);
         let chosen = match (claim, pending) {
-            (true, Some(relay)) if !exclude.contains(&relay) && (capable || !self.is_cf(&relay)) => Some(relay),
+            (true, Some(relay)) if !exclude.contains(&relay) && reusable(&relay) => Some(relay),
             _ => {
                 let both = capable && self.others_capable(id, &rdv);
                 self.choose(both, rtts.as_ref(), &exclude, now)
@@ -948,6 +949,15 @@ penalty_ms = 10
         }
         assert!(matches!(drain(&mut rx_a).pop(), Some(Msg::RelayGrantMsg { sid, relay }) if sid == sid2 && relay.id == "cf"));
         assert!(matches!(drain(&mut rx_c).pop(), Some(Msg::RelayGrantMsg { sid, relay }) if sid == sid2 && relay.id == "cf"));
+        // A claim after Cloudflare went off (here: over the hard cap since the request) gets the own pool.
+        let sid3 = "DDDDDDDDDDDDDDDDDDDDDD";
+        hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: sid3.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+        assert_eq!(hub.take_mints().len(), 1);
+        hub.set_cf_usage(Ok(960_000_000_000), Instant::now());
+        hub.handle(c, Msg::RelayClaim { rdv: RDV.into(), sid: sid3.into(), side: 1 });
+        assert!(hub.take_mints().is_empty());
+        assert!(matches!(drain(&mut rx_c).pop(), Some(Msg::RelayGrantMsg { relay, .. }) if relay.kind == "coturn"));
+        hub.set_cf_usage(Ok(1_000_000_000), Instant::now());
         // An old client that claims a Cloudflare session (it came back on an older build) gets the own pool instead.
         let (tx_d, mut rx_d) = mpsc::channel(16);
         let d = hub.join_with("node-d".into(), tx_d, &caps(false)).unwrap();
