@@ -11,6 +11,7 @@ down (steps below). Design: [connect-anywhere.md](connect-anywhere.md).
 | Relay `sin` | relay-sg.roundrobin.in (15.235.211.41), rb-vps | compose `bridgey-relay-sg` (`sPkcw4V_FcPmlFYpGF8Bw`) on deploy server `client-update-portal-vps` (`FJI1IAi5SEF9_fDNfSV8J`, user ubuntu, port 2222) | `rust/core/examples/turn_check.rs` from another host |
 | Relay `sxb` | relay-eu.roundrobin.in (109.123.243.231), rr-dev-1 | compose `bridgey-relay-eu` (`AUcFGMLUaVr3qgXixmTvn`) on deploy server `rr-dev-1-deploy` (`OJQHZTE0Gl8BYvaS7CcF9`, user `dokploy-deploy`) | same |
 | Relay `bom` | relay-in.roundrobin.in, oracle | not deployed (oracle is down); no DNS record yet; no secret in the control service, so nobody is sent there | see "oracle" below |
+| Relay `cf` | Cloudflare Realtime TURN, `turn.cloudflare.com` | prepared 2026-11-24 (TURN key `bridgey-relay`), not deployed: the control service needs the image from PR `rr/cloudflare-relay` and the four `CF_*` variables | see "Cloudflare relay" below |
 
 All three Dokploy entries follow branch `rr/connect-anywhere` with auto-deploy on push (control
 service: `rust/**`, `server/rendezvous/**`; relays: `server/relay/**`). **When the branch merges,
@@ -71,7 +72,82 @@ How it was set up, so it can be repeated:
 | 9 | `DEPLOYMENT.md`: the new app, the compose stacks, coturn under "Third-party pinned images"; rb-vps's retirement cancelled (Rahul, 2026-10-25) | PA | Record of the estate |
 
 Not in phase 1: Cloudflare Realtime TURN (no key, no spend), TURN over TLS on 443, the ops dashboard
-and alerts, the relay agent's allowance caps. The pool runs on the three own relays only.
+and alerts, the relay agent's allowance caps. The pool runs on the three own relays only. Cloudflare and TURN over
+TLS on 443 (Cloudflare only) came on 2026-11-24, below.
+
+## Cloudflare relay (prepared 2026-11-24)
+
+Rahul, 2026-11-24: "we will use Cloudflare from now on", the own pool as the backup. Design:
+[connect-anywhere.md](connect-anywhere.md#cloudflare-first-2026-11-24-branch-rrcloudflare-relay), sections 9.3 and 9.4.
+
+**Credentials.** TURN key `bridgey-relay` in the Round Robin Solutions account, and a user API token "Bridgey relay
+usage" with Account Analytics Read on that account only (made with the personal Global API Key, like the other
+agent tokens). The values are in 1Password, vault Infra, item "Bridgey Connect: Cloudflare Realtime TURN", and in the
+Keychain note "RR Social - all new logins and keys". The control service reads four variables:
+
+| Variable | What |
+| --- | --- |
+| `CF_TURN_KEY_ID` | The TURN key's ID |
+| `CF_TURN_API_TOKEN` | The TURN key's API token (bearer token for `rtc.live.cloudflare.com`) |
+| `CF_ACCOUNT_ID` | The Round Robin Solutions account ID (the usage query) |
+| `CF_ANALYTICS_TOKEN` | The analytics token (the usage query) |
+
+Without the first two the `cf` relay is skipped; without the last two there is no usage reading, so no Cloudflare
+grants. Either way every client gets the own pool, as before.
+
+**How the control service runs now** (read 2026-11-24): Dokploy app `AWhUiERgwLozVUZrH6aAz` has source "docker",
+image `ghcr.io/round-robin-solutions/bridgey-rendezvous-bls5vl@sha256:3afcab44c5425e94df891b8e5418fd525ae82d70601926631d5d7a95bd061c4a`
+(tag `latest`, built 2026-11-07 18:13 UTC from rr/main `697637cd`, PR #14). RR CI pinned it there on 2026-11-14
+(builds-on-rr-ci), and its deploy policy for this app still follows the deleted branch `rr/connect-anywhere`, so no
+push since has rebuilt or redeployed it, and merging this PR deploys nothing by itself. Two "Rebuild deployment"
+runs on 2026-11-19 failed (the app shows "error"); the running service is healthy. Environment: `TURN_SECRET_SIN`,
+`TURN_SECRET_SXB`. Port 8080 published in host mode as 18450, stop-first updates.
+
+**Deploy** (after the PR is merged with green checks and the coordinator agrees). The helper
+`cloudflare-relay-deploy.py` (PA `outputs/bridgey/`) reads every secret inside itself and prints names only.
+
+1. Keep the running image reachable by tag, since a new build may move `latest` (on rr-dev-1, with a throwaway
+   Docker config):
+
+   ```bash
+   export DOCKER_CONFIG=$(mktemp -d)
+   gh auth token | docker login ghcr.io -u rbansal42 --password-stdin
+   docker buildx imagetools create -t ghcr.io/round-robin-solutions/bridgey-rendezvous-bls5vl:rollback-20261124 \
+     ghcr.io/round-robin-solutions/bridgey-rendezvous-bls5vl@sha256:3afcab44c5425e94df891b8e5418fd525ae82d70601926631d5d7a95bd061c4a
+   ```
+
+2. Build and push the image from the merged rr/main commit `<sha>`, natively cross-compiled for arm64 (rr-web):
+
+   ```bash
+   git clone --filter=blob:none https://github.com/round-robin-solutions/bridgey.git /tmp/rdv && git -C /tmp/rdv checkout <sha>
+   cd /tmp/rdv && docker buildx build --platform linux/arm64 -f server/rendezvous/Dockerfile \
+     -t ghcr.io/round-robin-solutions/bridgey-rendezvous-bls5vl:rr-main-<sha12> --push .
+   rm -rf "$DOCKER_CONFIG"
+   ```
+
+   Or have the RR CI owner point the app's deploy policy at `rr/main`; RR CI then builds and deploys on its own
+   (Dokploy auto deploy is on), and every later change under `rust/**` or `server/rendezvous/**` redeploys.
+3. `python3 cloudflare-relay-deploy.py env --dry-run`, then `env`: adds the four variables, keeps the two TURN
+   secrets (`application.saveEnvironment`; nothing restarts).
+4. `python3 cloudflare-relay-deploy.py deploy ghcr.io/round-robin-solutions/bridgey-rendezvous-bls5vl:rr-main-<sha12>`:
+   `application.saveDockerProvider` (with RR CI's deploy registry login) and `application.deploy`. A tag, not a digest:
+   Dokploy re-tags the image for its registry upload, which a digest reference refuses.
+5. Check: `curl -s https://connect.roundrobin.in/health/ready` says `ready`; `/v1/status` lists `cf` with
+   `"configured":true` and a `cloudflare` object with `"tier":"first"`, `usedGb` and no `usageError` within a minute;
+   the container log shows `cloudflare: First (used ... GB in the window)`. With a 1.0.0-beta.1 app connected,
+   `cfGrants` stays 0 for it and its route still names `bom`, `sin` or `sxb`. An app built from this branch shows
+   "Relay (Cloudflare)" on the Mac (Android shows "Relay" until it maps `cf`).
+
+**Rollback.** In order of size:
+
+- Cloudflare off, same image: `python3 cloudflare-relay-deploy.py env-remove`, then redeploy the same tag (step 4).
+  The new image without the `CF_*` variables behaves exactly as the old one; Cloudflare allocations already made
+  end within the grant's lifetime (2 hours, 12 for warm grants), or at once with the TURN key deleted in the
+  Cloudflare dashboard (Realtime, TURN).
+- The old image: `python3 cloudflare-relay-deploy.py rollback` (deploys `:rollback-20261124`, the 2026-11-07 image).
+  Remove the `CF_*` variables too, or leave them: the old image ignores them.
+- Cloudflare stops by itself at 950 GB in 31 days, without a usage reading for an hour, or for 1 to 15 minutes after
+  each failed mint; clients then get the own pool.
 
 ## 1. Secrets
 
@@ -174,5 +250,5 @@ moves to LAN within a minute.
 - Control service: stop the Dokploy app. Apps fall back to learned LAN and private-network addresses;
   relayed sessions end within 2 hours.
 - A relay: stop its compose app (or set `enabled = false` for it in the settings file and redeploy the
-  control service). New sessions use the other relays.
+  control service). New sessions use the other relays. For Cloudflare, see "Cloudflare relay" above.
 - DNS: delete the records. Nothing else depends on them.
