@@ -295,6 +295,7 @@
 "panel.verify.match" = "Коды совпадают";
 "paste.failed" = "Не удалось вставить с %@";
 "paste.failed.offline" = "Не удалось вставить: %@ не подключён";
+"paste.failed.receiving" = "Ещё передаётся. Вставьте снова через пару секунд.";
 "paste.progress" = "Вставка с %@…";
 "paste.progress.percent" = "Вставка с %1$@… %2$d%%";
 "permission.offEverywhere" = "Выключено для всех устройств";

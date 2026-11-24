@@ -4,6 +4,7 @@
 //! device names, device IDs, identity keys, candidates or any content: signalling bodies are
 //! sealed with a key only the two paired devices hold.
 
+mod cloudflare;
 mod config;
 mod hub;
 
@@ -18,12 +19,12 @@ use bridgey_connect_proto::rdv::{self, FastHello, Limits, Msg, WarmRequest};
 use bridgey_connect_proto::{b64, derive};
 use config::Config;
 use futures_util::StreamExt;
-use hub::{Hub, Outcome};
+use hub::{Hub, MintJob, Outcome};
 use ring::rand::SecureRandom;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 struct App {
@@ -36,6 +37,8 @@ struct App {
     /// Single-flight sign-ins already taken: (node ID, cnonce) until their window ends, so none is taken twice.
     /// In memory: the service runs as one instance (stop-first deploys), so this covers every sign-in it takes.
     seen_hellos: Mutex<SeenHellos>,
+    /// Cloudflare Realtime TURN, when its TURN key is in the environment.
+    cloudflare: Option<cloudflare::Shared>,
 }
 
 #[derive(Default)]
@@ -72,6 +75,7 @@ struct FastSignIn {
     keepalive: u32,
     ids: Option<Vec<String>>,
     warm: Option<WarmRequest>,
+    caps: Vec<String>,
 }
 
 const DEFAULT_CONFIG: &str = "/etc/bridgey/bridgey-rendezvous.toml";
@@ -112,9 +116,21 @@ async fn main() {
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| fail(&format!("cannot read {path}: {e}")));
     let config = Config::parse(&text).unwrap_or_else(|e| fail(&format!("invalid {path}: {e}")));
     let secrets = config.secrets(|name| std::env::var(name).ok());
-    for relay in config.relays.iter().filter(|r| r.enabled) {
+    for relay in config.relays.iter().filter(|r| r.enabled && !r.is_cloudflare()) {
         if !secrets.contains_key(&relay.id) {
             eprintln!("relay {} has no secret in ${}; it is skipped", relay.id, relay.secret_env);
+        }
+    }
+    let cf = config.cloudflare(|name| std::env::var(name).ok());
+    if let Some(relay) = config.relays.iter().find(|r| r.enabled && r.is_cloudflare()) {
+        let settings = relay.cloudflare.clone().unwrap_or_default();
+        match &cf {
+            None => eprintln!("relay {} has no TURN key in ${} and ${}; it is skipped", relay.id, settings.key_id_env, settings.token_env),
+            Some((_, s)) if s.account.is_none() || s.analytics_token.is_none() => eprintln!(
+                "relay {}: no usage reading without ${} and ${}, so no Cloudflare grants",
+                relay.id, settings.account_env, settings.analytics_token_env
+            ),
+            Some(_) => eprintln!("relay {}: Cloudflare grants up to {} GB (soft {} GB) in the usage window", relay.id, settings.hard_gb, settings.soft_gb),
         }
     }
     let listen: SocketAddr = config.server.listen.parse().unwrap_or_else(|_| fail("server.listen is not an address"));
@@ -123,15 +139,25 @@ async fn main() {
         // this service could be replayed to another that shares node keys.
         fail("server.public_host is required with trust_proxy");
     }
+    let mut hub = Hub::new(config.clone(), secrets);
+    let cloudflare = cf.map(|(relay, secrets)| {
+        let client = Arc::new(cloudflare::Cloudflare::new(relay.cloudflare.clone().unwrap_or_default(), secrets));
+        hub.enable_cloudflare(relay);
+        client
+    });
     let app = Arc::new(App {
         trust_proxy: config.server.trust_proxy,
         limits: config.limits.clone(),
         environment: config.server.environment.clone(),
         public_host: config.server.public_host.clone(),
         seen_hellos: Mutex::new(SeenHellos::default()),
-        hub: Mutex::new(Hub::new(config, secrets)),
+        hub: Mutex::new(hub),
         per_ip: Mutex::new(HashMap::new()),
+        cloudflare: cloudflare.clone(),
     });
+    if let Some(client) = cloudflare.filter(|c| c.can_read_usage()) {
+        tokio::spawn(watch_usage(app.clone(), client));
+    }
     let router = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/health/ready", get(ready))
@@ -158,9 +184,66 @@ fn fail(message: &str) -> ! {
     std::process::exit(1)
 }
 
+/// Reads Cloudflare's usage now and then (more often near the cap); grants stop when it is over the cap or stale.
+async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
+    let mut last_tier = None;
+    loop {
+        let reading = client.usage(hub::unix_ms() / 1_000).await;
+        let error = reading.as_ref().err().cloned();
+        let (wait, tier, used) = {
+            let mut hub = app.hub.lock().unwrap();
+            let used = reading.as_ref().ok().copied();
+            hub.set_cf_usage(reading, Instant::now());
+            (hub.cf_poll_interval(), hub.cf_tier(Instant::now(), &[]), used)
+        };
+        if let Some(e) = error {
+            eprintln!("cloudflare: usage not read ({e})");
+        }
+        if last_tier != Some(tier) {
+            let used = used.map(|b| format!("{:.1} GB", cloudflare::gb(b))).unwrap_or_else(|| "unknown".into());
+            eprintln!("cloudflare: {tier:?} (used {used} in the window)");
+            last_tier = Some(tier);
+        }
+        tokio::time::sleep(wait).await;
+    }
+}
+
+/// Mints the credentials of queued Cloudflare grants, each on its own task; a failure becomes an own-pool grant.
+fn run_mints(app: &Arc<App>, jobs: Vec<MintJob>) {
+    for job in jobs {
+        let app = app.clone();
+        tokio::spawn(async move {
+            let minted = match &app.cloudflare {
+                Some(client) => client.mint(job.ttl_s).await,
+                None => Err("not configured".into()),
+            };
+            if let Err(e) = &minted {
+                eprintln!("cloudflare: no credentials ({e}); the grant goes to the own pool");
+            }
+            let more = {
+                let mut hub = app.hub.lock().unwrap();
+                hub.finish_mint(job, minted, Instant::now());
+                hub.take_mints()
+            };
+            run_mints(&app, more);
+        });
+    }
+}
+
+/// Hands `msg` to the hub, then starts any Cloudflare mints it queued.
+fn handle(app: &Arc<App>, id: hub::ConnId, msg: Msg) -> Outcome {
+    let (outcome, jobs) = {
+        let mut hub = app.hub.lock().unwrap();
+        let outcome = hub.handle(id, msg);
+        (outcome, hub.take_mints())
+    };
+    run_mints(app, jobs);
+    outcome
+}
+
 async fn ready(State(app): State<Arc<App>>) -> Response {
     let hub = app.hub.lock().unwrap();
-    let relays = hub.config().relays.iter().filter(|r| r.enabled && hub.has_secret(&r.id)).count();
+    let relays = hub.config().relays.iter().filter(|r| r.enabled && hub.configured(&r.id)).count();
     if relays == 0 && !hub.config().relays.is_empty() {
         return (StatusCode::SERVICE_UNAVAILABLE, "no relay secrets").into_response();
     }
@@ -173,7 +256,7 @@ async fn status(State(app): State<Arc<App>>) -> Json<serde_json::Value> {
         .config()
         .relays
         .iter()
-        .map(|r| serde_json::json!({ "id": r.id, "kind": r.kind, "enabled": r.enabled, "configured": hub.has_secret(&r.id) }))
+        .map(|r| serde_json::json!({ "id": r.id, "kind": r.kind, "enabled": r.enabled, "configured": hub.configured(&r.id) }))
         .collect();
     Json(serde_json::json!({
         "environment": app.environment,
@@ -181,6 +264,7 @@ async fn status(State(app): State<Arc<App>>) -> Json<serde_json::Value> {
         "connections": hub.connections(),
         "nodes": hub.nodes(),
         "relays": relays,
+        "cloudflare": hub.cloudflare_status(Instant::now()),
         "counters": hub.counters,
     }))
 }
@@ -255,7 +339,7 @@ fn fast_sign_in(app: &App, _headers: &HeaderMap, value: &str) -> Option<FastSign
         }
     }
     app.hub.lock().unwrap().counters.fast_hellos += 1;
-    Some(FastSignIn { node_id, keepalive: hello.keepalive.clamp(60, 270), ids: hello.ids, warm: hello.warm })
+    Some(FastSignIn { node_id, keepalive: hello.keepalive.clamp(60, 270), ids: hello.ids, warm: hello.warm, caps: hello.caps.unwrap_or_default() })
 }
 
 async fn send(socket: &mut WebSocket, msg: Msg) -> bool {
@@ -274,9 +358,9 @@ async fn next_text(socket: &mut WebSocket, timeout: Duration) -> Option<String> 
 }
 
 /// hello, challenge, auth, welcome (spec 6.2). The node key is P-256; the signature is DER ECDSA.
-async fn authenticate(app: &App, socket: &mut WebSocket) -> Option<(String, u32)> {
+async fn authenticate(app: &App, socket: &mut WebSocket) -> Option<(String, u32, Vec<String>)> {
     let deadline = Duration::from_secs(app.limits.auth_timeout_s);
-    let Some(Msg::Hello { v, node, keepalive, .. }) = next_text(socket, deadline).await.and_then(|t| Msg::parse(&t)) else {
+    let Some(Msg::Hello { v, node, keepalive, caps, .. }) = next_text(socket, deadline).await.and_then(|t| Msg::parse(&t)) else {
         send(socket, Msg::Error { code: "bad_request".into(), retry_after_ms: None }).await;
         return None;
     };
@@ -306,13 +390,14 @@ async fn authenticate(app: &App, socket: &mut WebSocket) -> Option<(String, u32)
         return None;
     }
     let node_id = derive::node_id(&node_key);
-    if !send(socket, welcome(app, &node_id)).await {
+    let caps = caps.unwrap_or_default();
+    if !send(socket, welcome(app, &node_id, &caps)).await {
         return None;
     }
-    Some((node_id, keepalive.clamp(60, 270)))
+    Some((node_id, keepalive.clamp(60, 270), caps))
 }
 
-fn welcome(app: &App, node_id: &str) -> Msg {
+fn welcome(app: &App, node_id: &str, caps: &[String]) -> Msg {
     Msg::Welcome {
         node_id: node_id.to_string(),
         now: hub::unix_ms(),
@@ -321,38 +406,35 @@ fn welcome(app: &App, node_id: &str) -> Msg {
             max_signal_bytes: rdv::MAX_SIGNAL_BODY as u32,
             signals_per_minute: app.limits.signals_per_minute,
         },
-        relays: Some(app.hub.lock().unwrap().relay_infos()),
+        relays: Some(app.hub.lock().unwrap().relay_infos(caps.iter().any(|c| c == rdv::CAP_CLOUDFLARE))),
     }
 }
 
 async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>) {
-    let (node_id, keepalive, ids, warm) = match fast {
+    let (node_id, keepalive, ids, warm, caps) = match fast {
         Some(f) => {
-            if !send(&mut socket, welcome(&app, &f.node_id)).await {
+            if !send(&mut socket, welcome(&app, &f.node_id, &f.caps)).await {
                 return;
             }
-            (f.node_id, f.keepalive, f.ids, f.warm)
+            (f.node_id, f.keepalive, f.ids, f.warm, f.caps)
         }
         None => {
-            let Some((node_id, keepalive)) = authenticate(&app, &mut socket).await else { return };
-            (node_id, keepalive, None, None)
+            let Some((node_id, keepalive, caps)) = authenticate(&app, &mut socket).await else { return };
+            (node_id, keepalive, None, None, caps)
         }
     };
     let (tx, mut rx) = mpsc::channel::<String>(64);
-    let joined = app.hub.lock().unwrap().join(node_id, tx);
+    let joined = app.hub.lock().unwrap().join_with(node_id, tx, &caps);
     let Some(id) = joined else {
         send(&mut socket, Msg::Error { code: "server_busy".into(), retry_after_ms: Some(30_000) }).await;
         return;
     };
     // What the single flight also asked for: registration and the node's warm relay credentials.
-    {
-        let mut hub = app.hub.lock().unwrap();
-        if let Some(ids) = ids {
-            hub.handle(id, Msg::Register { ids });
-        }
-        if let Some(request) = warm {
-            hub.handle(id, Msg::RelayWarm { request });
-        }
+    if let Some(ids) = ids {
+        handle(&app, id, Msg::Register { ids });
+    }
+    if let Some(request) = warm {
+        handle(&app, id, Msg::RelayWarm { request });
     }
     // The client keeps the socket warm every `keepalive` seconds; three silent intervals end it.
     let idle = Duration::from_secs(u64::from(keepalive) * 3);
@@ -372,7 +454,7 @@ async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>)
                     let _ = socket.send(Message::Text(Msg::Error { code: "bad_request".into(), retry_after_ms: None }.to_text().into())).await;
                     continue;
                 };
-                if app.hub.lock().unwrap().handle(id, msg) == Outcome::Close { break }
+                if handle(&app, id, msg) == Outcome::Close { break }
             }
         }
     }
@@ -394,6 +476,7 @@ mod tests {
             seen_hellos: Mutex::new(SeenHellos::default()),
             hub: Mutex::new(Hub::new(config, HashMap::new())),
             per_ip: Mutex::new(HashMap::new()),
+            cloudflare: None,
         }
     }
 
@@ -411,6 +494,7 @@ mod tests {
             sig: b64::url_encode(sig.as_ref()),
             ids: Some(vec!["AAAAAAAAAAAAAAAAAAAAAA".into()]),
             warm: None,
+            caps: Some(vec![rdv::CAP_CLOUDFLARE.into()]),
         };
         b64::url_encode(serde_json::to_string(&hello).unwrap().as_bytes())
     }
@@ -427,6 +511,7 @@ mod tests {
         let signed_in = fast_sign_in(&app, &headers, &good).expect("valid hello");
         assert_eq!(signed_in.node_id, derive::node_id(key.public_key().as_ref()));
         assert_eq!(signed_in.ids.as_deref().map(<[String]>::len), Some(1));
+        assert_eq!(signed_in.caps, vec![rdv::CAP_CLOUDFLARE.to_string()]);
         // The same hello again (a replay) is refused; the client would fall back to the challenge.
         assert!(fast_sign_in(&app, &headers, &good).is_none());
         // Outside the two-minute window, for another host, or with a broken signature: refused.

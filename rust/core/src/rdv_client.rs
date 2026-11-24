@@ -88,6 +88,12 @@ pub fn allowed_url(url: &str) -> bool {
     }
 }
 
+/// What this core can do beyond the base protocol, sent with every hello: it uses Cloudflare relay grants (TURN over
+/// UDP or TLS on 443, paced to the grant's rate). The control service gives them only to clients that say so.
+pub fn caps() -> Vec<String> {
+    vec![rdv::CAP_CLOUDFLARE.to_string()]
+}
+
 fn full_jitter(attempt: u32) -> Duration {
     let cap = 300_000u64;
     let base = 2_000u64.saturating_mul(1u64 << attempt.min(10)).min(cap);
@@ -197,6 +203,7 @@ async fn session(
             sig: b64::url_encode(&sig),
             ids: (!ids.is_empty()).then(|| ids.clone()),
             warm: warm.clone(),
+            caps: Some(caps()),
         };
         let value = b64::url_encode(serde_json::to_string(&hello).expect("hello").as_bytes());
         if let Ok(header) = value.parse() {
@@ -225,7 +232,7 @@ async fn session(
     let warm_inline = fast.as_ref().is_some_and(|h| h.warm.is_some());
     if fast.is_none() {
         // The challenge flow: an older service, or one that did not take the single flight.
-        let hello = Msg::Hello { v: rdv::PROTOCOL_VERSION, node: b64::url_encode(node), app: app.to_string(), keepalive: *keepalive as u32 };
+        let hello = Msg::Hello { v: rdv::PROTOCOL_VERSION, node: b64::url_encode(node), app: app.to_string(), keepalive: *keepalive as u32, caps: Some(caps()) };
         if ws.send(WsMessage::Text(hello.to_text().into())).await.is_err() {
             return "send_failed".into();
         }
@@ -335,8 +342,9 @@ async fn transport(request: &tokio_tungstenite::tungstenite::handshake::client::
     Some(tokio_tungstenite::MaybeTlsStream::Rustls(stream))
 }
 
-/// One TLS configuration per process, so reconnects can resume the TLS session.
-fn tls_config() -> Arc<rustls::ClientConfig> {
+/// One TLS configuration per process (the Web PKI roots), so reconnects can resume the TLS session. TURN over TLS to
+/// Cloudflare uses it too.
+pub(crate) fn tls_config() -> Arc<rustls::ClientConfig> {
     static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
     CONFIG
         .get_or_init(|| {

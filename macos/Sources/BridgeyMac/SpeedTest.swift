@@ -418,6 +418,9 @@ final class SpeedTest: ObservableObject {
 
     var isRunning: Bool { run != nil }
 
+    /// A test with this phone runs (LAN first never switches sessions under it).
+    func isRunning(with phoneID: String) -> Bool { run?.phoneID == phoneID }
+
     /// Starts a test with `phoneID` from this Mac.
     func start(with phoneID: String) {
         guard run == nil, let link = host?.speedLink(for: phoneID) else {

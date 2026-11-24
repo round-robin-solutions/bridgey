@@ -27,6 +27,20 @@ enum ClipboardOfferLimits {
     static let chunkSize = 24 * 1024
 }
 
+/// How long a paste may hold the app it pastes into while the item is still on its way, in seconds. After that the
+/// paste gets nothing and the usual notice says to paste again; the transfer goes on into the cache, so the next paste
+/// is instant. Not in the Settings window: `defaults write <bundle ID> settings.clipboardFiles.pasteWait -float 10`, then
+/// quit and reopen Bridgey.
+enum ClipboardPasteWait {
+    static let `default`: TimeInterval = 5
+    static let range: ClosedRange<TimeInterval> = 1...60
+
+    static func clamped(_ seconds: Double?) -> TimeInterval {
+        guard let seconds, seconds.isFinite else { return `default` }
+        return min(max(seconds, range.lowerBound), range.upperBound)
+    }
+}
+
 /// "Send right away up to": what the sender pushes right after an offer. Decimal megabytes,
 /// as people read file sizes; `.askWhenPasting` pushes nothing.
 enum ClipboardEagerLimit: Int64, CaseIterable, Identifiable {

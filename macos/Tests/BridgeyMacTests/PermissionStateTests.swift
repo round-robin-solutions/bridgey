@@ -104,4 +104,36 @@ final class PermissionStateTests: XCTestCase {
         XCTAssertNil(SettingsPane.general.parentPane)
         XCTAssertEqual(SettingsPane.permissions.title, "Permissions")
     }
+
+    /// A probe that never returns (seen live: 64 of them filled GCD's worker pool on the work Mac, so clipboard and
+    /// file sends never started) holds one thread, and refreshes meanwhile start no more.
+    func testAHungAutomationProbeIsNeverStackedUp() {
+        let release = DispatchSemaphore(value: 0)
+        let calls = NSLock()
+        var started: [String] = []
+        let gate = AutomationProbeGate { bundleID, ask in
+            calls.withLock { started.append("\(ask ? "ask" : "check"):\(bundleID)") }
+            release.wait()
+            return noErr
+        }
+        let finished = expectation(description: "probes finished")
+        finished.expectedFulfillmentCount = 2
+        XCTAssertTrue(gate.run(bundleID: "com.apple.Music", ask: false) { _ in finished.fulfill() })
+        for _ in 0..<100 { XCTAssertFalse(gate.run(bundleID: "com.apple.Music", ask: false) { _ in XCTFail("skipped probes never run") }) }
+        XCTAssertTrue(gate.run(bundleID: "com.apple.Safari", ask: false) { _ in finished.fulfill() }, "another app has its own probe")
+        XCTAssertEqual(gate.runningCount, 2)
+        // Every refresh queued 64 such blocks on a global queue before; this one must still run at once.
+        let globalQueue = expectation(description: "the global queue still runs work")
+        DispatchQueue.global(qos: .userInitiated).async { globalQueue.fulfill() }
+        wait(for: [globalQueue], timeout: 5)
+        release.signal()
+        release.signal()
+        wait(for: [finished], timeout: 5)
+        XCTAssertEqual(gate.runningCount, 0)
+        XCTAssertEqual(calls.withLock { started.sorted() }, ["check:com.apple.Music", "check:com.apple.Safari"])
+        let again = expectation(description: "a finished probe can run again")
+        XCTAssertTrue(gate.run(bundleID: "com.apple.Music", ask: false) { _ in again.fulfill() })
+        release.signal()
+        wait(for: [again], timeout: 5)
+    }
 }

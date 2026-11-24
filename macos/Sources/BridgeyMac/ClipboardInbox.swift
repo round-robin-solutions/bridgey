@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
  * provider for its types. When an app pastes something that is not here yet, the provider asks
  * the phone for it and waits, like Universal Clipboard: the pasting app blocks (it waits at least
  * 70 s, measured on macOS 27), and a small progress panel with Cancel appears after about 300 ms.
+ * The wait is bounded (`pasteWaitLimit`, 5 s by default): after that the paste gets nothing and a
+ * notice, and the transfer goes on into the cache, so pasting again is instant once it is in.
  *
  * Waiting keeps the main run loop turning (events and the main queue), so the session keeps
  * receiving chunks. The provider is called on the main thread from the pasteboard's run-loop
@@ -33,6 +35,22 @@ enum ClipboardPasteFailure: Error, Equatable {
     case timedOut
     /// The main queue could not drain while waiting (see the note at the top).
     case blocked
+    /// The paste waited `pasteWaitLimit`; the transfer goes on in the background.
+    case stillReceiving
+}
+
+extension ClipboardPasteFailure {
+    /// For diagnostics: why a paste got nothing.
+    var diagnosticToken: String {
+        switch self {
+        case .notConnected: "not_connected"
+        case .cancelled: "cancelled"
+        case let .refused(code): "refused_" + (code?.rawValue ?? "cancel")
+        case .timedOut: "timed_out"
+        case .blocked: "blocked"
+        case .stillReceiving: "still_receiving"
+        }
+    }
 }
 
 /// The progress panel, behind a protocol so tests run without windows.
@@ -72,6 +90,8 @@ final class ClipboardInbox {
         var started = false
         var lastActivity: Date
         var result: Result<URL, ClipboardPasteFailure>?
+        /// Pastes waiting for it now. A transfer a paste gave up on keeps going without one.
+        var waiters = 0
 
         init(transferID: String, offerID: String, index: Int, isFetch: Bool, expectedSize: Int64, offeredHash: String?, now: Date) {
             self.transferID = transferID
@@ -105,14 +125,23 @@ final class ClipboardInbox {
     var onPasted: (ClipboardOfferSummary, Received) -> Void = { _, _ in }
     /// A paste that waited could not get its data. Not called for Cancel.
     var onPasteFailed: (ClipboardPasteFailure, Received) -> Void = { _, _ in }
+    /// A read right after the offer arrived gave up waiting (`readerWindow`): no notice, the transfer goes on.
+    var onReaderGaveUp: (Received) -> Void = { _ in }
     /// Bridgey wrote the pasteboard at this change count (so it is never sent back).
     var onPasteboardWritten: (Int, Received) -> Void = { _, _ in }
     /// Settings > Clipboard > Send right away up to: also what the phone may push unasked.
     var eagerLimit: () -> Int64 = { ClipboardEagerLimit.default.bytes }
+    /// The longest a paste holds the app it pastes into (ClipboardPasteWait).
+    var pasteWaitLimit: () -> TimeInterval = { ClipboardPasteWait.default }
     /// Free bytes on the cache's volume; nil when unknown.
     var freeBytes: () -> Int64?
 
     private let clock: () -> Date
+    /// When the current offer went on the pasteboard.
+    private var acceptedAt: Date?
+    /// A read this soon after an offer arrived is a clipboard reader, not a person pasting: Universal Clipboard's
+    /// pboard asks at once (seen live, 24 Nov 2026), and so do clipboard managers.
+    static let readerWindow: TimeInterval = 1
     private var providers: [ClipboardItemProvider] = []
     private var providing = 0
     private var deferredWrites: [() -> Void] = []
@@ -151,6 +180,11 @@ final class ClipboardInbox {
         return current?.deviceID == deviceID
     }
 
+    /// A transfer for the clip from `deviceID` is running (a push or a paste's fetch).
+    func hasTransfer(from deviceID: String) -> Bool {
+        current?.deviceID == deviceID && transfers.values.contains { $0.result == nil }
+    }
+
     // MARK: Offers
 
     /// Puts a validated offer on the pasteboard, superseding the previous one.
@@ -159,6 +193,7 @@ final class ClipboardInbox {
         pushedBytes = 0
         let received = Received(offer: offer, deviceID: deviceID, peerName: peerName)
         current = received
+        acceptedAt = clock()
         performPasteboardWrite { [weak self] in
             guard let self, self.current?.offer.offerId == offer.offerId else { return }
             let items = self.pasteboardItems(for: received)
@@ -272,12 +307,17 @@ final class ClipboardInbox {
         if let inline = received.offer.inlineData(at: index), type != .fileURL {
             return representation(data: inline, item: entry, type: type)
         }
+        let reader = acceptedAt.map { clock().timeIntervalSince($0) < Self.readerWindow } ?? false
         switch waitForFile(received, index: index) {
         case let .success(file):
             cache.markHandedOut(offerID: offerID, index: index)
             return representation(file: file, item: entry, type: type)
         case let .failure(failure):
-            if failure != .cancelled { onPasteFailed(failure, received) }
+            if failure == .stillReceiving && reader {
+                onReaderGaveUp(received)
+            } else if failure != .cancelled {
+                onPasteFailed(failure, received)
+            }
             return nil
         }
     }
@@ -336,9 +376,12 @@ final class ClipboardInbox {
 
     private func wait(for transfer: Transfer, peerName: String) -> Result<URL, ClipboardPasteFailure> {
         let started = clock()
+        let limit = pasteWaitLimit()
         let canary = ClipboardWaitFlag()
         DispatchQueue.main.async { canary.value = true }
         var shown = false
+        transfer.waiters += 1
+        defer { transfer.waiters -= 1 }
         while transfer.result == nil {
             let elapsed = clock().timeIntervalSince(started)
             if !canary.value && elapsed > blockedAfter {
@@ -348,6 +391,13 @@ final class ClipboardInbox {
             }
             checkTimeout(transfer)
             if transfer.result != nil { break }
+            if elapsed >= limit {
+                // The app being pasted into has waited long enough. The transfer keeps going (its stall
+                // timeouts still apply through the watchdog), so the next paste is served from the cache.
+                if shown { progress?.hide() }
+                scheduleWatchdog()
+                return .failure(.stillReceiving)
+            }
             if !shown && elapsed >= showProgressAfter, let progress {
                 shown = true
                 progress.show(peerName: peerName) { [weak self, weak transfer] in
@@ -470,7 +520,8 @@ final class ClipboardInbox {
         }
         transport.sendCompleteAck(transferID)
         finish(transfer, .success(final))
-        if transfer.isFetch, let received = current, received.offer.offerId == transfer.offerID {
+        // Only when a paste is still waiting for it: one that gave up already showed its notice.
+        if transfer.isFetch, transfer.waiters > 0, let received = current, received.offer.offerId == transfer.offerID {
             onPasted(ClipboardOfferSummary(item: received.offer.items[transfer.index]), received)
         }
         cache.enforceLimits(protecting: protectedNow())

@@ -295,6 +295,7 @@
 "panel.verify.match" = "Codes match";
 "paste.failed" = "Couldn’t paste from %@";
 "paste.failed.offline" = "Couldn’t paste: %@ is not connected";
+"paste.failed.receiving" = "Still on its way. Paste again in a moment.";
 "paste.progress" = "Pasting from %@…";
 "paste.progress.percent" = "Pasting from %1$@… %2$d%%";
 "permission.offEverywhere" = "Off for every device";

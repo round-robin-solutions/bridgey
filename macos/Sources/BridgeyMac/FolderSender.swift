@@ -201,6 +201,11 @@ final class FolderSender {
 
     func owns(_ id: String) -> Bool { items[id] != nil }
 
+    /// LAN first (LanFirst.swift): a folder or an upload to this phone is moving.
+    func hasActiveTransfer(with phoneID: String) -> Bool {
+        items.values.contains { $0.phoneID == phoneID && $0.state == .running }
+    }
+
     /// Files 2.0 browse: files and folders into a folder of a place (an `into` offer). Nil when it cannot start.
     func upload(_ request: UploadRequest) -> String? {
         guard let host else { return nil }

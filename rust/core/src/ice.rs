@@ -22,6 +22,18 @@ pub const TYPE_HOST_GLOBAL: u32 = 110;
 pub const TYPE_PRFLX: u32 = 100;
 pub const TYPE_SRFLX: u32 = 90;
 pub const TYPE_RELAY: u32 = 2;
+/// Cloudflare relay candidates rank above the own pool's (Cloudflare first, the pool as the backup), still far below
+/// any direct candidate.
+pub const TYPE_RELAY_CLOUDFLARE: u32 = 3;
+
+/// The type preference of a relay candidate on a relay of `kind` (`coturn` or `cloudflare`).
+pub fn relay_type(kind: &str) -> u32 {
+    if kind == "cloudflare" {
+        TYPE_RELAY_CLOUDFLARE
+    } else {
+        TYPE_RELAY
+    }
+}
 
 /// Pairs that involve a relay wait this long after checks start, so a direct pair that works (a LAN answers
 /// in a few milliseconds) is found first; then both lanes run side by side (happy eyeballs).

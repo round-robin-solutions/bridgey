@@ -1,5 +1,6 @@
-//! A TURN client over UDP (RFC 8656), sharing the node's socket: Allocate, Refresh and ChannelBind
-//! with long-term credentials from a relay grant (TURN REST usernames, spec 9.5).
+//! A TURN client (RFC 8656) over the node's UDP socket, or over TLS on 443 (turn_tls.rs) where UDP is blocked:
+//! Allocate, Refresh and ChannelBind with long-term credentials from a relay grant (TURN REST usernames on the own
+//! pool, Cloudflare's own on Cloudflare, spec 9.5).
 
 use crate::addrs::canonical;
 use crate::mux::{Mux, Path};
@@ -29,6 +30,8 @@ struct Auth {
 
 /// The relay already holds an allocation for this socket (RFC 8656 437): a process that was killed left it.
 pub const MISMATCH: &str = "allocation mismatch (437)";
+/// Nothing came back from the relay (UDP blocked, or the relay is down).
+pub const NO_ANSWER: &str = "relay did not answer";
 
 /// A relay's realm and nonce from an earlier exchange: the next request can carry credentials at once
 /// instead of being refused first (one round trip less). A stale nonce costs that round trip back (438).
@@ -52,11 +55,25 @@ pub fn parse_udp_url(url: &str) -> Option<(String, u16)> {
     Some((host.to_string(), port))
 }
 
+/// `turns:host:port?transport=tcp` to (host, port): TURN over TLS (Cloudflare listens on 443 and 5349).
+pub fn parse_tls_url(url: &str) -> Option<(String, u16)> {
+    let rest = url.strip_prefix("turns:")?;
+    let (hostport, query) = rest.split_once('?').unwrap_or((rest, ""));
+    if !query.is_empty() && query != "transport=tcp" {
+        return None;
+    }
+    let (host, port) = match hostport.rsplit_once(':') {
+        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => (h.trim_matches(|c| c == '[' || c == ']'), p.parse().ok()?),
+        _ => (hostport, 5349),
+    };
+    Some((host.to_string(), port))
+}
+
 /// Asks the relay for its realm and nonce (an unauthenticated request it refuses with 401).
 async fn challenge(mux: &Mux, server: SocketAddr) -> Result<Realm, String> {
     let mut first = Message::request(stun::ALLOCATE);
     first.add(stun::ATTR_REQUESTED_TRANSPORT, vec![17, 0, 0, 0]);
-    let (reply, _) = mux.transact(Path::direct(server), &first.encode(None, true), first.txid, 5, true).await.ok_or("relay did not answer")?;
+    let (reply, _) = mux.transact(Path::direct(server), &first.encode(None, true), first.txid, 5, true).await.ok_or(NO_ANSWER)?;
     match reply.error_code() {
         Some(401) => Ok(Realm { realm: reply.string(stun::ATTR_REALM).ok_or("no realm")?, nonce: reply.string(stun::ATTR_NONCE).ok_or("no nonce")? }),
         Some(437) => Err(MISMATCH.into()),
@@ -95,7 +112,7 @@ pub async fn release_left_behind(mux: Arc<Mux>, server: SocketAddr, username: &s
 async fn challenge_any(mux: &Mux, server: SocketAddr) -> Result<Realm, String> {
     let mut first = Message::request(stun::REFRESH);
     first.add(stun::ATTR_LIFETIME, 0u32.to_be_bytes().to_vec());
-    let (reply, _) = mux.transact(Path::direct(server), &first.encode(None, true), first.txid, 5, true).await.ok_or("relay did not answer")?;
+    let (reply, _) = mux.transact(Path::direct(server), &first.encode(None, true), first.txid, 5, true).await.ok_or(NO_ANSWER)?;
     match reply.error_code() {
         Some(401) | Some(438) => Ok(Realm { realm: reply.string(stun::ATTR_REALM).ok_or("no realm")?, nonce: reply.string(stun::ATTR_NONCE).ok_or("no nonce")? }),
         Some(437) => Err(MISMATCH.into()),
@@ -200,7 +217,7 @@ impl Allocation {
             m.add(stun::ATTR_REALM, auth.realm.as_bytes().to_vec());
             m.add(stun::ATTR_NONCE, auth.nonce.as_bytes().to_vec());
             let bytes = m.encode(Some(&auth.key), true);
-            let (reply, _) = self.mux.transact(Path::direct(self.server), &bytes, m.txid, 5, true).await.ok_or("relay did not answer")?;
+            let (reply, _) = self.mux.transact(Path::direct(self.server), &bytes, m.txid, 5, true).await.ok_or(NO_ANSWER)?;
             match (reply.class, reply.error_code()) {
                 (stun::SUCCESS, _) => return Ok(reply),
                 (_, Some(437)) => return Err(MISMATCH.into()),
@@ -276,5 +293,9 @@ mod tests {
         assert_eq!(parse_udp_url("turn:[2001:db8::1]:3478"), Some(("2001:db8::1".into(), 3478)));
         assert_eq!(parse_udp_url("turn:a:3478?transport=tcp"), None);
         assert_eq!(parse_udp_url("turns:a:5349?transport=tcp"), None);
+        assert_eq!(parse_tls_url("turns:turn.cloudflare.com:443?transport=tcp"), Some(("turn.cloudflare.com".into(), 443)));
+        assert_eq!(parse_tls_url("turns:a"), Some(("a".into(), 5349)));
+        assert_eq!(parse_tls_url("turn:turn.cloudflare.com:3478?transport=udp"), None);
+        assert_eq!(parse_tls_url("turns:a:443?transport=udp"), None);
     }
 }

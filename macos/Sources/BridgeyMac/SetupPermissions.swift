@@ -277,7 +277,7 @@ final class BluetoothPermissionRequest: NSObject, CBPeripheralManagerDelegate {
 }
 
 enum AutomationProbe {
-    /// Off the main thread: the call can wait on the target app.
+    /// Off the main thread: the call can wait on the target app, sometimes for good. Use `AutomationProbeGate`.
     static func state(bundleID: String, ask: Bool) -> OSStatus {
         var target = AEAddressDesc()
         let status = bundleID.withCString { pointer in
@@ -287,4 +287,41 @@ enum AutomationProbe {
         defer { AEDisposeDesc(&target) }
         return AEDeterminePermissionToAutomateTarget(&target, AEEventClass(typeWildCard), AEEventID(typeWildCard), ask)
     }
+}
+
+/// At most one automation probe per app (and per kind: asking or not) at a time, each on its own thread.
+///
+/// AEDeterminePermissionToAutomateTarget can wait on its target and never return. Every permissions refresh (discovery,
+/// connections and settings all trigger one) used to start two more on a global queue, so on the work Mac on 24 Nov 2026
+/// 64 worker threads sat in it: GCD's whole pool (kern.wq_max_constrained_threads). From then on nothing the app queues
+/// on a global queue ran, so clipboard and file sends from that Mac never started and every paste on the other Macs
+/// waited 30 s and failed. A probe that never returns now holds one thread of its own and the refreshes skip it.
+final class AutomationProbeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var running: Set<String> = []
+    private let probe: (String, Bool) -> OSStatus
+
+    init(probe: @escaping (String, Bool) -> OSStatus = AutomationProbe.state(bundleID:ask:)) {
+        self.probe = probe
+    }
+
+    /// Starts the probe unless one for the same app and kind is still running. `completion` runs on the probe's thread.
+    /// False when skipped.
+    @discardableResult
+    func run(bundleID: String, ask: Bool, completion: @escaping @Sendable (OSStatus) -> Void) -> Bool {
+        let key = (ask ? "ask:" : "check:") + bundleID
+        guard lock.withLock({ running.insert(key).inserted }) else { return false }
+        let thread = Thread { [self] in
+            let status = probe(bundleID, ask)
+            lock.withLock { _ = running.remove(key) }
+            completion(status)
+        }
+        thread.name = "bridgey-automation-probe"
+        thread.qualityOfService = ask ? .userInitiated : .utility
+        thread.start()
+        return true
+    }
+
+    /// Probes still waiting on their app.
+    var runningCount: Int { lock.withLock { running.count } }
 }

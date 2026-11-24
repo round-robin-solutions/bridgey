@@ -380,8 +380,17 @@ impl Client {
         self.inner.shutdown_connect();
         self.inner.events.close();
         let sessions: Vec<Handle> = self.inner.state.lock().unwrap().sessions.values().map(|l| l.handle.clone()).collect();
+        let waiting = !sessions.is_empty();
         for h in sessions {
             h.close("stopped");
+        }
+        // Each session deletes its partial files as it ends. Shutting the runtime down drops a session task that has not
+        // got to its close yet, which left a partial file behind (seen on the Windows runner), so give them a moment.
+        if waiting {
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while std::time::Instant::now() < deadline && !self.inner.state.lock().unwrap().sessions.is_empty() {
+                std::thread::sleep(Duration::from_millis(10));
+            }
         }
         if let Some(rt) = self.runtime.lock().unwrap().take() {
             rt.shutdown_timeout(Duration::from_millis(500));

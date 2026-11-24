@@ -3,19 +3,33 @@
 //! First byte 0 to 3 is STUN; 64 to 79 from a TURN server we use is ChannelData; anything else is
 //! QUIC. Paths found by ICE get a stable virtual address, so quinn sees one peer address while the
 //! path underneath moves between pairs (a relay, a direct pair) without dropping the connection.
+//!
+//! The socket goes through quinn-udp: batches of datagrams per system call (GSO and GRO on Linux and
+//! Android, recvmmsg where the platform has it) and no IP fragmentation, so QUIC can find a path's MTU.
+//! Once quinn polls the socket it reads it directly, and QUIC datagrams from direct senders stay where
+//! they landed; STUN and TURN are handled on the way. Each relayed datagram keeps its own ChannelData
+//! header and stays within 1,280 bytes.
+//!
+//! A relay reached over TLS (turn_tls.rs) is a stream at a virtual address of its own: what would go to it over UDP
+//! goes down the stream, one ChannelData frame per datagram (padded to 4 bytes there, still within 1,280). What leaves
+//! through a Cloudflare allocation is paced to the grant's rate, one datagram at a time (Cloudflare drops packets
+//! above about 50 to 100 Mbit/s per allocation).
 
 use crate::addrs::canonical;
 use crate::stun::{self, Message};
-use std::collections::{HashMap, HashSet};
+use quinn::udp::{RecvMeta, Transmit, UdpSocketState};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::future::Future;
 use std::io::{self, IoSliceMut};
 use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-use std::task::{Context, Poll};
+use std::sync::{Arc, Mutex, Weak};
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::io::Interest;
+use tokio::sync::{mpsc, oneshot, Notify};
 
 /// How a datagram travels: straight from our socket, or through our allocation on a TURN server.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -71,6 +85,11 @@ struct State {
     v_by_path: HashMap<Path, SocketAddr>,
     path_by_v: HashMap<SocketAddr, Path>,
     next_v: u32,
+    /// Relays over TLS: their virtual address and the queue their stream writes from.
+    streams: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
+    next_stream: u32,
+    /// Paced relays: what leaves through our allocation there waits in this queue for its turn.
+    pacers: HashMap<SocketAddr, mpsc::Sender<Vec<u8>>>,
 }
 
 #[derive(Default)]
@@ -86,10 +105,20 @@ pub struct Counters {
 
 pub struct Mux {
     sock: tokio::net::UdpSocket,
+    udp: UdpSocketState,
     local: SocketAddr,
     v6: bool,
-    quic_tx: mpsc::Sender<Datagram>,
-    quic_rx: Mutex<mpsc::Receiver<Datagram>>,
+    /// QUIC datagrams that could not stay where they landed (relayed ones that arrive mixed, Data indications, or
+    /// any read before quinn first polled): quinn gets these first.
+    pending: Mutex<VecDeque<Datagram>>,
+    /// quinn polls the socket itself; until it starts, a small reader serves STUN and TURN.
+    attached: AtomicBool,
+    attach: Notify,
+    recv_waker: Mutex<Option<Waker>>,
+    /// After an unexpected receive error, reading pauses briefly instead of spinning.
+    recv_backoff: Mutex<Option<Pin<Box<tokio::time::Sleep>>>>,
+    /// ChannelData frames of one relayed transmit.
+    relay_scratch: Mutex<Vec<u8>>,
     state: Mutex<State>,
     /// Debug and tests: no direct traffic at all, as if every network blocked it.
     pub relay_only: AtomicBool,
@@ -103,6 +132,10 @@ impl fmt::Debug for Mux {
 }
 
 const VIRTUAL_PREFIX: [u16; 3] = [0xfdb7, 0x1d9e, 0xc0ec];
+/// Relays over TLS get addresses from a prefix of their own: never a QUIC peer, never sent to over UDP.
+const STREAM_PREFIX: [u16; 3] = [0xfdb7, 0x1d9e, 0xc0ed];
+/// Datagrams waiting for a paced relay: about 60 ms at 40 Mbit/s. A full queue drops (QUIC sees a loss and slows).
+const PACE_QUEUE: usize = 256;
 
 pub fn is_virtual(addr: SocketAddr) -> bool {
     match addr.ip() {
@@ -111,20 +144,34 @@ pub fn is_virtual(addr: SocketAddr) -> bool {
     }
 }
 
+/// A relay reached over TLS (its stream's virtual address).
+pub fn is_stream(addr: SocketAddr) -> bool {
+    match addr.ip() {
+        IpAddr::V6(v6) => v6.segments()[..3] == STREAM_PREFIX,
+        _ => false,
+    }
+}
+
 impl Mux {
     /// Binds `port` (dual-stack where possible), or any free port when it is taken.
     pub fn bind(port: u16) -> io::Result<Arc<Mux>> {
         let std_sock = bind_socket(port).or_else(|_| bind_socket(0))?;
+        // Turns on GRO where there is one and turns off fragmentation (quinn's own sockets do the same).
+        let udp = UdpSocketState::new((&std_sock).into())?;
         std_sock.set_nonblocking(true)?;
         let sock = tokio::net::UdpSocket::from_std(std_sock)?;
         let local = sock.local_addr()?;
-        let (quic_tx, quic_rx) = mpsc::channel(QUIC_QUEUE);
         let mux = Arc::new(Mux {
             v6: local.is_ipv6(),
             sock,
+            udp,
             local,
-            quic_tx,
-            quic_rx: Mutex::new(quic_rx),
+            pending: Mutex::new(VecDeque::new()),
+            attached: AtomicBool::new(false),
+            attach: Notify::new(),
+            recv_waker: Mutex::new(None),
+            recv_backoff: Mutex::new(None),
+            relay_scratch: Mutex::new(Vec::new()),
             state: Mutex::new(State::default()),
             relay_only: AtomicBool::new(false),
             counters: Counters::default(),
@@ -149,22 +196,39 @@ impl Mux {
         }
     }
 
+    /// Serves STUN and TURN until quinn polls the socket itself (a mux without a QUIC endpoint, as in tests and the
+    /// relay checks, keeps it for good).
     async fn read_loop(self: Arc<Self>) {
-        let mut buf = vec![0u8; 65_536];
+        let mut storage = vec![0u8; RECV_BUF * BATCH];
+        let mut meta = [RecvMeta::default(); BATCH];
         loop {
-            let (n, src) = match self.sock.recv_from(&mut buf).await {
-                Ok(x) => x,
-                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
-                Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
-                    continue;
-                }
+            let read = tokio::select! {
+                _ = self.attach.notified() => return,
+                read = self.sock.async_io(Interest::READABLE, || {
+                    let mut bufs: Vec<IoSliceMut<'_>> = storage.chunks_mut(RECV_BUF).map(IoSliceMut::new).collect();
+                    self.udp.recv((&self.sock).into(), &mut bufs, &mut meta)
+                }) => read,
             };
-            let src = canonical(src);
-            self.receive(&buf[..n], src);
+            match read {
+                Ok(n) => {
+                    for (i, m) in meta.iter().enumerate().take(n) {
+                        let data = &storage[i * RECV_BUF..i * RECV_BUF + m.len];
+                        let src = canonical(m.addr);
+                        for segment in data.chunks(m.stride.max(1)) {
+                            self.receive(segment, src);
+                        }
+                    }
+                    if let Some(waker) = self.recv_waker.lock().unwrap().take() {
+                        waker.wake();
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
         }
     }
 
+    /// One datagram the fast path could not keep in place: STUN and TURN are handled here, QUIC waits for quinn.
     fn receive(&self, data: &[u8], src: SocketAddr) {
         let from_turn = self.state.lock().unwrap().turns.contains_key(&src);
         if from_turn {
@@ -214,17 +278,34 @@ impl Mux {
             }
             return;
         }
-        let mapped = {
-            let state = self.state.lock().unwrap();
-            match state.v_by_path.get(&path) {
-                Some(v) => Some(*v),
-                None if path.via == Via::Direct => Some(path.remote),
-                None => None,
+        if let Some(src) = self.quic_source(path) {
+            let mut pending = self.pending.lock().unwrap();
+            if pending.len() < PENDING_MAX {
+                pending.push_back(Datagram { data: data.to_vec(), src });
             }
-        };
-        if let Some(src) = mapped {
-            let _ = self.quic_tx.try_send(Datagram { data: data.to_vec(), src });
         }
+    }
+
+    /// The address quinn knows the sender of a QUIC datagram on `path` by, if any.
+    fn quic_source(&self, path: Path) -> Option<SocketAddr> {
+        let state = self.state.lock().unwrap();
+        match state.v_by_path.get(&path) {
+            Some(v) => Some(*v),
+            None if path.via == Via::Direct => Some(path.remote),
+            None => None,
+        }
+    }
+
+    /// Where QUIC datagrams from `src` can stay in quinn's buffer as they are: a direct sender, not a relay we use.
+    fn direct_source(&self, src: SocketAddr) -> Option<SocketAddr> {
+        if self.relay_only() {
+            return None;
+        }
+        let state = self.state.lock().unwrap();
+        if state.turns.contains_key(&src) {
+            return None;
+        }
+        Some(state.v_by_path.get(&Path::direct(src)).copied().unwrap_or(src))
     }
 
     fn deliver(&self, msg: Message, path: Path) {
@@ -245,10 +326,10 @@ impl Mux {
                 self.sock.try_send_to(data, self.family(path.remote)).map(|_| ())
             }
             Via::Turn(server) => {
-                let (channel, permitted) = {
+                let (channel, permitted, pacer) = {
                     let state = self.state.lock().unwrap();
                     let c = state.turns.get(&server);
-                    (c.and_then(|c| c.by_peer.get(&path.remote).copied()), c.is_some_and(|c| c.permitted.contains(&path.remote.ip())))
+                    (c.and_then(|c| c.by_peer.get(&path.remote).copied()), c.is_some_and(|c| c.permitted.contains(&path.remote.ip())), state.pacers.get(&server).cloned())
                 };
                 let framed = match channel {
                     Some(channel) => stun::channel_data(channel, data),
@@ -261,15 +342,162 @@ impl Mux {
                     None => return Ok(()),
                 };
                 self.counters.relay_out.fetch_add(framed.len() as u64, Ordering::Relaxed);
-                self.sock.try_send_to(&framed, self.family(server)).map(|_| ())
+                if let Some(pacer) = pacer {
+                    // Queued for its turn; a full queue drops it, as a congested link would.
+                    let _ = pacer.try_send(framed);
+                    return Ok(());
+                }
+                self.out(server, &framed)
             }
         }
+    }
+
+    /// A QUIC transmit from quinn along `path`: one datagram, or several of `segment` bytes (the last may be
+    /// shorter) that leave in one system call where the OS can segment them (GSO).
+    fn send_quic(&self, path: Path, contents: &[u8], segment: Option<usize>) -> io::Result<()> {
+        let size = segment.unwrap_or(contents.len());
+        match path.via {
+            Via::Direct => {
+                if self.relay_only() {
+                    return Ok(());
+                }
+                self.counters.direct_out.fetch_add(contents.len() as u64, Ordering::Relaxed);
+                self.send_batch(self.family(path.remote), contents, size)
+            }
+            Via::Turn(server) => {
+                // Relayed datagrams stay within 1,280 bytes of UDP payload, ChannelData header included. A larger one
+                // (an MTU probe, or packets sized for a direct pair before quinn notices the move) is lost on purpose.
+                if size > RELAY_MAX_QUIC {
+                    return Ok(());
+                }
+                let (channel, pacer) = {
+                    let state = self.state.lock().unwrap();
+                    (state.turns.get(&server).and_then(|c| c.by_peer.get(&path.remote).copied()), state.pacers.get(&server).cloned())
+                };
+                let Some(channel) = channel else {
+                    // No channel yet: Send indications (or nothing), one per datagram.
+                    for datagram in contents.chunks(size.max(1)) {
+                        self.send_path(path, datagram)?;
+                    }
+                    return Ok(());
+                };
+                if pacer.is_some() || is_stream(server) {
+                    // A paced relay (Cloudflare) or one over TLS: one ChannelData frame per datagram, into the pacer's
+                    // queue or down the stream; no GSO there.
+                    for datagram in contents.chunks(size.max(1)) {
+                        let framed = stun::channel_data(channel, datagram);
+                        self.counters.relay_out.fetch_add(framed.len() as u64, Ordering::Relaxed);
+                        match &pacer {
+                            Some(pacer) => {
+                                let _ = pacer.try_send(framed);
+                            }
+                            None => self.out(server, &framed)?,
+                        }
+                    }
+                    return Ok(());
+                }
+                // Each datagram keeps its own ChannelData header; frames of one size still leave as one batch (over
+                // UDP ChannelData needs no padding, RFC 8656 section 12.5).
+                let mut framed = self.relay_scratch.lock().unwrap();
+                framed.clear();
+                for datagram in contents.chunks(size.max(1)) {
+                    framed.extend_from_slice(&channel.to_be_bytes());
+                    framed.extend_from_slice(&(datagram.len() as u16).to_be_bytes());
+                    framed.extend_from_slice(datagram);
+                }
+                self.counters.relay_out.fetch_add(framed.len() as u64, Ordering::Relaxed);
+                self.send_batch(self.family(server), &framed, size + 4)
+            }
+        }
+    }
+
+    /// Datagrams of `size` bytes (the last may be shorter) to `dest`: one GSO send where the socket has it, else one
+    /// send each.
+    fn send_batch(&self, dest: SocketAddr, contents: &[u8], size: usize) -> io::Result<()> {
+        let size = size.max(1);
+        if contents.len() > size && self.udp.max_gso_segments() <= 1 {
+            for datagram in contents.chunks(size) {
+                self.send_one(dest, datagram, None)?;
+            }
+            return Ok(());
+        }
+        self.send_one(dest, contents, (contents.len() > size).then_some(size))
+    }
+
+    fn send_one(&self, dest: SocketAddr, contents: &[u8], segment_size: Option<usize>) -> io::Result<()> {
+        // No ECN marks and no source address, as before: the same packets on the wire, only fewer system calls.
+        let transmit = Transmit { destination: dest, ecn: None, contents, segment_size, src_ip: None };
+        self.sock.try_io(Interest::WRITABLE, || self.udp.try_send((&self.sock).into(), &transmit))
     }
 
     /// Sends to a TURN or STUN server itself (allowed in relay-only mode).
     fn send_server(&self, server: SocketAddr, data: &[u8]) -> io::Result<()> {
         self.counters.relay_out.fetch_add(data.len() as u64, Ordering::Relaxed);
+        self.out(server, data)
+    }
+
+    /// To a relay or STUN server: down its TLS stream when it is one, else over the UDP socket.
+    fn out(&self, server: SocketAddr, data: &[u8]) -> io::Result<()> {
+        if is_stream(server) {
+            let stream = self.state.lock().unwrap().streams.get(&server).cloned();
+            return match stream {
+                Some(stream) => {
+                    let _ = stream.try_send(data.to_vec());
+                    Ok(())
+                }
+                None => Err(io::Error::new(io::ErrorKind::NotConnected, "relay stream closed")),
+            };
+        }
         self.sock.try_send_to(data, self.family(server)).map(|_| ())
+    }
+
+    /// A virtual address for a relay reached over TLS.
+    pub fn new_stream_key(&self) -> SocketAddr {
+        let mut state = self.state.lock().unwrap();
+        state.next_stream += 1;
+        let n = state.next_stream;
+        let ip = Ipv6Addr::new(STREAM_PREFIX[0], STREAM_PREFIX[1], STREAM_PREFIX[2], 0, 0, 0, (n >> 16) as u16, n as u16);
+        SocketAddr::new(IpAddr::V6(ip), 443)
+    }
+
+    /// What goes to the relay at `key` is written to `stream` from now on; what it sends comes in through
+    /// [Mux::receive_stream].
+    pub fn add_stream(&self, key: SocketAddr, stream: mpsc::Sender<Vec<u8>>) {
+        let mut state = self.state.lock().unwrap();
+        state.streams.insert(key, stream);
+        state.turns.entry(key).or_default();
+    }
+
+    /// One message (STUN or ChannelData, without padding) the relay at `key` sent down its stream. QUIC datagrams
+    /// in it wait outside quinn's buffers, so quinn is woken for them (it polls only the UDP socket itself).
+    pub fn receive_stream(&self, data: &[u8], key: SocketAddr) {
+        self.receive(data, key);
+        let waker = self.recv_waker.lock().unwrap().clone();
+        if let Some(waker) = waker {
+            waker.wake();
+        }
+    }
+
+    /// The relay's stream closed: nothing more goes to it.
+    pub fn end_stream(&self, key: SocketAddr) {
+        self.state.lock().unwrap().streams.remove(&key);
+    }
+
+    /// Paces what leaves through our allocation on `server` to `kbps` (a Cloudflare grant's `maxKbps`).
+    pub fn set_pace(self: &Arc<Self>, server: SocketAddr, kbps: u32) {
+        if kbps == 0 {
+            return;
+        }
+        let rx = {
+            let mut state = self.state.lock().unwrap();
+            if state.pacers.contains_key(&server) {
+                return;
+            }
+            let (tx, rx) = mpsc::channel(PACE_QUEUE);
+            state.pacers.insert(server, tx);
+            rx
+        };
+        tokio::spawn(pace(Arc::downgrade(self), server, kbps, rx));
     }
 
     /// A STUN transaction with retransmits (250 ms, doubling, `tries` sends).
@@ -282,6 +510,14 @@ impl Mux {
     pub async fn transact_rto(&self, path: Path, bytes: &[u8], txid: [u8; 12], tries: u32, to_server: bool, rto: Duration) -> Option<(Message, Path)> {
         let (tx, mut rx) = oneshot::channel();
         self.state.lock().unwrap().waiters.insert(txid, tx);
+        if to_server && is_stream(path.remote) {
+            // A relay over TLS: the stream is reliable, so one send, and the whole retransmit schedule to answer.
+            let total = (0..tries).fold((Duration::ZERO, rto), |(sum, r), _| (sum + r, (r * 2).min(Duration::from_secs(2)))).0;
+            let _ = self.send_server(path.remote, bytes);
+            let answer = tokio::time::timeout(total, &mut rx).await;
+            self.state.lock().unwrap().waiters.remove(&txid);
+            return answer.ok().and_then(|a| a.ok());
+        }
         let mut rto = rto;
         for _ in 0..tries {
             // A socket whose writability the reactor has not seen yet (just bound) refuses try_send with WouldBlock;
@@ -309,6 +545,8 @@ impl Mux {
     pub fn remove_turn(&self, server: SocketAddr) {
         let mut state = self.state.lock().unwrap();
         state.turns.remove(&server);
+        state.streams.remove(&server);
+        state.pacers.remove(&server);
         state.v_by_path.retain(|p, _| p.via != Via::Turn(server));
         state.path_by_v.retain(|_, p| p.via != Via::Turn(server));
     }
@@ -437,9 +675,41 @@ impl Mux {
     }
 }
 
+/// A token bucket in front of one relay: datagrams leave at `kbps` on average. A wake-up that comes late (a busy device,
+/// coarse timers) may send what the time since the last one allows, up to 15 ms worth, so the average holds.
+async fn pace(mux: Weak<Mux>, server: SocketAddr, kbps: u32, mut queue: mpsc::Receiver<Vec<u8>>) {
+    let rate = f64::from(kbps) * 1_000.0 / 8.0;
+    let burst = (rate * 0.015).max(16_384.0);
+    let mut tokens = burst;
+    let mut last = std::time::Instant::now();
+    while let Some(datagram) = queue.recv().await {
+        let need = datagram.len() as f64;
+        let refill = |tokens: &mut f64, last: &mut std::time::Instant| {
+            let now = std::time::Instant::now();
+            *tokens = (*tokens + now.duration_since(*last).as_secs_f64() * rate).min(burst.max(need));
+            *last = now;
+        };
+        refill(&mut tokens, &mut last);
+        if tokens < need {
+            tokio::time::sleep(Duration::from_secs_f64((need - tokens) / rate)).await;
+            refill(&mut tokens, &mut last);
+        }
+        tokens -= need;
+        let Some(mux) = mux.upgrade() else { break };
+        let _ = mux.out(server, &datagram);
+    }
+}
+
 const SOCKET_BUFFER: usize = 4 << 20;
-/// Datagrams waiting for QUIC: a full window of 1,200-byte packets (16 MiB) fits.
-const QUIC_QUEUE: usize = 16_384;
+/// QUIC datagrams waiting outside quinn's buffers (relayed ones, mostly; at most a few batches at a time).
+const PENDING_MAX: usize = 4_096;
+/// The largest QUIC datagram a relay path carries: 1,280 bytes of UDP payload less the 4-byte ChannelData header.
+pub const RELAY_MAX_QUIC: usize = 1_276;
+/// The reader used before quinn polls: datagrams per call and room for each (GRO merges up to 64 datagrams).
+const BATCH: usize = 4;
+const RECV_BUF: usize = 1 << 17;
+/// Reads in one quinn poll that only found STUN, TURN or nothing for quinn, before letting other work run.
+const RECV_ROUNDS: usize = 64;
 
 fn bind_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
@@ -457,12 +727,69 @@ fn bind_socket(port: u16) -> io::Result<std::net::UdpSocket> {
     }
 }
 
+impl Mux {
+    /// QUIC datagrams waiting outside quinn's buffers go into slots `filled..room`; returns the slots now in use.
+    fn take_pending(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta], mut filled: usize, room: usize) -> usize {
+        let mut pending = self.pending.lock().unwrap();
+        while filled < room {
+            let Some(next) = pending.pop_front() else { break };
+            let len = next.data.len().min(bufs[filled].len());
+            bufs[filled][..len].copy_from_slice(&next.data[..len]);
+            // quinn keeps an IPv4 peer of a dual-stack endpoint as its mapped IPv6 address (Endpoint::connect_with),
+            // and drops handshake packets from any other form of it: hand IPv4 sources over the same way.
+            meta[filled] = RecvMeta { addr: self.family(next.src), len, stride: len, ecn: None, dst_ip: None };
+            filled += 1;
+        }
+        filled
+    }
+
+    /// After a read of `n` slots: QUIC from direct senders stays where it landed (moved down over slots handled
+    /// here), everything else is handled or queued. Returns how many slots quinn gets.
+    fn sort(&self, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta], n: usize) -> usize {
+        let mut kept = 0;
+        for i in 0..n {
+            let RecvMeta { addr, len, stride, .. } = meta[i];
+            let src = canonical(addr);
+            let stride = stride.clamp(1, len.max(1));
+            // GRO only merges datagrams of one size from one sender; a STUN message among them is still handled.
+            let quic_only = !bufs[i][..len].chunks(stride).any(stun::is_stun);
+            match quic_only.then(|| self.direct_source(src)).flatten() {
+                Some(source) => {
+                    self.counters.direct_in.fetch_add(len as u64, Ordering::Relaxed);
+                    if kept != i {
+                        let (low, high) = bufs.split_at_mut(i);
+                        low[kept][..len].copy_from_slice(&high[0][..len]);
+                    }
+                    meta[kept] = RecvMeta { addr: self.family(source), len, stride, ecn: None, dst_ip: None };
+                    kept += 1;
+                }
+                None => {
+                    for segment in bufs[i][..len].chunks(stride) {
+                        self.receive(segment, src);
+                    }
+                }
+            }
+        }
+        kept
+    }
+}
+
+/// The OS refused a datagram larger than the path (an MTU probe found the limit); not a failure to report.
+fn too_big(e: &io::Error) -> bool {
+    #[cfg(unix)]
+    let code = libc::EMSGSIZE;
+    // WSAEMSGSIZE
+    #[cfg(windows)]
+    let code = 10040;
+    e.raw_os_error() == Some(code)
+}
+
 impl quinn::AsyncUdpSocket for Mux {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn quinn::UdpPoller>> {
         Box::pin(Poller { mux: self })
     }
 
-    fn try_send(&self, transmit: &quinn::udp::Transmit) -> io::Result<()> {
+    fn try_send(&self, transmit: &Transmit) -> io::Result<()> {
         let dest = canonical(transmit.destination);
         let path = if is_virtual(dest) {
             match self.selected(dest) {
@@ -472,8 +799,10 @@ impl quinn::AsyncUdpSocket for Mux {
         } else {
             Path::direct(dest)
         };
-        match self.send_path(path, transmit.contents) {
+        match self.send_quic(path, transmit.contents, transmit.segment_size) {
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => Err(e),
+            // Larger than the path allows (an MTU probe): QUIC treats it as lost and tries a smaller size.
+            Err(e) if too_big(&e) => Ok(()),
             // Unreachable networks and the like: QUIC treats the packet as lost.
             Err(e) => {
                 self.counters.send_errors.fetch_add(1, Ordering::Relaxed);
@@ -484,31 +813,54 @@ impl quinn::AsyncUdpSocket for Mux {
         }
     }
 
-    fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [quinn::udp::RecvMeta]) -> Poll<io::Result<usize>> {
-        let mut rx = self.quic_rx.lock().unwrap();
-        // As many waiting datagrams as quinn has buffers for, in one call (one wake-up per batch, not per packet).
-        let mut filled = 0;
-        while filled < bufs.len().min(meta.len()) {
-            let next = if filled == 0 {
-                match rx.poll_recv(cx) {
-                    Poll::Ready(Some(d)) => d,
-                    Poll::Ready(None) => return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "mux closed"))),
-                    Poll::Pending => return Poll::Pending,
-                }
-            } else {
-                match rx.try_recv() {
-                    Ok(d) => d,
-                    Err(_) => break,
-                }
-            };
-            let len = next.data.len().min(bufs[filled].len());
-            bufs[filled][..len].copy_from_slice(&next.data[..len]);
-            // quinn keeps an IPv4 peer of a dual-stack endpoint as its mapped IPv6 address (Endpoint::connect_with),
-            // and drops handshake packets from any other form of it: hand IPv4 sources over the same way.
-            meta[filled] = quinn::udp::RecvMeta { addr: self.family(next.src), len, stride: len, ecn: None, dst_ip: None };
-            filled += 1;
+    fn poll_recv(&self, cx: &mut Context, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> Poll<io::Result<usize>> {
+        if !self.attached.swap(true, Ordering::AcqRel) {
+            self.attach.notify_one();
         }
-        Poll::Ready(Ok(filled))
+        let room = bufs.len().min(meta.len());
+        {
+            // Before looking at the queue, so a datagram the early reader queues meanwhile still wakes us.
+            let mut waker = self.recv_waker.lock().unwrap();
+            if !waker.as_ref().is_some_and(|w| w.will_wake(cx.waker())) {
+                *waker = Some(cx.waker().clone());
+            }
+        }
+        // As many datagrams as quinn has buffers for, in one call (one wake-up per batch, not per packet).
+        let filled = self.take_pending(bufs, meta, 0, room);
+        if filled > 0 {
+            return Poll::Ready(Ok(filled));
+        }
+        for _ in 0..RECV_ROUNDS {
+            {
+                let mut backoff = self.recv_backoff.lock().unwrap();
+                if let Some(sleep) = backoff.as_mut() {
+                    if sleep.as_mut().poll(cx).is_pending() {
+                        return Poll::Pending;
+                    }
+                    *backoff = None;
+                }
+            }
+            if self.sock.poll_recv_ready(cx)?.is_pending() {
+                return Poll::Pending;
+            }
+            let read = self.sock.try_io(Interest::READABLE, || self.udp.recv((&self.sock).into(), &mut bufs[..room], &mut meta[..room]));
+            match read {
+                Ok(n) => {
+                    let kept = self.sort(bufs, meta, n);
+                    let filled = self.take_pending(bufs, meta, kept, room);
+                    if filled > 0 {
+                        return Poll::Ready(Ok(filled));
+                    }
+                }
+                Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::ConnectionReset) => {}
+                // Anything else: pause briefly instead of spinning (as the reader always did); quinn would end the
+                // endpoint on an error.
+                Err(_) => *self.recv_backoff.lock().unwrap() = Some(Box::pin(tokio::time::sleep(Duration::from_millis(50)))),
+            }
+        }
+        // Only STUN, TURN or junk for a while: let other work run, then carry on.
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 
     fn local_addr(&self) -> io::Result<SocketAddr> {
@@ -516,7 +868,15 @@ impl quinn::AsyncUdpSocket for Mux {
     }
 
     fn may_fragment(&self) -> bool {
-        true
+        self.udp.may_fragment()
+    }
+
+    fn max_transmit_segments(&self) -> usize {
+        self.udp.max_gso_segments()
+    }
+
+    fn max_receive_segments(&self) -> usize {
+        self.udp.gro_segments()
     }
 }
 
@@ -534,6 +894,7 @@ impl quinn::UdpPoller for Poller {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::quic::Mtu;
 
     /// A QUIC handshake to an IPv4 address of a dual-stack endpoint: quinn tracks the server as ::ffff:a.b.c.d, so the
     /// mux must hand its replies over in that form (a Windows PC on IPv4 only never brought a tunnel up before).
@@ -543,15 +904,258 @@ mod tests {
         let server_mux = Mux::bind(0).unwrap();
         let client_mux = Mux::bind(0).unwrap();
         let identity = crate::quic::Identity::generate();
-        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity)), server_mux.clone(), runtime.clone()).unwrap();
+        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity, crate::quic::Mtu::Base)), server_mux.clone(), runtime.clone()).unwrap();
         let client = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), None, client_mux.clone(), runtime).unwrap();
         let accept = tokio::spawn(async move { server.accept().await.unwrap().await.map(|c| c.remote_address()) });
         let target: SocketAddr = format!("127.0.0.1:{}", server_mux.port()).parse().unwrap();
-        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5));
+        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5), crate::quic::Mtu::Base);
         let conn = tokio::time::timeout(Duration::from_secs(5), client.connect_with(config, target, "bridgey").unwrap()).await.expect("handshake in time").expect("handshake");
         assert_eq!(canonical(conn.remote_address()), target);
         let seen = tokio::time::timeout(Duration::from_secs(5), accept).await.unwrap().unwrap().unwrap();
         assert_eq!(canonical(seen).ip(), target.ip());
+    }
+
+    struct Pair {
+        client: quinn::Connection,
+        server: quinn::Connection,
+        _endpoints: (quinn::Endpoint, quinn::Endpoint),
+    }
+
+    /// A QUIC connection from `client_mux` to `target` on `server_mux`, whose server echoes the first stream.
+    async fn connect(server_mux: &Arc<Mux>, client_mux: &Arc<Mux>, target: SocketAddr, server_mtu: Mtu, client_mtu: Mtu) -> Pair {
+        let runtime = Arc::new(quinn::TokioRuntime);
+        let identity = crate::quic::Identity::generate();
+        let server = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), Some(crate::quic::server_config(&identity, server_mtu)), server_mux.clone(), runtime.clone()).unwrap();
+        let client = quinn::Endpoint::new_with_abstract_socket(crate::quic::endpoint_config(), None, client_mux.clone(), runtime).unwrap();
+        let accept = {
+            let server = server.clone();
+            tokio::spawn(async move { server.accept().await.unwrap().await.unwrap() })
+        };
+        let config = crate::quic::client_config(&crate::quic::Identity::generate(), None, Duration::from_secs(5), client_mtu);
+        let client_conn = tokio::time::timeout(Duration::from_secs(5), client.connect_with(config, target, "bridgey").unwrap()).await.expect("handshake in time").expect("handshake");
+        let server_conn = tokio::time::timeout(Duration::from_secs(5), accept).await.unwrap().unwrap();
+        let echo = server_conn.clone();
+        tokio::spawn(async move {
+            let Ok((mut send, mut recv)) = echo.accept_bi().await else { return };
+            let mut buf = vec![0u8; 64 << 10];
+            while let Ok(Some(n)) = recv.read(&mut buf).await {
+                if send.write_all(&buf[..n]).await.is_err() {
+                    break;
+                }
+            }
+        });
+        Pair { client: client_conn, server: server_conn, _endpoints: (server, client) }
+    }
+
+    /// `bytes` out and back through the echo, compared byte for byte.
+    async fn echo(send: &mut quinn::SendStream, recv: &mut quinn::RecvStream, bytes: usize, seed: u8) {
+        let data: Vec<u8> = (0..bytes).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed ^ (i >> 8) as u8)).collect();
+        let mut back = vec![0u8; bytes];
+        let (written, read) = tokio::join!(send.write_all(&data), recv.read_exact(&mut back));
+        written.unwrap();
+        read.unwrap();
+        assert!(back == data, "the echo differs");
+    }
+
+    fn loopback(mux: &Mux) -> SocketAddr {
+        format!("127.0.0.1:{}", mux.port()).parse().unwrap()
+    }
+
+    /// A direct dial finds the path's MTU (1,452 on loopback) while the data stays intact, also against a peer that never
+    /// looks, as 1.0.0-beta.1 (MTU discovery off, 1,200 bytes): it acknowledges the probes like any packet.
+    #[tokio::test]
+    async fn mtu_discovery_on_fixed_paths_and_with_old_peers() {
+        let expect = |mtu| if mtu == Mtu::Discover { crate::quic::MAX_UDP } else { 1_200 };
+        for (server_mtu, client_mtu) in [(Mtu::Discover, Mtu::Discover), (Mtu::Base, Mtu::Discover), (Mtu::Discover, Mtu::Base), (Mtu::Base, Mtu::Base)] {
+            let server_mux = Mux::bind(0).unwrap();
+            let client_mux = Mux::bind(0).unwrap();
+            let pair = connect(&server_mux, &client_mux, loopback(&server_mux), server_mtu, client_mtu).await;
+            let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
+            let settled = || pair.client.stats().path.current_mtu == expect(client_mtu) && pair.server.stats().path.current_mtu == expect(server_mtu);
+            for round in 0..40u8 {
+                echo(&mut send, &mut recv, 256 << 10, round).await;
+                if round >= 3 && settled() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            let mtus = (pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu);
+            assert_eq!(mtus, (expect(client_mtu), expect(server_mtu)), "client {client_mtu:?}, server {server_mtu:?}");
+            assert_eq!(client_mux.counters.send_errors.load(Ordering::Relaxed) + server_mux.counters.send_errors.load(Ordering::Relaxed), 0);
+        }
+    }
+
+    const CHANNEL: u16 = 0x4123;
+
+    /// Two muxes whose QUIC connection goes through virtual addresses, as ICE sets up, first on the direct pair; and a
+    /// stand-in relay to move it onto: A's ChannelData goes to B unwrapped from the relayed address, B's datagrams to
+    /// that address come back to A framed. With `limit`, the relay drops what would exceed it, both ways.
+    struct Moving {
+        mux_a: Arc<Mux>,
+        mux_b: Arc<Mux>,
+        va: SocketAddr,
+        vb: SocketAddr,
+        via_relay: Path,
+        relayed: SocketAddr,
+        largest: Arc<std::sync::atomic::AtomicUsize>,
+        frames: Arc<AtomicU64>,
+    }
+
+    async fn moving(limit: Option<usize>) -> Moving {
+        let (mux_a, mux_b) = (Mux::bind(0).unwrap(), Mux::bind(0).unwrap());
+        let (addr_a, addr_b) = (loopback(&mux_a), loopback(&mux_b));
+        let (va, vb) = (mux_a.new_virtual(), mux_b.new_virtual());
+        mux_a.map_path(Path::direct(addr_b), va);
+        mux_a.select_path(va, Path::direct(addr_b));
+        mux_b.map_path(Path::direct(addr_a), vb);
+        mux_b.select_path(vb, Path::direct(addr_a));
+        let turn = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let relayed = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (server, relayed_addr) = (canonical(turn.local_addr().unwrap()), canonical(relayed.local_addr().unwrap()));
+        let largest = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let frames = Arc::new(AtomicU64::new(0));
+        let limit = limit.unwrap_or(usize::MAX);
+        {
+            let (largest, frames) = (largest.clone(), frames.clone());
+            tokio::spawn(async move {
+                let (mut up, mut down) = (vec![0u8; 65_536], vec![0u8; 65_536]);
+                loop {
+                    tokio::select! {
+                        Ok((n, _)) = turn.recv_from(&mut up) => {
+                            largest.fetch_max(n, Ordering::Relaxed);
+                            let (number, payload) = stun::parse_channel_data(&up[..n]).expect("ChannelData from the mux");
+                            assert_eq!((number, payload.len() + 4), (CHANNEL, n), "one header per datagram");
+                            frames.fetch_add(1, Ordering::Relaxed);
+                            if n <= limit {
+                                let _ = relayed.send_to(payload, addr_b).await;
+                            }
+                        }
+                        Ok((n, _)) = relayed.recv_from(&mut down) => {
+                            let framed = stun::channel_data(CHANNEL, &down[..n]);
+                            largest.fetch_max(framed.len(), Ordering::Relaxed);
+                            if framed.len() <= limit {
+                                let _ = turn.send_to(&framed, addr_a).await;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        mux_a.add_turn(server);
+        mux_a.bound(server, addr_b, CHANNEL);
+        Moving { mux_a, mux_b, va, vb, via_relay: Path { via: Via::Turn(server), remote: addr_b }, relayed: relayed_addr, largest, frames }
+    }
+
+    impl Moving {
+        /// ICE moves both ends onto the relay: A sends through its allocation, B to A's relayed address.
+        fn onto_relay(&self) {
+            self.mux_a.map_path(self.via_relay, self.va);
+            self.mux_a.select_path(self.va, self.via_relay);
+            self.mux_b.map_path(Path::direct(self.relayed), self.vb);
+            self.mux_b.select_path(self.vb, Path::direct(self.relayed));
+        }
+    }
+
+    /// An ICE tunnel moves from a direct pair onto a relay (as when the direct path dies): the data carries on, every
+    /// datagram to and from the relay has one ChannelData header and stays within 1,280 bytes, and a datagram too large
+    /// for a relay never leaves.
+    #[tokio::test]
+    async fn ice_tunnel_moves_onto_a_relay_within_its_size() {
+        let m = moving(None).await;
+        let pair = connect(&m.mux_b, &m.mux_a, m.va, Mtu::Base, Mtu::Base).await;
+        let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
+        echo(&mut send, &mut recv, 1 << 20, 1).await;
+        assert_eq!(m.frames.load(Ordering::Relaxed), 0);
+        m.onto_relay();
+        tokio::time::timeout(Duration::from_secs(30), echo(&mut send, &mut recv, 4 << 20, 2)).await.expect("the transfer carries on through the relay");
+        let frames = m.frames.load(Ordering::Relaxed);
+        assert!(frames > 3_000, "the data went through the relay ({frames} frames)");
+        m.mux_a.send_quic(m.via_relay, &[0x40; RELAY_MAX_QUIC + 1], None).unwrap();
+        m.mux_a.send_quic(m.via_relay, &[0x40; 3 * RELAY_MAX_QUIC], Some(RELAY_MAX_QUIC)).unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let largest = m.largest.load(Ordering::Relaxed);
+        assert!(largest <= 1_280, "largest datagram at the relay: {largest}");
+        assert_eq!((pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu), (1_200, 1_200));
+    }
+
+    /// A connection that found a 1,452-byte MTU, whose path then carries no more than 1,280 bytes (a direct dial after
+    /// the network changed under it, here a path with that limit): quinn's black-hole detection falls back to 1,200
+    /// bytes on both ends and the data carries on.
+    #[tokio::test]
+    async fn discovered_mtu_falls_back_when_the_path_shrinks() {
+        let m = moving(Some(1_280)).await;
+        let pair = connect(&m.mux_b, &m.mux_a, m.va, Mtu::Discover, Mtu::Discover).await;
+        let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
+        let grown = || (pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu) == (crate::quic::MAX_UDP, crate::quic::MAX_UDP);
+        for round in 0..40u8 {
+            echo(&mut send, &mut recv, 256 << 10, round).await;
+            if grown() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(grown(), "both ends found the larger MTU first");
+        m.onto_relay();
+        tokio::time::timeout(Duration::from_secs(30), echo(&mut send, &mut recv, 2 << 20, 99)).await.expect("the transfer carries on");
+        assert_eq!((pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu), (1_200, 1_200));
+    }
+
+    /// A paced relay gets its datagrams at the set rate: 400 kbit/s lets about 50 KB through in a second, not all 120 KB
+    /// at once, and none is lost while the queue has room. QUIC transmits through it go one frame per datagram, within
+    /// 1,280 bytes, even when quinn hands over a batch.
+    #[tokio::test]
+    async fn paced_relay_keeps_to_its_rate() {
+        let relay = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let server = canonical(relay.local_addr().unwrap());
+        let mux = Mux::bind(0).unwrap();
+        mux.add_turn(server);
+        mux.set_pace(server, 400);
+        let peer: SocketAddr = "203.0.113.7:4000".parse().unwrap();
+        mux.bound(server, peer, 0x4001);
+        mux.sock.writable().await.unwrap();
+        let started = std::time::Instant::now();
+        for _ in 0..50 {
+            mux.send_path(Path { via: Via::Turn(server), remote: peer }, &[7u8; 1_196]).unwrap();
+        }
+        for _ in 0..25 {
+            mux.send_quic(Path { via: Via::Turn(server), remote: peer }, &[7u8; 2 * 1_196], Some(1_196)).unwrap();
+        }
+        let mut buf = [0u8; 2048];
+        let mut got = 0usize;
+        let mut first_second = 0usize;
+        while got < 100 * 1_200 {
+            let (n, _) = tokio::time::timeout(Duration::from_secs(5), relay.recv_from(&mut buf)).await.expect("all arrive").unwrap();
+            assert_eq!(stun::parse_channel_data(&buf[..n]).map(|(c, p)| (c, p.len())), Some((0x4001, 1_196)));
+            assert!(n <= 1_280);
+            got += n;
+            if started.elapsed() < Duration::from_secs(1) {
+                first_second += n;
+            }
+        }
+        assert!(first_second <= 16_384 + 50_000 + 2_400, "{first_second} bytes in the first second");
+        assert!(started.elapsed() >= Duration::from_millis(1_800), "{:?}", started.elapsed());
+    }
+
+    /// A relay over TLS: what goes to its virtual address goes down its stream (QUIC batches one frame per datagram),
+    /// and nothing goes over UDP.
+    #[tokio::test]
+    async fn stream_relays_write_to_their_stream() {
+        let mux = Mux::bind(0).unwrap();
+        let key = mux.new_stream_key();
+        assert!(is_stream(key) && !is_virtual(key));
+        let (tx, mut rx) = mpsc::channel(8);
+        mux.add_stream(key, tx);
+        let peer: SocketAddr = "203.0.113.7:4000".parse().unwrap();
+        mux.bound(key, peer, 0x4002);
+        mux.send_path(Path { via: Via::Turn(key), remote: peer }, b"abc").unwrap();
+        assert_eq!(stun::parse_channel_data(&rx.recv().await.unwrap()), Some((0x4002, &b"abc"[..])));
+        mux.send_quic(Path { via: Via::Turn(key), remote: peer }, b"aaaabb", Some(4)).unwrap();
+        assert_eq!(stun::parse_channel_data(&rx.recv().await.unwrap()), Some((0x4002, &b"aaaa"[..])));
+        assert_eq!(stun::parse_channel_data(&rx.recv().await.unwrap()), Some((0x4002, &b"bb"[..])));
+        mux.send_server(key, b"stun").unwrap();
+        assert_eq!(rx.recv().await.unwrap(), b"stun");
+        mux.end_stream(key);
+        assert!(mux.send_server(key, b"x").is_err());
     }
 
     /// Through a relay with a permission but no channel yet, a datagram leaves as a Send indication (so a relay

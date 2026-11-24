@@ -25,7 +25,31 @@ grant_lifetime_s = 7200
 warm_grant_lifetime_s = 43200
 auth_timeout_s = 10
 
-# Relay pool (section 9.1). Penalties steer India to bom first and keep sxb (the build server) last.
+# Relay pool (section 9.1). Cloudflare Realtime TURN comes first for clients that can use it (Rahul, 2026-11-24);
+# the own coturn relays are the backup, and the only relays older clients ever get. Among the own relays,
+# penalties steer India to bom first and keep sxb (the build server) last.
+#
+# Cloudflare: credentials are minted per grant with the TURN key in CF_TURN_KEY_ID and CF_TURN_API_TOKEN. Usage
+# is read from Cloudflare's GraphQL analytics (CF_ACCOUNT_ID, CF_ANALYTICS_TOKEN); without a fresh reading, or at
+# hard_gb, no Cloudflare grants are made, so the free 1,000 GB a month is never exceeded.
+[[relays]]
+id = "cf"
+kind = "cloudflare"
+# The URLs clients get from Cloudflare's answer: UDP 3478, and TLS on 443 where UDP is blocked.
+urls = ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:443?transport=tcp"]
+stun = "turn.cloudflare.com:3478"
+max_kbps = 40000
+
+[relays.cloudflare]
+soft_gb = 800
+hard_gb = 950
+usage_interval_s = 900
+usage_interval_near_s = 300
+usage_max_age_s = 3600
+# 0: the last window_days days (covers any billing month); set the billing day here once it is confirmed.
+cycle_day = 0
+window_days = 31
+
 [[relays]]
 id = "bom"
 kind = "coturn"

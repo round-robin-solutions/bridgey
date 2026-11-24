@@ -138,6 +138,13 @@ final class FolderReceiver {
 
     func owns(_ folderID: String) -> Bool { items[folderID] != nil }
 
+    /// LAN first (LanFirst.swift): a folder from this phone, or a Phone files download, is moving.
+    func activity(with phoneID: String) -> (folders: Bool, phoneFiles: Bool) {
+        let running = items.values.filter { $0.phoneID == phoneID && $0.state == .running && $0.session != nil }
+        let downloads = expected.values.contains { $0.phoneID == phoneID && $0.started && !$0.isFinished && !$0.cancelled }
+        return (running.contains { $0.download == nil }, downloads || running.contains { $0.download != nil })
+    }
+
     func ownsFile(_ transferID: String?) -> Bool { transferID.map { fileOwners[$0] != nil || endedFileSet.contains($0) } ?? false }
 
     /// folders.offer, folders.manifest, folders.complete and folders.cancel for folders coming to this Mac.

@@ -2,7 +2,12 @@
 //!
 //! Kept in memory only (spec 6.7): which connection holds which rendezvous ID, pending grants and
 //! rate-limit counters. Nothing here is logged with an address, an ID or a body.
+//!
+//! Relay choice (spec 9.3): Cloudflare Realtime TURN first for clients that said they can use it, the own coturn pool
+//! as the backup and for every other client. A Cloudflare grant needs credentials from Cloudflare's API, so the hub
+//! queues a [MintJob] and the socket layer finishes it with [Hub::finish_mint]; a failed mint falls back to the pool.
 
+use crate::cloudflare::{self, Minted};
 use crate::config::{Config, Relay};
 use bridgey_connect_proto::rdv::{self, Msg, RelayGrant, RelayInfo, WarmRequest};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -16,6 +21,8 @@ pub struct Conn {
     pub tx: mpsc::Sender<String>,
     pub ids: HashSet<String>,
     signals: Window,
+    /// The client sent [rdv::CAP_CLOUDFLARE]: it can use Cloudflare grants.
+    cloudflare: bool,
 }
 
 /// A fixed window counter.
@@ -53,6 +60,65 @@ struct PendingGrant {
     expires: Instant,
 }
 
+/// The Cloudflare relay: whether grants may go there now (usage under the caps, the API answering).
+struct Cf {
+    relay: Relay,
+    soft_bytes: u64,
+    hard_bytes: u64,
+    max_age: Duration,
+    interval: Duration,
+    interval_near: Duration,
+    /// The last usage reading and when it was taken.
+    usage: Option<(u64, Instant)>,
+    usage_error: Option<String>,
+    /// Mints that failed in a row, and until when Cloudflare is skipped because of them.
+    failures: u32,
+    paused_until: Option<Instant>,
+    last_error: Option<String>,
+    /// Each node's current Cloudflare warm credentials (memory only), so that node alone can end an allocation a
+    /// killed process left (the reclaim); coturn derives them from its secret instead.
+    warm: HashMap<String, CfWarm>,
+}
+
+struct CfWarm {
+    username: String,
+    credential: String,
+    urls: Vec<String>,
+    expiry_unix_s: u64,
+}
+
+/// Where Cloudflare stands in the choice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CfTier {
+    /// Under the soft cap: the first choice.
+    First,
+    /// Between the soft and hard caps: only when no own relay can take the grant.
+    Overflow,
+    /// Not configured, over the hard cap, no fresh usage reading, failing, or excluded.
+    Off,
+}
+
+/// A Cloudflare grant waiting for its credentials: the socket layer mints them and calls [Hub::finish_mint].
+#[derive(Clone, Debug)]
+pub struct MintJob {
+    pub conn: ConnId,
+    pub node: String,
+    /// The session ID, or [rdv::WARM_SID] for the node's own relay.
+    pub sid: String,
+    pub side: u8,
+    /// The session's rendezvous ID; `None` for a warm grant.
+    pub rdv: Option<String>,
+    pub rtts: Option<BTreeMap<String, u32>>,
+    pub exclude: Vec<String>,
+    pub ttl_s: u64,
+    /// When the grant was asked for: the credentials expire no later than this plus `ttl_s`.
+    pub asked_unix_s: u64,
+}
+
+/// A failed mint keeps Cloudflare out of the choice for this long, doubling with each failure in a row up to the cap.
+const CF_PAUSE: Duration = Duration::from_secs(60);
+const CF_PAUSE_MAX: Duration = Duration::from_secs(900);
+
 pub struct Hub {
     config: Config,
     secrets: HashMap<String, Vec<u8>>,
@@ -62,6 +128,8 @@ pub struct Hub {
     grants_per_node: HashMap<String, Window>,
     pending: HashMap<(String, String), PendingGrant>,
     next_id: ConnId,
+    cf: Option<Cf>,
+    mints: Vec<MintJob>,
     pub counters: Counters,
 }
 
@@ -77,6 +145,10 @@ pub struct Counters {
     pub reclaimed: u64,
     /// Sign-ins that took the single flight (hello in the upgrade request).
     pub fast_hellos: u64,
+    /// Grants on Cloudflare (counted in `grants` too), and Cloudflare grants that went to the own pool instead
+    /// because the mint failed.
+    pub cf_grants: u64,
+    pub cf_fallbacks: u64,
 }
 
 /// What a connection must do after a message.
@@ -97,16 +169,179 @@ impl Hub {
             grants_per_node: HashMap::new(),
             pending: HashMap::new(),
             next_id: 1,
+            cf: None,
+            mints: Vec::new(),
             counters: Counters::default(),
+        }
+    }
+
+    /// Adds the Cloudflare relay (its TURN key is in the environment). It takes grants once a usage reading shows
+    /// room under the caps.
+    pub fn enable_cloudflare(&mut self, relay: Relay) {
+        let settings = relay.cloudflare.clone().unwrap_or_default();
+        self.cf = Some(Cf {
+            soft_bytes: cloudflare::gb_bytes(settings.soft_gb),
+            hard_bytes: cloudflare::gb_bytes(settings.hard_gb),
+            max_age: Duration::from_secs(settings.usage_max_age_s),
+            interval: Duration::from_secs(settings.usage_interval_s.max(60)),
+            interval_near: Duration::from_secs(settings.usage_interval_near_s.max(60)),
+            relay,
+            usage: None,
+            usage_error: None,
+            failures: 0,
+            paused_until: None,
+            last_error: None,
+            warm: HashMap::new(),
+        });
+    }
+
+    fn is_cf(&self, relay: &str) -> bool {
+        self.cf.as_ref().is_some_and(|cf| cf.relay.id == relay)
+    }
+
+    /// Whether `relay` can be granted: a coturn relay with its secret, or the configured Cloudflare relay.
+    pub fn configured(&self, relay: &str) -> bool {
+        self.secrets.contains_key(relay) || self.is_cf(relay)
+    }
+
+    /// Records a usage reading (or the error that stopped one).
+    pub fn set_cf_usage(&mut self, reading: Result<u64, String>, now: Instant) {
+        let Some(cf) = self.cf.as_mut() else { return };
+        match reading {
+            Ok(bytes) => {
+                cf.usage = Some((bytes, now));
+                cf.usage_error = None;
+            }
+            Err(e) => cf.usage_error = Some(e),
+        }
+    }
+
+    /// When to read the usage next: more often once it is past the soft cap.
+    pub fn cf_poll_interval(&self) -> Duration {
+        match &self.cf {
+            Some(cf) if cf.usage.is_some_and(|(bytes, _)| bytes >= cf.soft_bytes) => cf.interval_near,
+            Some(cf) if cf.usage_error.is_some() => cf.interval.min(Duration::from_secs(120)),
+            Some(cf) => cf.interval,
+            None => Duration::from_secs(900),
+        }
+    }
+
+    /// Where Cloudflare stands for a grant now. Without a fresh usage reading it is off: the cap must hold even when
+    /// the analytics API does not answer.
+    pub fn cf_tier(&self, now: Instant, exclude: &[String]) -> CfTier {
+        let Some(cf) = &self.cf else { return CfTier::Off };
+        if !cf.relay.enabled || exclude.contains(&cf.relay.id) || cf.paused_until.is_some_and(|until| until > now) {
+            return CfTier::Off;
+        }
+        match cf.usage {
+            Some((bytes, at)) if now.saturating_duration_since(at) <= cf.max_age => {
+                if bytes >= cf.hard_bytes {
+                    CfTier::Off
+                } else if bytes >= cf.soft_bytes {
+                    CfTier::Overflow
+                } else {
+                    CfTier::First
+                }
+            }
+            _ => CfTier::Off,
+        }
+    }
+
+    /// For `/v1/status`: the caps, the last reading and whether grants go there. No secrets.
+    pub fn cloudflare_status(&self, now: Instant) -> Option<serde_json::Value> {
+        let cf = self.cf.as_ref()?;
+        let tier = match self.cf_tier(now, &[]) {
+            CfTier::First => "first",
+            CfTier::Overflow => "overflow",
+            CfTier::Off => "off",
+        };
+        Some(serde_json::json!({
+            "id": cf.relay.id,
+            "tier": tier,
+            "usedGb": cf.usage.map(|(bytes, _)| (cloudflare::gb(bytes) * 100.0).round() / 100.0),
+            "readSecondsAgo": cf.usage.map(|(_, at)| now.saturating_duration_since(at).as_secs()),
+            "softGb": cloudflare::gb(cf.soft_bytes),
+            "hardGb": cloudflare::gb(cf.hard_bytes),
+            "usageError": cf.usage_error,
+            "mintFailuresInARow": cf.failures,
+            "pausedSeconds": cf.paused_until.map(|until| until.saturating_duration_since(now).as_secs()).filter(|s| *s > 0),
+            "lastMintError": cf.last_error,
+        }))
+    }
+
+    /// Grants waiting for Cloudflare credentials, for the socket layer to mint.
+    pub fn take_mints(&mut self) -> Vec<MintJob> {
+        std::mem::take(&mut self.mints)
+    }
+
+    /// Finishes a Cloudflare grant: the credentials go to the client, or, when the mint failed, a grant on the own pool
+    /// does (and Cloudflare is left out of the choice for a while).
+    pub fn finish_mint(&mut self, job: MintJob, minted: Result<Minted, String>, now: Instant) {
+        let Some(cf) = self.cf.as_mut() else { return };
+        // Only the URLs the settings list go out: a grant with none of them left is a failure too.
+        let minted = minted.and_then(|m| {
+            let urls: Vec<String> = m.urls.into_iter().filter(|u| cf.relay.urls.contains(u)).collect();
+            if urls.is_empty() {
+                Err("no usable URL in the answer".to_string())
+            } else {
+                Ok(Minted { urls, ..m })
+            }
+        });
+        match minted {
+            Ok(m) => {
+                cf.failures = 0;
+                cf.paused_until = None;
+                let expiry = job.asked_unix_s + job.ttl_s;
+                let grant = RelayGrant {
+                    id: cf.relay.id.clone(),
+                    kind: cf.relay.kind.clone(),
+                    urls: m.urls.clone(),
+                    username: m.username.clone(),
+                    credential: m.credential.clone(),
+                    spki: None,
+                    expires_at: expiry * 1_000,
+                    max_kbps: cf.relay.max_kbps,
+                };
+                if job.rdv.is_none() {
+                    let unix_s = unix_ms() / 1_000;
+                    cf.warm.retain(|_, w| w.expiry_unix_s > unix_s);
+                    cf.warm.insert(job.node.clone(), CfWarm { username: m.username, credential: m.credential, urls: m.urls, expiry_unix_s: expiry });
+                    self.counters.warm_grants += 1;
+                }
+                self.counters.grants += 1;
+                self.counters.cf_grants += 1;
+                self.send(job.conn, Msg::RelayGrantMsg { sid: job.sid, relay: grant });
+            }
+            Err(e) => {
+                cf.failures = cf.failures.saturating_add(1);
+                let pause = CF_PAUSE.saturating_mul(1 << (cf.failures - 1).min(4)).min(CF_PAUSE_MAX);
+                cf.paused_until = Some(now + pause);
+                cf.last_error = Some(e);
+                let cf_id = cf.relay.id.clone();
+                self.counters.cf_fallbacks += 1;
+                let mut exclude = job.exclude.clone();
+                exclude.push(cf_id.clone());
+                let Some(relay) = self.pick(job.rtts.as_ref(), &exclude).cloned() else {
+                    self.counters.denied += 1;
+                    self.send(job.conn, Msg::RelayDenied { sid: job.sid, code: "pool_exhausted".into(), retry_after_ms: 60_000 });
+                    return;
+                };
+                match job.rdv {
+                    Some(rdv) => {
+                        // The other side's claim follows the session to the same fallback relay.
+                        if let Some(pending) = self.pending.get_mut(&(rdv, job.sid.clone())).filter(|p| p.relay == cf_id) {
+                            pending.relay = relay.id.clone();
+                        }
+                        self.send_session_grant(job.conn, &relay, job.sid, job.side, job.ttl_s);
+                    }
+                    None => self.send_warm_grant(job.conn, &relay, &job.node, unix_ms() / 1_000),
+                }
+            }
         }
     }
 
     pub fn config(&self) -> &Config {
         &self.config
-    }
-
-    pub fn has_secret(&self, relay: &str) -> bool {
-        self.secrets.contains_key(relay)
     }
 
     pub fn connections(&self) -> usize {
@@ -117,8 +352,15 @@ impl Hub {
         self.sockets_per_node.len()
     }
 
-    /// Admits an authenticated node, or `None` when it already holds its socket allowance.
+    /// [Hub::join_with] for a client that sent no capabilities.
+    #[cfg(test)]
     pub fn join(&mut self, node_id: String, tx: mpsc::Sender<String>) -> Option<ConnId> {
+        self.join_with(node_id, tx, &[])
+    }
+
+    /// Admits an authenticated node with the capabilities it sent in its hello, or `None` when it already holds its
+    /// socket allowance.
+    pub fn join_with(&mut self, node_id: String, tx: mpsc::Sender<String>, caps: &[String]) -> Option<ConnId> {
         let sockets = self.sockets_per_node.entry(node_id.clone()).or_insert(0);
         if *sockets >= self.config.limits.sockets_per_node || self.conns.len() >= self.config.limits.max_connections {
             if *sockets == 0 {
@@ -129,7 +371,8 @@ impl Hub {
         *sockets += 1;
         let id = self.next_id;
         self.next_id += 1;
-        self.conns.insert(id, Conn { node_id, tx, ids: HashSet::new(), signals: Window::new(Duration::from_secs(60)) });
+        let cloudflare = caps.iter().any(|c| c == rdv::CAP_CLOUDFLARE);
+        self.conns.insert(id, Conn { node_id, tx, ids: HashSet::new(), signals: Window::new(Duration::from_secs(60)), cloudflare });
         Some(id)
     }
 
@@ -281,10 +524,18 @@ impl Hub {
             return Outcome::Continue;
         }
         let key = (rdv.clone(), sid.clone());
-        // The service picks one relay per session for both sides (spec 9.3): a claim reuses it.
-        let chosen = match (claim, self.pending.get(&key)) {
-            (true, Some(grant)) if !exclude.contains(&grant.relay) => Some(grant.relay.clone()),
-            _ => self.pick(rtts.as_ref(), &exclude).map(|r| r.id.clone()),
+        let capable = self.conns[&id].cloudflare;
+        // The service picks one relay per session for both sides (spec 9.3): a claim reuses it, unless it is Cloudflare
+        // and this client cannot use it, or Cloudflare has since gone off (the hard cap, a failed mint); then the own
+        // pool, as before Cloudflare. Cloudflare is chosen only when every node on the session can use it.
+        let pending = self.pending.get(&key).map(|grant| grant.relay.clone());
+        let reusable = |relay: &String| !self.is_cf(relay) || (capable && self.cf_tier(now, &exclude) != CfTier::Off);
+        let chosen = match (claim, pending) {
+            (true, Some(relay)) if !exclude.contains(&relay) && reusable(&relay) => Some(relay),
+            _ => {
+                let both = capable && self.others_capable(id, &rdv);
+                self.choose(both, rtts.as_ref(), &exclude, now)
+            }
         };
         let Some(relay_id) = chosen else {
             self.counters.denied += 1;
@@ -293,32 +544,50 @@ impl Hub {
         };
         let lifetime = self.config.limits.grant_lifetime_s;
         self.pending.insert(key, PendingGrant { relay: relay_id.clone(), expires: now + Duration::from_secs(lifetime) });
+        if self.is_cf(&relay_id) {
+            let node = self.conns[&id].node_id.clone();
+            self.mints.push(MintJob { conn: id, node, sid, side, rdv: Some(rdv), rtts, exclude, ttl_s: lifetime, asked_unix_s: unix_ms() / 1_000 });
+            return Outcome::Continue;
+        }
         let relay = self.config.relays.iter().find(|r| r.id == relay_id).expect("chosen relay").clone();
-        let expiry = unix_ms() / 1_000 + lifetime;
-        let (username, credential) = rdv::turn_rest_credentials(&self.secrets[&relay_id], expiry, &sid, side);
-        self.counters.grants += 1;
-        self.send(
-            id,
-            Msg::RelayGrantMsg {
-                sid,
-                relay: RelayGrant {
-                    id: relay.id,
-                    kind: relay.kind,
-                    urls: relay.urls,
-                    username,
-                    credential,
-                    spki: relay.spki,
-                    expires_at: expiry * 1_000,
-                    max_kbps: relay.max_kbps,
-                },
-            },
-        );
+        self.send_session_grant(id, &relay, sid, side, lifetime);
         Outcome::Continue
     }
 
-    /// The relays a node may use, for `welcome`: it probes them and keeps permissions for all of them.
-    pub fn relay_infos(&self) -> Vec<RelayInfo> {
-        self.config.relays.iter().filter(|r| r.enabled && self.secrets.contains_key(&r.id)).filter_map(|r| Some(RelayInfo { id: r.id.clone(), stun: r.stun()? })).collect()
+    /// A coturn session grant: TURN REST credentials for this session and side.
+    fn send_session_grant(&mut self, id: ConnId, relay: &Relay, sid: String, side: u8, lifetime_s: u64) {
+        let expiry = unix_ms() / 1_000 + lifetime_s;
+        let (username, credential) = rdv::turn_rest_credentials(&self.secrets[&relay.id], expiry, &sid, side);
+        self.counters.grants += 1;
+        self.send(id, Msg::RelayGrantMsg { sid, relay: grant(relay, username, credential, expiry) });
+    }
+
+    /// A coturn warm grant: a username tied to the node, so it can reclaim the allocation after a crash.
+    fn send_warm_grant(&mut self, id: ConnId, relay: &Relay, node: &str, unix_s: u64) {
+        let expiry = unix_s + self.config.limits.warm_grant_lifetime_s;
+        let secret = &self.secrets[&relay.id];
+        let username = rdv::warm_username(secret, expiry, node);
+        let credential = rdv::turn_rest_credential(secret, &username);
+        self.counters.grants += 1;
+        self.counters.warm_grants += 1;
+        self.send(id, Msg::RelayGrantMsg { sid: rdv::WARM_SID.into(), relay: grant(relay, username, credential, expiry) });
+    }
+
+    /// Every other node's connections on `rdv` can use Cloudflare grants (and there is at least one).
+    fn others_capable(&self, id: ConnId, rdv: &str) -> bool {
+        let others = self.others(id, rdv);
+        !others.is_empty() && others.iter().all(|c| self.conns.get(c).is_some_and(|conn| conn.cloudflare))
+    }
+
+    /// The relays a node may use, for `welcome`: it probes them and keeps permissions for all of them. Cloudflare is
+    /// listed only to clients that can use it, so older clients see exactly the pool they saw before.
+    pub fn relay_infos(&self, cloudflare: bool) -> Vec<RelayInfo> {
+        self.config
+            .relays
+            .iter()
+            .filter(|r| r.enabled && (self.secrets.contains_key(&r.id) || (cloudflare && self.is_cf(&r.id))))
+            .filter_map(|r| Some(RelayInfo { id: r.id.clone(), stun: r.stun()? }))
+            .collect()
     }
 
     /// A node's own relay credentials, kept warm across sessions (docs/connect-anywhere-latency.md): the username
@@ -336,35 +605,72 @@ impl Hub {
         }
         let unix_s = unix_ms() / 1_000;
         if let Some(reclaim) = &request.reclaim {
-            let found = self.config.relays.iter().find(|r| r.id == reclaim.relay && self.secrets.contains_key(&r.id)).cloned();
-            if let Some(relay) = found {
-                let secret = &self.secrets[&relay.id];
-                // Only a username made for this node, and not expired, gets its credential back.
-                if let Some(expiry) = rdv::warm_username_expiry(secret, &reclaim.username, &node).filter(|e| *e > unix_s) {
-                    let credential = rdv::turn_rest_credential(secret, &reclaim.username);
+            if let Some(cf) = self.cf.as_ref().filter(|cf| cf.relay.id == reclaim.relay) {
+                // Cloudflare usernames are Cloudflare's: the node's last one is remembered, and only that node gets it.
+                if let Some(w) = cf.warm.get(&node).filter(|w| w.username == reclaim.username && w.expiry_unix_s > unix_s) {
+                    let relay = RelayGrant {
+                        id: cf.relay.id.clone(),
+                        kind: cf.relay.kind.clone(),
+                        urls: w.urls.clone(),
+                        username: w.username.clone(),
+                        credential: w.credential.clone(),
+                        spki: None,
+                        expires_at: w.expiry_unix_s * 1_000,
+                        max_kbps: cf.relay.max_kbps,
+                    };
                     self.counters.reclaimed += 1;
-                    self.send(id, Msg::RelayGrantMsg { sid: rdv::RECLAIM_SID.into(), relay: grant(&relay, reclaim.username.clone(), credential, expiry) });
+                    self.send(id, Msg::RelayGrantMsg { sid: rdv::RECLAIM_SID.into(), relay });
+                }
+            } else {
+                let found = self.config.relays.iter().find(|r| r.id == reclaim.relay && self.secrets.contains_key(&r.id)).cloned();
+                if let Some(relay) = found {
+                    let secret = &self.secrets[&relay.id];
+                    // Only a username made for this node, and not expired, gets its credential back.
+                    if let Some(expiry) = rdv::warm_username_expiry(secret, &reclaim.username, &node).filter(|e| *e > unix_s) {
+                        let credential = rdv::turn_rest_credential(secret, &reclaim.username);
+                        self.counters.reclaimed += 1;
+                        self.send(id, Msg::RelayGrantMsg { sid: rdv::RECLAIM_SID.into(), relay: grant(&relay, reclaim.username.clone(), credential, expiry) });
+                    }
                 }
             }
         }
         let exclude = request.exclude.unwrap_or_default();
-        let Some(relay) = self.pick(request.rtts.as_ref(), &exclude).cloned() else {
+        let capable = self.conns.get(&id).is_some_and(|c| c.cloudflare);
+        let Some(relay_id) = self.choose(capable, request.rtts.as_ref(), &exclude, now) else {
             self.counters.denied += 1;
             self.send(id, Msg::RelayDenied { sid: rdv::WARM_SID.into(), code: "pool_exhausted".into(), retry_after_ms: 60_000 });
             return Outcome::Continue;
         };
-        let expiry = unix_s + self.config.limits.warm_grant_lifetime_s;
-        let secret = &self.secrets[&relay.id];
-        let username = rdv::warm_username(secret, expiry, &node);
-        let credential = rdv::turn_rest_credential(secret, &username);
-        self.counters.grants += 1;
-        self.counters.warm_grants += 1;
-        self.send(id, Msg::RelayGrantMsg { sid: rdv::WARM_SID.into(), relay: grant(&relay, username, credential, expiry) });
+        if self.is_cf(&relay_id) {
+            let ttl_s = self.config.limits.warm_grant_lifetime_s;
+            self.mints.push(MintJob { conn: id, node, sid: rdv::WARM_SID.into(), side: 0, rdv: None, rtts: request.rtts, exclude, ttl_s, asked_unix_s: unix_s });
+            return Outcome::Continue;
+        }
+        let relay = self.config.relays.iter().find(|r| r.id == relay_id).expect("chosen relay").clone();
+        self.send_warm_grant(id, &relay, &node, unix_s);
         Outcome::Continue
     }
 
-    /// Lowest round trip plus penalty among enabled relays with a secret (spec 9.3, phase 1:
-    /// no allowance tiers yet). Unknown round trips count as 200 ms.
+    /// Where a grant goes (spec 9.3): Cloudflare first when the client (and, for a session, the other side) can use it
+    /// and it is under the soft cap; otherwise the own pool by round trip; Cloudflare between the soft and hard caps
+    /// only when no own relay can take it.
+    fn choose(&self, cloudflare: bool, rtts: Option<&BTreeMap<String, u32>>, exclude: &[String], now: Instant) -> Option<String> {
+        let tier = if cloudflare { self.cf_tier(now, exclude) } else { CfTier::Off };
+        let cf_id = || self.cf.as_ref().map(|cf| cf.relay.id.clone());
+        if tier == CfTier::First {
+            return cf_id();
+        }
+        if let Some(relay) = self.pick(rtts, exclude) {
+            return Some(relay.id.clone());
+        }
+        if tier == CfTier::Overflow {
+            return cf_id();
+        }
+        None
+    }
+
+    /// The own pool: lowest round trip plus penalty among enabled coturn relays with a secret (no allowance tiers
+    /// yet). Unknown round trips count as 200 ms.
     fn pick(&self, rtts: Option<&BTreeMap<String, u32>>, exclude: &[String]) -> Option<&Relay> {
         self.config
             .relays
@@ -501,7 +807,246 @@ penalty_ms = 10
         let session = rdv::turn_rest_credentials(b"s2", unix_ms() / 1_000 + 60, SID, 0).0;
         hub.handle(a, Msg::RelayWarm { request: WarmRequest { reclaim: Some(rdv::Reclaim { relay: "sin".into(), username: session }), ..Default::default() } });
         assert_eq!(drain(&mut rx).len(), 1);
-        assert_eq!(hub.relay_infos().len(), 2);
+        assert_eq!(hub.relay_infos(false).len(), 2);
+    }
+
+    /// The hub with the Cloudflare relay as production configures it, and a usage reading of `used_gb`.
+    fn cf_hub(used_gb: Option<u64>) -> Hub {
+        let config = Config::parse(
+            r#"
+[server]
+listen = "127.0.0.1:0"
+[[relays]]
+id = "cf"
+kind = "cloudflare"
+urls = ["turn:turn.cloudflare.com:3478?transport=udp", "turns:turn.cloudflare.com:443?transport=tcp"]
+stun = "turn.cloudflare.com:3478"
+max_kbps = 40000
+[relays.cloudflare]
+soft_gb = 800
+hard_gb = 950
+usage_max_age_s = 3600
+[[relays]]
+id = "bom"
+kind = "coturn"
+urls = ["turn:a:3478"]
+secret_env = "A"
+[[relays]]
+id = "sin"
+kind = "coturn"
+urls = ["turn:b:3478"]
+secret_env = "B"
+penalty_ms = 10
+"#,
+        )
+        .unwrap();
+        let secrets = HashMap::from([("bom".to_string(), b"s1".to_vec()), ("sin".to_string(), b"s2".to_vec())]);
+        let cf = config.relays[0].clone();
+        let mut hub = Hub::new(config, secrets);
+        hub.enable_cloudflare(cf);
+        if let Some(gb) = used_gb {
+            hub.set_cf_usage(Ok(gb * 1_000_000_000), Instant::now());
+        }
+        hub
+    }
+
+    fn caps(cloudflare: bool) -> Vec<String> {
+        if cloudflare {
+            vec![rdv::CAP_CLOUDFLARE.to_string()]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// What Cloudflare's API answers: every URL it offers, the settings keep two.
+    fn minted() -> Result<Minted, String> {
+        Ok(Minted {
+            urls: vec![
+                "turn:turn.cloudflare.com:3478?transport=udp".into(),
+                "turn:turn.cloudflare.com:53?transport=udp".into(),
+                "turns:turn.cloudflare.com:443?transport=tcp".into(),
+            ],
+            username: "cf-user".into(),
+            credential: "cf-pass".into(),
+        })
+    }
+
+    fn warm_rtts() -> WarmRequest {
+        WarmRequest { rtts: Some(BTreeMap::from([("bom".to_string(), 100), ("sin".to_string(), 50), ("cf".to_string(), 20)])), ..Default::default() }
+    }
+
+    #[test]
+    fn cloudflare_warm_grants_only_for_clients_that_can_use_them() {
+        let mut hub = cf_hub(Some(1));
+        let (tx_new, mut rx_new) = mpsc::channel(16);
+        let (tx_old, mut rx_old) = mpsc::channel(16);
+        let new = hub.join_with("node-new".into(), tx_new, &caps(true)).unwrap();
+        let old = hub.join_with("node-old".into(), tx_old, &caps(false)).unwrap();
+        // An old client (no caps) gets exactly what it got before: the own pool, at once, and no Cloudflare in welcome.
+        hub.handle(old, Msg::RelayWarm { request: warm_rtts() });
+        let Some(Msg::RelayGrantMsg { sid, relay }) = drain(&mut rx_old).pop() else { panic!() };
+        assert_eq!((sid.as_str(), relay.id.as_str(), relay.kind.as_str()), (rdv::WARM_SID, "sin", "coturn"));
+        assert!(hub.take_mints().is_empty());
+        assert!(hub.relay_infos(false).iter().all(|r| r.id != "cf"));
+        // A new client: Cloudflare first, whatever the round trips, once its credentials are minted.
+        hub.handle(new, Msg::RelayWarm { request: warm_rtts() });
+        assert!(drain(&mut rx_new).is_empty(), "the grant waits for the mint");
+        let jobs = hub.take_mints();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!((jobs[0].sid.as_str(), jobs[0].rdv.is_none(), jobs[0].ttl_s), (rdv::WARM_SID, true, 43_200));
+        hub.finish_mint(jobs[0].clone(), minted(), Instant::now());
+        let Some(Msg::RelayGrantMsg { sid, relay }) = drain(&mut rx_new).pop() else { panic!() };
+        assert_eq!(sid, rdv::WARM_SID);
+        assert_eq!((relay.id.as_str(), relay.kind.as_str(), relay.max_kbps, relay.spki.as_deref()), ("cf", "cloudflare", 40_000, None));
+        assert_eq!(relay.urls, vec!["turn:turn.cloudflare.com:3478?transport=udp".to_string(), "turns:turn.cloudflare.com:443?transport=tcp".to_string()]);
+        assert_eq!((relay.username.as_str(), relay.credential.as_str()), ("cf-user", "cf-pass"));
+        assert_eq!(relay.expires_at, (jobs[0].asked_unix_s + 43_200) * 1_000);
+        assert_eq!((hub.counters.cf_grants, hub.counters.warm_grants), (1, 2));
+        assert!(hub.relay_infos(true).iter().any(|r| r.id == "cf" && r.stun == "turn.cloudflare.com:3478"));
+        // The same node can take back its Cloudflare credential after a crash; another node cannot.
+        let reclaim = rdv::Reclaim { relay: "cf".into(), username: "cf-user".into() };
+        hub.handle(new, Msg::RelayWarm { request: WarmRequest { reclaim: Some(reclaim.clone()), ..Default::default() } });
+        assert!(matches!(drain(&mut rx_new).first(), Some(Msg::RelayGrantMsg { sid, relay }) if sid == rdv::RECLAIM_SID && relay.credential == "cf-pass"));
+        hub.take_mints();
+        hub.handle(old, Msg::RelayWarm { request: WarmRequest { reclaim: Some(reclaim), ..Default::default() } });
+        assert!(drain(&mut rx_old).iter().all(|m| !matches!(m, Msg::RelayGrantMsg { sid, .. } if sid == rdv::RECLAIM_SID)));
+    }
+
+    #[test]
+    fn cloudflare_sessions_need_both_sides() {
+        let mut hub = cf_hub(Some(1));
+        let (tx_a, mut rx_a) = mpsc::channel(16);
+        let (tx_b, mut rx_b) = mpsc::channel(16);
+        let a = hub.join_with("node-a".into(), tx_a, &caps(true)).unwrap();
+        let b = hub.join_with("node-b".into(), tx_b, &caps(false)).unwrap();
+        hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
+        hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
+        drain(&mut rx_a);
+        drain(&mut rx_b);
+        // The other side is an old client: both get the own pool, the same relay, as before.
+        let rtts = BTreeMap::from([("bom".to_string(), 100), ("sin".to_string(), 50)]);
+        hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: SID.into(), side: 0, rtts: Some(rtts), need: None, est_bytes: None, exclude: None });
+        assert!(hub.take_mints().is_empty());
+        let Some(Msg::RelayGrantMsg { relay, .. }) = drain(&mut rx_a).pop() else { panic!() };
+        assert_eq!(relay.id, "sin");
+        hub.handle(b, Msg::RelayClaim { rdv: RDV.into(), sid: SID.into(), side: 1 });
+        let Some(Msg::RelayGrantMsg { relay, .. }) = drain(&mut rx_b).pop() else { panic!() };
+        assert_eq!(relay.id, "sin");
+        // Both sides can: Cloudflare for both, each with its own credentials.
+        let (tx_c, mut rx_c) = mpsc::channel(16);
+        let c = hub.join_with("node-c".into(), tx_c, &caps(true)).unwrap();
+        hub.leave(b);
+        hub.handle(c, Msg::Register { ids: vec![RDV.into()] });
+        drain(&mut rx_a);
+        drain(&mut rx_c);
+        let sid2 = "CCCCCCCCCCCCCCCCCCCCCC";
+        hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: sid2.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+        hub.handle(c, Msg::RelayClaim { rdv: RDV.into(), sid: sid2.into(), side: 1 });
+        let jobs = hub.take_mints();
+        assert_eq!(jobs.iter().map(|j| (j.conn, j.side, j.rdv.as_deref())).collect::<Vec<_>>(), vec![(a, 0, Some(RDV)), (c, 1, Some(RDV))]);
+        for job in jobs {
+            hub.finish_mint(job, minted(), Instant::now());
+        }
+        assert!(matches!(drain(&mut rx_a).pop(), Some(Msg::RelayGrantMsg { sid, relay }) if sid == sid2 && relay.id == "cf"));
+        assert!(matches!(drain(&mut rx_c).pop(), Some(Msg::RelayGrantMsg { sid, relay }) if sid == sid2 && relay.id == "cf"));
+        // A claim after Cloudflare went off (here: over the hard cap since the request) gets the own pool.
+        let sid3 = "DDDDDDDDDDDDDDDDDDDDDD";
+        hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: sid3.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+        assert_eq!(hub.take_mints().len(), 1);
+        hub.set_cf_usage(Ok(960_000_000_000), Instant::now());
+        hub.handle(c, Msg::RelayClaim { rdv: RDV.into(), sid: sid3.into(), side: 1 });
+        assert!(hub.take_mints().is_empty());
+        assert!(matches!(drain(&mut rx_c).pop(), Some(Msg::RelayGrantMsg { relay, .. }) if relay.kind == "coturn"));
+        hub.set_cf_usage(Ok(1_000_000_000), Instant::now());
+        // An old client that claims a Cloudflare session (it came back on an older build) gets the own pool instead.
+        let (tx_d, mut rx_d) = mpsc::channel(16);
+        let d = hub.join_with("node-d".into(), tx_d, &caps(false)).unwrap();
+        hub.handle(d, Msg::Register { ids: vec![RDV.into()] });
+        drain(&mut rx_d);
+        hub.handle(d, Msg::RelayClaim { rdv: RDV.into(), sid: sid2.into(), side: 1 });
+        assert!(hub.take_mints().is_empty());
+        assert!(matches!(drain(&mut rx_d).pop(), Some(Msg::RelayGrantMsg { relay, .. }) if relay.kind == "coturn"));
+    }
+
+    #[test]
+    fn cloudflare_caps_hold() {
+        let now = Instant::now();
+        // Under the soft cap: first. Between soft and hard: only when the pool cannot take it. At the hard cap: never.
+        assert_eq!(cf_hub(Some(799)).cf_tier(now, &[]), CfTier::First);
+        assert_eq!(cf_hub(Some(800)).cf_tier(now, &[]), CfTier::Overflow);
+        assert_eq!(cf_hub(Some(950)).cf_tier(now, &[]), CfTier::Off);
+        assert_eq!(cf_hub(Some(5_000)).cf_tier(now, &[]), CfTier::Off);
+        // No reading yet, or one too old (the analytics API stopped answering): off, so the cap cannot be overrun.
+        assert_eq!(cf_hub(None).cf_tier(now, &[]), CfTier::Off);
+        let mut stale = cf_hub(Some(1));
+        assert_eq!(stale.cf_tier(now + Duration::from_secs(3_601), &[]), CfTier::Off);
+        stale.set_cf_usage(Err("usage: not allowed".into()), now);
+        assert_eq!(stale.cf_tier(now, &[]), CfTier::First, "an error keeps the last reading until it is too old");
+        assert_eq!(stale.cf_tier(now, &["cf".into()]), CfTier::Off);
+        // Near the cap the usage is read more often.
+        assert_eq!(cf_hub(Some(1)).cf_poll_interval(), Duration::from_secs(900));
+        assert_eq!(cf_hub(Some(850)).cf_poll_interval(), Duration::from_secs(300));
+
+        let warm = |hub: &mut Hub, exclude: Vec<String>| {
+            let (tx, mut rx) = mpsc::channel(16);
+            let id = hub.join_with(format!("n{}", hub.connections()), tx, &caps(true)).unwrap();
+            hub.handle(id, Msg::RelayWarm { request: WarmRequest { exclude: Some(exclude), ..warm_rtts() } });
+            let mint = !hub.take_mints().is_empty();
+            let grant = drain(&mut rx).into_iter().find_map(|m| match m {
+                Msg::RelayGrantMsg { relay, .. } => Some(relay.id),
+                Msg::RelayDenied { code, .. } => Some(code),
+                _ => None,
+            });
+            (mint, grant)
+        };
+        // Over the hard cap a client that can use Cloudflare still gets a relay: the own pool.
+        assert_eq!(warm(&mut cf_hub(Some(960)), vec![]), (false, Some("sin".into())));
+        // Between the caps: the pool while it has room, Cloudflare when it has none.
+        assert_eq!(warm(&mut cf_hub(Some(900)), vec![]), (false, Some("sin".into())));
+        assert_eq!(warm(&mut cf_hub(Some(900)), vec!["bom".into(), "sin".into()]), (true, None));
+        assert_eq!(warm(&mut cf_hub(Some(960)), vec!["bom".into(), "sin".into()]), (false, Some("pool_exhausted".into())));
+    }
+
+    #[test]
+    fn cloudflare_failures_fall_back_to_the_pool() {
+        let mut hub = cf_hub(Some(1));
+        let (tx_a, mut rx_a) = mpsc::channel(16);
+        let (tx_b, mut rx_b) = mpsc::channel(16);
+        let a = hub.join_with("node-a".into(), tx_a, &caps(true)).unwrap();
+        let b = hub.join_with("node-b".into(), tx_b, &caps(true)).unwrap();
+        hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
+        hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
+        drain(&mut rx_a);
+        drain(&mut rx_b);
+        // The API fails (unreachable, refused, slow): the session's grant goes to the pool, and the claim follows it.
+        let rtts = BTreeMap::from([("bom".to_string(), 30), ("sin".to_string(), 90)]);
+        hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: SID.into(), side: 0, rtts: Some(rtts), need: None, est_bytes: None, exclude: None });
+        let job = hub.take_mints().pop().unwrap();
+        let now = Instant::now();
+        hub.finish_mint(job, Err("mint: timed out".into()), now);
+        let Some(Msg::RelayGrantMsg { sid, relay }) = drain(&mut rx_a).pop() else { panic!() };
+        assert_eq!((sid.as_str(), relay.id.as_str()), (SID, "bom"));
+        assert_eq!(relay.credential, rdv::turn_rest_credentials(b"s1", relay.expires_at / 1_000, SID, 0).1);
+        hub.handle(b, Msg::RelayClaim { rdv: RDV.into(), sid: SID.into(), side: 1 });
+        assert!(hub.take_mints().is_empty());
+        assert!(matches!(drain(&mut rx_b).pop(), Some(Msg::RelayGrantMsg { relay, .. }) if relay.id == "bom" && relay.username.ends_with(".1")));
+        assert_eq!(hub.counters.cf_fallbacks, 1);
+        // Cloudflare stays out of the choice for a while (a minute, doubling), then comes back.
+        assert_eq!(hub.cf_tier(now, &[]), CfTier::Off);
+        hub.handle(a, Msg::RelayWarm { request: warm_rtts() });
+        assert!(hub.take_mints().is_empty());
+        assert!(matches!(drain(&mut rx_a).pop(), Some(Msg::RelayGrantMsg { relay, .. }) if relay.kind == "coturn"));
+        assert_eq!(hub.cf_tier(now + Duration::from_secs(61), &[]), CfTier::First);
+        // An answer without any URL the settings allow is a failure too (and the second one in a row pauses longer).
+        let job = MintJob { conn: a, node: "node-a".into(), sid: rdv::WARM_SID.into(), side: 0, rdv: None, rtts: None, exclude: vec![], ttl_s: 60, asked_unix_s: 1 };
+        let odd = Ok(Minted { urls: vec!["turn:elsewhere:3478".into()], username: "u".into(), credential: "c".into() });
+        hub.finish_mint(job, odd, now);
+        assert!(matches!(drain(&mut rx_a).pop(), Some(Msg::RelayGrantMsg { relay, .. }) if relay.kind == "coturn"));
+        assert_eq!(hub.cf_tier(now + Duration::from_secs(61), &[]), CfTier::Off);
+        assert_eq!(hub.cf_tier(now + Duration::from_secs(121), &[]), CfTier::First);
+        let status = hub.cloudflare_status(now).unwrap();
+        assert_eq!(status["mintFailuresInARow"], 2);
+        assert!(!status.to_string().contains("cf-pass"));
     }
 
     #[test]

@@ -112,6 +112,8 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var clipboardFilesEnabled: Bool
     /// Clipboard > Send right away up to: bytes pushed right after a copy; 0 = always ask when pasting.
     @Published private(set) var clipboardEagerLimit: Int64
+    /// How long a paste may hold the app it pastes into while a copy is still coming (ClipboardPasteWait). No UI yet.
+    @Published private(set) var clipboardPasteWait: TimeInterval
     /// Files > Include hidden files when sending folders (dotfiles that are not system files). Off by default.
     @Published private(set) var folderIncludeHidden: Bool
     /// Files > Include system files when sending folders (.DS_Store, ._*, Thumbs.db, ...). Off by default.
@@ -213,6 +215,7 @@ final class BridgeySettings: ObservableObject {
         clipboardEagerLimit = ClipboardEagerLimit(
             bytes: (storedDefaults.object(forKey: "settings.clipboardFiles.eagerLimit") as? NSNumber)?.int64Value ?? ClipboardEagerLimit.default.bytes
         ).bytes
+        clipboardPasteWait = ClipboardPasteWait.clamped((storedDefaults.object(forKey: "settings.clipboardFiles.pasteWait") as? NSNumber)?.doubleValue)
         folderIncludeHidden = storedDefaults.bool(forKey: "settings.folders.includeHidden")
         folderIncludeSystem = storedDefaults.bool(forKey: "settings.folders.includeSystem")
         folderReceiveMode = MacFolderReceiveMode(rawValue: storedDefaults.string(forKey: "settings.folders.receiveMode") ?? "") ?? .fixed
@@ -450,6 +453,12 @@ final class BridgeySettings: ObservableObject {
     func setClipboardEagerLimit(_ limit: ClipboardEagerLimit) {
         defaults.set(NSNumber(value: limit.bytes), forKey: "settings.clipboardFiles.eagerLimit")
         clipboardEagerLimit = limit.bytes
+    }
+
+    func setClipboardPasteWait(_ seconds: TimeInterval) {
+        let value = ClipboardPasteWait.clamped(seconds)
+        defaults.set(NSNumber(value: value), forKey: "settings.clipboardFiles.pasteWait")
+        clipboardPasteWait = value
     }
 
     func setFolderIncludeHidden(_ enabled: Bool) {
