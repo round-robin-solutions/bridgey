@@ -817,11 +817,11 @@ mod tests {
         format!("127.0.0.1:{}", mux.port()).parse().unwrap()
     }
 
-    /// A LAN or VPN dial finds the path's MTU (1,452 on loopback) while the data stays intact, also against a peer that
-    /// never looks, as 1.0.0-beta.1 (MTU discovery off, 1,200 bytes): it acknowledges the probes like any packet.
+    /// A direct dial finds the path's MTU (1,452 on loopback) while the data stays intact, also against a peer that never
+    /// looks, as 1.0.0-beta.1 (MTU discovery off, 1,200 bytes): it acknowledges the probes like any packet.
     #[tokio::test]
     async fn mtu_discovery_on_fixed_paths_and_with_old_peers() {
-        let expect = |mtu| if mtu == Mtu::Discover { crate::quic::FIXED_MAX_UDP } else { 1_200 };
+        let expect = |mtu| if mtu == Mtu::Discover { crate::quic::MAX_UDP } else { 1_200 };
         for (server_mtu, client_mtu) in [(Mtu::Discover, Mtu::Discover), (Mtu::Base, Mtu::Discover), (Mtu::Discover, Mtu::Base), (Mtu::Base, Mtu::Base)] {
             let server_mux = Mux::bind(0).unwrap();
             let client_mux = Mux::bind(0).unwrap();
@@ -841,28 +841,36 @@ mod tests {
         }
     }
 
-    /// An ICE tunnel moves from a direct pair onto a relay (as when the direct path dies): the data carries on, every
-    /// datagram to and from the relay has one ChannelData header and stays within 1,280 bytes, and a datagram too large
-    /// for a relay never leaves.
-    #[tokio::test]
-    async fn ice_tunnel_moves_onto_a_relay_within_its_size() {
-        const CHANNEL: u16 = 0x4123;
-        let mux_a = Mux::bind(0).unwrap();
-        let mux_b = Mux::bind(0).unwrap();
+    const CHANNEL: u16 = 0x4123;
+
+    /// Two muxes whose QUIC connection goes through virtual addresses, as ICE sets up, first on the direct pair; and a
+    /// stand-in relay to move it onto: A's ChannelData goes to B unwrapped from the relayed address, B's datagrams to
+    /// that address come back to A framed. With `limit`, the relay drops what would exceed it, both ways.
+    struct Moving {
+        mux_a: Arc<Mux>,
+        mux_b: Arc<Mux>,
+        va: SocketAddr,
+        vb: SocketAddr,
+        via_relay: Path,
+        relayed: SocketAddr,
+        largest: Arc<std::sync::atomic::AtomicUsize>,
+        frames: Arc<AtomicU64>,
+    }
+
+    async fn moving(limit: Option<usize>) -> Moving {
+        let (mux_a, mux_b) = (Mux::bind(0).unwrap(), Mux::bind(0).unwrap());
         let (addr_a, addr_b) = (loopback(&mux_a), loopback(&mux_b));
-        // Each side knows the other by a virtual address, as ICE sets up.
         let (va, vb) = (mux_a.new_virtual(), mux_b.new_virtual());
         mux_a.map_path(Path::direct(addr_b), va);
         mux_a.select_path(va, Path::direct(addr_b));
         mux_b.map_path(Path::direct(addr_a), vb);
         mux_b.select_path(vb, Path::direct(addr_a));
-        // A stand-in relay: A's ChannelData goes to B unwrapped from the relayed address; B's datagrams to that address
-        // come back to A framed.
         let turn = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let relayed = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let (server, relayed_addr) = (canonical(turn.local_addr().unwrap()), canonical(relayed.local_addr().unwrap()));
         let largest = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let frames = Arc::new(AtomicU64::new(0));
+        let limit = limit.unwrap_or(usize::MAX);
         {
             let (largest, frames) = (largest.clone(), frames.clone());
             tokio::spawn(async move {
@@ -874,12 +882,16 @@ mod tests {
                             let (number, payload) = stun::parse_channel_data(&up[..n]).expect("ChannelData from the mux");
                             assert_eq!((number, payload.len() + 4), (CHANNEL, n), "one header per datagram");
                             frames.fetch_add(1, Ordering::Relaxed);
-                            let _ = relayed.send_to(payload, addr_b).await;
+                            if n <= limit {
+                                let _ = relayed.send_to(payload, addr_b).await;
+                            }
                         }
                         Ok((n, _)) = relayed.recv_from(&mut down) => {
                             let framed = stun::channel_data(CHANNEL, &down[..n]);
                             largest.fetch_max(framed.len(), Ordering::Relaxed);
-                            let _ = turn.send_to(&framed, addr_a).await;
+                            if framed.len() <= limit {
+                                let _ = turn.send_to(&framed, addr_a).await;
+                            }
                         }
                     }
                 }
@@ -887,23 +899,60 @@ mod tests {
         }
         mux_a.add_turn(server);
         mux_a.bound(server, addr_b, CHANNEL);
-        let pair = connect(&mux_b, &mux_a, va, Mtu::Base, Mtu::Base).await;
+        Moving { mux_a, mux_b, va, vb, via_relay: Path { via: Via::Turn(server), remote: addr_b }, relayed: relayed_addr, largest, frames }
+    }
+
+    impl Moving {
+        /// ICE moves both ends onto the relay: A sends through its allocation, B to A's relayed address.
+        fn onto_relay(&self) {
+            self.mux_a.map_path(self.via_relay, self.va);
+            self.mux_a.select_path(self.va, self.via_relay);
+            self.mux_b.map_path(Path::direct(self.relayed), self.vb);
+            self.mux_b.select_path(self.vb, Path::direct(self.relayed));
+        }
+    }
+
+    /// An ICE tunnel moves from a direct pair onto a relay (as when the direct path dies): the data carries on, every
+    /// datagram to and from the relay has one ChannelData header and stays within 1,280 bytes, and a datagram too large
+    /// for a relay never leaves.
+    #[tokio::test]
+    async fn ice_tunnel_moves_onto_a_relay_within_its_size() {
+        let m = moving(None).await;
+        let pair = connect(&m.mux_b, &m.mux_a, m.va, Mtu::Base, Mtu::Base).await;
         let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
         echo(&mut send, &mut recv, 1 << 20, 1).await;
-        assert_eq!(frames.load(Ordering::Relaxed), 0);
-        // ICE moves both ends: A sends through its allocation, B to A's relayed address.
-        let via_relay = Path { via: Via::Turn(server), remote: addr_b };
-        mux_a.map_path(via_relay, va);
-        mux_a.select_path(va, via_relay);
-        mux_b.map_path(Path::direct(relayed_addr), vb);
-        mux_b.select_path(vb, Path::direct(relayed_addr));
+        assert_eq!(m.frames.load(Ordering::Relaxed), 0);
+        m.onto_relay();
         tokio::time::timeout(Duration::from_secs(30), echo(&mut send, &mut recv, 4 << 20, 2)).await.expect("the transfer carries on through the relay");
-        let before = frames.load(Ordering::Relaxed);
-        assert!(before > 3_000, "the data went through the relay ({before} frames)");
-        mux_a.send_quic(via_relay, &[0x40; RELAY_MAX_QUIC + 1], None).unwrap();
-        mux_a.send_quic(via_relay, &[0x40; 3 * RELAY_MAX_QUIC], Some(RELAY_MAX_QUIC)).unwrap();
+        let frames = m.frames.load(Ordering::Relaxed);
+        assert!(frames > 3_000, "the data went through the relay ({frames} frames)");
+        m.mux_a.send_quic(m.via_relay, &[0x40; RELAY_MAX_QUIC + 1], None).unwrap();
+        m.mux_a.send_quic(m.via_relay, &[0x40; 3 * RELAY_MAX_QUIC], Some(RELAY_MAX_QUIC)).unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(largest.load(Ordering::Relaxed) <= 1_280, "largest datagram at the relay: {}", largest.load(Ordering::Relaxed));
+        let largest = m.largest.load(Ordering::Relaxed);
+        assert!(largest <= 1_280, "largest datagram at the relay: {largest}");
+        assert_eq!((pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu), (1_200, 1_200));
+    }
+
+    /// A connection that found a 1,452-byte MTU, whose path then carries no more than 1,280 bytes (a direct dial after
+    /// the network changed under it, here a path with that limit): quinn's black-hole detection falls back to 1,200
+    /// bytes on both ends and the data carries on.
+    #[tokio::test]
+    async fn discovered_mtu_falls_back_when_the_path_shrinks() {
+        let m = moving(Some(1_280)).await;
+        let pair = connect(&m.mux_b, &m.mux_a, m.va, Mtu::Discover, Mtu::Discover).await;
+        let (mut send, mut recv) = pair.client.open_bi().await.unwrap();
+        let grown = || (pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu) == (crate::quic::MAX_UDP, crate::quic::MAX_UDP);
+        for round in 0..40u8 {
+            echo(&mut send, &mut recv, 256 << 10, round).await;
+            if grown() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(grown(), "both ends found the larger MTU first");
+        m.onto_relay();
+        tokio::time::timeout(Duration::from_secs(30), echo(&mut send, &mut recv, 2 << 20, 99)).await.expect("the transfer carries on");
         assert_eq!((pair.client.stats().path.current_mtu, pair.server.stats().path.current_mtu), (1_200, 1_200));
     }
 

@@ -768,7 +768,7 @@ impl Node {
     }
 
     async fn dial_direct(self: Arc<Self>, peer: String, addr: SocketAddr, route: Route, vpn: Option<String>) {
-        let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route), Mtu::for_route(route));
+        let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route), Mtu::Discover);
         let connecting = match self.endpoint.connect_with(config, addr, "bridgey") {
             Ok(c) => c,
             Err(e) => {
@@ -1625,15 +1625,13 @@ impl Node {
                 incoming.refuse();
                 continue;
             }
-            // A direct dial to one of our LAN or VPN addresses may grow its datagrams; ICE tunnels (virtual sources)
-            // and public addresses keep the endpoint's 1,200 bytes (quic::Mtu).
-            let mtu = if is_virtual(source) { Mtu::Base } else { Mtu::for_route(addrs::route_of(source.ip())) };
-            let connecting = match mtu {
-                Mtu::Base => incoming.accept(),
-                Mtu::Discover => {
-                    let identity = self.identity.read().unwrap().clone();
-                    incoming.accept_with(Arc::new(quic::server_config(&identity, mtu)))
-                }
+            // A direct dial to one of our addresses may grow its datagrams; ICE tunnels (virtual sources) keep the
+            // endpoint's 1,200 bytes (quic::Mtu).
+            let connecting = if is_virtual(source) {
+                incoming.accept()
+            } else {
+                let identity = self.identity.read().unwrap().clone();
+                incoming.accept_with(Arc::new(quic::server_config(&identity, Mtu::Discover)))
             };
             let node = self.clone();
             tokio::spawn(async move {

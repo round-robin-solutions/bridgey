@@ -2,7 +2,6 @@
 //! directions, optional pins from signalling, ALPN `bridgey/1`, and the exporter that binds the
 //! inner Bridgey handshake to this connection.
 
-use crate::addrs::Route;
 use bridgey_connect_proto::{b64, derive};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -106,29 +105,22 @@ impl ClientCertVerifier for AnyClient {
 /// How large a connection's datagrams may grow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mtu {
-    /// 1,200 bytes on every path, as phase 1 always sent. ICE connections need this: ICE moves them between pairs and
-    /// onto a relay without QUIC seeing it, and some of those paths carry no more (a relay 1,276 bytes of QUIC, a
-    /// Tailscale pair over IPv6 1,232). So do direct dials to public addresses, whose path changes under the
-    /// connection when a phone changes networks. After such a move every full-size packet would be lost, and quinn
-    /// only notices a black hole from acknowledgements, which stop as well.
+    /// 1,200 bytes on every path, as phase 1 always sent: ICE tunnels. ICE moves them between pairs and onto a relay
+    /// without QUIC seeing it, and a relay carries 1,280 bytes with the ChannelData header. The side whose peer holds
+    /// the relay often knows its address only as a peer-reflexive candidate, so it could not keep its datagrams to
+    /// that size; and each move onto a path that carries less would stall the tunnel until quinn's black-hole detection
+    /// falls back to 1,200 bytes.
     Base,
-    /// A LAN or VPN address dialled as it is, whose path stays on that network: path MTU discovery (DPLPMTUD, RFC
-    /// 8899) from 1,200 up to [FIXED_MAX_UDP] bytes. A probe the path cannot carry is lost, not counted as congestion,
-    /// and the search settles below it (Tailscale's 1,280-byte MTU refuses anything over 1,252 at the socket).
+    /// One address dialled as it is (LAN, VPN or public): path MTU discovery (DPLPMTUD, RFC 8899) from 1,200 up to
+    /// [MAX_UDP] bytes. A probe the path cannot carry is lost without counting as congestion, and the search settles
+    /// below it (Tailscale, MTU 1,280, settles at 1,230). If the path later carries less (the network changed under
+    /// the connection, a VPN came up), quinn's black-hole detection falls back to 1,200 bytes: about 5 seconds of stall
+    /// at a 100 ms round trip in a test.
     Discover,
 }
 
-impl Mtu {
-    pub fn for_route(route: Route) -> Mtu {
-        match route {
-            Route::Lan | Route::Vpn => Mtu::Discover,
-            Route::Direct | Route::Relay => Mtu::Base,
-        }
-    }
-}
-
 /// The largest UDP payload MTU discovery tries: Ethernet's 1,500 bytes less the IPv6 and UDP headers.
-pub const FIXED_MAX_UDP: u16 = 1_452;
+pub const MAX_UDP: u16 = 1_452;
 
 /// Spec 7.4 values; keep-alive 15 s on NATed paths and 25 s on LAN and VPN.
 pub fn transport(keep_alive: Duration, mtu: Mtu) -> Arc<quinn::TransportConfig> {
@@ -146,7 +138,7 @@ pub fn transport(keep_alive: Duration, mtu: Mtu) -> Arc<quinn::TransportConfig> 
         Mtu::Base => None,
         Mtu::Discover => {
             let mut discovery = quinn::MtuDiscoveryConfig::default();
-            discovery.upper_bound(FIXED_MAX_UDP);
+            discovery.upper_bound(MAX_UDP);
             Some(discovery)
         }
     });
@@ -154,7 +146,7 @@ pub fn transport(keep_alive: Duration, mtu: Mtu) -> Arc<quinn::TransportConfig> 
 }
 
 /// Accepted connections: [Mtu::Base] for the endpoint (ICE tunnels arrive from virtual addresses), [Mtu::Discover]
-/// for a direct dial to one of our LAN or VPN addresses (`Incoming::accept_with`).
+/// for a direct dial to one of our addresses (`Incoming::accept_with`).
 pub fn server_config(identity: &Identity, mtu: Mtu) -> quinn::ServerConfig {
     let provider = provider();
     let mut tls = rustls::ServerConfig::builder_with_provider(provider.clone())

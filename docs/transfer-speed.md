@@ -165,12 +165,14 @@ that start with the `0xB1` marker and hold every byte value. **Measured:** every
 relay at 2.3 to 3.9 MB/s (6 runs). These tunnels are far slower than the local network on the same host, so away from
 home the tunnel, not the frame code, will set the speed; that is for the Connect anywhere work to look at.
 
-**Tunnel speed work (24 Nov 2026).** Three changes in `rust/core`: release builds optimise for speed (`opt-level`
-3, not `"z"`); the mux drives its socket through quinn-udp (GSO and GRO batches on Linux and Android, QUIC datagrams
-left in quinn's buffers instead of copied through a queue, each relayed datagram still in its own ChannelData frame);
-and direct dials to LAN and VPN addresses look for a larger MTU (up to 1,452 bytes; Tailscale settles at 1,230). ICE
-tunnels and dials to public addresses stay at 1,200 bytes: ICE can move a connection onto a relay or a smaller path
-without QUIC seeing it, and a full-size packet would then be lost every time.
+**Tunnel speed work (24 Nov 2026).** Three changes in `rust/core`: release builds optimise for speed (`opt-level` 3,
+not `"z"`); the mux drives its socket through quinn-udp (GSO and GRO batches on Linux and Android, QUIC datagrams left
+in quinn's buffers instead of copied through a queue, each relayed datagram still in its own ChannelData frame); and
+direct dials (to a LAN, VPN or public address) look for a larger MTU, up to 1,452 bytes (Tailscale settles at 1,230).
+ICE tunnels stay at 1,200 bytes: ICE moves them onto a relay without QUIC seeing it, a relay carries 1,280 bytes with
+the ChannelData header, and the side whose peer holds the relay often knows that relay only as a peer-reflexive
+address. If a direct dial's path later carries less, quinn falls back to 1,200 bytes on its own (about 5 seconds of
+stall at a 100 ms round trip, in a test).
 
 **Measured** with the probe, one transfer of 64 MiB each way per run (`--binary-once`), builds run in turn:
 
