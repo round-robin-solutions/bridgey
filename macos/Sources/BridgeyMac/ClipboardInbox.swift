@@ -125,6 +125,8 @@ final class ClipboardInbox {
     var onPasted: (ClipboardOfferSummary, Received) -> Void = { _, _ in }
     /// A paste that waited could not get its data. Not called for Cancel.
     var onPasteFailed: (ClipboardPasteFailure, Received) -> Void = { _, _ in }
+    /// A read right after the offer arrived gave up waiting (`readerWindow`): no notice, the transfer goes on.
+    var onReaderGaveUp: (Received) -> Void = { _ in }
     /// Bridgey wrote the pasteboard at this change count (so it is never sent back).
     var onPasteboardWritten: (Int, Received) -> Void = { _, _ in }
     /// Settings > Clipboard > Send right away up to: also what the phone may push unasked.
@@ -135,6 +137,11 @@ final class ClipboardInbox {
     var freeBytes: () -> Int64?
 
     private let clock: () -> Date
+    /// When the current offer went on the pasteboard.
+    private var acceptedAt: Date?
+    /// A read this soon after an offer arrived is a clipboard reader, not a person pasting: Universal Clipboard's
+    /// pboard asks at once (seen live, 24 Nov 2026), and so do clipboard managers.
+    static let readerWindow: TimeInterval = 1
     private var providers: [ClipboardItemProvider] = []
     private var providing = 0
     private var deferredWrites: [() -> Void] = []
@@ -186,6 +193,7 @@ final class ClipboardInbox {
         pushedBytes = 0
         let received = Received(offer: offer, deviceID: deviceID, peerName: peerName)
         current = received
+        acceptedAt = clock()
         performPasteboardWrite { [weak self] in
             guard let self, self.current?.offer.offerId == offer.offerId else { return }
             let items = self.pasteboardItems(for: received)
@@ -299,12 +307,17 @@ final class ClipboardInbox {
         if let inline = received.offer.inlineData(at: index), type != .fileURL {
             return representation(data: inline, item: entry, type: type)
         }
+        let reader = acceptedAt.map { clock().timeIntervalSince($0) < Self.readerWindow } ?? false
         switch waitForFile(received, index: index) {
         case let .success(file):
             cache.markHandedOut(offerID: offerID, index: index)
             return representation(file: file, item: entry, type: type)
         case let .failure(failure):
-            if failure != .cancelled { onPasteFailed(failure, received) }
+            if failure == .stillReceiving && reader {
+                onReaderGaveUp(received)
+            } else if failure != .cancelled {
+                onPasteFailed(failure, received)
+            }
             return nil
         }
     }

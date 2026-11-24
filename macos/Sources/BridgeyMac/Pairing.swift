@@ -1590,6 +1590,9 @@ final class PairingCoordinator: ObservableObject {
                                      deviceID: received.deviceID, deviceName: received.peerName)
             self?.postPasteFailure(failure, peerName: received.peerName)
         }
+        clipboardInbox.onReaderGaveUp = { [weak self] received in
+            self?.diagnostics.record(category: "clipboard", event: "paste_failed", outcome: "still_receiving_reader", device: received.deviceID)
+        }
         clipboardOutbox.available = { [weak self] in self?.clipboardOffersEnabledLocally() == true }
         // The outbox serves each device its offer went to; every call names the device.
         clipboardOutbox.transport = ClipboardOutboxTransport(

@@ -247,6 +247,29 @@ final class ClipboardTransferTests: XCTestCase {
         XCTAssertEqual(fetches.count, 1, "the second paste is served from the cache")
     }
 
+    /// Universal Clipboard (pboard) and clipboard managers read an offer the moment it arrives. When such a read gives
+    /// up waiting there is no notice (nobody pasted); a person's paste later gets one.
+    @MainActor func testAReadRightAfterTheOfferGivesUpQuietly() {
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let inbox = ClipboardInbox(cache: cache, pasteboard: pasteboard, clock: { now }, showProgressAfter: 100, blockedAfter: 100)
+        inbox.transport = ClipboardInboxTransport(isConnected: { true }, sendFetch: { [unowned self] fetch in self.fetches.append(fetch); return true })
+        inbox.spin = { _ in now = now.addingTimeInterval(0.05) }
+        inbox.pasteWaitLimit = { 0.2 }
+        var failures: [ClipboardPasteFailure] = []
+        var quiet = 0
+        inbox.onPasteFailed = { failure, _ in failures.append(failure) }
+        inbox.onReaderGaveUp = { _ in quiet += 1 }
+        let clip = offer([ClipboardOfferItem(index: 0, kind: .file, mime: "application/pdf", name: "a.pdf", size: 50_000, sha256: nil, inline: nil)])
+        inbox.accept(clip, deviceID: "mac", peerName: "Work Mac")
+        XCTAssertNil(inbox.data(offerID: clip.offerId, index: 0, type: .fileURL))
+        XCTAssertEqual(quiet, 1)
+        XCTAssertEqual(failures, [])
+        now = now.addingTimeInterval(5)
+        XCTAssertNil(inbox.data(offerID: clip.offerId, index: 0, type: .fileURL))
+        XCTAssertEqual(failures, [.stillReceiving], "a person pasting gets the notice")
+        XCTAssertEqual(fetches.count, 1, "the second paste waits on the same transfer")
+    }
+
     @MainActor func testPasteWaitSettingIsClamped() {
         XCTAssertEqual(ClipboardPasteWait.clamped(nil), 5)
         XCTAssertEqual(ClipboardPasteWait.clamped(0), 1)
