@@ -139,6 +139,9 @@ internal class ClipboardInbox(
 
     fun handles(transferId: String?): Boolean = transferId != null && synchronized(lock) { transfers.containsKey(transferId) }
 
+    /** A fetch or push with [deviceId] is waiting for its answer or receiving (LAN first: no session switch then). */
+    fun hasTransfers(deviceId: String): Boolean = synchronized(lock) { transfers.values.any { it.received.deviceId == deviceId } }
+
     /** [transferId] is a transfer with [deviceId]: chunks from any other device are ignored. */
     fun isTransfer(transferId: String, deviceId: String): Boolean =
         synchronized(lock) { transfers[transferId]?.received?.deviceId == deviceId }

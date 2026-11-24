@@ -68,6 +68,9 @@ internal class ClipboardOutbox(
 
     fun handles(transferId: String?): Boolean = transferId != null && transfers.containsKey(transferId)
 
+    /** An item is streaming to [deviceId], pushed or fetched (LAN first: no session switch then). */
+    fun hasTransfers(deviceId: String): Boolean = transfers.values.any { it.link.deviceId == deviceId }
+
     /** A new offer went out: it replaces the previous one, then eager items are pushed in order. */
     fun publish(clip: OutgoingClip, link: ClipboardLink, eagerLimitBytes: Long) = publish(clip, listOf(link), eagerLimitBytes)
 

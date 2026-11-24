@@ -478,6 +478,18 @@ class PairingCoordinator(
     internal val reconnect = ReconnectEngine(KnownAddressBook(SharedPreferencesAddressBookStore(context.applicationContext)), reconnectClock)
     private val linkDebouncer = EventDebouncer(reconnectClock) { reasons -> linkChanged(reasons) }
 
+    /** LAN first (LanFirst.kt): moves devices connected by a tunnel or VPN onto the LAN when it can. */
+    private val lanUpgrade = LanUpgradeEngine(reconnectClock)
+
+    /** LAN first: what counts as a transfer a session switch would cut (read lazily, after construction). */
+    private val transferActivity = TransferActivity(
+        rows = { mutableFileTransfers.value.values },
+        rowDevice = { transferDevices[it] },
+        folders = { id -> folders.activeFor(id) != null || folderSender.activeFor(id) },
+        clipboard = { id -> clipboardInbox.hasTransfers(id) || clipboardOutbox.hasTransfers(id) },
+        speedTest = { id -> speedTest.state.value.let { it.running && it.deviceId == id } },
+    )
+
     /** Set by the application: restarts NSD (re-register and browse) with a reason. */
     @Volatile var restartDiscovery: (String) -> Unit = {}
 
@@ -760,6 +772,12 @@ class PairingCoordinator(
         reconnect.dial = ::dialTrusted
         reconnect.onEvent = ::recordReconnect
         reconnect.onChange = ::publishReconnectStates
+        lanUpgrade.connectedIds = { registry.connectedIds() }
+        lanUpgrade.check = ::lanUpgradeCheck
+        lanUpgrade.candidates = ::lanUpgradeCandidatesFor
+        lanUpgrade.network = { localNetworks().map { "${it.address}/${it.prefixLength}" }.sorted().joinToString(",") }
+        lanUpgrade.dial = ::dialLanUpgrade
+        lanUpgrade.onEvent = ::recordLanUpgrade
         clipboardInbox.listener = ::onClipboardInboxEvent
         // Wi-Fi out of power saving while any transfer runs (TransferPower.kt).
         scope.launch {
@@ -769,7 +787,16 @@ class PairingCoordinator(
                 if (now != active) {
                     active = now
                     if (now) transferPower.acquire("transfers") else transferPower.release("transfers")
+                    // LAN first: an upgrade held back by a transfer can go now.
+                    if (!now) lanUpgrade.poke("transfer_finished")
                 }
+            }
+        }
+        scope.launch {
+            var running = false
+            speedTest.state.collect { state ->
+                if (running && !state.running) lanUpgrade.poke("transfer_finished")
+                running = state.running
             }
         }
         clipboardInbox.linkFor = { id -> registry.session(id)?.takeIf { it.pairingKey != null }?.let(::SessionClipLink) }
@@ -1085,6 +1112,8 @@ class PairingCoordinator(
                 LivePeer(id, hosts, peer.port ?: ReconnectPolicy.LISTENING_PORT)
             },
         )
+        // LAN first: NSD may now show a device that is connected some other way.
+        lanUpgrade.poke("discovery")
     }
 
     /** Every trusted device that is not connected is tried straight away at its last known addresses. */
@@ -1125,6 +1154,66 @@ class PairingCoordinator(
                 BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial failed peer=${id.take(8)} reason=$reason")
                 diagnostics.record("reconnect", "dial_failed", reason, device = id)
                 reconnect.dialEnded(id)
+            }
+        }
+    }
+
+    // LAN first (LanFirst.kt)
+
+    /** A transfer, folder, clipboard transfer or speed test runs with [deviceId]: no session switch now. */
+    internal fun hasActiveTransfer(deviceId: String): Boolean = transferActivity.hasActiveTransfer(deviceId)
+
+    /** Whether the upgrade loop has anything to do for [id]: a peer with LAN first, connected some other way. */
+    private fun lanUpgradeCheck(id: String): LanUpgradeCheck {
+        if (!reconnecting || held.isHeld(id) || trust.identityKey(id) == null) return LanUpgradeCheck.NOT_NEEDED
+        val session = registry.session(id) ?: return LanUpgradeCheck.NOT_NEEDED
+        if (session.tier == SessionTier.LAN || registry.state(id)?.remoteLanFirst != true) return LanUpgradeCheck.NOT_NEEDED
+        return if (hasActiveTransfer(id)) LanUpgradeCheck.TRANSFER else LanUpgradeCheck.READY
+    }
+
+    /** Where [id] may be on this network now: NSD's addresses, then the LAN addresses it reported. */
+    private fun lanUpgradeCandidatesFor(id: String): List<LanCandidate> {
+        val peer = lastPeers.firstOrNull { it.deviceIdHint == id }
+        return lanUpgradeCandidates(
+            nsdHosts = peer?.let { it.addresses.ifEmpty { listOfNotNull(it.host) } }.orEmpty(),
+            nsdPort = peer?.port,
+            learned = connectStore.addresses(id, System.currentTimeMillis()),
+            networks = localNetworks(),
+        )
+    }
+
+    /** The upgrade loop's dial: a reconnect dial (same handshake and checks, no prompt) whose outcome goes back to it. */
+    private fun dialLanUpgrade(id: String, address: LanCandidate) {
+        scope.launch {
+            runCatching {
+                Socket().apply { connect(InetSocketAddress(address.host, address.port), ReconnectPolicy.CONNECT_TIMEOUT_MILLIS) }
+            }.onSuccess { socket ->
+                handle(socket, initiatedLocally = true, peerHint = trustedName(id), dialDeviceId = id, upgradeDial = true)
+            }.onFailure { error ->
+                lanUpgrade.dialEnded(id, upgraded = false, reason = socketDropReason(error))
+            }
+        }
+    }
+
+    private fun recordLanUpgrade(event: LanUpgradeEvent) {
+        val device = event.deviceId
+        when (event) {
+            is LanUpgradeEvent.Dial -> {
+                val tag = addressTag(event.address.host)
+                BridgeyLogging.i(LogCategory.CONNECTION, "LAN_UPGRADE dial peer=${device.take(8)} attempt=${event.attempt} reason=${event.reason} from=${event.address.origin} address=$tag")
+                diagnostics.record("transport", "lan_upgrade", "dial", device = device, detail = "n${event.attempt}_${event.reason}_${event.address.origin}_$tag")
+            }
+            is LanUpgradeEvent.Won -> {
+                BridgeyLogging.i(LogCategory.CONNECTION, "LAN_UPGRADE won peer=${device.take(8)} by=${event.detail}")
+                diagnostics.record("transport", "lan_upgrade", "won", device = device, detail = "${event.detail}_${event.address.origin}")
+            }
+            is LanUpgradeEvent.Failed -> {
+                BridgeyLogging.i(LogCategory.CONNECTION, "LAN_UPGRADE failed peer=${device.take(8)} reason=${event.reason} failures=${event.failures}")
+                diagnostics.record("transport", "lan_upgrade", "failed", device = device, detail = "${event.reason}_f${event.failures}")
+            }
+            is LanUpgradeEvent.SkippedTransfer -> {
+                BridgeyLogging.i(LogCategory.CONNECTION, "LAN_UPGRADE waiting for a transfer peer=${device.take(8)}")
+                diagnostics.record("transport", "lan_upgrade", "skipped_transfer", device = device)
             }
         }
     }
@@ -1201,6 +1290,8 @@ class PairingCoordinator(
         // A new network needs this phone announced on it; screen on and Doze exit matter only
         // while a device is away (they happen dozens of times a day).
         val networkChanged = reasons.any { it != "screen_on" && it != "doze_exit" }
+        // LAN first: a new network may put a connected device on the same LAN (failure counts start over there).
+        if (networkChanged) lanUpgrade.poke("network")
         if (ids.isEmpty() && !networkChanged) return
         BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT recovering after $reason disconnected=${ids.size}")
         val sinceRestart = SystemClock.elapsedRealtime() - synchronized(discoveryLock) { lastDiscoveryRestart }
@@ -3549,6 +3640,7 @@ class PairingCoordinator(
         target: PairingTarget? = null,
         generation: Int? = null,
         invite: dev.bridgey.android.agents.AgentInvite? = null,
+        upgradeDial: Boolean = false,
     ) {
         val current = runCatching {
             socket.keepAlive = true
@@ -3559,12 +3651,15 @@ class PairingCoordinator(
             Session(socket, scope) { current, kind, payload -> sendEncrypted(current, kind, payload) }
         }.getOrElse {
             runCatching { socket.close() }
-            dialDeviceId?.let(reconnect::dialEnded)
+            dialDeviceId?.let { id -> if (upgradeDial) lanUpgrade.dialEnded(id, upgraded = false, reason = "socket_setup") else reconnect.dialEnded(id) }
             return
         }
         current.initiatedLocally = initiatedLocally
         current.dialDeviceId = dialDeviceId
+        current.lanUpgrade = upgradeDial
         current.tunnel = tunnel
+        // Both ends see the same addresses, so both put this session in the same tier (duplicate rule).
+        current.tier = sessionTier(tunnel != null, if (tunnel == null) socket.inetAddress?.hostAddress else null)
         current.invite = invite
         // Where the other end is: once it authenticates, the next reconnect can dial it there. A
         // tunnel's socket is the loopback bridge, never an address worth keeping.
@@ -3730,7 +3825,7 @@ class PairingCoordinator(
         // Why it ended: set on purpose (heartbeat, replaced, user), else from the socket.
         val reason = current.dropReason ?: result.exceptionOrNull()?.let(::socketDropReason) ?: if (current.closed) "closed" else "closed_by_peer"
         current.close()
-        dialFinished(current)
+        dialFinished(current, reason)
         val deviceId = registry.remove(current)
         when {
             deviceId != null -> deviceDisconnected(deviceId, reason, current.agentSessionToken)
@@ -3738,7 +3833,7 @@ class PairingCoordinator(
                 if (result.exceptionOrNull() != null) BridgeyLogging.w(LogCategory.CONNECTION, "PAIRING disconnected before confirmation")
                 manualPairingEnded(current)
             }
-            current.dialDeviceId != null && !current.authenticated && reason != "duplicate" -> {
+            current.dialDeviceId != null && !current.authenticated && reason != "duplicate" && !current.lanUpgrade -> {
                 // A reconnect that never authenticated: the schedule tries again.
                 val dialed = current.dialDeviceId!!
                 BridgeyLogging.i(LogCategory.CONNECTION, "RECONNECT dial failed peer=${dialed.take(8)} reason=$reason")
@@ -3810,10 +3905,18 @@ class PairingCoordinator(
     }
 
     /** A dial is over (connected, lost the duplicate rule or failed): it no longer blocks the next attempt. */
-    private fun dialFinished(current: Session) {
+    private fun dialFinished(current: Session, reason: String? = null) {
         val dialed = current.dialDeviceId ?: return
         if (current.dialFinished.getAndSet(true)) return
-        reconnect.dialEnded(dialed)
+        if (!current.lanUpgrade) return reconnect.dialEnded(dialed)
+        // On the LAN now: this dial's session won, or the other end's LAN dial did at the same time.
+        val upgraded = registry.session(dialed)?.tier == SessionTier.LAN
+        val outcome = when {
+            registry.isActive(current) -> "accepted"
+            upgraded -> "peer_dial"
+            else -> reason ?: current.dropReason ?: "closed"
+        }
+        lanUpgrade.dialEnded(dialed, upgraded, outcome)
     }
 
     /**
@@ -5022,11 +5125,18 @@ class PairingCoordinator(
         val stale = { session: Session ->
             sessionLooksStale(session.heartbeatSupported, session.lastReceivedAtMillis, SystemClock.elapsedRealtime(), session.tunnel != null)
         }
-        when (val admission = registry.authenticate(current, current.remoteDeviceId, current.peerName, stale)) {
+        // LAN first: a live session that carries a transfer keeps it. Worked out here, never under the registry's lock.
+        val activeTransfer = registry.session(current.remoteDeviceId)?.let { it !== current && hasActiveTransfer(current.remoteDeviceId) } ?: false
+        var verdict: DuplicateVerdict? = null
+        when (val admission = registry.authenticate(
+            current, current.remoteDeviceId, current.peerName,
+            tierOf = { it.tier }, activeTransfer = activeTransfer, onVerdict = { verdict = it }, isStale = stale,
+        )) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
-                BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)}")
-                diagnostics.record("transport", "duplicate_closed", device = current.remoteDeviceId)
+                BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session closed peerId=${current.remoteDeviceId.take(8)} tier=${current.tier.wire} verdict=${verdict?.name?.lowercase()}")
+                // "transfer": the live session carries a transfer; "tier": it is on a better path (LAN first).
+                diagnostics.record("transport", "duplicate_closed", device = current.remoteDeviceId, detail = verdict?.detail)
                 pairingSlot.releaseIf(current) { mutablePairingFlow.value = PairingState.Idle }
                 current.dropReason = "duplicate"
                 dialFinished(current)
@@ -5035,14 +5145,16 @@ class PairingCoordinator(
                 return
             }
             is SessionRegistry.Admission.Accepted -> admission.replaced?.let {
-                BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)}")
-                // "stale": the old session had gone silent, so the new one won whichever side dialled it.
-                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId, detail = if (stale(it)) "stale" else null)
+                BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT duplicate session replaced peerId=${current.remoteDeviceId.take(8)} tier=${it.tier.wire}->${current.tier.wire}")
+                // "stale": the old session had gone silent, so the new one won whichever side dialled it; "tier": the new
+                // one is on a better path (LAN first).
+                diagnostics.record("transport", "duplicate_replaced", device = current.remoteDeviceId, detail = verdict?.detail)
                 if (it.agent) agents.sessionEnded(it.remoteDeviceId, it.agentSessionToken)
                 it.dropReason = "replaced"
                 it.close()
                 // The registry already gave this device to the new session, so the old one's close finds nothing to
-                // disconnect: its transfers end here, or they would stay active for good.
+                // disconnect: its transfers end here, or they would stay active for good. With LAN first a session
+                // carrying a transfer is never replaced (only a stale one), so this is a safety net.
                 cancelTransfers(current.remoteDeviceId)
             }
         }
@@ -5086,8 +5198,9 @@ class PairingCoordinator(
         sendFeatureState(current)
         syncConnectPeers()
         if (!current.agent) BridgeyNotificationListenerService.resendActiveCalls()
-        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING verified peerId=${current.remoteDeviceId.take(8)}${current.tunnel?.let { " route=${it.route.route}" }.orEmpty()}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "PAIRING verified peerId=${current.remoteDeviceId.take(8)}${current.tunnel?.let { " route=${it.route.route}" }.orEmpty()} tier=${current.tier.wire}")
         finishRediscoverIfEveryoneAnswered()
+        if (current.tier != SessionTier.LAN) lanUpgrade.poke("session")
     }
 
     private fun sendFeatureState(current: Session) {
@@ -5147,6 +5260,9 @@ class PairingCoordinator(
         featureValues.put(FILES_FAST_FEATURE_KEY, true)
         // Draft, edition only: the agents mirror (agents.state, agents.grant_set, codes.found, codes.read). A capability.
         featureValues.put(dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY, true)
+        // Draft, edition only: LAN first (LanFirst.kt). A capability, so always on: the duplicate rule both ends run
+        // depends on it, and they must agree.
+        featureValues.put(LAN_FIRST_FEATURE_KEY, true)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -5174,6 +5290,7 @@ class PairingCoordinator(
         }
         val received = decoded.features
         val drafts = decoded.drafts
+        val lanFirst = decodeFeatureFlag(plaintext, LAN_FIRST_FEATURE_KEY)
         val deviceId = current.remoteDeviceId
         if (!current.agent && dev.bridgey.android.agents.advertisesAgent(drafts)) {
             // A server paired over the tailnet (not by invite) says what it is in its own authenticated map: from now on it
@@ -5184,7 +5301,7 @@ class PairingCoordinator(
             scope.launch { sendFeatureState(current) }
         }
         current.peerFast = drafts[FILES_FAST_FEATURE_KEY] == true
-        BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null}")
+        BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null} lanFirst=$lanFirst tier=${current.tier.wire}")
         registry.update(deviceId) { state ->
             state.copy(
                 remoteFeatures = received,
@@ -5204,12 +5321,15 @@ class PairingCoordinator(
                 updateStatus = state.updateStatus.takeIf { drafts[dev.bridgey.android.updates.UPDATES_FEATURE_KEY] == true },
                 remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
                 remoteConnect = drafts[dev.bridgey.android.connect.CONNECT_FEATURE_KEY] == true,
+                remoteLanFirst = lanFirst,
                 remoteAgentsMirror = !current.agent && drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true,
                 remoteCodesDetect = current.agent && drafts[dev.bridgey.android.agents.CODES_DETECT_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
                 ringing = state.ringing && received[BridgeyFeature.FIND_DEVICE] != false,
             )
         }
+        // LAN first: a device that can move to the LAN is tried now.
+        if (lanFirst && current.tier != SessionTier.LAN) lanUpgrade.poke("features")
         if (current.agent) {
             // An agent's map lists what it can do; this phone starts nothing towards it. Once per session, the endings
             // of its questions go now, and Connect anywhere sets up the pair secret.
@@ -5589,7 +5709,8 @@ class PairingCoordinator(
     private fun sendConnectAddresses(current: Session) {
         val core = connect ?: return
         scope.launch {
-            val addresses = core.localAddresses()
+            // Never a virtual interface's range (LAN first): a peer would try it as this phone's LAN address.
+            val addresses = advertisedConnectAddresses(core.localAddresses())
             val check = connectStore.pairSecret(current.remoteDeviceId)?.let { dev.bridgey.android.connect.pairCheck(it) }
             sendEncrypted(current, dev.bridgey.android.connect.ConnectKinds.ADDRESSES, dev.bridgey.android.connect.connectAddressesPayload(core.udpPort, addresses, check))
         }
@@ -5637,6 +5758,8 @@ class PairingCoordinator(
                 val lower = dev.bridgey.android.connect.connectSide(localDeviceId, deviceId) == 0
                 if (!dev.bridgey.android.connect.samePairCheck(mine, addresses.pairCheck) && lower) beginConnectSetup(current, rotate = mine != null)
                 syncConnectPeers()
+                // A LAN address it reported may be on this network: the upgrade loop looks again.
+                if (current.tier != SessionTier.LAN) lanUpgrade.poke("addresses")
             }
         }
     }
@@ -5893,9 +6016,11 @@ class PairingCoordinator(
         val values = JSONObject()
         BridgeyFeature.entries.forEach { values.put(it.key, false) }
         agents.featureValues(current.remoteDeviceId).forEach { (key, value) -> values.put(key, value) }
-        // Capabilities the session needs: Connect anywhere for the pair secret, binary frames for its files.
+        // Capabilities the session needs: Connect anywhere for the pair secret, binary frames for its files, and LAN
+        // first, which the duplicate rule on both ends reads.
         values.put(dev.bridgey.android.connect.CONNECT_FEATURE_KEY, connectAdvertised())
         values.put(FILES_FAST_FEATURE_KEY, true)
+        values.put(LAN_FIRST_FEATURE_KEY, true)
         return values
     }
 
@@ -6225,6 +6350,12 @@ class PairingCoordinator(
 
         /** Connect anywhere: this session runs over a QUIC tunnel (its bridge socket); null on LAN TCP. */
         @Volatile var tunnel: dev.bridgey.android.connect.TunnelInfo? = null
+
+        /** LAN first: how good this session's path is (tunnel, other socket, LAN), set once from the socket. */
+        @Volatile var tier = SessionTier.TUNNEL
+
+        /** A LAN upgrade dial (LanFirst.kt): its outcome goes to the upgrade loop, not the reconnect schedule. */
+        @Volatile var lanUpgrade = false
 
         /** Connect anywhere: our contribution while a connect.setup exchange is open. */
         @Volatile var connectContribution: ByteArray? = null
