@@ -42,8 +42,11 @@ const COMMANDS: usize = 64;
 const CHUNKS_IN_FLIGHT: usize = 16;
 /// How long the other device has to accept a file, and to confirm it after the last chunk.
 const ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
-/// A resumable offer: the receiver may first re-read up to 10 GiB it kept (files_resume_draft1).
-const RESUME_ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
+/// A resumable offer: the receiver may first re-read up to 10 GiB it kept (files_resume_draft1). Every
+/// `files.resume.wait` it sends while it reads starts this wait again.
+pub(crate) const RESUME_ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often a receiver re-reading a kept partial sends `files.resume.wait`, well inside the sender's wait.
+pub(crate) const RESUME_WAIT_EVERY: Duration = Duration::from_secs(30);
 const COMPLETE_TIMEOUT: Duration = Duration::from_secs(60);
 /// A receiver that acknowledges chunks (Android) keeps at most 64 unacknowledged; one silent this long has stalled.
 const CHUNK_WINDOW: i64 = 64;
@@ -170,6 +173,11 @@ pub trait Host: Send + Sync + 'static {
     fn send_limit(&self) -> u64 {
         0
     }
+    /// files_resume_draft1 timing: how long a sender waits for the answer to a resumable offer, how often a receiver
+    /// re-reading a partial says it is still reading, and (tests only) how long that re-read is held back.
+    fn resume_timing(&self) -> (Duration, Duration, Duration) {
+        (RESUME_ANSWER_TIMEOUT, RESUME_WAIT_EVERY, Duration::ZERO)
+    }
     /// The size of the chunks this end sends: 24 KiB as JSON, 256 KiB as binary frames (tests use smaller ones).
     fn chunk_size(&self, fast: bool) -> usize {
         if fast {
@@ -213,6 +221,9 @@ pub enum Command {
     /// The session's own: a kept partial has been re-read.
     #[doc(hidden)]
     Checked(Box<Checked>),
+    /// The session's own: a kept partial is still being re-read (`files.resume.wait` for this transfer).
+    #[doc(hidden)]
+    Checking(String),
 }
 
 #[derive(Clone, Debug)]
@@ -696,6 +707,13 @@ impl Session {
             }
             Command::CancelFile(transfer) => self.cancel_file(transfer).await,
             Command::Checked(c) => self.checked(*c).await,
+            Command::Checking(id) => {
+                // Still re-reading: the sender's wait for the answer starts again (files_resume_draft1).
+                if self.incoming.get(&id).is_some_and(|i| matches!(i.phase, Phase::Checking { .. })) {
+                    return self.outer("files.resume.wait", &id, None).await;
+                }
+                Step::Continue
+            }
             Command::Encrypted { kind, plaintext, message_id } => {
                 if !self.st.authenticated {
                     return Step::Continue;
@@ -1178,6 +1196,14 @@ impl Session {
             "files.complete" => self.file_complete(m).await,
             "files.resume" => self.file_resume(m).await,
             "files.resume.ack" => self.file_resume_ack(m).await,
+            "files.resume.wait" => {
+                // The receiver is still re-reading what it kept of this file: wait for its answer a while longer.
+                let window = self.host.resume_timing().0;
+                if let Some(a) = self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref() && a.stage == Stage::Offered && a.resumable) {
+                    a.deadline = Some(Instant::now() + window);
+                }
+                Step::Continue
+            }
             "files.accept" => {
                 if let Some(a) = self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref() && a.stage == Stage::Offered) {
                     a.stage = Stage::Sending;
@@ -1430,7 +1456,7 @@ impl Session {
                 acked: -1,
                 acks: false,
                 sent: 0,
-                deadline: Some(Instant::now() + if resumable { RESUME_ANSWER_TIMEOUT } else { ACCEPT_TIMEOUT }),
+                deadline: Some(Instant::now() + if resumable { self.host.resume_timing().0 } else { ACCEPT_TIMEOUT }),
                 reported: None,
                 fast,
                 pacer: Pacer::new(fast, self.host.chunk_size(fast), None),
@@ -1684,11 +1710,29 @@ impl Session {
     }
 
     /// Re-reads a kept partial's verified bytes off the session's task (up to 10 GiB); the result comes back as
-    /// `Command::Checked`.
+    /// `Command::Checked`. Meanwhile `Command::Checking` every 30 seconds sends `files.resume.wait`, so a sender
+    /// whose 120-second wait would run out first keeps waiting instead of cancelling, which would cost the partial.
     fn check_partial(&self, id: String, part: PathBuf, length: u64) {
         let tx = self.handle.tx.clone();
+        let (_, every, held) = self.host.resume_timing();
         tokio::spawn(async move {
-            let prefix = tokio::task::spawn_blocking(move || resume::hash_prefix(&part, length).ok()).await.ok().flatten();
+            let mut read = tokio::task::spawn_blocking(move || {
+                if !held.is_zero() {
+                    std::thread::sleep(held);
+                }
+                resume::hash_prefix(&part, length).ok()
+            });
+            let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
+            let prefix = loop {
+                tokio::select! {
+                    done = &mut read => break done.ok().flatten(),
+                    _ = tick.tick() => {
+                        if tx.send(Command::Checking(id.clone())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            };
             let _ = tx.send(Command::Checked(Box::new(Checked { id, prefix }))).await;
         });
     }

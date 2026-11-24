@@ -24,6 +24,7 @@ file is saved, as for any file.
 | Content identity (device, size, SHA-256), with a fresh `transferId` per attempt | Transfer IDs keep their replay guards and ownership rules (a reused ID would collide with the binary-frame sequence guard and the ended list). The sender keeps no resume state, so a resume works after the sender restarts and on any platform that hashes before offering, which all three do. | Two sends of the same file from the same device share a partial; the result is the same file, so that is harmless. |
 | Offsets in whole 1 MiB blocks | The sender keeps the hash at every 1 MiB while hashing the file for the offer, so it checks a prefix without reading the file again. On Android the source may be a cloud document provider, where a second read could cost as much as the transfer. | 32 bytes per MiB on the sender (320 KiB for a 10 GiB file); up to 1 MiB less than the receiver held is resent. Files of 1 MiB or less are never resumable. |
 | The receiver reads its prefix again before every resume | Proves the bytes on disk are the ones recorded, whatever happened to them meanwhile. Portable, unlike saving a SHA-256 implementation's internal state, which no platform library supports. | Reading up to 10 GiB at disk speed (seconds on a desktop, under a minute on a phone), off the session's thread; the sender waits up to 120 seconds for the answer. |
+| `files.resume.wait` every 30 seconds while the receiver reads | A read longer than the 120 seconds (10 GiB on a slow external disk or a network share) would otherwise end in the sender's timeout and `files.cancel`, and a cancel deletes the partial; the next attempt would time out the same way. Each wait starts the sender's 120 seconds again, so the sender waits exactly as long as the read lasts. Simpler than a cancel that sometimes keeps the partial, and it cannot loop. | One outer message every 30 seconds during a long read. A receiver whose read hangs keeps the sender waiting until someone cancels. |
 | The sender checks the receiver's prefix hash | A receiver whose partial and record are both wrong (a bug, or something with write access to the app's storage) gets the whole file instead of a doomed tail and a failed check at the end. | Nothing: the hash is already kept. |
 | Fall back inside the same transfer (`offset: 0`) | One round trip and no new transfer ID when the prefix does not match. | None. |
 | The partial stays where it was written; only the record is private | Saving stays an atomic rename in the same folder, with no copy of up to 10 GiB and no second free-space check. The record, in the app's private storage, is what the receiver trusts, and it checks the partial against it before use. | A hidden part file can sit in the receive folder for up to a day. Its bytes are the file the person was being sent, so it exposes nothing the finished file would not. |
@@ -31,6 +32,7 @@ file is saved, as for any file.
 | Record every 64 MiB and on every clean end, only synced bytes | A crash loses at most 64 MiB; the sync cost is spread out. A record written as a resumable file starts lets the next start sweep partials a crash left behind. Acknowledgements stay flow control: acknowledging is not syncing. | A sync every 64 MiB on the receiver. |
 | Cancel and forget delete; interruptions keep | A cancel is the person saying they do not want the file. | None. |
 | No automatic retry in the session client | The host decides when to send again (`FileFailed` with `interrupted`), as today. | Apps that want automatic resume on reconnect add it (recommended below). |
+| The Android and Mac apps retry interrupted single files on reconnect, on by default | The coordinator's call under Rahul's "sensible default with customisation" rule: folders already resume by themselves, and a file that resumes from its offset costs little to retry. Settings > Files, "Resume interrupted files automatically", turns it off. | A file the person gave up on comes back if they do not cancel it; the row says it is resuming. |
 
 ## Security in one paragraph
 
@@ -51,7 +53,11 @@ damaged record cannot point a deletion elsewhere.
   `Config::file_resume` and `Client::set_file_resume` (on by default), forgetting a device drops its partials.
 - `rust/client/tests/files_resume.rs`: resume after the sender drops and restarts, after the receiver drops, after the
   receiver restarts (JSON chunks), a whole file kept, the source changed, a tampered partial, an expired partial, a peer
-  without the key, cancels and forgetting.
+  without the key, cancels and forgetting, a re-read longer than the answer window (the waits keep the sender
+  waiting) and a sender that hears no wait (it gives up at its window and the cancel takes the partial).
+- `rust/client/src/vectors.rs` records `protocol/test-vectors/session-client-resume-v1.json`, a reconnect that
+  resumes (the resumable offer, `files.resume.wait`, `files.resume`, `files.resume.ack` and only the tail in binary
+  frames). The Android and Mac suites open every frame with their own code.
 
 ## For the Android and Mac apps
 

@@ -258,6 +258,8 @@ pub(crate) struct Inner {
     chunk_size: AtomicUsize,
     /// Tests only: senders stop after this many bytes of a file (0: never).
     send_limit: AtomicU64,
+    /// Tests only: the files_resume_draft1 answer window, wait interval and held-back re-read (None: the protocol's).
+    resume_timing: Mutex<Option<(Duration, Duration, Duration)>>,
     /// This device's battery, sent to devices that show Battery.
     battery: Mutex<Option<(u8, bool)>>,
     trust: Mutex<TrustStore>,
@@ -312,6 +314,7 @@ impl Client {
             resume: Mutex::new(resume::Store::default()),
             chunk_size: AtomicUsize::new(0),
             send_limit: AtomicU64::new(0),
+            resume_timing: Mutex::new(None),
             battery: Mutex::new(None),
             trust: Mutex::new(trust),
             state: Mutex::new(State::default()),
@@ -940,6 +943,13 @@ impl Client {
         self.inner.send_limit.store(bytes, Ordering::Relaxed);
     }
 
+    /// Tests only: this client waits `answer` for the answer to a resumable offer, sends `files.resume.wait` every
+    /// quarter of it while it re-reads a kept partial, and holds each re-read back by `held` first.
+    #[doc(hidden)]
+    pub fn set_resume_timing_for_tests(&self, answer: Duration, held: Duration) {
+        *self.inner.resume_timing.lock().unwrap() = Some((answer, answer / 4, held));
+    }
+
     /// The network changed: try every trusted device that is not connected again, from the fast delays.
     pub fn network_changed(&self) {
         let node = self.inner.connect.lock().unwrap().node.clone();
@@ -1506,6 +1516,10 @@ impl session::Host for Inner {
 
     fn send_limit(&self) -> u64 {
         self.send_limit.load(Ordering::Relaxed)
+    }
+
+    fn resume_timing(&self) -> (Duration, Duration, Duration) {
+        self.resume_timing.lock().unwrap().unwrap_or((session::RESUME_ANSWER_TIMEOUT, session::RESUME_WAIT_EVERY, Duration::ZERO))
     }
 
     fn chunk_size(&self, fast: bool) -> usize {

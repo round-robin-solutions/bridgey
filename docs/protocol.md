@@ -2203,9 +2203,16 @@ A sender never names a partial, a path or an earlier transfer.
    offset, or a chunk before it, makes the receiver cancel the file (`files.cancel`) and delete the partial.
 5. A sender waits up to 120 seconds for the answer to a resumable offer, because the receiver first reads up to
    10 GiB again; other offers keep their timeout. A receiver allows the same for `files.resume.ack`.
+6. While it reads its partial again the receiver sends `files.resume.wait` (outer only: `sessionId` and the offer's
+   `transferId`) every 30 seconds, and each one starts the sender's 120-second wait again. So a read that takes
+   longer than the window (a large partial on slow storage) never makes the sender give up and send `files.cancel`,
+   which would delete the partial (a cancel always does, below), and the next attempt would time out the same way. A
+   sender ignores `files.resume.wait` for anything but its own offer still waiting for an answer; on a protocol 2
+   session its envelope tag authenticates it like any outer message.
 
 A `files.resume` or `files.resume.ack` that fails decryption closes the session, as any `files.*` message does; one
-that decrypts but breaks the rules falls back as above.
+that decrypts but breaks the rules falls back as above. Apps that retry on reconnect (below) send a new offer; nothing
+on the wire marks a retry.
 
 ### Keeping a partial
 
@@ -2235,6 +2242,14 @@ check, a chunk that breaks the rules, a storage error, or when its person forget
 - **Source changed.** An offer from the same device with the same name but another `size` or `sha256` means its source
   changed: the partial of the old content is deleted at once, since it can never be finished, and the new file comes
   from byte zero.
+- **Where the apps keep them.** Android: the pending MediaStore entry in `Download/Bridgey` it was writing, reopened
+  with mode `"rw"` (never `"w"`, which may truncate) and its URI in a private record file; pending entries there that
+  no record names are deleted at start (a process death used to leave them behind). Mac: the `name.bridgey-part`
+  beside the name it was given, reopened for update and cut to the recorded length, its record in Application
+  Support; the final name is chosen when the file is saved, never overwriting.
+- **Retrying on reconnect (apps).** Android and the Mac send interrupted single files again by themselves when the
+  device reconnects within the 24 hours, as folders resume (Settings > Files, "Resume interrupted files
+  automatically", on by default). The session client leaves that to its host.
 
 ### Resuming inside folders (designed, not built)
 
