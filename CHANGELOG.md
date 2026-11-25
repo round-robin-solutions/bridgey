@@ -2,6 +2,10 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 6 (1.0.0-beta.6), 25 November 2026
+
+- Control your phone from the Mac while you view its screen: tap, type, scroll, and use Back, Home and Recents. It needs Bridgey's accessibility service turned on in Android settings, and a grant on the phone for that Mac, which is off until you choose Ask each time or Allow without asking. The phone shows when a Mac is controlling it, with Stop.
+
 ## 1.0 Beta 5 (1.0.0-beta.5), 25 November 2026
 
 - See your Mac's screen on your phone, and control it from there. It's off until you turn it on for a phone in the Mac's Settings, choosing Ask each time or Allow without asking. The Mac shows who is viewing, with Stop.
