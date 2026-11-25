@@ -1193,17 +1193,17 @@ Either side ends the stream. A Mac refusing a start sends it with the start's st
 
 | Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `display.request` | edition-draft | viewer-to-source | screen_control_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.status` | edition-draft | source-to-viewer | screen_control_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.start` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.started` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.frame` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | macos |
-| `display.ack` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.stats` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.geometry` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.control` | edition-draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.input` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | macos |
-| `display.stop` | edition-draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | macos |
+| `display.request` | edition-draft | viewer-to-source | screen_control_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.status` | edition-draft | source-to-viewer | screen_control_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.start` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.started` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.frame` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
+| `display.ack` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.stats` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.geometry` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.control` | edition-draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.input` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.stop` | edition-draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `display.request`
 

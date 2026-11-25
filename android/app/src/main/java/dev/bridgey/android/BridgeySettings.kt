@@ -58,6 +58,12 @@ enum class BridgeyFeature(val key: String, val title: String) {
      * phone and its WhatsApp). Off by default, and each Mac needs its own permission.
      */
     DIALER("dialer_draft1", "Calls window"),
+
+    /**
+     * Draft, edition only: see a Mac's screen on this phone, and control it when the Mac allows that
+     * (screen_control_draft1). On by default here: the Mac is the gate (off by default, granted per phone there).
+     */
+    SCREEN_CONTROL("screen_control_draft1", "See Mac screens"),
 }
 
 /** Off for a device until it is allowed there: the global switch alone allows nothing. */
@@ -67,7 +73,7 @@ internal fun featureEnabledByLegacyPeer(feature: BridgeyFeature): Boolean =
     feature !in setOf(
         BridgeyFeature.CALLS, BridgeyFeature.PING, BridgeyFeature.LINKS, BridgeyFeature.MEDIA,
         BridgeyFeature.REMOTE_INPUT, BridgeyFeature.MAC_ACTIONS, BridgeyFeature.CAMERA, BridgeyFeature.SCREEN, BridgeyFeature.SMS, BridgeyFeature.CALL_QUIET,
-        BridgeyFeature.DIALER,
+        BridgeyFeature.DIALER, BridgeyFeature.SCREEN_CONTROL,
     )
 
 /** Features that start off until the person turns them on. */

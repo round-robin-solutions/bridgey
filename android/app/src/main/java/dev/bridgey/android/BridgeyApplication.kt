@@ -78,6 +78,9 @@ class BridgeyApplication : Application() {
 
     /** Share screen with Macs (draft screen_draft1): consent, the stream and its state. */
     lateinit var screenShare: dev.bridgey.android.screen.ScreenShareHub
+
+    /** See Mac screens (draft screen_control_draft1): the viewer's stream, decoding and control. */
+    lateinit var display: dev.bridgey.android.display.DisplayViewerHub
         private set
 
     /** Codes from messages: whether Android shows Bridgey the text of code SMS (companion link). */
@@ -212,6 +215,7 @@ class BridgeyApplication : Application() {
         startBlockedNumbers()
         screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
         pairing.screenListener = screenShare
+        startDisplay()
         busyMonitor.start()
         registerForegroundClipboardWatcher()
         if (preferences.getBoolean(PREFERENCE_ENABLED, true)) enableBridgey()
@@ -264,6 +268,19 @@ class BridgeyApplication : Application() {
     /** The app came to the front: a permission may have changed, so the Macs hear the new waiting list. */
     fun syncPermissionsChanged() {
         if (::pairing.isInitialized) pairing.settingsSync.permissionsChanged()
+    }
+
+    private fun startDisplay() {
+        val hub = dev.bridgey.android.display.DisplayViewerHub(pairing.displayHost(), clock = android.os.SystemClock::elapsedRealtime)
+        display = hub
+        pairing.displayListener = object : PairingCoordinator.DisplayListener {
+            override fun status(deviceId: String, plaintext: ByteArray) = hub.onStatus(deviceId, plaintext)
+            override fun start(deviceId: String, plaintext: ByteArray, link: dev.bridgey.android.display.DisplayLink) = hub.onStart(deviceId, plaintext, link)
+            override fun stream(deviceId: String, kind: String, plaintext: ByteArray) = hub.onStreamMessage(deviceId, kind, plaintext)
+            override fun frame(deviceId: String, plaintext: ByteArray) = hub.onFrame(deviceId, plaintext)
+            override fun disconnected(deviceId: String) = hub.disconnected(deviceId)
+            override fun policy(deviceId: String) = hub.policy(deviceId)
+        }
     }
 
     private fun startRemoteInput() {

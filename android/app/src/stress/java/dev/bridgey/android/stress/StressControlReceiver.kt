@@ -45,6 +45,12 @@ import org.json.JSONObject
  * - `clean`: deletes this app's `stress-*` files in Download/Bridgey/ (pending ones too) and Download/BridgeyStress/.
  * - `status`: connections, the pairing prompt, transfers, received files (pending ones are partials), hashes,
  *   files still being written, free space and errors.
+ * - `display-on`: See Mac screens on, for every Mac (fresh installs start with it off).
+ * - `display-open`: opens the viewer for the first connected Mac that allows it (Bridgey must be in front, as for any
+ *   activity start); `--es device <id>` picks one.
+ * - `display-control` with `--es state on|off`: Control on or off in the running viewer, as its button does.
+ * - `display-status`: the viewer: phase, Mac name, geometry, control, decoded frames a second, decode time, frames
+ *   lost, and the Mac's latest stats.
  */
 class StressControlReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -84,11 +90,56 @@ internal object StressControl {
             "hash" -> hash(app.contentResolver, intent.getStringArrayExtra("names").orEmpty().toList())
             "clean" -> clean(app.contentResolver)
             "status" -> status(app)
+            "display-on" -> ok().also {
+                app.settings.setGlobal(BridgeyFeature.SCREEN_CONTROL, true)
+                app.pairing.trustedDeviceIds.value.forEach { id -> app.settings.setForDevice(id, BridgeyFeature.SCREEN_CONTROL, true) }
+            }
+            "display-open" -> {
+                val targets = app.pairing.displayTargets()
+                val wanted = intent.getStringExtra("device")
+                val target = targets.firstOrNull { wanted == null || it.first == wanted }
+                if (target == null) {
+                    JSONObject().put("ok", false).put("error", "no Mac allows it").put("targets", targets.size)
+                } else {
+                    dev.bridgey.android.display.MacScreenActivity.open(app, target.first, target.second)
+                    ok().put("device", target.first.take(8)).put("mac", target.second)
+                }
+            }
+            "display-control" -> ok().also {
+                if (intent.getStringExtra("state") == "off") app.display.endControl() else app.display.beginControl()
+            }
+            "display-status" -> displayStatus(app)
             else -> JSONObject().put("ok", false).put("error", "unknown command")
         }
     }
 
     private fun ok() = JSONObject().put("ok", true)
+
+    private fun displayStatus(app: BridgeyApplication): JSONObject {
+        val view = app.display.state.value
+        val stats = view.stats
+        return ok()
+            .put("phase", view.phase.name.lowercase())
+            .put("mac", view.macName)
+            .put("display", view.displayName ?: JSONObject.NULL)
+            .put("geometry", view.geometry?.let { JSONObject().put("generation", it.generation).put("width", it.width).put("height", it.height) } ?: JSONObject.NULL)
+            .put("controlAllowed", view.controlAllowed)
+            .put("control", view.control.name.lowercase())
+            .put("input", JSONObject().put("pointer", view.input.pointer).put("keys", view.input.keys).put("text", view.input.text))
+            .put("decodedFps", view.decodedFps)
+            .put("decodeMsAverage", view.decodeMsAverage)
+            .put("decodeMsMax", view.decodeMsMax)
+            .put("lostFrames", view.lostFrames)
+            .put("outcome", view.outcome?.toString() ?: JSONObject.NULL)
+            .put("controlNote", view.controlNote?.wire ?: JSONObject.NULL)
+            .put(
+                "stats",
+                stats?.let {
+                    JSONObject().put("latencyMs", it.latencyMs).put("rttMs", it.rttMs).put("bitrate", it.bitrate)
+                        .put("sentBitrate", it.sentBitrate).put("fps", it.fps).put("dropped", it.dropped)
+                } ?: JSONObject.NULL,
+            )
+    }
 
     private fun send(app: BridgeyApplication, specs: List<String>): JSONObject {
         val target = app.pairing.connections.value.firstOrNull()?.deviceId ?: return JSONObject().put("ok", false).put("error", "not connected")
