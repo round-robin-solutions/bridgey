@@ -109,4 +109,6 @@ Both apps run the same rules as the session client, identical on the wire; the r
 
 - Resuming into another receive folder: the partial stays put and expires.
 - Clipboard files and Phone files downloads (folders) until the folder design is built.
-- Measured gains on real Wi-Fi and phones; the tests run on loopback.
+- Measured gains on real Wi-Fi and phones. The stress harness ([testing-stress.md](testing-stress.md)) checks resume
+  live against the Mac app and the Android app (cuts, stalls and restarts of either side), over loopback and an
+  emulator.

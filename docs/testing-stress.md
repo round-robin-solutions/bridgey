@@ -39,10 +39,13 @@ file's SHA-256 without reading it from the other.
 | `multi-drop-send`, `multi-drop-recv` | One file cut five times on its way, resuming each time. |
 | `reconnect-loop` | Cut and reconnect 20 times (`--loops`); each time a 4 KiB file must go through. Reconnect and probe times. |
 
-`--scenarios quick` runs a shorter set; `--mid` sets the file size for the cancel, cut and restart scenarios (1 GiB by
-default), `--rounds` how many random points each gets (2), `--seed` repeats a run's random choices. A scenario's
-first send of a file must not resume, which also proves a cancel or a clean left nothing behind. A file that finishes
-before the cut lands is tried once more, cut nearer its start.
+`--scenarios quick` runs a shorter set, and a scenario can be named more than once; `--mid` sets the file size for
+the cancel, cut and restart scenarios (1 GiB by default), `--rounds` how many random points each gets (2), `--seed`
+repeats a run's random choices. A scenario's first send of a file must not resume, which also proves a cancel or a
+clean left nothing behind. Scenarios that cut a file, and those where the app cancels, cap the link so the file takes
+at least five seconds: progress arrives four times a second and the app's control program takes a moment, so on a
+link that moves a gigabyte a second the cut would otherwise land late. A file that still finishes first is tried once
+more, cut nearer its start.
 
 Not covered: folders (the session client has no folder transfers, so folders resuming at file boundaries stays with
 the apps' own tests), Connect anywhere tunnels (the driver speaks LAN TCP only) and real radios.
@@ -52,7 +55,7 @@ the apps' own tests), Connect anywhere tunnels (the driver speaks LAN TCP only) 
 On a Mac (the personal Mac now, GitHub's hosted macOS runner later):
 
 ```sh
-scripts/rr/stress-mac.sh --out /tmp/stress-mac            # everything, about an hour
+scripts/rr/stress-mac.sh --out /tmp/stress-mac            # everything, about 15 minutes and 15 GiB of disk
 scripts/rr/stress-mac.sh --scenarios quick --mid 256M --big 1G
 ```
 
@@ -65,14 +68,19 @@ Against the Android emulator, on the host that runs it, with the emulator alread
 
 ```sh
 cd android && ./gradlew :app:assembleStress          # or let the script build it
-scripts/rr/stress-android.sh --apk android/app/build/outputs/apk/stress/app-stress.apk --out /tmp/stress-android
+scripts/rr/stress-android.sh --apk android/app/build/outputs/apk/stress/app-stress.apk --out /tmp/stress-android \
+  --big 256M,512M --mid 192M                          # sizes that fit a 6 GiB AVD with other tests' files on it
 ```
+
+A new install starts with every optional feature off, so the runner turns File transfer on through the control
+receiver before pairing (`files-on`), as setup's Files choice does. The device needs free space for the largest file
+and 64 MiB more; the driver skips a size that does not fit and reports it.
 
 adb installs and removes the stress build, forwards `tcp:42496` to its port 42458, starts it, force-stops it for the
 restart scenarios, sends its control broadcasts and reads its log. Other Bridgey builds on the device listen on the same
 port, so they are force-stopped for the run (their data is untouched). The emulator itself is never wiped or reconfigured.
 
-Without a device, the harness can check itself against the session client:
+Without a device, the harness can check itself against the session client (in `rust/`):
 
 ```sh
 cargo build -p bridgey-client --example stress
