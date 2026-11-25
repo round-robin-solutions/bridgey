@@ -352,6 +352,11 @@ final class PairingCoordinator: ObservableObject {
     let shortcuts = ShortcutSettings()
     /// Remote input (draft): a paired phone as touchpad, keyboard and presentation remote.
     let remoteInput: RemoteInputHost
+    /// Mac screen to phone (draft screen_control_draft1): this Mac's screen on a phone, off per phone until chosen.
+    let macScreen: MacScreenShare
+    /// Test instances with the synthetic screen source: what control would have injected (never posted).
+    private(set) var macScreenTestInjector: RecordingScreenInjector?
+    private var macScreenTestDisplays: SyntheticDisplays?
     /// Files 2.0: every finished transfer, for the History window and Show in Finder (owner-only, 30 days).
     let transferHistory = TransferHistoryStore()
     /// Notifications for files and folders that arrive from a phone (Files 2.0 quick win).
@@ -637,6 +642,10 @@ final class PairingCoordinator: ObservableObject {
         self.notificationHistoryStore = notificationHistoryStore
         activity = ActivityLog(store: ActivityStore())
         remoteInput = RemoteInputHost.live()
+        let screenSetup = MacScreenShare.live()
+        macScreen = screenSetup.share
+        macScreenTestInjector = screenSetup.testInjector
+        macScreenTestDisplays = screenSetup.testDisplays
         macActions = MacActionsHost.live()
         codeModel = CodeModelStore.live()
         if settings.notificationHistoryEnabled {
@@ -768,6 +777,9 @@ final class PairingCoordinator: ObservableObject {
             guard let self, let current = self.registry.session(for: id) else { return false }
             return self.sendQuickPayload(kind: kind, payload: payload, to: current)
         }
+        // One controller at a time: the touchpad waits while another phone controls through a stream, and back.
+        remoteInput.controlledElsewhere = { [weak self] id in self?.macScreen.controllerDevice.map { $0 != id } ?? false }
+        wireMacScreen()
         mediaController.allowed = { [weak self] in
             guard let self, case .connected = self.state else { return false }
             return self.isFeatureAvailable(.media)
@@ -835,6 +847,7 @@ final class PairingCoordinator: ObservableObject {
                     for id in self.registry.connectedIDs where !self.settings.isEnabled(.battery, for: id) {
                         self.registry.update(id) { $0.battery = nil }
                     }
+                    self.macScreen.policyChanged()
                     self.publish()
                     if !self.featureEnabled(.ping) { self.clearPingStatus() }
                     if !self.isFeatureAvailable(.links) { self.quickActions.reset() }
@@ -1187,6 +1200,7 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func forget(deviceID: String) {
+        macScreen.forget(deviceID)
         // Forgetting a phone takes its kept partials (files_resume_draft1) and interrupted sends with it.
         for transferID in transferDevices.filter({ $0.value == deviceID }).map(\.key) where incomingFiles[transferID] != nil {
             _ = dropIncoming(transferID)
@@ -1256,6 +1270,7 @@ final class PairingCoordinator: ObservableObject {
         camera.disconnected(id)
         updatesPhoneDisconnected(id)
         phoneScreen.disconnected(id)
+        macScreen.disconnected(id)
         speedTest.phoneDisconnected(id)
         textMessages.disconnected(id)
         phoneCalls.disconnected(id)
@@ -3149,6 +3164,7 @@ final class PairingCoordinator: ObservableObject {
                     return
                 }
                 let lanFirst = decodeFeatureFlag(plaintext, lanFirstFeatureKey)
+                let screenControl = decodeFeatureFlag(plaintext, screenControlFeatureKey)
                 // Remembered only with both keys: a build that remembers this Mac too (docs/protocol.md "LAN first").
                 lanFirstMemory.record(phoneID, advertised: LanFirstMemory.advertises(plaintext))
                 registry.update(phoneID) { link in
@@ -3168,6 +3184,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteUpdates = draftKeys[updatesFeatureKey] == true
                     if !link.remoteUpdates { link.updateStatus = nil }
                     link.remoteScreen = draftKeys[screenFeatureKey] == true
+                    link.remoteScreenControl = screenControl
                     link.remoteSms = draftKeys[smsFeatureKey] == true
                     link.remoteFastTransfers = draftKeys[filesFastFeatureKey] == true
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
@@ -3181,6 +3198,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 refreshCallMediaPeer(current)
                 publishRemoteCall()
+                macScreen.peerChanged(phoneID)
                 publish()
                 // The phone turned Files off: files it has not been offered yet stay here, retryable.
                 if features[.files] == false { stopFileQueue(for: phoneID, status: "File transfer is turned off on \(current.peerName)") }
@@ -3732,6 +3750,12 @@ final class PairingCoordinator: ObservableObject {
                 receiveScreenStart(message, in: current)
             case "screen.frame", "screen.stats", "screen.stop":
                 receiveScreenStream(message, in: current)
+            case DisplayKinds.request:
+                receiveDisplayRequest(message, in: current)
+            case let kind where DisplayKinds.fromViewerStream.contains(kind):
+                receiveDisplayStream(message, in: current)
+            case DisplayKinds.input:
+                receiveDisplayInput(message, in: current)
             case let kind where kind.hasPrefix("sms."):
                 receiveTextMessage(message, in: current)
             case let kind where kind.hasPrefix("dialer."):
@@ -3958,6 +3982,8 @@ final class PairingCoordinator: ObservableObject {
         features[updatesFeatureKey] = true
         // Draft, edition only: this Mac shows phone screens (Show phone screens, off by default).
         features[screenFeatureKey] = phoneScreen.enabled
+        // Draft, edition only: this Mac's screen on that phone, only while the phone has a screen grant here.
+        features[screenControlFeatureKey] = macScreen.advertised(to: current.remoteDeviceID)
         // Draft, edition only: Text messages, while its switch is on here (off by default).
         features[smsFeatureKey] = settings.smsEnabled
         // Draft, edition only: the Calls window, while it is on and allowed for this phone, protocol 2 only.
@@ -6636,6 +6662,18 @@ final class Session {
         self.peerName = peerName
     }
 
+    /// This Mac's generation for this session in the screen/control contract (Binding.transport): one counter per
+    /// process, never reused while it runs. A restart is told apart by the connection nonce.
+    let screenTransport: UInt64 = Session.nextScreenTransport()
+    private static let screenTransportLock = NSLock()
+    private static var screenTransportCounter: UInt64 = 0
+    private static func nextScreenTransport() -> UInt64 {
+        screenTransportLock.withLock {
+            screenTransportCounter += 1
+            return screenTransportCounter
+        }
+    }
+
     /// The session is authenticated on protocol 2: binary frames are read from now on. They are sealed with the session
     /// key and bound to the sending device's ID, as envelope tags are (FastTransfer.swift).
     func allowBinaryFrames(key: Data, localDeviceID: String, remoteDeviceID: String) {
@@ -6676,6 +6714,18 @@ final class Session {
         guard let encoded = try? JSONEncoder().encode(framed(message)) else { return }
         connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
             if let error { BridgeyLog.transport.error("send failed kind=\(message.kind, privacy: .public) error=\(String(describing: error), privacy: .public)") }
+        })
+    }
+
+    /// A message with a callback once it has gone to the socket (true) or failed (false). Any thread.
+    func send(_ message: PairingMessage, completion: @escaping (Bool) -> Void) {
+        guard let encoded = try? JSONEncoder().encode(framed(message)) else {
+            completion(false)
+            return
+        }
+        connection.send(content: encoded + Data([0x0A]), completion: .contentProcessed { error in
+            if let error { BridgeyLog.transport.error("send failed kind=\(message.kind, privacy: .public) error=\(String(describing: error), privacy: .public)") }
+            completion(error == nil)
         })
     }
 
@@ -7785,6 +7835,7 @@ extension PairingCoordinator {
                 return opened
             }
         }
+        screenTestCommands { takeTestCommand($0) }
         if takeTestCommand("clipboard") != nil { sendClipboard() }
         if let engine = takeTestCommand("codes") {
             if let chosen = CodeEngine(rawValue: engine) {
@@ -7838,10 +7889,149 @@ extension PairingCoordinator {
                                      "agents": agents, "sendsCodesFound": sendsCodes, "codesFoundSent": testCodesFoundSent,
                                      "lastRead": testLastRead ?? NSNull(),
                                      "reveals": ["count": testReveals, "items": testRevealedItems, "waiting": receivedReveals.isWaiting],
-                                     "transfersWindowShown": testTransfersWindowShown]
+                                     "transfersWindowShown": testTransfersWindowShown,
+                                     "screen": macScreen.testStatus(injector: macScreenTestInjector)]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
         }
+    }
+}
+
+// MARK: - Mac screen to phone (draft screen_control_draft1, MacScreenShare.swift)
+
+extension PairingCoordinator {
+    fileprivate func wireMacScreen() {
+        macScreen.send = { [weak self] id, kind, payload in
+            guard let self, let current = self.registry.session(for: id) else { return false }
+            return self.sendQuickPayload(kind: kind, payload: payload, to: current)
+        }
+        macScreen.link = { [weak self] id in
+            guard let self, let current = self.registry.session(for: id), self.registry.isActive(current) else { return nil }
+            return SessionDisplayLink(session: current)
+        }
+        macScreen.peer = { [weak self] id in
+            guard let self, let current = self.registry.session(for: id) else { return nil }
+            return self.screenPeer(current)
+        }
+        macScreen.identityKey = { [weak self] id in self?.trustRegistry.identityKey(for: id) }
+        macScreen.peerAdvertises = { [weak self] id in self?.registry.state(for: id)?.remoteScreenControl == true }
+        macScreen.controlGrant = { [weak self] id in self?.settings.isEnabled(.remoteInput, for: id) == true }
+        macScreen.touchpadController = { [weak self] in self?.remoteInput.active?.deviceID }
+        macScreen.onGrantsChange = { [weak self] in
+            self?.sendFeatureState()
+            self?.publish()
+        }
+        macScreen.audit = remoteInput.audit
+    }
+
+    /// The contract's view of a phone's session: its pinned key, this Mac's generation for the session and the nonce
+    /// from the session key.
+    fileprivate func screenPeer(_ current: Session) -> MacScreenPeer? {
+        guard let key = current.pairingKey, let identity = trustRegistry.identityKey(for: current.remoteDeviceID) else { return nil }
+        return MacScreenPeer(name: current.peerName, identityKey: identity, transport: current.screenTransport,
+                             connection: ScreenControl.connectionNonce(sessionKey: key, sessionID: current.id))
+    }
+
+    /// This Mac's screen on the phone works both ways: the phone shows the key and it has a grant here.
+    func screenControlAvailable(for id: String) -> Bool {
+        registry.state(for: id)?.remoteScreenControl == true && macScreen.advertised(to: id)
+    }
+
+    /// display.request: through the shared message ID window, like screen.request. A phone without a grant here gets
+    /// `disabled` from the host; a phone that does not show the key is ignored.
+    fileprivate func receiveDisplayRequest(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let id = message.messageId, current.acceptMessageID(id), let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              registry.state(for: current.remoteDeviceID)?.remoteScreenControl == true else { return }
+        macScreen.receiveRequest(data, from: current.remoteDeviceID, deviceName: current.peerName)
+    }
+
+    /// The viewer's stream messages: outside the message ID window (the stream's sequence guards them). A payload
+    /// that does not decrypt is dropped and the session stays.
+    fileprivate func receiveDisplayStream(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              screenControlAvailable(for: current.remoteDeviceID) else { return }
+        macScreen.receiveStream(kind: message.kind, data: data, from: current.remoteDeviceID)
+    }
+
+    /// display.input: the contract packet, with the binding of the session it arrived on (the packet cannot name its
+    /// own sender).
+    fileprivate func receiveDisplayInput(_ message: PairingMessage, in current: Session) {
+        guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
+              let nonce = message.nonce, let ciphertext = message.ciphertext,
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              screenControlAvailable(for: current.remoteDeviceID), let peer = screenPeer(current) else { return }
+        macScreen.receiveInput(data, from: current.remoteDeviceID, via: peer)
+    }
+
+    /// Test instance control files for the screen (TestControl above).
+    fileprivate func screenTestCommands(_ take: (String) -> String?) {
+        if let value = take("screen-grant") {
+            let parts = value.split(separator: " ").map(String.init)
+            if parts.count == 2, let mode = MacScreenGrantMode(rawValue: parts[1]) {
+                for device in trustRegistry.devices where parts[0] == "all" || device.id.hasPrefix(parts[0]) {
+                    macScreen.setGrant(mode, for: device.id)
+                }
+            }
+        }
+        if let value = take("remote-grant") {
+            let parts = value.split(separator: " ").map(String.init)
+            if parts.count == 2, parts[1] == "on" || parts[1] == "off" {
+                let on = parts[1] == "on"
+                // Settings without the Accessibility prompt: the test instance never asks macOS for anything.
+                if on { settings.setGlobal(.remoteInput, enabled: true) }
+                for device in trustRegistry.devices where parts[0] == "all" || device.id.hasPrefix(parts[0]) {
+                    settings.setForDevice(device.id, feature: .remoteInput, enabled: on)
+                }
+                remoteInput.policyChanged()
+                macScreen.policyChanged()
+                sendFeatureState()
+            }
+        }
+        if let value = take("screen-geometry") {
+            let parts = value.lowercased().split(separator: "x").compactMap { Double($0) }
+            if parts.count == 2, parts[0] >= 16, parts[1] >= 16 { macScreenTestDisplays?.resize(width: parts[0], height: parts[1]) }
+        }
+        if take("screen-allow") != nil { macScreen.answerPendingPrompt(true) }
+        if take("screen-deny") != nil { macScreen.answerPendingPrompt(false) }
+        if take("screen-stop") != nil { macScreen.stopLocally() }
+    }
+}
+
+/// A stream's way to its phone: the session it started on. Once that session has ended, sends fail. Any thread.
+final class SessionDisplayLink: MacScreenLink, @unchecked Sendable {
+    private weak var session: Session?
+    private let sessionID: String
+    private let key: Data
+
+    init?(session: Session) {
+        guard let key = session.pairingKey else { return nil }
+        self.session = session
+        sessionID = session.id
+        self.key = key
+    }
+
+    private var open: Session? {
+        guard let session, !session.ended, !session.closing else { return nil }
+        return session
+    }
+
+    func sendJSON(kind: String, payload: [String: Any]) -> Bool {
+        guard let session = open, let data = try? JSONSerialization.data(withJSONObject: payload), data.count <= DisplayLimits.startBytes,
+              let encrypted = try? encrypt(data, key: key) else { return false }
+        session.send(PairingMessage(kind: kind, sessionId: sessionID, messageId: UUID().uuidString.lowercased(),
+                                    nonce: encrypted.nonce, ciphertext: encrypted.ciphertext))
+        return true
+    }
+
+    func sendFrame(_ plaintext: Data, written: @escaping (Bool) -> Void) -> Bool {
+        guard let session = open, let encrypted = try? encrypt(plaintext, key: key) else { return false }
+        session.send(PairingMessage(kind: DisplayKinds.frame, sessionId: sessionID, nonce: encrypted.nonce, ciphertext: encrypted.ciphertext),
+                     completion: written)
+        return true
     }
 }
 

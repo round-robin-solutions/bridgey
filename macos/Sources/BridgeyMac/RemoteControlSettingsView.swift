@@ -46,6 +46,7 @@ struct RemoteControlPane: View {
             }
         }
         .settingsSearchAnchor(L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"))
+        MacScreenSettingsCard(model: model, actions: actions)
         SettingsCard(title: PhoneScreenSettings.cardTitle, footnote: PhoneScreenSettings.footnote) {
             SettingsToggle(title: PhoneScreenSettings.switchTitle, subtitle: PhoneScreenSettings.switchDetail, divider: false,
                            synced: model.syncs(.featureScreen), isOn: model.phoneScreenEnabled, set: actions.setPhoneScreen)
@@ -205,7 +206,9 @@ func modeTitle(_ mode: RemoteInputMode) -> String {
 
 /// How a session ended, or why a start was refused, in plain words.
 func auditReasonText(_ entry: RemoteControlAuditEntry) -> String {
-    switch entry.reason {
+    // A phone that watched this Mac's screen (MacScreenShare) has its own reasons.
+    if entry.mode == MacScreenShare.auditMode { return displayAuditReasonText(entry.endReason) }
+    return switch entry.reason {
     case .user: L10n.text("remote.reason.user", fallback: "Stopped on the phone")
     case .leftScreen: L10n.text("remote.reason.leftScreen", fallback: "Closed on the phone")
     case .screenOff: L10n.text("remote.reason.screenOff", fallback: "Phone screen turned off")
@@ -259,5 +262,135 @@ enum PhoneScreenSettings {
     }
     static var footnote: String {
         L10n.text("screen.settings.note", fallback: "View only. In the menu bar panel, choose File > Show Screen, or start sharing on the phone. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.")
+    }
+}
+
+/// Settings > Remote control > This Mac's screen (screen_control_draft1): which phones may see this Mac, which
+/// display, and Screen Recording. Off for every phone until chosen here or on its device page.
+enum MacScreenSettings {
+    /// Search scope of the card, so its phone rows are told apart from the remote control ones.
+    static let scope = "display-share"
+    static var cardTitle: String { L10n.text("display.settings.card", fallback: "This Mac\u{2019}s screen") }
+    static var footnote: String {
+        L10n.text("display.settings.note", fallback: "Seeing and controlling are separate: a phone controls this screen only if it may also use remote control, above. While a phone watches, the pill at the top of the screen names it, with Stop.")
+    }
+    static var displayTitle: String { L10n.text("display.settings.display", fallback: "Screen to share") }
+    static var recordingTitle: String { L10n.text("display.settings.recording", fallback: "Screen Recording access") }
+    static var grantTitle: String { L10n.text("display.grant.title", fallback: "See this Mac\u{2019}s screen") }
+
+    static func modeTitle(_ mode: MacScreenGrantMode) -> String {
+        switch mode {
+        case .off: L10n.text("display.grant.off", fallback: "Off")
+        case .ask: L10n.text("display.grant.ask", fallback: "Ask each time")
+        case .always: L10n.text("display.grant.always", fallback: "Allow without asking")
+        }
+    }
+
+    /// Why a phone with a choice still cannot see this Mac.
+    static func note(device: TrustedDeviceInfo, model: SettingsModel) -> String? {
+        guard (model.screenGrants[device.id] ?? .off) != .off else { return nil }
+        if model.phoneScreenControl[device.id] == false {
+            return String(format: L10n.text("display.grant.phoneOff", fallback: "Turn on See Mac screens in Bridgey on %@"), device.name)
+        }
+        if !model.screenRecordingAllowed {
+            return L10n.text("display.grant.recordingOff", fallback: "Needs Screen Recording access, below")
+        }
+        return nil
+    }
+}
+
+struct ScreenDisplayChoice: Identifiable, Equatable {
+    let id: UInt32
+    let name: String
+}
+
+private struct MacScreenSettingsCard: View {
+    let model: SettingsModel
+    let actions: SettingsActions
+
+    var body: some View {
+        if let session = model.screenSession {
+            SettingsCard {
+                SettingsRow(title: session.controlling
+                                ? String(format: L10n.text("display.pill.controlling", fallback: "%@ is viewing and controlling this screen"), session.deviceName)
+                                : String(format: L10n.text("display.pill.viewing", fallback: "%@ is viewing this screen"), session.deviceName),
+                            subtitle: String(format: L10n.text("display.active.since", fallback: "Since %@"),
+                                             session.startedAt.formatted(date: .omitted, time: .shortened)),
+                            divider: false) {
+                    Button(L10n.text("action.stop", fallback: "Stop"), action: actions.stopScreenShare)
+                        .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+                }
+            }
+            .settingsSearchSkip()
+        }
+        SettingsCard(title: MacScreenSettings.cardTitle, footnote: MacScreenSettings.footnote) {
+            if model.trustedDevices.isEmpty {
+                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"), divider: false) { EmptyView() }
+                    .settingsSearchSkip()
+            }
+            ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
+                MacScreenGrantRow(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
+            }
+            SettingsRow(title: MacScreenSettings.displayTitle, divider: !model.trustedDevices.isEmpty) {
+                ChoiceButton(value: model.screenDisplays.first { $0.id == model.screenDisplayID }?.name
+                                 ?? L10n.text("display.name.fallback", fallback: "Display")) {
+                    model.screenDisplays.map { display in
+                        PopUpMenuItem(title: display.name, checked: display.id == model.screenDisplayID) { actions.setScreenDisplay(display.id) }
+                    }
+                }
+            }
+            ScreenRecordingRow(allowed: model.screenRecordingAllowed, open: actions.openScreenRecordingSettings)
+        }
+        .settingsSearchScope(MacScreenSettings.scope)
+    }
+}
+
+/// One phone's choice: Off, Ask each time or Allow without asking. On Settings > Devices > phone and in the card.
+struct MacScreenGrantRow: View {
+    let device: TrustedDeviceInfo
+    let model: SettingsModel
+    let actions: SettingsActions
+    var title: String?
+    var divider = true
+
+    var body: some View {
+        let mode = model.screenGrants[device.id] ?? .off
+        let warning = MacScreenSettings.note(device: device, model: model)
+        SettingsRow(title: title ?? MacScreenSettings.grantTitle, subtitle: warning, subtitleIsWarning: warning != nil, divider: divider) {
+            ChoiceButton(value: MacScreenSettings.modeTitle(mode)) {
+                MacScreenGrantMode.allCases.map { choice in
+                    PopUpMenuItem(title: MacScreenSettings.modeTitle(choice), checked: choice == mode) { actions.setScreenGrant(device.id, choice) }
+                }
+            }
+        }
+    }
+}
+
+private struct ScreenRecordingRow: View {
+    let allowed: Bool
+    let open: () -> Void
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        SettingsRow(title: MacScreenSettings.recordingTitle,
+                    subtitle: allowed
+                        ? L10n.text("display.settings.recording.on", fallback: "Allowed. Bridgey captures the screen only while a phone you allow is watching.")
+                        : L10n.text("display.settings.recording.off", fallback: "Needed to share this screen. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Screen & System Audio Recording."),
+                    subtitleIsWarning: !allowed) {
+            if allowed {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
+                    Text(L10n.text("remote.accessibility.allowed", fallback: "Allowed"))
+                }
+                .font(BrandFont.body(12, .semibold))
+                .foregroundStyle(c.tgi)
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(Capsule().fill(c.tg))
+            } else {
+                Button(L10n.text("remote.accessibility.open", fallback: "Open System Settings"), action: open)
+                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+            }
+        }
     }
 }

@@ -68,6 +68,8 @@ enum SettingsSearchRegistry {
     static let ping = ["alert", "пинг"]
     static let battery = ["charge", "power", "low battery", "батарея", "заряд"]
     static let remote = ["mouse", "trackpad", "touchpad", "keyboard", "slides", "presentation", "мышь", "клавиатура", "презентация"]
+    static let screenShare = ["screen sharing", "share screen", "see screen", "view screen", "mirror", "remote desktop", "vnc",
+                              "экран", "показ экрана", "трансляция экрана", "демонстрация экрана"]
     static let previews = ["privacy", "preview", "превью"]
     static let activity = ["history", "история"]
     static let logs = ["logs", "debug", "diagnostics", "логи", "журнал"]
@@ -311,6 +313,13 @@ enum SettingsSearchRegistry {
             row("remote.accessibility", .remoteControl, L10n.text("remote.accessibility", fallback: "Accessibility access"), nil, remote + ["permission", "разрешение"]),
             row("remote.stop", .remoteControl, L10n.text("remote.stop.title", fallback: "Stop at any time"), nil, ["escape", "stop", "остановить"]),
             row("remote.devices", .remoteControl, remoteDevices, nil, remote + ["allow", "разрешить"]),
+            SettingsSearchEntry(id: "remote.displayShare.display", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                title: MacScreenSettings.displayTitle, keywords: screenShare + ["display", "monitor", "дисплей", "монитор"],
+                                scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
+            SettingsSearchEntry(id: "remote.displayShare.recording", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                title: MacScreenSettings.recordingTitle,
+                                keywords: screenShare + ["permission", "screen recording", "privacy", "разрешение", "запись экрана"],
+                                scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
             row("remote.screen", .remoteControl, section: PhoneScreenSettings.cardTitle, PhoneScreenSettings.switchTitle, PhoneScreenSettings.switchDetail,
                 ["screen sharing", "mirror", "экран"], sync: .featureScreen),
             row("remote.log", .remoteControl, L10n.text("remote.log", fallback: "Session log"), nil, logs + activity),
@@ -427,6 +436,7 @@ enum SettingsSearchRegistry {
             if feature == .clipboard { rows.append((L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"), clipboard)) }
         }
         rows.append((L10n.text("remote.grant", fallback: "Allow remote control"), remote))
+        rows.append((MacScreenSettings.grantTitle, screenShare))
         rows.append((L10n.text("actions.grant", fallback: "Allow Mac actions"), featureWords(.macActions)))
         rows.append((L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"), featureWords(.callQuiet)))
         rows.append((L10n.text("settings.sync.device", fallback: "Sync settings with this device"), sync))
@@ -491,6 +501,9 @@ enum SettingsSearchRegistry {
             out.append(SettingsSearchEntry(id: "remote.device.\(device.id)", pane: .remoteControl,
                                            section: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"),
                                            title: device.name, keywords: remote + ["allow", "разрешить"]))
+            out.append(SettingsSearchEntry(id: "display.device.\(device.id)", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                           title: device.name, keywords: screenShare + ["allow", "разрешить"],
+                                           scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle))
             // Calls window: each phone's permission, drawn while the window is on (a Mac or restricted device is not listed).
             if model.globalFeatures[.dialer] == true, !model.restrictedDevices.contains(device.id), !model.macDevices.contains(device.id) {
                 out.append(SettingsSearchEntry(id: "calls.device.\(device.id)", pane: .calls, section: BridgeyFeature.dialer.title,

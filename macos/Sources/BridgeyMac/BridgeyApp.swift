@@ -91,12 +91,14 @@ enum MenuBarHost {
         }
         status = controller
         MenuBarDropController.shared.attach(pairing: pairing, status: controller)
-        Publishers.CombineLatest(pairing.$state, pairing.remoteInput.$active)
+        Publishers.CombineLatest3(pairing.$state, pairing.remoteInput.$active, pairing.macScreen.$active)
             .receive(on: DispatchQueue.main)
-            .sink { state, active in
+            .sink { state, active, screen in
                 let symbol: String
-                if active != nil {
+                if active != nil || screen?.controlling == true {
                     symbol = "cursorarrow.rays"
+                } else if screen != nil {
+                    symbol = "rectangle.on.rectangle"
                 } else if case .connected = state {
                     symbol = "link.circle.fill"
                 } else {

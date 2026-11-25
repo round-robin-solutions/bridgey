@@ -16,21 +16,35 @@ final class RemoteControlIndicator: RemoteControlIndicating {
     private var laserDisplay: CGRect?
     private var stopHotKey: GlobalHotKey?
 
+    /// The Carbon hot key ID: remote control and screen sharing each have their own indicator.
+    private let hotKeyIdentifier: UInt32
+
+    init(hotKeyIdentifier: UInt32 = 90) {
+        self.hotKeyIdentifier = hotKeyIdentifier
+    }
+
     func show(deviceName: String, mode: RemoteInputMode, onStop: @escaping () -> Void) {
+        show(title: String(format: L10n.text("remote.pill.title", fallback: "%@ is controlling this Mac"), deviceName),
+             symbol: mode == .presentation ? "play.rectangle" : "cursorarrow.rays", screen: nil, onStop: onStop)
+    }
+
+    /// The pill with any title ("Pixel 9 is viewing this screen"), on `screen` (the shared display) or the screen
+    /// with the pointer.
+    func show(title: String, symbol: String, screen preferred: NSScreen?, onStop: @escaping () -> Void) {
         hide()
-        let content = RemoteControlPillWindowContent(deviceName: deviceName, mode: mode, onStop: onStop)
+        let content = RemoteControlPillWindowContent(title: title, symbol: symbol, onStop: onStop)
         let host = FirstClickHostingView(rootView: content)
         let size = host.fittingSize
         let panel = Self.overlayPanel(size: size)
         panel.contentView = host
         panel.ignoresMouseEvents = false
-        let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
+        let screen = preferred ?? NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {
             panel.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: visible.maxY - size.height - 10))
         }
         panel.orderFrontRegardless()
         pill = panel
-        stopHotKey = GlobalHotKey(keyCode: UInt32(kVK_Escape), modifiers: UInt32(controlKey | optionKey), identifier: 90, action: onStop)
+        stopHotKey = GlobalHotKey(keyCode: UInt32(kVK_Escape), modifiers: UInt32(controlKey | optionKey), identifier: hotKeyIdentifier, action: onStop)
     }
 
     func hide() {
@@ -90,23 +104,35 @@ private final class FirstClickHostingView<Content: View>: NSHostingView<Content>
 
 /// The pill in its window: the palette follows the system appearance.
 private struct RemoteControlPillWindowContent: View {
-    let deviceName: String
-    let mode: RemoteInputMode
+    let title: String
+    let symbol: String
     let onStop: () -> Void
 
     var body: some View {
         BrandRoot(reduceMotion: UserDefaults.standard.bool(forKey: "settings.reduceMotion")) {
-            RemoteControlPill(deviceName: deviceName, mode: mode, onStop: onStop)
+            RemoteControlPill(title: title, symbol: symbol, onStop: onStop)
                 .padding(10)
         }
     }
 }
 
-/// "OnePlus 11 is controlling this Mac", the stop shortcut, and Stop.
+/// "OnePlus 11 is controlling this Mac" (or "Pixel 9 is viewing this screen"), the stop shortcut, and Stop.
 struct RemoteControlPill: View {
-    let deviceName: String
-    let mode: RemoteInputMode
+    let title: String
+    let symbol: String
     let onStop: () -> Void
+
+    init(title: String, symbol: String, onStop: @escaping () -> Void) {
+        self.title = title
+        self.symbol = symbol
+        self.onStop = onStop
+    }
+
+    /// Remote control's own pill: "OnePlus 11 is controlling this Mac".
+    init(deviceName: String, mode: RemoteInputMode, onStop: @escaping () -> Void) {
+        self.init(title: String(format: L10n.text("remote.pill.title", fallback: "%@ is controlling this Mac"), deviceName),
+                  symbol: mode == .presentation ? "play.rectangle" : "cursorarrow.rays", onStop: onStop)
+    }
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
     @Environment(\.snapshotRendering) private var snapshot
@@ -127,11 +153,11 @@ struct RemoteControlPill: View {
             }
             .frame(width: 18, height: 18)
             .accessibilityHidden(true)
-            Image(systemName: mode == .presentation ? "play.rectangle" : "cursorarrow.rays")
+            Image(systemName: symbol)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(c.on2)
                 .accessibilityHidden(true)
-            Text(String(format: L10n.text("remote.pill.title", fallback: "%@ is controlling this Mac"), deviceName))
+            Text(title)
                 .font(BrandFont.body(13, .semibold))
                 .foregroundStyle(c.on)
                 .lineLimit(1)
@@ -141,8 +167,8 @@ struct RemoteControlPill: View {
                 .padding(.horizontal, 6)
                 .frame(height: 20)
                 .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(c.s3))
-                .help(L10n.text("remote.pill.shortcut", fallback: "Control-Option-Escape also stops remote control"))
-                .accessibilityLabel(L10n.text("remote.pill.shortcut", fallback: "Control-Option-Escape also stops remote control"))
+                .help(L10n.text("remote.pill.shortcut.stops", fallback: "Control-Option-Escape also stops"))
+                .accessibilityLabel(L10n.text("remote.pill.shortcut.stops", fallback: "Control-Option-Escape also stops"))
             Button(L10n.text("action.stop", fallback: "Stop"), action: onStop)
                 .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
         }

@@ -31,6 +31,8 @@ struct PhoneLinkState: Equatable {
     var updateStatus: PeerUpdateStatus?
     /// The phone advertised `screen_draft1`: it shares its screen with this Mac.
     var remoteScreen = false
+    /// The phone advertised `screen_control_draft1`: it shows this Mac's screen (Mac screen to phone).
+    var remoteScreenControl = false
     /// The phone advertised `sms_draft1`: Text messages is on there for this Mac.
     var remoteSms = false
     /// This session supplied a validated sms.status, including older Android peers without platform metadata.
