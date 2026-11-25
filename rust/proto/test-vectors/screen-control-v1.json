@@ -29,11 +29,31 @@
     {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "geometry_ack"}},
     {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 2, "input": {"op": "pointer", "x": 0.25, "y": 0.75}},
     {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 3, "input": {"op": "button", "button": "primary", "down": true, "x": 0.25, "y": 0.75}},
-    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 4, "input": {"op": "button", "button": "primary", "down": false, "x": 0.25, "y": 0.75}}
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 4, "input": {"op": "button", "button": "primary", "down": false, "x": 0.25, "y": 0.75}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 5, "input": {"op": "scroll", "dx": 0, "dy": -120, "x": 0.5, "y": 0.5}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 6, "input": {"op": "key", "key": "shift", "down": true}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 7, "input": {"op": "key", "key": "tab", "down": true}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 8, "input": {"op": "key", "key": "tab", "down": false}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 9, "input": {"op": "key", "key": "shift", "down": false}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 10, "input": {"op": "text", "text": "Hello, Привет"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 11, "input": {"op": "heartbeat"}}
   ],
   "invalidPackets": [
     {"v": 1, "session": 1, "transport": 1, "connection": [7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}},
     {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 0, "input": {"op": "heartbeat"}},
-    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "shell"}}
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "shell"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}, "sender": "phone"},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "pointer", "x": 0.5, "y": 0.5, "pressure": 1}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "pointer", "x": 0.5}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1.5, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 9007199254740992, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "button", "button": "fourth", "down": true, "x": 0.5, "y": 0.5}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "scroll", "dx": 0.5, "dy": 1, "x": 0.5, "y": 0.5}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "text"}},
+    {"v": 2, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,256], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 0, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "geometry": 1, "seq": 1, "input": {"op": "heartbeat"}},
+    {"v": 1, "session": 1, "transport": 1, "connection": [7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7], "stream": 4, "seq": 1, "input": {"op": "heartbeat"}}
   ]
 }

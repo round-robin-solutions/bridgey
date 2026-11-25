@@ -1,9 +1,14 @@
 # Shared screen/control contract
 
-Status: **foundation only, not wired into an app or advertised to peers**. This
-adds a portable draft contract and host reducer in
-`rust/proto/src/screen_control.rs`. It does not add a native capture/input adapter,
-enable a permission, store a control grant, or make a platform's app complete.
+Status: **draft, with native ports, not advertised to peers yet**. The portable
+contract and host reducer are in `rust/proto/src/screen_control.rs`. The Mac has a
+Swift port of the codec and `HostSession`
+(`macos/Sources/BridgeyMac/ScreenControlContract.swift`) and the phone a Kotlin port
+of the codec (`android/app/src/main/java/dev/bridgey/android/display/ScreenControlContract.kt`);
+both check the vectors below. The apps load the Rust core with `dlopen` and must work
+without it, so they do not link this module (see platform-architecture.md: measure
+before moving working code across the FFI). Mac screen to phone
+(`screen_control_draft1`, [protocol.md](protocol.md)) is the first native use.
 Existing `screen_draft1` and `remote_input_draft1` behavior is unchanged.
 
 Android, macOS, Windows, Linux and iOS/iPadOS clients use this same contract when

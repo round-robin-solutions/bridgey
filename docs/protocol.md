@@ -128,7 +128,7 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `files_resume_draft1`, `lan_first_draft1`, `lan_first_draft2`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
+`screen_draft1`, `screen_control_draft1`, `connect_draft1`, `files_fast_draft1`, `files_resume_draft1`, `lan_first_draft1`, `lan_first_draft2`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
 `ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -1176,6 +1176,214 @@ its minimum (at most every 500 ms), and up by 15 percent after 2 seconds without
 | Another device on the network watches or injects frames | Frames are AES-GCM encrypted with the session key of the authenticated, pinned peer. The per-stream sequence and the stream ID in each header reject replays and splicing between streams; the session key rejects them across sessions |
 | A flood of frames or huge frames | Parts are at most 32 KiB, frames at most 64 parts, and the Mac keeps one unfinished frame. Frames go only to a Mac whose switch is on; the Mac stops a stream with no traffic for 6 seconds |
 | Sharing left running unnoticed | The notification stays until the stream ends; Stop on either side, a locked screen, a disconnect or switching the feature off ends it |
+### Mac screen to phone (`screen_control_draft1`)
+
+Status: **Draft, edition only.** The phone shows a Mac's screen and, when the Mac allows it, controls
+that screen with absolute positions on the shared display. It is the first native use of the shared
+contract in [screen-control-core.md](screen-control-core.md) (`bridgey-screen-control-draft1`,
+`rust/proto/src/screen_control.rs`); the decisions behind it are in
+[screen-control-decision.md](screen-control-decision.md). Old peers keep `screen_draft1` (the phone's
+screen on the Mac) and `remote_input_draft1` (the touchpad) exactly as they are; nothing below changes
+them. The phone as a screen source for the Mac is the next step and is not part of this draft yet.
+
+The *source* is the device whose screen is shown (the Mac today) and the *viewer* the device that shows
+it and may control it (the phone today).
+
+**Negotiation and grants.** `features.update` gains the boolean key `screen_control_draft1`. The viewer
+sets it while its "See Mac screens" switch is on for that Mac (the source is the gate, so it is on by default on
+installs from before off-until-chosen; a new install turns it on in Settings > Remote control). The source sets
+it, per paired device, only while that device has a screen grant on the source:
+
+| Grant on the source | Meaning |
+| --- | --- |
+| Off | The default for every device, also after an update. The key is `false` for that device |
+| Ask each time | Every request shows a prompt on the source ("Pixel 9 wants to see this screen", Allow and Don't allow). Nothing starts until the person at the source allows it |
+| Allow without asking | A persistent unattended grant, only for a device the person picked explicitly. Requests start without a prompt |
+
+Grants live in the source's own private storage (on the Mac a `0600` file in its support folder, next
+to the pairing file), separate from pairing and from settings sync. They are never synced, never sent to
+another device and bound to the device's pinned identity key: a device that pairs again with a different
+key has no grant. Forgetting a device removes its grant. Pairing alone grants nothing.
+
+Viewing and control are separate permissions. Viewing needs the screen grant above. Control additionally
+needs the source's existing remote control permission for that device (on the Mac: Remote control on,
+and the phone allowed in "Phones allowed to control this Mac") and the operating system's own permission
+to inject input (macOS Accessibility). Seeing the screen never implies control, and control starts only
+when the viewer asks for it during a stream.
+
+No grant bypasses the operating system. The Mac needs Screen Recording for the real display; Bridgey
+asks macOS for it only when the person changes a device's grant from Off in Settings, never for a request
+from a device. Without it the source answers `permission`.
+
+**Encryption and replay.** Every message is AES-GCM encrypted on the current authenticated session.
+`display.request` and `display.status` carry a unique `messageId` in the shared replay window, like
+`screen.request`. The stream messages do not enter that window (30 frames a second would push every
+other feature's IDs out of it): `display.start`, `display.started`, `display.ack`, `display.stats`,
+`display.geometry`, `display.control` and `display.stop` carry a unique `messageId` and the sender's
+per-stream `sequence` (1, 2, 3, ..., counted separately on each side, the source from `display.start`,
+the viewer from `display.started`, JSON and frames alike on the source side); a receiver drops any of
+them whose `sequence` is not higher than the last one it accepted from that side for that stream.
+`display.frame` has only `sessionId`, `nonce` and `ciphertext`; its header carries the sequence.
+`display.input` is the shared contract's input packet and uses that packet's own `seq`. Malformed,
+out-of-sequence or undecryptable messages are dropped and counted, never answered, and never close the
+transport session. JSON plaintext is UTF-8 with `version: 1`.
+
+**Asking.**
+
+| Message | Direction | Fields | Meaning |
+| --- | --- | --- | --- |
+| `display.request` | viewer to source | `requestId` (UUID); `capabilities` (the viewer's contract capabilities, below) | "See screen" on the phone. At most 1,024 bytes. One open request per viewer, at most one every 3 seconds; it expires after 2 minutes |
+| `display.status` | source to viewer | `requestId`, `status` | `waiting` (the source shows its prompt), `declined` (the person said no, or the prompt expired), `busy` (another device is viewing), `disabled` (no grant for this device), `permission` (the operating system does not allow capture; on the Mac, Screen Recording), `locked` (the source is locked), `failed`. At most 512 bytes. The viewer drops an unknown status |
+
+A request from a device whose stream is running ends that stream first; the new request then goes
+through the grant rules again, so in Ask each time mode it asks again. A request never resumes an older
+stream.
+
+**Stream messages.** The source chooses a `streamId` (UUID) and uses it once; the viewer remembers the
+last 16 ended stream IDs and ignores a start that reuses one.
+
+| Message | Direction | Fields (besides `version`, `streamId`, `sequence`) | Meaning |
+| --- | --- | --- | --- |
+| `display.start` | source to viewer | `requestId`; `codec`: `h264`; `fps` (1 to 60); `bitrate` (100,000 to 50,000,000); `stream` and `transport` (contract counters, 1 to 2^53-1, issued by the source); `geometry` (below); `capabilities` (the source's contract capabilities); `control` (boolean: control may be asked for now); optional `displayName` (at most 64 UTF-8 bytes) | A new stream answering the request. At most 2,048 bytes. Its first frame is a key frame |
+| `display.started` | viewer to source | none | The viewer is showing the stream; frames may follow. The source gives up after 5 seconds without it |
+| `display.frame` | source to viewer | binary, the `screen.frame` layout | One part of one encoded frame |
+| `display.ack` | viewer to source | `frame`, `decodeMs`; optional `keyframe`: `true` | As `screen.ack`, in the other direction |
+| `display.stats` | source to viewer | `latencyMs`, `rttMs`, `bitrate`, `sentBitrate`, `fps`, `dropped` | As `screen.stats`, once a second |
+| `display.geometry` | source to viewer | `geometry` | The shared display changed size or scale: a new geometry generation. Frames of the new size start with a key frame carrying its SPS and PPS |
+| `display.control` | either | viewer: `action`: `begin` or `end`. Source: `state`: `active`, `ended` or `refused`; with `active`: `session` (1 to 2^53-1) and `input` (the negotiated input capabilities); with `ended` or `refused`: `reason` | Control during a stream (below) |
+| `display.input` | viewer to source | the contract input packet (below) | Input for the active control session. At most 2,048 bytes |
+| `display.stop` | either | `reason` | Ends the stream, and any control with it |
+
+The other JSON stream messages are at most 512 bytes.
+
+| `display.stop` reason | Sent by | Meaning |
+| --- | --- | --- |
+| `user` | viewer | the person tapped Stop |
+| `left_screen` | viewer | the viewer's screen closed or went to the background |
+| `screen_off` | viewer | the viewer's screen turned off |
+| `local_stop` | source | stopped on the source (Stop in its indicator, its stop shortcut or Settings) |
+| `disabled` | source | the grant was turned off |
+| `permission` | source | the capture permission went away |
+| `locked` | source | the source locked or switched user |
+| `source_changed` | source | the shared display went away or was replaced |
+| `invalid` | either | a malformed start or stream |
+| `timeout` | either | no `display.started` within 5 seconds, no `display.ack` for 6 seconds while frames were outstanding, or no frame or `display.stats` for 6 seconds |
+| `failed` | either | capture, encoder or decoder failure |
+
+An unknown `reason` reads as `failed`. When the transport session closes, both sides end the stream
+locally (`disconnected`, never sent). A reconnect never resumes a stopped or disconnected stream; the
+person asks again. One stream at a time per source.
+
+**Frames and pacing.** `display.frame` uses the `screen.frame` plaintext unchanged (40-byte header, H.264
+Annex B, parts of at most 32,768 bytes, at most 64 parts, every key frame starting with SPS and PPS, no
+B-frames). The source paces exactly as the phone does for `screen_draft1`: at most 6 frames and at most
+max(64 KiB, 250 ms at the current bit rate) unacknowledged, dropping until the next key frame when a
+frame does not fit, the bit rate down by a quarter on a drop or a round trip 80 ms over its minimum and
+up by 15 percent after 2 calm seconds, between 300 kb/s and 8 Mb/s. The viewer acknowledges every frame
+it receives completely, including frames it drops while waiting for a key frame. The long side of the
+stream is at most 1,920 pixels.
+
+**Capabilities.** `capabilities` is the contract's `Capabilities` object (`v: 1`, `screenSource`,
+`screenViewer`, `fullDisplaySource`, `h264Encode`, `h264Decode`, `inputHost`, `inputController`,
+`captureRequiresPrompt`, `captureRestoreSupported`; missing flags are false, unknown flags ignored, any
+other `v` rejected). They describe support, never permission. Today the Mac sends `screenSource`,
+`fullDisplaySource`, `h264Encode`, `captureRestoreSupported` and `inputHost` pointer, keys and text; the
+phone sends `screenViewer`, `h264Decode` and `inputController` pointer, keys and text. Control uses
+`Capabilities.negotiated_input` of the two.
+
+**Geometry.** `geometry` is the contract's `Geometry` object: `generation` (1 to 2^53-1, increases on
+every change), `source` (the source's display, 1 to 2^53-1; on the Mac the `CGDirectDisplayID`),
+`kind` (`display`; a window is never shared here), `width` and `height` (the captured pixels, 1 to
+32,768 each, at most 67,108,864 in total; even, the size of the stream). The source picks the display
+(Settings on the Mac, the main display by default) and maps it; the viewer never names a display.
+
+The captured size keeps the display's aspect ratio with the long side at most 1,920 pixels:
+`s = min(1, 1920 / max(nativeWidth, nativeHeight))`, `width = max(16, floor(nativeWidth * s / 2) * 2)`,
+and the same for the height, where the native size is the display's size in pixels (its point size times
+its scale on a Retina display).
+
+The viewer shows the stream letterboxed: with a view of `vw` by `vh` pixels, `k = min(vw / width, vh /
+height)`, the picture is `width * k` by `height * k`, centred. A touch at `(tx, ty)` becomes
+`x = (tx - left) / (width * k)` and `y = (ty - top) / (height * k)`; a touch outside `[0, 1]` on either
+axis is on the letterbox and sends nothing. Rotating the viewer only changes `vw` and `vh`.
+
+The source maps a validated packet position to its display: the contract's `Geometry.pixel` gives the
+captured pixel `(px, py)` = `(round(x * (width - 1)), round(y * (height - 1)))`, and the Mac posts the
+event at `originX + (px + 0.5) * boundsWidth / width`, `originY + (py + 0.5) * boundsHeight / height`
+in global display points (Quartz: origin at the top left of the main display, y down, negative on a
+display left of or above it). The scale cancels out, and a point can never land outside the selected
+display.
+
+**Control.** While a stream runs and `display.start` (or a later `display.control`) said control may be
+asked for, the viewer sends `display.control` `begin`. The source checks the control permission, the
+operating system permission, that it is unlocked and that no other device is controlling it (touchpad
+included), then begins a contract session (`HostSession.begin`) bound to this stream, this transport and
+the current geometry, and answers `active` with the session number and the negotiated input. Otherwise
+it answers `refused` with a reason. Either side ends control without ending the stream: the viewer with
+`display.control` `end` (or a contract `stop` packet), the source with `ended` and a reason.
+
+| Control `reason` | Meaning |
+| --- | --- |
+| `user` | the viewer ended control |
+| `local_stop` | stopped on the source |
+| `disabled` | the control permission for this device is off |
+| `permission` | the operating system does not allow input (macOS Accessibility) |
+| `locked` | the source is locked |
+| `busy` | another device is controlling the source |
+| `focus` | typing was refused because the focused window is not on the shared display |
+| `timeout` | 6 seconds without valid input or a heartbeat |
+| `rate` | a key or button transition over the rate limit |
+| `invalid` | a sequence gap, an invalid transition, input on an old geometry while something was held, or a malformed packet |
+| `source_changed` | the shared display was replaced |
+| `failed` | anything else |
+
+An unknown reason reads as `failed`.
+
+`display.input` carries exactly the contract's input packet, as in
+[`screen-control-v1.json`](../rust/proto/test-vectors/screen-control-v1.json): `v`, `session`, `transport`,
+`connection`, `stream`, `geometry`, `seq`, `input`. `session` comes from `active`, `transport` and
+`stream` from `display.start`, `geometry` is the generation the viewer acknowledged, and `seq` counts
+1, 2, 3, ... within the control session. `connection` is the 16 bytes
+`HMAC-SHA256(session key, UTF-8 "bridgey-screen-control-connection-v1" || 0x00 || UTF-8 sessionId)[0..16]`,
+computed by both sides from the current session's AES key and session ID. Every session has a fresh
+key, so the nonce is never reused across sessions or after a restart; the source compares it with its
+own value and the packet cannot name its own sender.
+
+The first packet is `geometry_ack` for the current generation; input is refused until it arrives. After
+`display.geometry` the viewer drops every input it has not sent yet, resets its gestures (the source has
+already released held buttons and keys) and acknowledges the new generation before sending more.
+Pointer, button and scroll positions are fractions of the full captured display (`x`, `y` in `[0, 1]`,
+after the letterbox is removed). The viewer coalesces pointer motion before assigning `seq`, never drops
+a key or button transition it has numbered, keeps within 120 motion, 20 discrete and 10 control packets
+a second, and sends `heartbeat` every 2 seconds while control is on. `stop` ends control and is never
+rate limited.
+
+On the Mac, keys are the contract's named keys without Control, Option and Command (a packet with one of
+those ends control as `invalid`); `text` is typed as text, never as shortcuts; key and text input need
+the focused window on the shared display (with more than one display), otherwise control ends as
+`focus`. The source applies every release the contract returns before injecting anything else. Stop on
+either end, a geometry change, a disconnect, permission loss, a lock or a grant change drops pending
+input and releases held buttons and keys.
+
+**Visible on both ends.** While a stream runs the Mac shows "Pixel 9 is viewing this screen" (or
+"viewing and controlling") in its indicator at the top of the screen, with Stop, and the stop shortcut
+(Control-Option-Escape) works too; the menu bar icon changes. The phone shows which Mac it is viewing,
+whether it is controlling, and Stop. Leaving the phone's viewer stops the stream.
+
+**Security.**
+
+| Threat | Mitigations |
+| --- | --- |
+| A paired phone watches the Mac without the person knowing | Off by default per device. Ask each time shows a prompt for every stream; Allow without asking only for devices picked explicitly. The indicator names the viewer for the whole stream, with Stop on the Mac and the stop shortcut. Locking the Mac ends it |
+| The phone answers the Mac's own prompt with remote control | While any remote control session runs, the prompt's Allow does nothing; the person stops remote control first |
+| A grant outlives its device or travels | Grants are local files bound to the pinned key, never synced or sent, removed with the device |
+| Control without consent | Control needs its own permission, the operating system's permission, a running stream and an explicit `begin`; it ends on Stop, lock, permission or grant changes |
+| Input lands on the wrong display or the letterbox | Positions are fractions of the acknowledged geometry; the viewer sends nothing for the letterbox, the source rejects anything outside `[0, 1]` and maps it onto the selected display only. A geometry change blocks input until it is acknowledged |
+| Replayed or spliced input | The packet binds session, transport, the connection nonce, stream and geometry; the contract sequence rejects replays and gaps; the session key rejects them across sessions |
+| A flood of frames or input | Frames follow the `screen_draft1` limits; input follows the contract's rate limits, and a numbered key or button over the limit ends control rather than sticking |
+| Typing outside what the viewer sees | Key and text input need the focused window on the shared display; no modifier other than Shift exists on the Mac |
+| Screen content kept | Neither side saves, records or forwards frames |
+
 ### Text messages (`sms_draft1`)
 
 Status: **Draft, edition only.** Bridgey by Round Robin shows the phone's SMS conversations on the
