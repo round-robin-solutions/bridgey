@@ -119,6 +119,12 @@ data class BridgeySettingsState(
      */
     val allowBrowseFromOtherDevices: Boolean = true,
     /**
+     * Files > Resume interrupted files automatically: single files a disconnect interrupted go again when their
+     * device reconnects within 24 hours, from what it kept (files_resume_draft1), as folders resume. On by default
+     * (the coordinator's call under Rahul's "sensible default with customisation" rule). On this phone only.
+     */
+    val autoResumeFiles: Boolean = true,
+    /**
      * Files > Include hidden files when sending folders: dotfiles and dot-folders that are not system files. Off by
      * default, as on the Mac (`settings.folders.includeHidden`). Applies to folders this phone sends and to folders a
      * Mac downloads from it.
@@ -483,6 +489,11 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(allowBrowseFromOtherDevices = enabled)
     }
 
+    fun setAutoResumeFiles(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_FILES_AUTO_RESUME, enabled).apply()
+        mutableState.value = mutableState.value.copy(autoResumeFiles = enabled)
+    }
+
     @Synchronized
     fun addRecentFolderDestination(destination: FolderDestination) {
         val list = recentDestinations(mutableState.value.recentFolderDestinations, destination)
@@ -567,6 +578,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
             folderIncludeHidden = preferences.getBoolean(KEY_FOLDER_INCLUDE_HIDDEN, false),
             folderIncludeSystem = preferences.getBoolean(KEY_FOLDER_INCLUDE_SYSTEM, false),
             allowBrowseFromOtherDevices = preferences.getBoolean(KEY_FILES_ALLOW_BROWSE, true),
+            autoResumeFiles = preferences.getBoolean(KEY_FILES_AUTO_RESUME, true),
             recentFolderDestinations = decodeDestinations(preferences.getString(KEY_FOLDER_RECENT, null)),
             logging = loggingPolicyFrom { key, default -> preferences.getBoolean(key, default) },
             smartNotificationRouting = preferences.getBoolean(KEY_SMART_NOTIFICATIONS, true),
@@ -611,6 +623,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_FOLDER_INCLUDE_HIDDEN = "files.folder_include_hidden"
         internal const val KEY_FOLDER_INCLUDE_SYSTEM = "files.folder_include_system"
         private const val KEY_FILES_ALLOW_BROWSE = "files.allow_browse"
+        private const val KEY_FILES_AUTO_RESUME = "files.auto_resume"
         private const val KEY_FOLDER_RECENT = "files.folder_recent"
         private const val KEY_SMART_NOTIFICATIONS = "notifications.smart_routing"
         private const val KEY_PREFERRED_NOTIFICATION_DEVICE = "notifications.preferred_device"
