@@ -108,7 +108,9 @@ the tables at the end of this page are generated from it with
   pick the same device to ask on a first connect (`settingsAsker`) and stamp a local edit alike (`settingsStamp`).
 - Resuming files (`files_resume_draft1`): [`protocol/test-vectors/files-resume-v1.json`](../protocol/test-vectors/files-resume-v1.json)
   pins the prefix hashes, both payloads, the receiver's and the sender's decisions, retention and the designed folder
-  rules. `rust/client` checks every vector today; the Android and Mac suites decode them when they build the feature.
+  rules. `rust/client`, Android (`FileResumeVectorTest`) and the Mac (`FileResumeVectorTests`) check every vector, and
+  [`session-client-resume-v1.json`](../protocol/test-vectors/session-client-resume-v1.json), a resume recorded between
+  two session clients, is opened frame by frame by `SessionClientResumeVectorTest` and `SessionClientResumeVectorTests`.
 - Fuzz tests on both platforms feed random bytes, truncated and oversized frames, wrong types,
   unknown kinds, replayed IDs and huge counts to the frame decoder and the payload decoders, and
   check that nothing crashes, memory stays bounded and a valid message still works afterwards. The

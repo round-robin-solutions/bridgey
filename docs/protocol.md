@@ -2154,7 +2154,7 @@ Wi-Fi power saving can still slow a transfer; the speed test reports `screenOn`.
 ## Draft: resuming files (`files_resume_draft1`)
 
 **Draft, edition only.** Design and trade-offs: [file-resume.md](file-resume.md). Built in the session client
-(`rust/client`, used by Windows and iOS); the Android and Mac apps follow. Shared vectors:
+(`rust/client`, used by Windows and iOS), the Android app and the Mac app. Shared vectors:
 `protocol/test-vectors/files-resume-v1.json`. Peers without the key keep [Files](#files-filesv1) as it is: an
 interruption deletes the partial file and a retry sends every byte again.
 
