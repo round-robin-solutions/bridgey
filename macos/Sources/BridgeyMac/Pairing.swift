@@ -7649,10 +7649,11 @@ enum SmsPhoneDisplay: Equatable {
 /// clipboard), `send-file` (a path), `codes` (`local` or `cloud`: turns Codes from messages on with that engine, as
 /// the switch in Settings > Notifications does; `off` turns it off), `read-code` (a message's text, read with the
 /// engine Codes from messages uses for text messages, through the same guard; status.json gets the outcome and the
-/// time, never the code), and `autoconfirm` (kept: "Codes match" is
-/// pressed for any prompt). Every second the instance writes `status.json` with its sessions, the codes settings,
-/// each phone's agents (name and whether Codes is on) and how many codes.found it sent, so a test can time
-/// connects and failovers and follow a code to the phone.
+/// time, never the code), `cancel-files` (Cancel on every transfer, as Cancel all), and `autoconfirm` (kept: "Codes
+/// match" is pressed for any prompt). `send-file` takes one path per line, sent in that order. Every second the
+/// instance writes `status.json` with its sessions, its transfer rows, the codes settings, each phone's agents (name
+/// and whether Codes is on) and how many codes.found it sent, so a test can time connects and failovers, follow a
+/// transfer and follow a code to the phone.
 extension PairingCoordinator {
     fileprivate var testControlDirectory: URL { URL(fileURLWithPath: "/tmp/\(Edition.identifier)-control", isDirectory: true) }
 
@@ -7759,7 +7760,11 @@ extension PairingCoordinator {
                                       "engine": self?.settings.codesEngine.rawValue ?? ""]
             }
         }
-        if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }
+        if let paths = takeTestCommand("send-file") {
+            let urls = paths.split(whereSeparator: \.isNewline).map { URL(fileURLWithPath: String($0)) }
+            if !urls.isEmpty { _ = sendDroppedFiles(urls, to: nil) }
+        }
+        if takeTestCommand("cancel-files") != nil { cancelFileTransfer() }
         if FileManager.default.fileExists(atPath: testControlDirectory.appendingPathComponent("autoconfirm").path),
            let current = pairingSession, let token = current.token, current.code != nil, !current.localConfirmed {
             confirm(token: token)
@@ -7777,7 +7782,11 @@ extension PairingCoordinator {
                                                                   stateThisSession: registry.state(for: id)?.agentsStateReceived == true,
                                                                   agents: agentsMirror.agents(on: id), now: now)]
         }
-        let status: [String: Any] = ["at": now.timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions,
+        let transfers: [[String: Any]] = fileTransfers.values.sorted { $0.startedAt < $1.startedAt }.map { row in
+            ["id": String(row.id.prefix(8)), "name": row.name, "status": row.status, "active": row.active, "incoming": row.incoming,
+             "queued": row.queued, "bytes": row.bytesDone ?? -1, "total": row.bytesTotal ?? -1]
+        }
+        let status: [String: Any] = ["at": now.timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions, "transfers": transfers,
                                      "presence": connect.presence.rawValue, "trusted": trustRegistry.devices.count,
                                      "codes": ["enabled": settings.codesEnabled, "engine": settings.codesEngine.rawValue,
                                                "modelReady": codeModel.isReady],

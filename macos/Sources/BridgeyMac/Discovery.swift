@@ -67,7 +67,7 @@ enum DiscoveryTXTRecord {
 
 @MainActor
 final class BonjourDiscovery: NSObject, ObservableObject {
-    static let serviceType = "_bridgey._tcp."
+    static let serviceType = TestInstance.serviceType ?? "_bridgey._tcp."
     // Immutable protocol/test-instance configuration is also read by background discovery.
     nonisolated static let defaultPort = Int32(TestInstance.listeningPort)
 
