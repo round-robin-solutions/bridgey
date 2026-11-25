@@ -583,8 +583,9 @@ impl Run {
         format!("stress-{tag}-{}-{}.bin", self.run_id, self.counter)
     }
 
+    /// Below 2^63, so the Android control (Kotlin `Long`) reads it as it is.
     fn seed(&mut self) -> u64 {
-        self.rng.0.next()
+        self.rng.0.next() >> 1
     }
 
     fn device(&self) -> Result<String, String> {
