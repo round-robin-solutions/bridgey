@@ -1171,14 +1171,13 @@ fn interrupt(run: &mut Run, sc: &mut Scenario, from_app: bool, how: Cut) -> Step
         let tag = format!("{}{how:?}", if from_app { "r" } else { "s" }).to_ascii_lowercase();
         let name = run.name(&tag);
         let mut r = Map::new();
-        // A file that finished before the cut landed is tried once more, cut nearer its start. A kill goes through the
-        // app's control program, so the file takes at least five seconds.
+        // A file that finished before the cut landed is tried once more, cut nearer its start. The file takes at least
+        // five seconds, so the cut lands near its point (progress comes four times a second) and a kill, which goes
+        // through the app's control program, lands mid-file.
         let mut attempt = 0;
         let (at_cut, t_cut, sha, path) = loop {
             attempt += 1;
-            if how == Cut::KillApp {
-                run.proxy.limit(size / 5);
-            }
+            run.proxy.limit(size / 5);
             // A kill needs a 64 MiB checkpoint behind it to have anything to resume from.
             let kill_floor = (0.3f64).max(80.0 * MIB as f64 / size as f64).min(0.7);
             let at = match (attempt, how) {
@@ -1348,8 +1347,10 @@ fn multi_drop(run: &mut Run, sc: &mut Scenario, from_app: bool) -> Step {
     let t0 = Instant::now();
     let mut lost_total = 0u64;
     let mut cuts = Vec::new();
+    // At least five seconds a file, so each cut lands near its point and some bytes move between cuts.
+    run.proxy.limit(size / 5);
     for k in 1..=5u64 {
-        let cut = size * k / 7;
+        let cut = (size * k / 7).max(run.transfer(id).bytes + size / 14);
         if run.wait_bytes(id, cut, run.timeout_for(size)).is_err() {
             break;
         }
@@ -1385,6 +1386,7 @@ fn multi_drop(run: &mut Run, sc: &mut Scenario, from_app: bool) -> Step {
         lost_total += at_cut.saturating_sub(resumed_at);
         cuts.push(json!({"cut_at_mib": mb(at_cut), "resumed_at_mib": mb(resumed_at), "reconnect_seconds": secs(t_cut.elapsed())}));
     }
+    run.proxy.limit(0);
     let t = run.wait_end(id, run.timeout_for(size))?;
     sc.check(t.done, format!("{name}: {:?}", t.failed));
     if t.done {
