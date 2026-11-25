@@ -198,6 +198,8 @@ struct Conn {
 struct ProxyState {
     target: SocketAddr,
     hold: AtomicBool,
+    /// Bytes a second each way per connection (0: as fast as it goes).
+    rate: AtomicU64,
     conns: Mutex<Vec<Conn>>,
     accepted: AtomicU64,
 }
@@ -211,7 +213,7 @@ impl Proxy {
     fn start(port: u16, target: SocketAddr) -> std::io::Result<Proxy> {
         let listener = TcpListener::bind(("127.0.0.1", port))?;
         let port = listener.local_addr()?.port();
-        let st = Arc::new(ProxyState { target, hold: AtomicBool::new(false), conns: Mutex::new(Vec::new()), accepted: AtomicU64::new(0) });
+        let st = Arc::new(ProxyState { target, hold: AtomicBool::new(false), rate: AtomicU64::new(0), conns: Mutex::new(Vec::new()), accepted: AtomicU64::new(0) });
         let accept = st.clone();
         std::thread::spawn(move || {
             for client in listener.incoming().flatten() {
@@ -238,6 +240,12 @@ impl Proxy {
     fn hold(&self, on: bool) {
         self.st.hold.store(on, Ordering::SeqCst);
     }
+
+    /// Caps each direction of each connection (0 lifts it), so a cancel or a kill sent through the app's control
+    /// program lands mid-file even on a link that moves a gigabyte a second.
+    fn limit(&self, bytes_per_second: u64) {
+        self.st.rate.store(bytes_per_second, Ordering::SeqCst);
+    }
 }
 
 impl ProxyState {
@@ -261,6 +269,7 @@ impl ProxyState {
 fn pump(mut from: TcpStream, mut to: TcpStream, st: &ProxyState, closed: &AtomicBool) {
     let _ = from.set_read_timeout(Some(Duration::from_millis(200)));
     let mut buf = vec![0u8; 256 * 1024];
+    let (mut since, mut moved) = (Instant::now(), 0u64);
     while !closed.load(Ordering::SeqCst) {
         if st.hold.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(50));
@@ -271,6 +280,18 @@ fn pump(mut from: TcpStream, mut to: TcpStream, st: &ProxyState, closed: &Atomic
             Ok(n) => {
                 if to.write_all(&buf[..n]).is_err() {
                     break;
+                }
+                let rate = st.rate.load(Ordering::Relaxed);
+                if rate == 0 {
+                    continue;
+                }
+                if since.elapsed() > Duration::from_secs(1) {
+                    (since, moved) = (Instant::now(), 0);
+                }
+                moved += n as u64;
+                let due = Duration::from_secs_f64(moved as f64 / rate as f64);
+                if let Some(wait) = due.checked_sub(since.elapsed()) {
+                    std::thread::sleep(wait);
                 }
             }
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut | std::io::ErrorKind::Interrupted) => {}
@@ -744,6 +765,7 @@ impl Run {
     /// Between scenarios: the link open, the app up and connected, nothing running, every stress file gone.
     fn settle(&mut self) -> Step {
         self.proxy.hold(false);
+        self.proxy.limit(0);
         if self.app_down {
             self.app.verb("start")?;
             self.app_down = false;
@@ -1030,10 +1052,13 @@ fn cancel(run: &mut Run, sc: &mut Scenario, from_app: bool, by_app: bool) -> Ste
         let name = run.name(if from_app { "crecv" } else { "csend" });
         let mut r = Map::new();
         // The app's cancel goes through its control program, so it lands later than this end's: the point is earlier,
-        // and a file that finished first is tried once more near its start.
+        // the file takes at least five seconds, and one that finished first is tried once more near its start.
         let mut attempt = 0;
         let (id, sha, t_cancel) = loop {
             attempt += 1;
+            if by_app {
+                run.proxy.limit(size / 5);
+            }
             let at = match (attempt, by_app) {
                 (1, true) => run.rng.between(0.05, 0.5),
                 (1, false) => run.rng.between(0.05, 0.95),
@@ -1054,8 +1079,11 @@ fn cancel(run: &mut Run, sc: &mut Scenario, from_app: bool, by_app: bool) -> Ste
             let t_cancel = Instant::now();
             if by_app {
                 run.app.verb("cancel")?;
-            } else {
-                run.client.cancel_file(id).map_err(|e| format!("cancel: {e}"))?;
+            } else if let Err(e) = run.client.cancel_file(id) {
+                // Refused only when the transfer already ended: finished first, tried again below.
+                if !run.wait_end(id, Duration::from_secs(5)).is_ok_and(|t| t.done) {
+                    return Err(format!("cancel: {e}"));
+                }
             }
             let t = run.wait_end(id, Duration::from_secs(30))?;
             r.insert("cancelled_at_mib".into(), json!(mb(reached)));
@@ -1066,6 +1094,7 @@ fn cancel(run: &mut Run, sc: &mut Scenario, from_app: bool, by_app: bool) -> Ste
             }
             break (id, sha, t_cancel);
         };
+        run.proxy.limit(0);
         let t = run.transfer(id);
         r.insert("seconds_to_end".into(), json!(t.ended.map(|e| secs(e.saturating_duration_since(t_cancel)))));
         r.insert("reason".into(), json!(t.failed));
@@ -1139,10 +1168,14 @@ fn interrupt(run: &mut Run, sc: &mut Scenario, from_app: bool, how: Cut) -> Step
         let tag = format!("{}{how:?}", if from_app { "r" } else { "s" }).to_ascii_lowercase();
         let name = run.name(&tag);
         let mut r = Map::new();
-        // A file that finished before the cut landed is tried once more, cut nearer its start.
+        // A file that finished before the cut landed is tried once more, cut nearer its start. A kill goes through the
+        // app's control program, so the file takes at least five seconds.
         let mut attempt = 0;
         let (at_cut, t_cut, sha, path) = loop {
             attempt += 1;
+            if how == Cut::KillApp {
+                run.proxy.limit(size / 5);
+            }
             // A kill needs a 64 MiB checkpoint behind it to have anything to resume from.
             let at = match (attempt, how) {
                 (1, Cut::KillApp) => run.rng.between(0.3, 0.75),
@@ -1220,6 +1253,7 @@ fn interrupt(run: &mut Run, sc: &mut Scenario, from_app: bool, how: Cut) -> Step
             sc.check(!finished, format!("round {round}: the file finished before the cut twice"));
             break (at_cut, t_cut, sha, path);
         };
+        run.proxy.limit(0);
         if from_app {
             let kept = run.peer_partials();
             sc.check(kept.len() == 1, format!("round {round}: this end kept {kept:?}, expected one partial"));
