@@ -1738,17 +1738,16 @@ When a session authenticates for a device that already has one, in this order:
 3. The live session has an active transfer: the new one closes quietly, whatever its tier.
 4. The higher tier wins; equal tiers fall back to the lower dialler.
 
-A new session has no features yet, and each end receives the other's `features.update` at its own moment, so
-"advertised on the live session" can differ between the ends for the first moments of a session. Seen on 24 November:
-right after a Mac restarted, a tunnel replaced its new LAN session because the LAN session's features had not arrived.
-Builds that fix this also advertise `lan_first_draft2` (a capability, always `true`, wherever they send
-`lan_first_draft1`) and remember, per trusted device, whether its latest `features.update` carried both keys; Forget
-and resetting trusted devices clear it. A remembered device counts as advertising in step 2 from the moment a session
-authenticates. Only builds that remember are remembered, so the two ends of a pair start remembering each other after
-the same exchange and apply the same rule before features arrive. A 1.0 Beta 2 to 4 peer never sends the second key: a
-newer build treats it exactly as it always did. Remembering `lan_first_draft1` alone would not do, since a Beta 2 to 4
-peer still applies the lower-dialler rule until features arrive, the two ends would keep different sessions and both
-would close. The memories can differ only for the session in which one end changes version.
+Each end gets the other's `features.update` at its own moment, so in the first moments of a session the
+two ends can disagree on step 2. On 24 November, right after a Mac restarted, a tunnel replaced its new LAN
+session this way. So builds also send `lan_first_draft2` (always `true`, wherever they send
+`lan_first_draft1`) and remember, per trusted device, whether its latest `features.update` carried both keys.
+A remembered device goes past step 2 as soon as a session authenticates. Forget and resetting trusted
+devices clear the memory. Only builds that remember are remembered, so both ends of a pair start
+remembering each other from the same exchange. A 1.0 Beta 2 to 4 peer never sends the second key and sees
+no change. Remembering `lan_first_draft1` alone would split such a pair: the newer end would rank tiers
+while the older one still used the lower dialler, and both sessions would close. The two memories can
+differ only around a change, such as the first session after one end updates or goes back a version.
 
 An active transfer is, with that peer: a file transfer offered and not finished, a folder being sent or
 received (Phone files downloads included), a clipboard push or paste fetch, or a speed test. Files and
