@@ -68,7 +68,7 @@ class ScreenCapture(
         context.getSystemService(DisplayManager::class.java)?.registerDisplayListener(displayListener, handler)
         stream.encoder = this
         BridgeyLogging.i(LogCategory.REMOTE_CONTROL, "SCREEN capture ${target.first}x${target.second} from ${source.first}x${source.second} codec=$codecName")
-        return stream.start(target.first, target.second)
+        return stream.start(target.first, target.second, source.first, source.second)
     }
 
     /** Android 14+: the captured content (a single app, or the screen) has a new size. */
@@ -80,7 +80,11 @@ class ScreenCapture(
         if (released || source == sourceSize) return
         sourceSize = source
         val target = chooseSize(source) ?: return
-        if (target == size) return
+        if (target == size) {
+            // The same stream size, but positions map onto a display of a new size (phone control).
+            stream.resized(target.first, target.second, source.first, source.second)
+            return
+        }
         restart(target)
     }
 
@@ -121,6 +125,7 @@ class ScreenCapture(
             stream.encoderRestarted()
             startDrain(created.first)
         }
+        sourceSize?.let { stream.resized(target.first, target.second, it.first, it.second) }
         BridgeyLogging.i(LogCategory.REMOTE_CONTROL, "SCREEN resized to ${target.first}x${target.second}")
     }
 

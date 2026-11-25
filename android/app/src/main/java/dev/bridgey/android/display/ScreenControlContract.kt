@@ -11,7 +11,7 @@ import org.json.JSONObject
  * The shared screen/control contract (bridgey-screen-control-draft1, rust/proto/src/screen_control.rs and
  * docs/screen-control-core.md), the viewer and controller side only: capabilities, geometry and input packets with
  * the same decoding rules as the Rust reference, checked against rust/proto/test-vectors/screen-control-v1.json.
- * This phone is not an input host in this slice, so the host reducer is not ported here.
+ * The host reducer, used when a Mac controls this phone, is in ScreenControlHost.kt.
  */
 
 object ScreenControl {

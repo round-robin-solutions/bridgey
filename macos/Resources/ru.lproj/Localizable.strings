@@ -1443,7 +1443,7 @@
 "screen.settings.card" = "Экран телефона";
 "screen.settings.switch" = "Показывать экраны телефонов";
 "screen.settings.switch.detail" = "Экран телефона в окне на этом Mac. Телефон каждый раз спрашивает разрешение.";
-"screen.settings.note" = "Только просмотр. В панели меню выберите Файл > Показать экран или начните показ на телефоне. Пока идёт показ, телефон показывает уведомление с кнопкой Стоп; на этом Mac ничего не записывается и не сохраняется.";
+"screen.settings.note" = "В панели меню выберите Файл > Показать экран или начните показ на телефоне. Если телефон разрешает это Mac, кнопка «Управлять» в окне нажимает, листает и печатает на нём. Пока идёт показ, телефон показывает уведомление с кнопкой Стоп; на этом Mac ничего не записывается и не сохраняется.";
 "screen.status.notConnected" = "%@ не подключён";
 "screen.status.asked" = "Просим %@ показать экран";
 "screen.status.expired" = "%@ не ответил";
@@ -1936,3 +1936,20 @@
 "display.log.sourceChanged" = "Завершено: общий экран изменился";
 "display.log.timeout" = "Завершено: телефон не ответил";
 "display.log.failed" = "Завершено: что-то пошло не так";
+
+"phonecontrol.control" = "Управлять";
+"phonecontrol.control.help" = "Нажимать, листать и печатать на телефоне";
+"phonecontrol.stop" = "Остановить управление";
+"phonecontrol.stop.help" = "Перестать управлять телефоном; изображение останется";
+"phonecontrol.waiting" = "Разрешите управление на %@";
+"phonecontrol.back" = "Назад";
+"phonecontrol.home" = "Домой";
+"phonecontrol.recents" = "Недавние";
+"phonecontrol.note.declined" = "%@ не разрешил управление";
+"phonecontrol.note.disabled" = "Управление с этого Mac выключено на %@";
+"phonecontrol.note.permission" = "Включите управление Bridgey на %@";
+"phonecontrol.note.locked" = "%@ заблокирован";
+"phonecontrol.note.focus" = "Ввод остановлен: на %@ включён другой экран";
+"phonecontrol.note.timeout" = "Управление остановлено: %@ не отвечает";
+"phonecontrol.note.localStop" = "Управление остановлено на %@";
+"phonecontrol.note.failed" = "Управление остановлено";

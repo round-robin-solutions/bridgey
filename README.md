@@ -229,14 +229,15 @@ stress runs do not close real-Wi-Fi, large-library and long-running acceptance. 
 - [ ] Package browser extensions for link handoff
 - [x] Add a privacy-preserving connection health and diagnostics view
 - [x] Prototype explicitly confirmed, view-only phone-to-Mac screen sharing
-- [ ] Add Mac-to-phone screen sharing and separately consented phone control
+- [x] Add Mac-to-phone screen sharing and separately consented phone control
 - [x] Add separately consented SMS conversations, new messages, contact names, SIM selection
       and delivery status in this APK edition; MMS images are read-only
 - [x] Keep notification-based message replies as the permission-light fallback
 - [x] Add phone battery alerts, Focus/Do Not Disturb sync and phone camera capture to the Mac
 
-Screen sharing is an off-by-default, view-only prototype with per-session confirmation and
-a persistent local indicator. SMS is opt-in and separately permissioned in the directly
+Screen sharing is off by default in both directions, with per-session confirmation and a
+persistent local indicator. Control is a separate grant on the device being controlled; on the
+phone it also needs Android's accessibility service, and typing needs Android 13 or later. SMS is opt-in and separately permissioned in the directly
 distributed APK; this does not claim approval for a store distribution. Neither experimental
 capability blocks v1.0. See [automation](docs/automation.md),
 [screen sharing](docs/screen-sharing.md) and [SMS policy](docs/sms-call-policy.md).

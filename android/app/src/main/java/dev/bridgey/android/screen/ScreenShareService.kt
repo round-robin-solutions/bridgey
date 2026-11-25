@@ -64,6 +64,7 @@ class ScreenShareService : Service() {
         val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID).orEmpty()
         val macName = intent.getStringExtra(EXTRA_MAC_NAME).orEmpty()
         val requestId = intent.getStringExtra(EXTRA_REQUEST_ID)
+        val control = intent.getBooleanExtra(EXTRA_CONTROL, false)
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
         @Suppress("DEPRECATION")
         val data: Intent? = if (Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java) else intent.getParcelableExtra(EXTRA_RESULT_DATA)
@@ -87,7 +88,7 @@ class ScreenShareService : Service() {
             finish()
             return START_NOT_STICKY
         }
-        val created = app.screenShare.begin(deviceId, macName, requestId)
+        val created = app.screenShare.begin(deviceId, macName, requestId, control)
         if (created == null) {
             taken.stop()
             finish()
@@ -154,13 +155,15 @@ class ScreenShareService : Service() {
         private const val EXTRA_REQUEST_ID = "dev.bridgey.android.extra.SCREEN_SERVICE_REQUEST_ID"
         private const val EXTRA_RESULT_CODE = "dev.bridgey.android.extra.SCREEN_SERVICE_RESULT_CODE"
         private const val EXTRA_RESULT_DATA = "dev.bridgey.android.extra.SCREEN_SERVICE_RESULT_DATA"
+        private const val EXTRA_CONTROL = "dev.bridgey.android.extra.SCREEN_SERVICE_CONTROL"
 
-        fun startIntent(context: Context, deviceId: String, macName: String, requestId: String?, resultCode: Int, data: Intent): Intent =
+        fun startIntent(context: Context, deviceId: String, macName: String, requestId: String?, resultCode: Int, data: Intent, control: Boolean = false): Intent =
             Intent(context, ScreenShareService::class.java).setAction(ACTION_START)
                 .putExtra(EXTRA_DEVICE_ID, deviceId)
                 .putExtra(EXTRA_MAC_NAME, macName)
                 .putExtra(EXTRA_RESULT_CODE, resultCode)
                 .putExtra(EXTRA_RESULT_DATA, data)
+                .putExtra(EXTRA_CONTROL, control)
                 .apply { requestId?.let { putExtra(EXTRA_REQUEST_ID, it) } }
     }
 }

@@ -17,5 +17,7 @@
         <receiver android:name=".UpdateInstallReceiver" tools:node="remove" />
         <receiver android:name=".updates.AutoUpdateLaterReceiver" tools:node="remove" />
         <receiver android:name=".sms.SmsResultReceiver" tools:node="remove" />
+        <!-- Phone control from a Mac goes through an accessibility service, which this build does not have. -->
+        <service android:name=".control.BridgeyControlService" tools:node="remove" />
     </application>
 </manifest>

@@ -331,7 +331,7 @@ internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {
 }
 
 /** Switch features whose key is read with [decodeFeatureFlag], outside [decodeFeatureState]'s map. */
-internal val FLAG_FEATURE_KEYS = setOf(dev.bridgey.android.display.SCREEN_CONTROL_FEATURE_KEY)
+internal val FLAG_FEATURE_KEYS = setOf(dev.bridgey.android.display.SCREEN_CONTROL_FEATURE_KEY, dev.bridgey.android.control.PHONE_CONTROL_FEATURE_KEY)
 
 /**
  * One boolean key of a features.update that is not in [KNOWN_DRAFT_FEATURE_KEYS] (lan_first_draft1): true only when it
