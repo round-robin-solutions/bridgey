@@ -8,8 +8,10 @@
 # pairings are never touched. Everything it made is deleted at the end, unless --keep.
 #
 # Usage, on a Mac:
-#   scripts/rr/stress-mac.sh [--app <debug .app>] [--out <dir>] [--keep] [stress run options ...]
+#   scripts/rr/stress-mac.sh [--app <debug .app>] [--out <dir>] [--keep] [--history <n>] [stress run options ...]
 #   e.g. scripts/rr/stress-mac.sh --scenarios quick --mid 256M --big 1G
+# --history starts the instance with <n> transfer history entries (at most 2,000, the app's limit) over the last 30
+# days, so a run measures a Mac that has moved a lot of files.
 # Without --app it builds the debug app (macos/build-app.sh) and the peer while holding /tmp/app-build-mac.lock, a
 # directory taken with mkdir and released with rmdir (never a file). The peer's options are stress.rs's (`run`).
 # `stress-mac.sh control <verb> ...` is the app control the peer calls; it reads the STRESS_* variables set below.
@@ -113,6 +115,7 @@ fi
 [ "$(uname -s)" = Darwin ] || die "run this on macOS"
 APP_IN=""
 KEEP=0
+HISTORY=0
 WORK=${STRESS_WORK:-${RUNNER_TEMP:-/tmp}/bridgey-stress-mac}
 OUT=""
 while [ $# -gt 0 ]; do
@@ -120,6 +123,7 @@ while [ $# -gt 0 ]; do
     --app) APP_IN=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --keep) KEEP=1; shift ;;
+    --history) HISTORY=$2; shift 2 ;;
     *) break ;;
   esac
 done
@@ -196,6 +200,41 @@ defaults write "$BID" setup.completedVersion -int 1
 defaults write "$BID" settings.onboarding.completed -bool true
 defaults write "$BID" SUEnableAutomaticChecks -bool false
 defaults write "$BID" settings.receiveFolderPath "$WORK/app-received"
+if [ "$HISTORY" -gt 0 ]; then
+  # The app's own format (TransferHistory.swift): newest first, dates in milliseconds, an owner-only file. A mix like
+  # a heavy user's: documents, photos and videos (the grid), folders and some failures, from two phones.
+  echo "== seeding $HISTORY transfer history entries"
+  SUPPORT="$HOME/Library/Application Support/$BID"
+  mkdir -p "$SUPPORT"
+  chmod 700 "$SUPPORT"
+  python3 -I - "$HISTORY" "$WORK/app-received" "$SUPPORT/transfer-history.json" <<'PY'
+import json, os, random, sys, time
+count, received, target = min(int(sys.argv[1]), 2000), sys.argv[2], sys.argv[3]
+rng = random.Random(7)
+now = int(time.time() * 1000)
+span = 29 * 24 * 3600 * 1000
+phones = [("5eed0000-0000-4000-8000-000000000001", "Stress phone"), ("5eed0000-0000-4000-8000-000000000002", "Stress tablet")]
+kinds = [("pdf", 20), ("zip", 8), ("docx", 8), ("bin", 14), ("jpg", 22), ("heic", 6), ("mp4", 8), ("folder", 6), ("txt", 8)]
+names = [k for k, weight in kinds for _ in range(weight)]
+entries = []
+for index in range(count):
+    kind = rng.choice(names)
+    phone = phones[index % 7 == 0]
+    outcome = "completed" if rng.random() > 0.05 else rng.choice(["failed", "cancelled", "incomplete"])
+    name = f"seed-{index:05d}" if kind == "folder" else f"seed-{index:05d}.{kind}"
+    size = rng.randint(2_000, 400_000_000)
+    entry = {"id": f"seed-{index:05d}", "date": now - 60_000 - int(span * index / max(1, count)), "direction": rng.choice(["sent", "received"]),
+             "deviceID": phone[0], "deviceName": phone[1], "name": name, "isFolder": kind == "folder",
+             "fileCount": rng.randint(2, 300) if kind == "folder" else 1, "bytes": size if outcome == "completed" else 0,
+             "outcome": outcome, "localPath": os.path.join(received, name), "download": False}
+    if outcome == "completed" and size > 1_000_000:
+        entry["bytesPerSecond"] = rng.uniform(5e6, 9e8)
+    entries.append(entry)
+fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+with os.fdopen(fd, "w") as f:
+    json.dump(entries, f)
+PY
+fi
 
 export STRESS_APP="$APP" STRESS_RECV="$WORK/app-received" STRESS_APPSRC="$WORK/app-src" STRESS_BIN="$WORK/peer/stress"
 SELF="$RR_ROOT/scripts/rr/stress-mac.sh"

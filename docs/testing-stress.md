@@ -59,6 +59,13 @@ scripts/rr/stress-mac.sh --out /tmp/stress-mac            # everything, about 15
 scripts/rr/stress-mac.sh --scenarios quick --mid 256M --big 1G
 ```
 
+`--history <n>` starts the instance with `n` transfer history entries (up to the app's 2,000) spread over the last 30
+days, a mix of documents, photos, videos, folders and failures, so a run measures a Mac that has moved a lot of files:
+
+```sh
+scripts/rr/stress-mac.sh --history 2000 --scenarios send-big,recv-big,small-send --big 2G
+```
+
 The instance (`in.roundrobin.bridgey.test.stress`, port 42497, Bonjour type `_bridgeyst._tcp`) has its own support
 folder, Keychain items, preferences and receive folder, so an installed Bridgey, its data and its pairings are never
 touched. The script deletes all of it at the end (`--keep` leaves it). Building holds `/tmp/app-build-mac.lock`
