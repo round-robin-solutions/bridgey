@@ -70,3 +70,73 @@ final class ReceivedNotificationTests: XCTestCase {
         XCTAssertEqual(category.actions.map(\.identifier), [receivedOpenActionIdentifier, receivedRevealActionIdentifier])
     }
 }
+
+/// Without notification permission, received files are revealed in Finder a batch at a time.
+@MainActor
+final class ReceivedRevealBatcherTests: XCTestCase {
+    private func url(_ index: Int) -> URL { URL(fileURLWithPath: "/R/f\(index).bin") }
+
+    private func makeBatcher(_ fake: FakeSchedule, busy: @escaping () -> Bool = { false }, reveals: @escaping ([URL]) -> Void) -> ReceivedRevealBatcher {
+        ReceivedRevealBatcher(quiet: 1, clock: { fake.now }, schedule: fake.schedule, busy: busy, reveal: reveals)
+    }
+
+    func testABatchIsRevealedOnceTogether() {
+        let fake = FakeSchedule()
+        var reveals: [[URL]] = []
+        let batcher = makeBatcher(fake) { reveals.append($0) }
+        for index in 0..<200 {
+            fake.advance(to: Double(index) * 0.3)
+            batcher.add([url(index)])
+        }
+        fake.advance(to: 59.7 + 0.9)
+        XCTAssertTrue(reveals.isEmpty, "not while files keep coming")
+        fake.advance(to: 61)
+        XCTAssertEqual(reveals.count, 1, "200 files bring Finder forward once")
+        XCTAssertEqual(reveals.first, (0..<200).map(url), "all of them, in the order they came")
+    }
+
+    func testASingleFileIsRevealedOnItsOwn() {
+        let fake = FakeSchedule()
+        var reveals: [[URL]] = []
+        let batcher = makeBatcher(fake) { reveals.append($0) }
+        batcher.add([url(1)])
+        fake.advance(to: 0.5)
+        XCTAssertTrue(reveals.isEmpty)
+        fake.advance(to: 1)
+        XCTAssertEqual(reveals, [[url(1)]])
+        // A file a while later is its own reveal.
+        fake.advance(to: 30)
+        batcher.add([url(2)])
+        fake.advance(to: 31)
+        XCTAssertEqual(reveals, [[url(1)], [url(2)]])
+    }
+
+    func testItWaitsForWhatIsStillArriving() {
+        let fake = FakeSchedule()
+        var reveals: [[URL]] = []
+        var busy = true
+        let batcher = makeBatcher(fake, busy: { busy }) { reveals.append($0) }
+        batcher.add([url(1)])
+        fake.advance(to: 20)
+        XCTAssertTrue(reveals.isEmpty, "a long file still on its way")
+        batcher.add([url(2)])
+        busy = false
+        fake.advance(to: 20.9)
+        XCTAssertTrue(reveals.isEmpty)
+        fake.advance(to: 22)
+        XCTAssertEqual(reveals, [[url(1), url(2)]])
+    }
+
+    func testAtMostTwoHundredAndEachOnce() {
+        let fake = FakeSchedule()
+        var reveals: [[URL]] = []
+        let batcher = makeBatcher(fake) { reveals.append($0) }
+        batcher.add((0..<250).map(url))
+        batcher.add([url(0), URL(fileURLWithPath: "/R/./f1.bin")])
+        fake.advance(to: 2)
+        XCTAssertEqual(reveals.count, 1)
+        XCTAssertEqual(reveals.first?.count, ReceivedNotificationGrouper.maxPaths)
+        XCTAssertEqual(reveals.first?.prefix(3).map(\.lastPathComponent), ["f0.bin", "f1.bin", "f2.bin"])
+        XCTAssertEqual(Set(reveals.first ?? []).count, ReceivedNotificationGrouper.maxPaths, "a file that came twice is selected once")
+    }
+}

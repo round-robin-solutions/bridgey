@@ -99,6 +99,14 @@ final class TransfersWindowScreenshots: XCTestCase {
         }
     }
 
+    /// The live card's fixture rows and speeds.
+    private func feed(_ live: Bool) -> TransfersLiveFeed {
+        guard live else { return TransfersLiveFeed() }
+        let names = [phone: "OnePlus 11 5G", mac: "Personal Mac", pixel: "Pixel 8"]
+        return TransfersLiveFeed(live: TransferLiveList.ordered(liveRows).map { TransferLive.make($0, deviceName: { names[$0] ?? $0 }) },
+                                 speeds: ["live-video": 21_400_000, "live-folder": 18_900_000])
+    }
+
     private func state(live: Bool = true, empty: Bool = false) -> TransfersWindowState {
         var state = TransfersWindowState()
         state.now = now
@@ -109,10 +117,7 @@ final class TransfersWindowScreenshots: XCTestCase {
                         pixel: TransferRouteChip(text: "Relay (Cloudflare)", style: .relay)]
         guard !empty else { return state }
         let names = [phone: "OnePlus 11 5G", mac: "Personal Mac", pixel: "Pixel 8"]
-        if live {
-            state.live = TransferLiveList.ordered(liveRows).map { TransferLive.make($0, deviceName: { names[$0] ?? $0 }) }
-            state.speeds = ["live-video": 21_400_000, "live-folder": 18_900_000]
-        }
+        state.hasLive = live
         state.items = TransferItems.make(entries: entries, rows: [failedRow], deviceName: { names[$0] ?? $0 })
         state.missing = ["lease"]
         state.today = TransferTotals.text(entries, now: now)
@@ -138,19 +143,20 @@ final class TransfersWindowScreenshots: XCTestCase {
             let suffix = scheme == .dark ? "dark" : "light"
             try write(state(), selection: "record", size: TransfersWindowView.size, scheme: scheme, name: "transfers-820x640-\(suffix)")
             try write(state(), selection: "record", size: TransfersWindowView.minimumSize, scheme: scheme, name: "transfers-560x420-\(suffix)")
-            try write(state(empty: true), size: TransfersWindowView.size, scheme: scheme, name: "transfers-empty-820x640-\(suffix)")
-            try write(state(empty: true), size: TransfersWindowView.minimumSize, scheme: scheme, name: "transfers-empty-560x420-\(suffix)")
+            try write(state(empty: true), live: false, size: TransfersWindowView.size, scheme: scheme, name: "transfers-empty-820x640-\(suffix)")
+            try write(state(empty: true), live: false, size: TransfersWindowView.minimumSize, scheme: scheme, name: "transfers-empty-560x420-\(suffix)")
         }
-        try write(state(live: false), filter: TransfersFilter(category: .failed), size: TransfersWindowView.size, scheme: .dark,
+        try write(state(live: false), live: false, filter: TransfersFilter(category: .failed), size: TransfersWindowView.size, scheme: .dark,
                   name: "transfers-failed-filter-dark")
         try write(state(), pending: [URL(fileURLWithPath: "/tmp/a.jpg")], size: TransfersWindowView.size, scheme: .light,
                   name: "transfers-device-picker-light")
     }
 
-    private func write(_ state: TransfersWindowState, filter: TransfersFilter = TransfersFilter(), selection: String? = nil, pending: [URL]? = nil,
-                       size: CGSize, scheme: ColorScheme, name: String) throws {
+    private func write(_ state: TransfersWindowState, live: Bool = true, filter: TransfersFilter = TransfersFilter(), selection: String? = nil,
+                       pending: [URL]? = nil, size: CGSize, scheme: ColorScheme, name: String) throws {
         let window = BrandRoot(reduceMotion: false) {
-            TransfersWindowView(state: state, filter: .constant(filter), selection: .constant(selection), pendingSend: .constant(pending))
+            TransfersWindowView(state: state, live: feed(live), filter: .constant(filter), selection: .constant(selection),
+                                pendingSend: .constant(pending))
                 .frame(width: size.width, height: size.height)
                 .overlay(alignment: .topLeading) { trafficLights }
         }

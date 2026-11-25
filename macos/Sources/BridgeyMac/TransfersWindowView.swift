@@ -12,12 +12,11 @@ struct TransferDevice: Identifiable, Equatable {
     let name: String
 }
 
-/// Everything the window shows, worked out by the live view (or a screenshot fixture).
-struct TransfersWindowState {
-    /// Every active transfer, running before queued (TransferLiveList.ordered).
-    var live: [TransferLive] = []
-    /// Rolling 3 s speeds, by transfer.
-    var speeds: [String: Double] = [:]
+/// What the window shows apart from the live card's rows and speeds (TransfersLiveFeed), worked out by
+/// TransfersWindowModel (or a screenshot fixture). Published only when it changes, so progress does not redraw it.
+struct TransfersWindowState: Equatable {
+    /// Something is moving or waiting: the live card shows.
+    var hasLive = false
     /// Route chips, by device.
     var routes: [String: TransferRouteChip] = [:]
     var items: [TransferItem] = []
@@ -28,6 +27,7 @@ struct TransfersWindowState {
     /// History items whose file is no longer where it was.
     var missing: Set<String> = []
     var today: String?
+    /// When the history was last worked out; it decides Today and Yesterday.
     var now = Date()
     /// Screenshot fixtures: thumbnails and video lengths by item, and an item drawn as hovered.
     var previews: [String: NSImage] = [:]
@@ -53,6 +53,8 @@ struct TransfersWindowActions {
 
 struct TransfersWindowView: View {
     let state: TransfersWindowState
+    /// The live card's rows and speeds. Only the card observes them.
+    let live: TransfersLiveFeed
     @Binding var filter: TransfersFilter
     @Binding var selection: String?
     /// Files waiting for the device picker (Send Files… or a drop with more than one device connected).
@@ -65,8 +67,6 @@ struct TransfersWindowView: View {
     @Namespace private var chipSpace
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
-    @Environment(\.snapshotRendering) private var snapshot
-    @Environment(\.locale) private var locale
 
     static let size = CGSize(width: 820, height: 640)
     static let minimumSize = CGSize(width: 560, height: 420)
@@ -77,18 +77,24 @@ struct TransfersWindowView: View {
         GeometryReader { proxy in
             let width = proxy.size.width
             VStack(spacing: 0) {
-                TransfersHeader(state: state, query: $filter.query, compact: width < 640, choose: actions.chooseFiles)
+                TransfersHeader(canSend: !state.connected.isEmpty, query: $filter.query, compact: width < 640, choose: actions.chooseFiles)
                 if !state.items.isEmpty { filters(width: width) }
-                if !state.live.isEmpty {
+                if state.hasLive {
                     // A short window keeps one detailed row, so the history still shows.
-                    TransfersLiveCard(state: state, limit: proxy.size.height < 520 ? 1 : 2, cancel: actions.cancel)
+                    TransfersLiveCard(feed: live, routes: state.routes, previews: state.previews, durations: state.durations,
+                                      limit: proxy.size.height < 520 ? 1 : 2, cancel: actions.cancel)
                         .padding(.horizontal, Self.inset)
                         .transition(liveTransition)
                 }
-                content(width: width - Self.inset * 2)
+                TransfersHistoryList(items: state.items, filter: filter, selection: selection, missing: state.missing,
+                                     connected: state.connected, day: Calendar.current.startOfDay(for: state.now),
+                                     width: width - Self.inset * 2, previews: state.previews, durations: state.durations,
+                                     hoveredID: state.hoveredID, scrollToken: scrollToken, actions: actions,
+                                     select: { selection = $0 }, confirmClear: { confirmClear = true })
+                    .equatable()
                 footer
             }
-            .animation(BrandMotion.animation(BrandMotion.page, reduce: reduce), value: state.live.isEmpty)
+            .animation(BrandMotion.animation(BrandMotion.page, reduce: reduce), value: state.hasLive)
         }
         .background(c.bg)
         .overlay { if dropTargeted { dropHighlight.transition(.opacity) } }
@@ -203,87 +209,6 @@ struct TransfersWindowView: View {
         return items
     }
 
-    // MARK: History
-
-    @ViewBuilder private func content(width: CGFloat) -> some View {
-        let shown = state.items.filter(filter.matches)
-        if state.items.isEmpty {
-            TransfersEmpty(connected: !state.connected.isEmpty)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if shown.isEmpty {
-            Text(L10n.text("history.noMatch", fallback: "Nothing matches"))
-                .font(BrandFont.body(13))
-                .foregroundStyle(c.on2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            let days = TransferDays.group(shown, now: state.now, locale: locale)
-            TransfersScroll(token: scrollToken) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: 0).id(TransfersScrollAnchor.history)
-                    ForEach(days) { day in
-                        dayView(day, width: width)
-                    }
-                }
-                .padding(.horizontal, Self.inset)
-                .padding(.top, 4)
-                .padding(.bottom, 28)
-            }
-            .mask {
-                VStack(spacing: 0) {
-                    Rectangle()
-                    LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 28)
-                }
-            }
-        }
-    }
-
-    private func dayView(_ day: TransferDay, width: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(day.title)
-                .font(BrandFont.body(12, .medium))
-                .foregroundStyle(c.on2)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-                .accessibilityAddTraits(.isHeader)
-            if !day.media.isEmpty {
-                TransfersGrid(items: day.media, width: width) { item, cardWidth in
-                    TransferCard(item: item, width: cardWidth, state: state, selected: selection == item.id,
-                                 menu: { menuItems(item) }, actions: actions, select: { selection = item.id })
-                }
-                .padding(.bottom, 6)
-            }
-            ForEach(day.rows) { item in
-                TransferHistoryRow(item: item, state: state, selected: selection == item.id,
-                                   menu: { menuItems(item) }, actions: actions, select: { selection = item.id })
-                    .transition(reduce ? .opacity : .opacity.combined(with: .offset(y: 6)))
-            }
-        }
-    }
-
-    /// More and the context menu: Open, Quick Look, Show in Finder, Copy, Send to, Retry or Resume, Remove from History,
-    /// Clear History.
-    private func menuItems(_ item: TransferItem) -> [PopUpMenuItem] {
-        let url = item.localURL
-        let available = url != nil && !state.missing.contains(item.id)
-        var items: [PopUpMenuItem] = [
-            PopUpMenuItem(title: L10n.text("action.open", fallback: "Open"), enabled: available) { if let url { actions.open(url) } },
-            PopUpMenuItem(title: L10n.text("phonefiles.quickLook.short", fallback: "Quick Look"), enabled: available) { if let url { actions.quickLook(url) } },
-            PopUpMenuItem(title: L10n.text("phonefiles.showInFinder", fallback: "Show in Finder"), enabled: available) { if let url { actions.showInFinder(url) } },
-            PopUpMenuItem(title: L10n.text("phonefiles.copy", fallback: "Copy"), enabled: available) { if let url { actions.copy(url) } },
-            PopUpMenuItem(title: L10n.text("transfers.window.sendTo", fallback: "Send to"), enabled: available,
-                          submenu: state.connected.map { device in PopUpMenuItem(title: device.name) { if let url { actions.send([url], device.id) } } }) {},
-        ]
-        if item.canResume {
-            items.append(PopUpMenuItem(title: L10n.text("folders.action.resume", fallback: "Resume")) { actions.resume(item.id) })
-        } else if item.canRetry {
-            items.append(PopUpMenuItem(title: L10n.text("action.retry", fallback: "Retry")) { actions.retry(item) })
-        }
-        items.append(.separator)
-        items.append(PopUpMenuItem(title: L10n.text("history.remove", fallback: "Remove from History")) { actions.remove(item) })
-        items.append(PopUpMenuItem(title: L10n.text("transfers.window.clear", fallback: "Clear History…")) { confirmClear = true })
-        return items
-    }
-
     // MARK: Footer
 
     private var footer: some View {
@@ -349,10 +274,123 @@ struct TransfersWindowView: View {
     }
 }
 
+// MARK: - History
+
+/// The history by day: a media grid, then rows. Lazy, so only the lines on screen are built, and equatable on what it
+/// draws, so the rest of the window redrawing (a transfer starting or ending, today's totals) leaves it alone.
+private struct TransfersHistoryList: View, Equatable {
+    let items: [TransferItem]
+    let filter: TransfersFilter
+    let selection: String?
+    let missing: Set<String>
+    let connected: [TransferDevice]
+    /// The start of the day the history was worked out on (Today and Yesterday).
+    let day: Date
+    let width: CGFloat
+    let previews: [String: NSImage]
+    let durations: [String: String]
+    let hoveredID: String?
+    let scrollToken: Int
+    let actions: TransfersWindowActions
+    let select: (String) -> Void
+    let confirmClear: () -> Void
+    @Environment(\.brand) private var c
+    @Environment(\.brandReduceMotion) private var reduce
+    @Environment(\.locale) private var locale
+
+    /// What it draws. The closures stay out: they call the same coordinator and window model whichever copy runs them.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.items == rhs.items && lhs.filter == rhs.filter && lhs.selection == rhs.selection && lhs.missing == rhs.missing
+            && lhs.connected == rhs.connected && lhs.day == rhs.day && lhs.width == rhs.width && lhs.previews == rhs.previews
+            && lhs.durations == rhs.durations && lhs.hoveredID == rhs.hoveredID && lhs.scrollToken == rhs.scrollToken
+    }
+
+    var body: some View {
+        let shown = items.filter(filter.matches)
+        if items.isEmpty {
+            TransfersEmpty(connected: !connected.isEmpty)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if shown.isEmpty {
+            Text(L10n.text("history.noMatch", fallback: "Nothing matches"))
+                .font(BrandFont.body(13))
+                .foregroundStyle(c.on2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            let columns = TransfersGrid.columns(width: width)
+            let lines = TransferHistoryLine.lines(TransferDays.group(shown, now: day, locale: locale), columns: columns)
+            TransfersScroll(token: scrollToken) {
+                Color.clear.frame(height: 0).id(TransfersScrollAnchor.history)
+                ForEach(lines) { line in
+                    self.line(line, cardWidth: TransfersGrid.cardWidth(width: width, columns: columns))
+                }
+            }
+            .mask {
+                VStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.black, .black.opacity(0)], startPoint: .top, endPoint: .bottom).frame(height: 28)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func line(_ line: TransferHistoryLine, cardWidth: CGFloat) -> some View {
+        switch line {
+        case let .title(_, text):
+            Text(text)
+                .font(BrandFont.body(12, .medium))
+                .foregroundStyle(c.on2)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .accessibilityAddTraits(.isHeader)
+        case let .grid(_, row, last):
+            HStack(spacing: TransfersGrid.gap) {
+                ForEach(row) { item in
+                    TransferCard(item: item, width: cardWidth, missing: missing.contains(item.id), selected: selection == item.id,
+                                 hoveredFixture: hoveredID == item.id, preview: previews[item.id], duration: durations[item.id],
+                                 connected: connected, menu: { menuItems(item) }, actions: actions, select: { select(item.id) })
+                        .equatable()
+                }
+            }
+            .padding(.bottom, last ? 6 : TransfersGrid.gap)
+        case let .row(item):
+            TransferHistoryRow(item: item, missing: missing.contains(item.id), selected: selection == item.id,
+                               hoveredFixture: hoveredID == item.id, preview: previews[item.id], duration: durations[item.id],
+                               connected: connected, menu: { menuItems(item) }, actions: actions, select: { select(item.id) })
+                .equatable()
+                .transition(reduce ? .opacity : .opacity.combined(with: .offset(y: 6)))
+        }
+    }
+
+    /// More and the context menu: Open, Quick Look, Show in Finder, Copy, Send to, Retry or Resume, Remove from History,
+    /// Clear History.
+    private func menuItems(_ item: TransferItem) -> [PopUpMenuItem] {
+        let url = item.localURL
+        let available = url != nil && !missing.contains(item.id)
+        var items: [PopUpMenuItem] = [
+            PopUpMenuItem(title: L10n.text("action.open", fallback: "Open"), enabled: available) { if let url { actions.open(url) } },
+            PopUpMenuItem(title: L10n.text("phonefiles.quickLook.short", fallback: "Quick Look"), enabled: available) { if let url { actions.quickLook(url) } },
+            PopUpMenuItem(title: L10n.text("phonefiles.showInFinder", fallback: "Show in Finder"), enabled: available) { if let url { actions.showInFinder(url) } },
+            PopUpMenuItem(title: L10n.text("phonefiles.copy", fallback: "Copy"), enabled: available) { if let url { actions.copy(url) } },
+            PopUpMenuItem(title: L10n.text("transfers.window.sendTo", fallback: "Send to"), enabled: available,
+                          submenu: connected.map { device in PopUpMenuItem(title: device.name) { if let url { actions.send([url], device.id) } } }) {},
+        ]
+        if item.canResume {
+            items.append(PopUpMenuItem(title: L10n.text("folders.action.resume", fallback: "Resume")) { actions.resume(item.id) })
+        } else if item.canRetry {
+            items.append(PopUpMenuItem(title: L10n.text("action.retry", fallback: "Retry")) { actions.retry(item) })
+        }
+        items.append(.separator)
+        items.append(PopUpMenuItem(title: L10n.text("history.remove", fallback: "Remove from History")) { actions.remove(item) })
+        items.append(PopUpMenuItem(title: L10n.text("transfers.window.clear", fallback: "Clear History…")) { confirmClear() })
+        return items
+    }
+}
+
 // MARK: - Header
 
 private struct TransfersHeader: View {
-    let state: TransfersWindowState
+    /// A device is connected: Send Files works.
+    let canSend: Bool
     @Binding var query: String
     let compact: Bool
     let choose: () -> Void
@@ -432,28 +470,34 @@ private struct TransfersHeader: View {
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(TransfersPressStyle())
-        .disabled(state.connected.isEmpty)
-        .opacity(state.connected.isEmpty ? 0.45 : 1)
-        .help(state.connected.isEmpty ? L10n.text("transfers.window.noDevice", fallback: "Connect a device to send files") : "")
+        .disabled(!canSend)
+        .opacity(canSend ? 1 : 0.45)
+        .help(canSend ? "" : L10n.text("transfers.window.noDevice", fallback: "Connect a device to send files"))
         .keyboardShortcut("o", modifiers: .command)
     }
 }
 
 // MARK: - Live card
 
+/// The live card. It alone observes the feed, so progress redraws it and nothing else.
 private struct TransfersLiveCard: View {
-    let state: TransfersWindowState
+    @ObservedObject var feed: TransfersLiveFeed
+    let routes: [String: TransferRouteChip]
+    let previews: [String: NSImage]
+    let durations: [String: String]
     let limit: Int
     let cancel: (String) -> Void
     @Environment(\.brand) private var c
     @Environment(\.brandReduceMotion) private var reduce
 
     var body: some View {
-        let split = TransferLiveList.split(state.live, limit: limit)
+        let split = TransferLiveList.split(feed.live, limit: limit)
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Array(split.shown.enumerated()), id: \.element.id) { index, live in
                 if index > 0 { Rectangle().fill(c.panelBorder).frame(height: 1) }
-                TransferLiveRow(live: live, state: state, showRoute: showsRoute(index, in: split.shown), cancel: { cancel(live.id) })
+                TransferLiveRow(live: live, speed: feed.speeds[live.id],
+                                route: showsRoute(index, in: split.shown) ? live.deviceID.flatMap { routes[$0] } : nil,
+                                preview: previews[live.id], duration: durations[live.id], cancel: { cancel(live.id) })
                     .transition(reduce ? .opacity : .opacity.combined(with: .offset(y: -6)))
             }
             if split.waiting > 0 {
@@ -470,7 +514,7 @@ private struct TransfersLiveCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(c.s1))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(c.panelBorder, lineWidth: 1))
-        .animation(BrandMotion.animation(BrandMotion.small, reduce: reduce), value: state.live.map(\.id))
+        .animation(BrandMotion.animation(BrandMotion.small, reduce: reduce), value: feed.live.map(\.id))
     }
 
     /// The route belongs to the connection, so it shows once per device.
@@ -482,16 +526,20 @@ private struct TransfersLiveCard: View {
 
 private struct TransferLiveRow: View {
     let live: TransferLive
-    let state: TransfersWindowState
-    let showRoute: Bool
+    /// The rolling 3 s speed.
+    let speed: Double?
+    /// The route chip, on the first row of each device.
+    let route: TransferRouteChip?
+    let preview: NSImage?
+    let duration: String?
     let cancel: () -> Void
     @Environment(\.brand) private var c
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                TransferThumb(id: live.id, url: live.localURL, name: live.name, kind: live.kind, side: 40, corner: 8, state: state,
-                              badge: .bottomTrailing)
+                TransferThumb(url: live.localURL, name: live.name, kind: live.kind, side: 40, corner: 8, preview: preview,
+                              fixedDuration: duration, badge: .bottomTrailing)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(live.name)
                         .font(BrandFont.body(13.5, .medium))
@@ -534,7 +582,7 @@ private struct TransferLiveRow: View {
                 TransferDirectionIcon(incoming: live.incoming)
                 Text(TransfersText.device(live.deviceName, incoming: live.incoming)).lineLimit(1)
             }
-            if showRoute, let id = live.deviceID, let route = state.routes[id] {
+            if let route {
                 TransferRouteChipView(chip: route)
             }
             if let files = live.fileProgress {
@@ -547,7 +595,6 @@ private struct TransferLiveRow: View {
     }
 
     private var stats: some View {
-        let speed = state.speeds[live.id]
         let left = TransfersText.timeLeft(remaining: (live.bytesTotal ?? 0) - (live.bytesDone ?? 0), bytesPerSecond: speed)
         return HStack(spacing: 0) {
             TransfersEmphasis.text(L10n.text("transfers.window.bytes", fallback: "%1$@ of %2$@"),
@@ -597,33 +644,30 @@ private struct AuroraBar: View {
 
 // MARK: - Grid and rows
 
-private struct TransfersGrid<Cell: View>: View {
-    let items: [TransferItem]
-    let width: CGFloat
-    @ViewBuilder let cell: (TransferItem, CGFloat) -> Cell
+/// The media grid's measures: cards at least 130 pt wide, 10 pt apart, filling the width.
+private enum TransfersGrid {
+    static let minimum: CGFloat = 130
+    static let gap: CGFloat = 10
 
-    static var minimum: CGFloat { 130 }
-    static var gap: CGFloat { 10 }
+    static func columns(width: CGFloat) -> Int { max(1, Int((width + gap) / (minimum + gap))) }
 
-    var body: some View {
-        let columns = max(1, Int((width + Self.gap) / (Self.minimum + Self.gap)))
-        let cardWidth = max(1, (width - Self.gap * CGFloat(columns - 1)) / CGFloat(columns))
-        let rows = stride(from: 0, to: items.count, by: columns).map { Array(items[$0..<min($0 + columns, items.count)]) }
-        VStack(alignment: .leading, spacing: Self.gap) {
-            ForEach(rows, id: \.first?.id) { row in
-                HStack(spacing: Self.gap) {
-                    ForEach(row) { item in cell(item, cardWidth) }
-                }
-            }
-        }
+    static func cardWidth(width: CGFloat, columns: Int) -> CGFloat {
+        max(1, (width - gap * CGFloat(columns - 1)) / CGFloat(columns))
     }
 }
 
-private struct TransferCard: View {
+private struct TransferCard: View, Equatable {
     let item: TransferItem
     let width: CGFloat
-    let state: TransfersWindowState
+    /// The file is no longer where history saw it.
+    let missing: Bool
     let selected: Bool
+    /// Screenshot fixtures: drawn as hovered.
+    let hoveredFixture: Bool
+    let preview: NSImage?
+    let duration: String?
+    /// What Send to in its menu lists, compared so the menu is never stale.
+    let connected: [TransferDevice]
     let menu: () -> [PopUpMenuItem]
     let actions: TransfersWindowActions
     let select: () -> Void
@@ -632,14 +676,20 @@ private struct TransferCard: View {
     @Environment(\.brandReduceMotion) private var reduce
     @Environment(\.locale) private var locale
 
-    private var hovered: Bool { hovering || state.hoveredID == item.id }
-    private var available: Bool { item.localURL != nil && !state.missing.contains(item.id) }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item && lhs.width == rhs.width && lhs.missing == rhs.missing && lhs.selected == rhs.selected
+            && lhs.hoveredFixture == rhs.hoveredFixture && lhs.preview == rhs.preview && lhs.duration == rhs.duration
+            && lhs.connected == rhs.connected
+    }
+
+    private var hovered: Bool { hovering || hoveredFixture }
+    private var available: Bool { item.localURL != nil && !missing }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomTrailing) {
-                TransferThumb(id: item.id, url: available ? item.localURL : nil, name: item.name, kind: item.kind,
-                              side: width, height: 92, corner: 0, state: state, badge: .topLeading)
+                TransferThumb(url: available ? item.localURL : nil, name: item.name, kind: item.kind,
+                              side: width, height: 92, corner: 0, preview: preview, fixedDuration: duration, badge: .topLeading)
                 if hovered && available {
                     LinearGradient(colors: [Color(hex: 0x050B18).opacity(0), Color(hex: 0x050B18).opacity(0.72)],
                                    startPoint: UnitPoint(x: 0.5, y: 0.35), endPoint: .bottom)
@@ -670,7 +720,7 @@ private struct TransferCard: View {
                     .truncationMode(.tail)
                 HStack(spacing: 5) {
                     TransferDirectionIcon(incoming: item.direction == .received, size: 12)
-                    if state.missing.contains(item.id) {
+                    if missing {
                         Text(L10n.text("transfers.window.gone", fallback: "Moved or deleted")).lineLimit(1)
                     } else {
                         Text(TransfersText.bytes(item.bytes))
@@ -704,10 +754,17 @@ private struct TransferCard: View {
     }
 }
 
-private struct TransferHistoryRow: View {
+private struct TransferHistoryRow: View, Equatable {
     let item: TransferItem
-    let state: TransfersWindowState
+    /// The file is no longer where history saw it.
+    let missing: Bool
     let selected: Bool
+    /// Screenshot fixtures: drawn as hovered.
+    let hoveredFixture: Bool
+    let preview: NSImage?
+    let duration: String?
+    /// What Send to in its menu lists, compared so the menu is never stale.
+    let connected: [TransferDevice]
     let menu: () -> [PopUpMenuItem]
     let actions: TransfersWindowActions
     let select: () -> Void
@@ -716,14 +773,19 @@ private struct TransferHistoryRow: View {
     @Environment(\.brandReduceMotion) private var reduce
     @Environment(\.locale) private var locale
 
-    private var hovered: Bool { hovering || state.hoveredID == item.id }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item && lhs.missing == rhs.missing && lhs.selected == rhs.selected && lhs.hoveredFixture == rhs.hoveredFixture
+            && lhs.preview == rhs.preview && lhs.duration == rhs.duration && lhs.connected == rhs.connected
+    }
+
+    private var hovered: Bool { hovering || hoveredFixture }
     /// Open, Quick Look and Show in Finder need the file where history saw it.
-    private var available: Bool { item.localURL != nil && !state.missing.contains(item.id) }
+    private var available: Bool { item.localURL != nil && !missing }
 
     var body: some View {
         HStack(spacing: 12) {
-            TransferThumb(id: item.id, url: available ? item.localURL : nil, name: item.name, kind: item.kind, side: 40, corner: 8,
-                          state: state, badge: .bottomTrailing)
+            TransferThumb(url: available ? item.localURL : nil, name: item.name, kind: item.kind, side: 40, corner: 8,
+                          preview: preview, fixedDuration: duration, badge: .bottomTrailing)
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name)
                     .font(BrandFont.body(13.5, .medium))
@@ -757,7 +819,7 @@ private struct TransferHistoryRow: View {
             } else {
                 TransferDirectionIcon(incoming: item.direction == .received)
                 Text(TransfersText.device(item.deviceName, incoming: item.direction == .received)).lineLimit(1)
-                if state.missing.contains(item.id) {
+                if missing {
                     TransferDot()
                     Text(L10n.text("transfers.window.gone", fallback: "Moved or deleted"))
                 } else {
@@ -903,14 +965,15 @@ private struct TransferFailureChip: View {
 private struct TransferThumb: View {
     enum Badge { case topLeading, bottomTrailing }
 
-    let id: String
     let url: URL?
     let name: String
     let kind: TransferKind
     let side: CGFloat
     var height: CGFloat?
     let corner: CGFloat
-    let state: TransfersWindowState
+    /// Screenshot fixtures: the thumbnail and video length to draw instead of loading them.
+    let preview: NSImage?
+    let fixedDuration: String?
     let badge: Badge
     @State private var image: NSImage?
     @State private var duration: String?
@@ -920,7 +983,7 @@ private struct TransferThumb: View {
 
     var body: some View {
         let tile = TransferTile.of(name: name, kind: kind)
-        let shown = state.previews[id] ?? image
+        let shown = preview ?? image
         ZStack {
             Rectangle().fill(background(tile.style))
             if let symbol = tile.symbol {
@@ -940,7 +1003,7 @@ private struct TransferThumb: View {
         }
         .frame(width: side, height: height ?? side)
         .overlay(alignment: badge == .topLeading ? .topLeading : .bottomTrailing) {
-            if kind == .video, let length = state.durations[id] ?? duration {
+            if kind == .video, let length = fixedDuration ?? duration {
                 Text(length)
                     .font(BrandFont.body(badge == .topLeading ? 10 : 9, .semibold).monospacedDigit())
                     .foregroundStyle(Color(hex: 0xF4F7FA))
@@ -953,7 +1016,7 @@ private struct TransferThumb: View {
         .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
         .accessibilityHidden(true)
         .task(id: url) {
-            guard !snapshot, kind.isMedia, state.previews[id] == nil, let url else { return }
+            guard !snapshot, kind.isMedia, preview == nil, let url else { return }
             let side = max(self.side, height ?? self.side)
             if let loaded = await TransferThumbnails.shared.image(for: url, side: side) {
                 withAnimation(BrandMotion.animation(BrandMotion.effects, reduce: reduce)) { image = loaded }
@@ -1124,6 +1187,7 @@ private enum TransfersScrollAnchor {
     static let history = "transfers.history"
 }
 
+/// The history's lines, in a lazy stack (a plain one while ImageRenderer draws, which has no scrolling).
 private struct TransfersScroll<Content: View>: View {
     let token: Int
     @ViewBuilder let content: Content
@@ -1132,7 +1196,10 @@ private struct TransfersScroll<Content: View>: View {
 
     var body: some View {
         if snapshot {
-            content
+            VStack(alignment: .leading, spacing: 0) { content }
+                .padding(.horizontal, TransfersWindowView.inset)
+                .padding(.top, 4)
+                .padding(.bottom, 28)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
@@ -1140,6 +1207,9 @@ private struct TransfersScroll<Content: View>: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical) {
                     LazyVStack(alignment: .leading, spacing: 0) { content }
+                        .padding(.horizontal, TransfersWindowView.inset)
+                        .padding(.top, 4)
+                        .padding(.bottom, 28)
                 }
                 .onChange(of: token) { _ in
                     withAnimation(BrandMotion.animation(BrandMotion.page, reduce: reduce)) { proxy.scrollTo(TransfersScrollAnchor.history, anchor: .top) }
@@ -1274,18 +1344,21 @@ private struct WindowDragArea: NSViewRepresentable {
 
 // MARK: - Thumbnails and drops
 
-/// Quick Look thumbnails and video lengths, made off the main thread and kept in memory.
+/// Quick Look thumbnails and video lengths, made off the main thread and kept in memory, and the files that have
+/// none, so a row scrolled back into view does not ask again.
 @MainActor
 final class TransferThumbnails {
     static let shared = TransferThumbnails()
     private let cache = NSCache<NSString, NSImage>()
     private var durations: [String: String] = [:]
+    private var unavailable = Set<String>()
 
     init() { cache.countLimit = 600 }
 
     func image(for url: URL, side: CGFloat) async -> NSImage? {
         let key = "\(Int(side))|\(url.path)" as NSString
         if let hit = cache.object(forKey: key) { return hit }
+        if unavailable.contains(key as String) { return nil }
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: side, height: side),
                                                    scale: NSScreen.main?.backingScaleFactor ?? 2, representationTypes: .thumbnail)
         let image: NSImage? = await withCheckedContinuation { continuation in
@@ -1293,7 +1366,12 @@ final class TransferThumbnails {
                 continuation.resume(returning: representation?.nsImage)
             }
         }
-        if let image { cache.setObject(image, forKey: key) }
+        if let image {
+            cache.setObject(image, forKey: key)
+        } else {
+            if unavailable.count >= 2_000 { unavailable.removeAll() }
+            unavailable.insert(key as String)
+        }
         return image
     }
 

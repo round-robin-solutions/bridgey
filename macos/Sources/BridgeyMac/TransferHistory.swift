@@ -58,7 +58,9 @@ struct TransferHistoryEntry: Codable, Equatable, Identifiable {
         self.bytesPerSecond = bytesPerSecond
     }
 
-    var localURL: URL? { localPath.map { URL(fileURLWithPath: $0) } }
+    /// Built without asking the disk whether the path is a folder (the entry knows): the Transfers window makes one
+    /// for each of up to 2,000 entries when the history changes.
+    var localURL: URL? { localPath.map { URL(fileURLWithPath: $0, isDirectory: isFolder) } }
 }
 
 /// One element of a stored JSON array. An element that does not decode is dropped on its own instead of
@@ -99,6 +101,10 @@ final class TransferHistoryStore: ObservableObject {
 
     private let fileURL: URL?
     private let clock: () -> Date
+    /// Saves are encoded and written on `writer`, the newest list winning, so a run of finished files does not encode
+    /// up to 2,000 entries on the main thread for each one. Loading, Clear and Forget wait for what is pending.
+    private nonisolated static let writer = DispatchQueue(label: "in.roundrobin.bridgey.transfer-history", qos: .utility)
+    private let pendingWrite = PendingHistoryWrite()
 
     /// `fileURL` nil keeps history in memory only (tests, screenshots).
     init(fileURL: URL? = TransferHistoryStore.defaultFileURL(), clock: @escaping () -> Date = Date.init) {
@@ -123,6 +129,7 @@ final class TransferHistoryStore: ObservableObject {
     func clear() {
         entries = []
         save()
+        flush()
     }
 
     func prune() {
@@ -136,7 +143,11 @@ final class TransferHistoryStore: ObservableObject {
     func forget(deviceID: String) {
         entries.removeAll { $0.deviceID == deviceID }
         save()
+        flush()
     }
+
+    /// Returns once every save so far is on disk (quitting, tests).
+    func flush() { Self.writer.sync {} }
 
     func filtered(_ filter: TransferHistoryFilter) -> [TransferHistoryEntry] { entries.filter(filter.matches) }
 
@@ -149,15 +160,22 @@ final class TransferHistoryStore: ObservableObject {
 
     private func save() {
         guard let fileURL else { return }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .millisecondsSince1970
-        guard let data = try? encoder.encode(entries) else { return }
-        Self.write(data, to: fileURL)
+        pendingWrite.set(entries)
+        let pending = pendingWrite
+        Self.writer.async {
+            // Several saves queued together write once, the newest list.
+            guard let list = pending.take() else { return }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .millisecondsSince1970
+            guard let data = try? encoder.encode(list) else { return }
+            Self.write(data, to: fileURL)
+        }
     }
 
     /// An entry that does not decode (a direction or outcome a newer build wrote, a damaged field) is dropped on
     /// its own; the rest of the history stays (docs/upgrade-policy.md).
     private static func load(_ fileURL: URL?) -> [TransferHistoryEntry] {
+        writer.sync {}
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .millisecondsSince1970
@@ -165,7 +183,7 @@ final class TransferHistoryStore: ObservableObject {
     }
 
     /// Owner-only, atomic: a 0700 folder, a 0600 temporary file renamed over the old one.
-    private static func write(_ data: Data, to target: URL) {
+    private nonisolated static func write(_ data: Data, to target: URL) {
         let manager = FileManager.default
         let directory = target.deletingLastPathComponent()
         try? manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -182,5 +200,20 @@ final class TransferHistoryStore: ObservableObject {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
         return base.appendingPathComponent("\(Edition.supportFolderName)/\(fileName)")
+    }
+}
+
+/// The newest history list waiting to be written; the writer takes it, so saves queued together write once.
+private final class PendingHistoryWrite: @unchecked Sendable {
+    private let lock = NSLock()
+    private var list: [TransferHistoryEntry]?
+
+    func set(_ value: [TransferHistoryEntry]) { lock.withLock { list = value } }
+
+    func take() -> [TransferHistoryEntry]? {
+        lock.withLock {
+            defer { list = nil }
+            return list
+        }
     }
 }

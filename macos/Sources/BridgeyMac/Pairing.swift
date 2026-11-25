@@ -356,6 +356,9 @@ final class PairingCoordinator: ObservableObject {
     let transferHistory = TransferHistoryStore()
     /// Notifications for files and folders that arrive from a phone (Files 2.0 quick win).
     private let receivedNotifier = ReceivedNotifier()
+    /// Without notification permission: what arrives together is revealed in Finder once, together.
+    private lazy var receivedReveals = ReceivedRevealBatcher(busy: { [weak self] in self?.receivingFiles(now: Date()) ?? false },
+                                                             reveal: { [weak self] urls in self?.revealReceived(urls) })
     private var freeSpaceThrottle = FreeSpaceThrottle()
     private var freeSpaceTrailing: [String: DispatchWorkItem] = [:]
     /// Free space each connected phone reported for its default destination (FreeSpace.swift).
@@ -440,6 +443,11 @@ final class PairingCoordinator: ObservableObject {
     fileprivate var testControlTimer: Timer?
     /// TestInstance only: codes.found sent since launch, in status.json (never the codes).
     fileprivate var testCodesFoundSent = 0
+    /// TestInstance only: Finder reveals of received files (counted, never performed) and how many items they held, and
+    /// how often a transfer brought the Transfers window forward, in status.json.
+    fileprivate var testReveals = 0
+    fileprivate var testRevealedItems = 0
+    fileprivate var testTransfersWindowShown = 0
     /// TestInstance only: the last `read-code` check (outcome and seconds, never the code).
     fileprivate var testLastRead: [String: Any]?
     /// Multi-device sessions: pending (handshaking or pairing) and one per phone.
@@ -612,11 +620,15 @@ final class PairingCoordinator: ObservableObject {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pairingSystemWillSleep() }
             }
-            // Quitting keeps resumable partials, synced and recorded, for the next attempt (files_resume_draft1).
+            // Quitting keeps resumable partials, synced and recorded, for the next attempt (files_resume_draft1), and
+            // waits for the transfer history's last save.
             terminateObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.willTerminateNotification, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.keepResumableIncoming() }
+                MainActor.assumeIsolated {
+                    self?.keepResumableIncoming()
+                    self?.transferHistory.flush()
+                }
             }
         }
         let notificationHistoryStore = NotificationHistoryStore()
@@ -2723,9 +2735,14 @@ final class PairingCoordinator: ObservableObject {
         fileDropWindow?.show()
     }
 
+    /// A transfer starts: the Transfers window comes forward once for a run of transfers (until none is left), not
+    /// for every file, so a batch does not take focus file after file and a window closed meanwhile stays closed.
     private func beginFileTransferUI() {
         fileTransferActive = true
-        showFileTransferWindow()
+        if fileTransferWindow == nil {
+            fileTransferWindow = FileTransferWindowController(pairing: self)
+        }
+        if fileTransferWindow?.transferStarted() == true, TestInstance.enabled { testTransfersWindowShown += 1 }
     }
 
     private func startListener() {
@@ -6352,11 +6369,27 @@ extension PairingCoordinator: FolderReceiverHost {
     func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
         if notificationsAuthorized {
             receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
-        } else if revealIfSilent && !TestInstance.enabled {
-            // A test instance never has notification permission, and revealing would bring Finder to the front of the
-            // Mac it runs on once for every file a test sends.
-            NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
+        } else if revealIfSilent {
+            receivedReveals.add(items.map(\.url))
         }
+    }
+
+    /// A file or folder is still on its way to this Mac (and moving), so a reveal waits for it.
+    func receivingFiles(now: Date) -> Bool {
+        fileTransfers.values.contains { ($0.incoming || $0.folder?.incoming == true) && $0.isBusy(now: now) }
+    }
+
+    private func revealReceived(_ urls: [URL]) {
+        // A test instance never has notification permission, and revealing would bring Finder to the front of the Mac
+        // it runs on: it counts the reveal instead (status.json).
+        if TestInstance.enabled {
+            testReveals += 1
+            testRevealedItems += urls.count
+            return
+        }
+        let present = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard !present.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(present)
     }
 }
 
@@ -7793,7 +7826,9 @@ extension PairingCoordinator {
                                      "codes": ["enabled": settings.codesEnabled, "engine": settings.codesEngine.rawValue,
                                                "modelReady": codeModel.isReady],
                                      "agents": agents, "sendsCodesFound": sendsCodes, "codesFoundSent": testCodesFoundSent,
-                                     "lastRead": testLastRead ?? NSNull()]
+                                     "lastRead": testLastRead ?? NSNull(),
+                                     "reveals": ["count": testReveals, "items": testRevealedItems, "waiting": receivedReveals.isWaiting],
+                                     "transfersWindowShown": testTransfersWindowShown]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
         }

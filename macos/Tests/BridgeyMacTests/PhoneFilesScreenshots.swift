@@ -165,7 +165,8 @@ final class PhoneFilesScreenshots: XCTestCase {
         state.now = now
         for scheme in [ColorScheme.light, .dark] {
             let view = BrandRoot(reduceMotion: false) {
-                TransfersWindowView(state: state, filter: .constant(TransfersFilter()), selection: .constant(nil), pendingSend: .constant(nil))
+                TransfersWindowView(state: state, live: TransfersLiveFeed(), filter: .constant(TransfersFilter()), selection: .constant(nil),
+                                    pendingSend: .constant(nil))
                     .frame(width: TransfersWindowView.size.width, height: TransfersWindowView.size.height)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

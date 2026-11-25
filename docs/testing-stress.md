@@ -11,7 +11,7 @@ Mac app) or for the Mac (against the Android app), so each app is tested without
 | `scripts/rr/stress-mac.sh` | Builds the debug Mac app and the driver, makes a throwaway test instance of the app and runs the driver against it. |
 | `scripts/rr/stress-android.sh` | Builds (or takes) the stress APK, installs it on a running emulator, forwards its port and runs the driver against it. |
 | `stress` build type (Android) | Minified like release, app ID `in.roundrobin.bridgey.stress`, the local debug key, no update feed and no relays. Its own source set adds a control receiver that only the shell can reach (senders need `DUMP`). |
-| Mac test instance hooks | Debug builds with `BridgeyTestInstance` only: `cancel-files`, `send-file` with several paths, transfer rows in `status.json`, and `BridgeyTestServiceType` for a Bonjour type no real Bridgey browses. |
+| Mac test instance hooks | Debug builds with `BridgeyTestInstance` only: `cancel-files`, `send-file` with several paths, transfer rows in `status.json`, and `BridgeyTestServiceType` for a Bonjour type no real Bridgey browses. `status.json` also counts the Finder reveals of received files (`reveals`: the instance counts them and never reveals) and how often a transfer brought the Transfers window forward (`transfersWindowShown`). |
 | `stress serve` | The session client standing in for the app, with the apps' automatic retry. It checks the harness itself on any machine, with no device. |
 
 Every connection goes through a TCP proxy inside the driver. A scenario can cut it, so both ends see the socket close,
@@ -57,6 +57,13 @@ On a Mac (the personal Mac now, GitHub's hosted macOS runner later):
 ```sh
 scripts/rr/stress-mac.sh --out /tmp/stress-mac            # everything, about 15 minutes and 15 GiB of disk
 scripts/rr/stress-mac.sh --scenarios quick --mid 256M --big 1G
+```
+
+`--history <n>` starts the instance with `n` transfer history entries (up to the app's 2,000) spread over the last 30
+days, a mix of documents, photos, videos, folders and failures, so a run measures a Mac that has moved a lot of files:
+
+```sh
+scripts/rr/stress-mac.sh --history 2000 --scenarios send-big,recv-big,small-send --big 2G
 ```
 
 The instance (`in.roundrobin.bridgey.test.stress`, port 42497, Bonjour type `_bridgeyst._tcp`) has its own support

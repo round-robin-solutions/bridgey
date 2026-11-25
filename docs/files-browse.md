@@ -74,7 +74,8 @@ media and documents the way Telegram shows them, and media from the phone that f
     with Bridgey**. Both open a small "Send to" chooser with device tiles, Tray and the chip.
   - **Received-file notifications** with Open and Show in Finder; clicking opens the item; items
     from one phone less than 3 s apart update one notification ("12 files from OnePlus 11").
-    While notifications are authorized they replace the automatic Finder reveal.
+    While notifications are authorized they replace the automatic Finder reveal. Without them, files
+    that arrive together are revealed once, together, a second after the last one (not once per file).
   - **Phone free space before big sends**: the send sheet, Tray, drop tiles and chooser show
     "Needs 2.3 GB, OnePlus 11 has 1.1 GB free" and block a send that cannot fit (warn when under
     1 GiB would remain). Phones report `defaultFreeBytes` in `places.listed` and `freeBytes` in

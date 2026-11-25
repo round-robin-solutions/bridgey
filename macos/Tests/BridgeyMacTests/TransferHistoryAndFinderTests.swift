@@ -38,6 +38,8 @@ final class TransferHistoryAndFinderTests: XCTestCase {
         let store = TransferHistoryStore(fileURL: url)
         store.record(entry("a", Date()))
         store.record(entry("b", Date(), device: "phone-2"))
+        // Saves are written off the main thread.
+        store.flush()
         var info = stat()
         XCTAssertEqual(stat(url.path, &info), 0)
         XCTAssertEqual(info.st_mode & 0o777, 0o600)
