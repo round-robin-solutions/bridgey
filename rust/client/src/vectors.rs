@@ -231,6 +231,10 @@ mod files {
     fn relay(inbound: TcpStream, target: u16, log: Recording) {
         use std::io::Read;
         let Ok(outbound) = TcpStream::connect(("127.0.0.1", target)) else { return };
+        // Each frame goes on at once: with Nagle's algorithm and Windows' delayed acknowledgements, a run of small
+        // frames (a thousand 1 KB chunks) would wait up to 200 ms each.
+        let _ = inbound.set_nodelay(true);
+        let _ = outbound.set_nodelay(true);
         let pipe = |from: TcpStream, mut to: TcpStream, side: &'static str, log: Recording| {
             std::thread::spawn(move || {
                 let mut r = BufReader::new(from);
@@ -784,7 +788,7 @@ mod resume {
         // First attempt: stops two chunks past the first block, so the receiver keeps 1 MiB.
         a.set_send_limit_for_tests(1024 * 1024 + 2 * CHUNK as u64);
         a.send_file(&peer, &source, None, None).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + Duration::from_secs(60);
         let has_part = |len: u64| {
             std::fs::read_dir(&receive_dir).into_iter().flatten().flatten().any(|e| e.path().to_string_lossy().ends_with(".part") && e.metadata().is_ok_and(|m| m.len() >= len))
         };

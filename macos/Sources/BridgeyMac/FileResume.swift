@@ -33,9 +33,9 @@ enum FileResume {
 
     static func nowMilliseconds(_ date: Date = Date()) -> Int64 { Int64((date.timeIntervalSince1970 * 1000).rounded()) }
 
+    /// The SHA-256 so far: `hasher` is a value, so finalizing it leaves the caller's running hash as it was.
     static func digest(_ hasher: SHA256) -> Data {
-        var copy = hasher
-        return Data(copy.finalize())
+        Data(hasher.finalize())
     }
 
     static func equalInConstantTime(_ a: Data, _ b: Data) -> Bool {
