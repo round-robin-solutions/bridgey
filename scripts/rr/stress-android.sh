@@ -9,8 +9,8 @@
 #   e.g. scripts/rr/stress-android.sh --apk app-stress.apk --scenarios quick --mid 256M --big 1G
 # Without --apk it builds one (./gradlew :app:assembleStress). It never boots, wipes or reconfigures the emulator:
 # whoever runs it brings one up (and holds its lock). adb is used to install and remove the stress build, forward
-# its port, start it, stop it, send its control broadcasts and read its log. Another Bridgey on the device holds the
-# same port, so every other Bridgey build there is stopped (force-stop; its data is untouched) for the run.
+# its port, start it, stop it, send its control broadcasts and read its log. Other Bridgey builds on the device hold
+# the same port, so they are stopped (force-stop; their data is untouched) for the run.
 # `stress-android.sh control <verb> ...` is the app control the peer calls; it reads the STRESS_* variables set below.
 set -eu
 
@@ -52,7 +52,7 @@ else:
 ' "$@"
   }
   case $verb in
-    pair-prepare) broadcast allow ;;
+    pair-prepare) broadcast files-on >/dev/null && broadcast allow ;;
     pair-confirm) broadcast confirm ;;
     send) broadcast send --esa specs "$(printf '%s,' "$@" | sed 's/,$//')" ;;
     cancel) broadcast cancel ;;
@@ -110,8 +110,10 @@ export ANDROID_SERIAL="$SERIAL"
 APP_ID="$(edition_value EDITION_APP_ID).stress"
 REAL_ID=$(edition_value EDITION_APP_ID)
 LOGCAT_PID=""
+PEER_PID=""
 
 cleanup() {
+  [ -n "$PEER_PID" ] && kill "$PEER_PID" 2>/dev/null
   [ -n "$LOGCAT_PID" ] && kill "$LOGCAT_PID" 2>/dev/null
   "$ADB" forward --remove "tcp:$FORWARD" </dev/null 2>/dev/null || true
   [ $KEEP = 1 ] && { echo "kept $WORK and $APP_ID on $SERIAL"; return 0; }
@@ -158,8 +160,11 @@ echo "== running the scenarios (app pid $PID)"
 rm -f "$WORK/events.jsonl"
 set +e
 "$WORK/peer/stress" run --app "sh $SELF control" --target "127.0.0.1:$FORWARD" --work "$WORK" --report "$OUT/report.json" \
-  --peer-platform macos "$@"
+  --peer-platform macos "$@" &
+PEER_PID=$!
+wait "$PEER_PID"
 STATUS=$?
+PEER_PID=""
 set -e
 cp "$WORK/events.jsonl" "$OUT/events.jsonl" 2>/dev/null || true
 "$ADB" logcat -b crash -d </dev/null > "$OUT/crash.log" 2>/dev/null || true

@@ -129,8 +129,10 @@ APP="$WORK/app/Bridgey Stress.app"
 CTL="/tmp/$BID-control"
 LOCKED=0
 LOG_PID=""
+PEER_PID=""
 
 cleanup() {
+  [ -n "$PEER_PID" ] && kill "$PEER_PID" 2>/dev/null
   [ $LOCKED = 1 ] && rmdir /tmp/app-build-mac.lock 2>/dev/null
   [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null
   pkill -9 -f "$APP/Contents/MacOS/BridgeyMac" 2>/dev/null || true
@@ -205,8 +207,11 @@ echo "== running the scenarios"
 rm -f "$WORK/events.jsonl"
 set +e
 "$WORK/peer/stress" run --app "sh $SELF control" --target "127.0.0.1:$PORT" --work "$WORK" --report "$OUT/report.json" \
-  --peer-platform android "$@"
+  --peer-platform android "$@" &
+PEER_PID=$!
+wait "$PEER_PID"
 STATUS=$?
+PEER_PID=""
 set -e
 cp "$WORK/events.jsonl" "$OUT/events.jsonl" 2>/dev/null || true
 echo "report: $OUT/report.json"

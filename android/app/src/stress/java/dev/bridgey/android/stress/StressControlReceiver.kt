@@ -13,6 +13,7 @@ import android.os.StatFs
 import android.provider.MediaStore
 import androidx.annotation.RequiresApi
 import dev.bridgey.android.BridgeyApplication
+import dev.bridgey.android.BridgeyFeature
 import dev.bridgey.android.PairingState
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
@@ -35,6 +36,7 @@ import org.json.JSONObject
  * and answered as JSON in the broadcast's result data. The manifest makes senders hold DUMP, so only the shell can
  * send them. Commands act through the same coordinator calls the UI makes:
  *
+ * - `files-on`: File transfer on for every device, as setup's Files choice (a new install starts with it off).
  * - `allow`: Allow pairing (two minutes). `confirm`: Codes match on the pairing prompt showing now.
  * - `send` with `--esa specs name:size:seed,...`: writes each file (the deterministic bytes in [StressBytes]) to
  *   Download/BridgeyStress/ once, then sends them all, in order, to the connected device.
@@ -70,6 +72,7 @@ internal object StressControl {
     fun handle(app: BridgeyApplication, intent: Intent): JSONObject {
         val pairing = app.pairing
         return when (intent.getStringExtra("cmd")) {
+            "files-on" -> ok().also { app.settings.setGlobal(BridgeyFeature.FILES, true) }
             "allow" -> ok().also { pairing.armPairing() }
             "confirm" -> {
                 val state = pairing.pairingFlow.value
