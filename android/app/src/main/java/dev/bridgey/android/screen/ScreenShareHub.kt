@@ -35,6 +35,8 @@ class ScreenShareHub(
     private val context: Context,
     private val pairing: PairingCoordinator,
     private val appInForeground: () -> Boolean,
+    /** The Mac controls the phone (phone_control_draft1): null in builds without it. */
+    private val phoneControl: () -> dev.bridgey.android.control.PhoneControlHub? = { null },
 ) : PairingCoordinator.ScreenListener {
     private val mutableState = MutableStateFlow(ScreenShareState())
     val state: StateFlow<ScreenShareState> = mutableState.asStateFlow()
@@ -43,6 +45,9 @@ class ScreenShareHub(
 
     /** Writes screen.stop off the main thread. */
     private val stopWriter = java.util.concurrent.Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "bridgey-screen-stop") }
+
+    /** Writes screen.geometry and screen.control in order, so phone control never waits behind a frame being written. */
+    private val controlWriter = java.util.concurrent.Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "bridgey-screen-control-out") }
 
     /** The service's way to tear down when the stream ends. */
     @Volatile var streamEnded: () -> Unit = {}
@@ -70,12 +75,12 @@ class ScreenShareHub(
     }
 
     /** The person allowed capture: the service starts in the foreground and takes the projection. */
-    fun consentGranted(from: Context, deviceId: String, macName: String, requestId: String?, resultCode: Int, data: Intent) {
+    fun consentGranted(from: Context, deviceId: String, macName: String, requestId: String?, resultCode: Int, data: Intent, control: Boolean = false) {
         requestId?.let { pairing.finishScreenRequest(deviceId, it) }
         ScreenNotifier.dismissAsk(context, deviceId)
         mutableState.value = ScreenShareState(ScreenShareState.Phase.STARTING, deviceId, macName)
         val started = runCatching {
-            ContextCompat.startForegroundService(from, ScreenShareService.startIntent(from, deviceId, macName, requestId, resultCode, data))
+            ContextCompat.startForegroundService(from, ScreenShareService.startIntent(from, deviceId, macName, requestId, resultCode, data, control))
         }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "SCREEN service did not start", it) }.isSuccess
         if (!started) {
             requestId?.let { pairing.sendScreenStatus(deviceId, it, ScreenStatus.FAILED) }
@@ -95,8 +100,11 @@ class ScreenShareHub(
 
     // MARK: The stream
 
-    /** The service holds a projection: a new stream to [deviceId], or null when it is no longer reachable. */
-    fun begin(deviceId: String, macName: String, requestId: String?): ScreenStream? {
+    /**
+     * The service holds a projection: a new stream to [deviceId], or null when it is no longer reachable. [control]: the
+     * person allowed full-display capture for a Mac that may control this phone, so the stream is control-capable.
+     */
+    fun begin(deviceId: String, macName: String, requestId: String?, control: Boolean = false): ScreenStream? {
         val link = pairing.screenLink(deviceId) ?: run {
             requestId?.let { pairing.sendScreenStatus(deviceId, it, ScreenStatus.FAILED) }
             mutableState.value = ScreenShareState()
@@ -106,7 +114,10 @@ class ScreenShareHub(
         val created = ScreenStream(
             deviceId, macName, requestId, link, clock = { System.nanoTime() / 1_000_000 }, log = ::log,
             stopWriter = { runCatching { stopWriter.execute(it) } },
+            controlWriter = { runCatching { controlWriter.execute(it) } },
         )
+        val hub = phoneControl()
+        if (control && hub != null && hub.controlCapable(deviceId)) created.control = hub.attach(created, deviceId, macName)
         created.onStarted = { if (stream === created) mutableState.value = ScreenShareState(ScreenShareState.Phase.SHARING, deviceId, macName) }
         created.onStats = { stats -> if (stream === created) mutableState.value = mutableState.value.copy(stats = stats) }
         created.onEnded = { reason, _ ->
@@ -119,7 +130,7 @@ class ScreenShareHub(
         }
         stream = created
         mutableState.value = ScreenShareState(ScreenShareState.Phase.STARTING, deviceId, macName)
-        pairing.recordRemoteControlEvent("screen_started", deviceId, requestId?.let { "requested" } ?: "phone")
+        pairing.recordRemoteControlEvent("screen_started", deviceId, (requestId?.let { "requested" } ?: "phone") + if (created.control != null) ",control" else "")
         return created
     }
 
@@ -147,6 +158,11 @@ class ScreenShareHub(
 
     override fun message(deviceId: String, message: ScreenMacMessage) {
         stream?.takeIf { it.deviceId == deviceId }?.receive(message)
+    }
+
+    override fun input(deviceId: String, plaintext: ByteArray, connection: ByteArray) {
+        if (stream?.takeIf { it.deviceId == deviceId }?.control == null) return
+        phoneControl()?.input(deviceId, plaintext, connection)
     }
 
     override fun disconnected(deviceId: String) {

@@ -267,6 +267,8 @@ class ProtocolGoldenVectorsTest {
                     "decodeMs" to message.decodeMs, "keyframe" to message.keyframe,
                 )
                 is dev.bridgey.android.screen.ScreenMacMessage.Stop -> mapOf("streamId" to message.streamId, "sequence" to message.sequence, "reason" to message.reason.wire)
+                // phone_control_draft1: checked by PhoneControlVectorsTest against phone-control-v1.json.
+                is dev.bridgey.android.screen.ScreenMacMessage.Control -> "control"
             }
             result == normalize(vector.get("expect"))
         }

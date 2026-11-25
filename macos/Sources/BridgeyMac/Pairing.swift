@@ -749,7 +749,9 @@ final class PairingCoordinator: ObservableObject {
             return self.sendQuickPayload(kind: "camera.request", payload: payload, to: current)
         }
         phoneScreen.presenter = phoneScreenWindows
+        phoneScreenWindows.controlling = phoneScreen
         phoneScreenWindows.reduceMotion = { [weak self] in self?.settings.reduceMotion == true }
+        phoneScreen.phoneControlAvailable = { [weak self] id in self?.registry.state(for: id)?.remotePhoneControl == true }
         phoneScreen.send = { [weak self] id, kind, payload in
             guard let self, let current = self.registry.session(for: id) else { return false }
             return self.sendQuickPayload(kind: kind, payload: payload, to: current)
@@ -3165,6 +3167,7 @@ final class PairingCoordinator: ObservableObject {
                 }
                 let lanFirst = decodeFeatureFlag(plaintext, lanFirstFeatureKey)
                 let screenControl = decodeFeatureFlag(plaintext, screenControlFeatureKey)
+                let phoneControl = decodeFeatureFlag(plaintext, phoneControlFeatureKey)
                 // Remembered only with both keys: a build that remembers this Mac too (docs/protocol.md "LAN first").
                 lanFirstMemory.record(phoneID, advertised: LanFirstMemory.advertises(plaintext))
                 registry.update(phoneID) { link in
@@ -3185,6 +3188,7 @@ final class PairingCoordinator: ObservableObject {
                     if !link.remoteUpdates { link.updateStatus = nil }
                     link.remoteScreen = draftKeys[screenFeatureKey] == true
                     link.remoteScreenControl = screenControl
+                    link.remotePhoneControl = phoneControl
                     link.remoteSms = draftKeys[smsFeatureKey] == true
                     link.remoteFastTransfers = draftKeys[filesFastFeatureKey] == true
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
@@ -3199,6 +3203,7 @@ final class PairingCoordinator: ObservableObject {
                 refreshCallMediaPeer(current)
                 publishRemoteCall()
                 macScreen.peerChanged(phoneID)
+                phoneScreen.phoneControlChanged(phoneID, available: phoneControl && draftKeys[screenFeatureKey] == true)
                 publish()
                 // The phone turned Files off: files it has not been offered yet stay here, retryable.
                 if features[.files] == false { stopFileQueue(for: phoneID, status: "File transfer is turned off on \(current.peerName)") }
@@ -3750,6 +3755,9 @@ final class PairingCoordinator: ObservableObject {
                 receiveScreenStart(message, in: current)
             case "screen.frame", "screen.stats", "screen.stop":
                 receiveScreenStream(message, in: current)
+            case PhoneControlKinds.geometry, PhoneControlKinds.control:
+                // phone_control_draft1: in the phone's stream sequence, only from a phone that shows the key.
+                if registry.state(for: current.remoteDeviceID)?.remotePhoneControl == true { receiveScreenStream(message, in: current) }
             case DisplayKinds.request:
                 receiveDisplayRequest(message, in: current)
             case let kind where DisplayKinds.fromViewerStream.contains(kind):
@@ -3982,6 +3990,8 @@ final class PairingCoordinator: ObservableObject {
         features[updatesFeatureKey] = true
         // Draft, edition only: this Mac shows phone screens (Show phone screens, off by default).
         features[screenFeatureKey] = phoneScreen.enabled
+        // Draft, edition only: this Mac can control a phone inside its screen stream, while it shows phone screens.
+        features[phoneControlFeatureKey] = phoneScreen.enabled
         // Draft, edition only: this Mac's screen on that phone, only while the phone has a screen grant here.
         features[screenControlFeatureKey] = macScreen.advertised(to: current.remoteDeviceID)
         // Draft, edition only: Text messages, while its switch is on here (off by default).
@@ -5508,7 +5518,7 @@ final class PairingCoordinator: ObservableObject {
         guard registry.isActive(current), message.sessionId == current.id, let key = current.pairingKey,
               let nonce = message.nonce, let ciphertext = message.ciphertext,
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { return }
-        phoneScreen.receiveStart(data, from: current.remoteDeviceID, phoneName: current.peerName, key: key)
+        phoneScreen.receiveStart(data, from: current.remoteDeviceID, phoneName: current.peerName, key: key, sessionID: current.id)
     }
 
     /// Frames, stats and the phone's stop: handed to the stream's queue still encrypted.
@@ -7890,7 +7900,8 @@ extension PairingCoordinator {
                                      "lastRead": testLastRead ?? NSNull(),
                                      "reveals": ["count": testReveals, "items": testRevealedItems, "waiting": receivedReveals.isWaiting],
                                      "transfersWindowShown": testTransfersWindowShown,
-                                     "screen": macScreen.testStatus(injector: macScreenTestInjector)]
+                                     "screen": macScreen.testStatus(injector: macScreenTestInjector),
+                                     "phoneScreen": phoneScreenTestStatus()]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
         }
@@ -7995,9 +8006,63 @@ extension PairingCoordinator {
             let parts = value.lowercased().split(separator: "x").compactMap { Double($0) }
             if parts.count == 2, parts[0] >= 16, parts[1] >= 16 { macScreenTestDisplays?.resize(width: parts[0], height: parts[1]) }
         }
+        phoneControlTestCommands(take)
         if take("screen-allow") != nil { macScreen.answerPendingPrompt(true) }
         if take("screen-deny") != nil { macScreen.answerPendingPrompt(false) }
         if take("screen-stop") != nil { macScreen.stopLocally() }
+    }
+}
+
+// MARK: Phone control (draft phone_control_draft1), test instance control files
+
+extension PairingCoordinator {
+    /// Test instance control files for controlling a phone's screen (TestControl above). Positions are fractions of the
+    /// phone's stream; they go through the same coordinator calls the window makes.
+    fileprivate func phoneControlTestCommands(_ take: (String) -> String?) {
+        if let value = take("phone-screen-show") { phoneScreen.setEnabled(value == "on") }
+        if take("phone-screen-request") != nil { showPhoneScreen() }
+        guard let id = phoneScreen.streaming.first else { return }
+        if let value = take("phone-control") { value == "off" ? phoneScreen.endControl(id) : phoneScreen.beginControl(id) }
+        func numbers(_ text: String) -> [Double] { text.split(separator: " ").compactMap { Double($0) } }
+        if let value = take("phone-tap"), case let at = numbers(value), at.count == 2 {
+            phoneScreen.controlInput(id, .touch(contact: 0, phase: .down, x: at[0], y: at[1]))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                self?.phoneScreen.controlInput(id, .touch(contact: 0, phase: .up, x: at[0], y: at[1]))
+            }
+        }
+        if let value = take("phone-drag"), case let at = numbers(value), at.count == 4 {
+            // A 300 ms drag in 10 steps, as a mouse would move.
+            phoneScreen.controlInput(id, .touch(contact: 0, phase: .down, x: at[0], y: at[1]))
+            for step in 1...10 {
+                let f = Double(step) / 10
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.03 * Double(step)) { [weak self] in
+                    let x = at[0] + (at[2] - at[0]) * f, y = at[1] + (at[3] - at[1]) * f
+                    self?.phoneScreen.controlInput(id, .touch(contact: 0, phase: step == 10 ? .up : .move, x: x, y: y))
+                }
+            }
+        }
+        if let value = take("phone-scroll"), case let at = numbers(value), at.count == 4 {
+            phoneScreen.controlInput(id, .scroll(dx: Int(at[0]), dy: Int(at[1]), x: at[2], y: at[3]))
+        }
+        if let text = take("phone-type"), !text.isEmpty { phoneScreen.controlInput(id, .text(text)) }
+        if let name = take("phone-key"), let key = ScreenControl.Key.allCases.first(where: { $0.wire == name }) { phoneScreen.pressKey(id, key) }
+        if let name = take("phone-nav"), let action = ScreenControl.Navigation(rawValue: name) { phoneScreen.controlInput(id, .navigate(action)) }
+        if let path = take("phone-snapshot"), path.hasPrefix("/tmp/") {
+            phoneScreenWindows.controller(for: id)?.snapshot(to: URL(fileURLWithPath: path), frame: phoneScreen.streams[id]?.receiver.snapshotImage())
+        }
+    }
+
+    /// The phone screen part of the test instance's status.
+    fileprivate func phoneScreenTestStatus() -> [String: Any] {
+        guard let id = phoneScreen.streaming.first, let control = phoneScreen.controlState(id) else { return ["streaming": false] }
+        let phase: String = switch control.phase {
+        case .off: "off"
+        case .starting: "starting"
+        case .waiting: "waiting"
+        case .active: "active"
+        }
+        return ["streaming": true, "capable": control.capable, "allowed": control.allowed, "phase": phase, "note": control.note?.rawValue ?? NSNull(),
+                "geometry": [control.width, control.height], "sent": phoneScreen.controlSent(id)]
     }
 }
 

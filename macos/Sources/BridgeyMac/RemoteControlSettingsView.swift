@@ -261,7 +261,7 @@ enum PhoneScreenSettings {
         L10n.text("screen.settings.switch.detail", fallback: "See your phone\u{2019}s screen in a window on this Mac. The phone asks you each time.")
     }
     static var footnote: String {
-        L10n.text("screen.settings.note", fallback: "View only. In the menu bar panel, choose File > Show Screen, or start sharing on the phone. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.")
+        L10n.text("screen.settings.note", fallback: "In the menu bar panel, choose File > Show Screen, or start sharing on the phone. If the phone allows this Mac, Control in the window taps, scrolls and types on it. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.")
     }
 }
 

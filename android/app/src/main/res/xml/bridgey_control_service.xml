@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bridgey control (docs/protocol.md "Mac controls the phone"): gestures and global actions, and from Android 13 an
+     accessibility input method for typing into the focused editor. No events are read and no window content is
+     retrieved; canRetrieveWindowContent stays false. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagInputMethodEditor"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/control_service_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="0" />

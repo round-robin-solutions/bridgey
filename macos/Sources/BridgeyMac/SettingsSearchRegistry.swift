@@ -321,7 +321,7 @@ enum SettingsSearchRegistry {
                                 keywords: screenShare + ["permission", "screen recording", "privacy", "разрешение", "запись экрана"],
                                 scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
             row("remote.screen", .remoteControl, section: PhoneScreenSettings.cardTitle, PhoneScreenSettings.switchTitle, PhoneScreenSettings.switchDetail,
-                ["screen sharing", "mirror", "экран"], sync: .featureScreen),
+                ["screen sharing", "mirror", "экран", "control phone", "tap phone", "type on phone", "управление телефоном"], sync: .featureScreen),
             row("remote.log", .remoteControl, L10n.text("remote.log", fallback: "Session log"), nil, logs + activity),
 
             // Privacy

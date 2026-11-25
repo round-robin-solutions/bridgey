@@ -145,6 +145,8 @@ data class SettingsState(
     val smartRouting: SmartRoutingSettingsState = SmartRoutingSettingsState(),
     /** The installed build number (versionCode), shown next to the version in About. */
     val installedBuild: Long = 0,
+    /** Remote control > Let Macs control this phone: Bridgey control and each Mac's choice. */
+    val phoneControl: PhoneControlSettingsState = PhoneControlSettingsState(),
 ) {
     fun featureOn(feature: BridgeyFeature): Boolean =
         if (feature.needsDeviceGrant) globalFeatures[feature] == true else globalFeatures[feature] != false
@@ -211,6 +213,7 @@ class SettingsActions(
     val connect: ConnectSettingsActions = ConnectSettingsActions(),
     val tailscale: dev.bridgey.android.tailscale.TailscaleSetupActions = dev.bridgey.android.tailscale.TailscaleSetupActions(),
     val callQuiet: CallQuietSettingsActions = CallQuietSettingsActions(),
+    val phoneControl: PhoneControlSettingsActions = PhoneControlSettingsActions(),
 )
 
 const val UPSTREAM_URL = "https://github.com/singeol/bridgey"
@@ -640,6 +643,7 @@ private fun RemoteControlPage(state: SettingsState, actions: SettingsActions, li
                 featureRows(BridgeyFeature.SCREEN_CONTROL, state, actions)
             }
         }
+        phoneControlItems(state.phoneControl, actions.phoneControl)
     }
 }
 

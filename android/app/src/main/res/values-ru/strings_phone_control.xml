@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="control_service_label">Управление Bridgey</string>
+    <string name="control_service_description">Позволяет Mac, которому вы разрешили это в Bridgey, нажимать, листать, возвращаться назад или на главный экран и печатать на этом телефоне, пока вы показываете ему свой экран. Bridgey никогда не читает содержимое экрана и не использует буфер обмена. Остановить можно на телефоне в любой момент.</string>
+    <string name="control_indicator_text">%1$s управляет этим телефоном</string>
+    <string name="control_stop">Стоп</string>
+    <string name="control_stop_description">Запретить %1$s управлять этим телефоном</string>
+    <string name="control_ask_channel">Запросы управления</string>
+    <string name="control_ask_channel_detail">Когда Mac, который видит ваш экран, просит управлять этим телефоном</string>
+    <string name="control_ask_title">%1$s хочет управлять этим телефоном</string>
+    <string name="control_ask_text">Он сможет нажимать, листать и печатать, пока вы не остановите.</string>
+    <string name="control_ask_allow">Разрешить</string>
+    <string name="control_ask_deny">Не разрешать</string>
+    <string name="control_sharing_title">%1$s управляет этим телефоном</string>
+    <string name="control_sharing_text">Он видит ваш экран и может нажимать и печатать.</string>
+    <string name="control_stop_control">Остановить управление</string>
+    <string name="control_settings_title">Управление телефоном с Mac</string>
+    <string name="control_settings_search_detail">Нажатия, жесты и ввод текста с Mac, который видит ваш экран</string>
+    <string name="control_service_on">Управление Bridgey включено в настройках Android</string>
+    <string name="control_service_off">Включите управление Bridgey в настройках Android</string>
+    <string name="control_service_open">Открыть настройки</string>
+    <string name="control_mac_needs_share">Включите показ экрана для этого Mac</string>
+    <string name="control_mode_off">Выкл.</string>
+    <string name="control_mode_ask">Спрашивать каждый раз</string>
+    <string name="control_mode_always">Разрешать без вопросов</string>
+    <string name="control_mode_title">Управление с %1$s</string>
+    <string name="control_mode_off_detail">Этот Mac не может управлять телефоном.</string>
+    <string name="control_mode_ask_detail">Телефон будет спрашивать вас каждый раз.</string>
+    <string name="control_mode_always_detail">Начинается без вопросов. Только для вашего собственного Mac.</string>
+    <string name="control_raise_refused">Сначала остановите управление с %1$s.</string>
+    <string name="control_settings_note">Android попросит включить управление Bridgey, службу специальных возможностей, прежде чем Mac сможет нажимать и печатать здесь. Она работает, только пока вы показываете экран разрешённому Mac, и никогда не читает содержимое экрана.</string>
+    <string name="control_settings_note_no_typing">Android попросит включить управление Bridgey, службу специальных возможностей, прежде чем Mac сможет нажимать здесь. Она работает, только пока вы показываете экран разрешённому Mac, и никогда не читает содержимое экрана. Ввод текста с Mac работает в Android 13 и новее.</string>
+</resources>

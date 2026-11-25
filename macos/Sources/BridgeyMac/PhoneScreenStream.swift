@@ -1,4 +1,5 @@
 import CoreVideo
+import VideoToolbox
 import Foundation
 import os
 
@@ -17,6 +18,9 @@ final class ScreenStreamReceiver: @unchecked Sendable {
     var onStats: (ScreenStats) -> Void = { _ in }
     var onStop: (ScreenStopReason) -> Void = { _ in }
     var onSize: (_ width: Int, _ height: Int) -> Void = { _, _ in }
+    /// phone_control_draft1: screen.geometry and screen.control from the phone, in the stream's sequence.
+    var onGeometry: (PhoneGeometryMessage) -> Void = { _ in }
+    var onControl: (PhoneControlMessage) -> Void = { _ in }
 
     private let key: Data
     private let queue: DispatchQueue
@@ -32,6 +36,8 @@ final class ScreenStreamReceiver: @unchecked Sendable {
 
     private let lock = NSLock()
     private var activity = Date()
+    /// The last decoded picture, for the test instance's window snapshot only.
+    private var lastImage: CVPixelBuffer?
 
     // Counters for the once-a-second log line.
     private var windowStart = DispatchTime.now().uptimeNanoseconds
@@ -55,6 +61,14 @@ final class ScreenStreamReceiver: @unchecked Sendable {
 
     /// The last frame part or stats accepted.
     var lastActivity: Date { lock.withLock { activity } }
+
+    /// The last decoded picture as an image (test instances only; nil elsewhere).
+    func snapshotImage() -> CGImage? {
+        guard let buffer = lock.withLock({ lastImage }) else { return nil }
+        var image: CGImage?
+        VTCreateCGImageFromCVPixelBuffer(buffer, options: nil, imageOut: &image)
+        return image
+    }
 
     func attach(_ sink: ScreenDisplaySink) { queue.async { self.sink = sink } }
 
@@ -105,6 +119,16 @@ final class ScreenStreamReceiver: @unchecked Sendable {
             BridgeyLog.screen.notice("screen stats stream=\(String(self.streamID.prefix(8)), privacy: .public) latencyMs=\(stats.latencyMs, privacy: .public) rttMs=\(stats.rttMs, privacy: .public) bitrate=\(stats.bitrate, privacy: .public) sentBitrate=\(stats.sentBitrate, privacy: .public) fps=\(stats.fps, privacy: .public) dropped=\(stats.dropped, privacy: .public)")
             let callback = onStats
             DispatchQueue.main.async { callback(stats) }
+        case PhoneControlKinds.geometry:
+            guard let message = PhoneGeometryMessage.decode(data), message.streamID == streamID, phoneSequence.accept(message.sequence) else { return }
+            touch()
+            let callback = onGeometry
+            DispatchQueue.main.async { callback(message) }
+        case PhoneControlKinds.control:
+            guard let message = PhoneControlMessage.decode(data), message.streamID == streamID, phoneSequence.accept(message.sequence) else { return }
+            touch()
+            let callback = onControl
+            DispatchQueue.main.async { callback(message) }
         case "screen.stop":
             guard let stop = ScreenStop.decode(data), stop.streamID == streamID, phoneSequence.accept(stop.sequence) else { return }
             finished = true
@@ -138,6 +162,7 @@ final class ScreenStreamReceiver: @unchecked Sendable {
                 decodeTotalMs += decodeMs
                 decodeMaxMs = max(decodeMaxMs, decodeMs)
                 sink?.show(image)
+                if TestInstance.enabled { lock.withLock { lastImage = image } }
                 let width = CVPixelBufferGetWidth(image), height = CVPixelBufferGetHeight(image)
                 if size.map({ $0 != (width, height) }) ?? true {
                     size = (width, height)

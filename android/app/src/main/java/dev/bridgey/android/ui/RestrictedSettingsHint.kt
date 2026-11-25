@@ -27,7 +27,12 @@ import dev.bridgey.android.ui.theme.BridgeyType
  * Android 13 and later). A short explanation, the three steps, and a button that opens Bridgey's App info.
  */
 @Composable
-fun RestrictedSettingsHint(kind: PermissionKind, onOpenAppInfo: () -> Unit, modifier: Modifier = Modifier) {
+fun RestrictedSettingsHint(kind: PermissionKind, onOpenAppInfo: () -> Unit, modifier: Modifier = Modifier) =
+    RestrictedSettingsHint(permissionName(kind), onOpenAppInfo, modifier)
+
+/** The same for a setting named [name] that is not on the Permissions page (Bridgey control, an accessibility service). */
+@Composable
+fun RestrictedSettingsHint(name: String, onOpenAppInfo: () -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
     Column(
         modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(colors.surface2).padding(14.dp)
@@ -35,7 +40,7 @@ fun RestrictedSettingsHint(kind: PermissionKind, onOpenAppInfo: () -> Unit, modi
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(stringResource(R.string.restricted_hint_title), style = BridgeyType.itemTitle, color = colors.onSurface)
-        Text(stringResource(R.string.restricted_hint_body, permissionName(kind)), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+        Text(stringResource(R.string.restricted_hint_body, name), style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
         Text(stringResource(R.string.restricted_hint_steps), style = BridgeyType.itemBody, color = colors.onSurface)
         Row(Modifier.fillMaxWidth()) {
             Spacer(Modifier.weight(1f))

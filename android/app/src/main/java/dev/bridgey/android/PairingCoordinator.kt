@@ -456,6 +456,14 @@ class PairingCoordinator(
      */
     @Volatile var displayListener: DisplayListener? = null
 
+    /**
+     * The Mac controls the phone (phone_control_draft1, control/PhoneControlHub.kt): whether this phone advertises the key
+     * to a Mac, what happens when a Mac is forgotten, and when control must re-check its authority.
+     */
+    @Volatile var phoneControlAdvertised: (String) -> Boolean = { false }
+    @Volatile var phoneControlForget: (String) -> Unit = {}
+    @Volatile var phoneControlPolicy: () -> Unit = {}
+
     /** Camera photos being sent: transfer ID to request ID, and what to do when the transfer ends. */
     private val cameraTransfers = ConcurrentHashMap<String, String>()
     private val cameraTransferDone = ConcurrentHashMap<String, (Boolean) -> Unit>()
@@ -878,6 +886,7 @@ class PairingCoordinator(
                 registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
                 registry.connectedIds().forEach(::screenPolicyChanged)
                 registry.connectedIds().forEach { id -> displayListener?.policy(id) }
+                phoneControlPolicy()
                 smsAvailabilityChanged()
                 dialerAvailabilityChanged()
                 scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
@@ -1539,6 +1548,7 @@ class PairingCoordinator(
         recordFocus(focusSync.forget(deviceId))
         settingsSync.forget(deviceId)
         dialer.forget(deviceId)
+        phoneControlForget(deviceId)
         autoClipboardTracker.clear(deviceId)
         clearClipboardCache()
         disconnect(deviceId)
@@ -2597,6 +2607,9 @@ class PairingCoordinator(
         /** The Mac's session ended. */
         fun disconnected(deviceId: String)
 
+        /** screen.input (phone_control_draft1), with the nonce of the session it arrived on. */
+        fun input(deviceId: String, plaintext: ByteArray, connection: ByteArray)
+
         /** The switch changed here ([localOn]) or on the Mac ([remoteOn]) for a connected Mac. */
         fun policy(deviceId: String, localOn: Boolean, remoteOn: Boolean)
 
@@ -2645,6 +2658,37 @@ class PairingCoordinator(
         screenListener?.message(current.remoteDeviceId, decoded)
     }
 
+    /** The pinned identity key of a trusted device (phone control grants are bound to it). */
+    fun pinnedIdentityKey(deviceId: String): String? = trust.identityKey(deviceId)
+
+    /** The Mac shows phone_control_draft1 and screen sharing is available with it. */
+    fun macShowsPhoneControl(deviceId: String): Boolean =
+        !isAgent(deviceId) && isFeatureAvailable(BridgeyFeature.SCREEN, deviceId) && registry.state(deviceId)?.remotePhoneControl == true
+
+    /** features.update to [deviceId] again (a phone control grant changed). */
+    fun refreshFeatureState(deviceId: String) {
+        val current = registry.session(deviceId) ?: return
+        scope.launch { sendFeatureState(current) }
+    }
+
+    /** Both ends show phone_control_draft1 (and screen_draft1) for [deviceId]. */
+    fun phoneControlAvailable(deviceId: String): Boolean =
+        !isAgent(deviceId) && isFeatureAvailable(BridgeyFeature.SCREEN, deviceId) && registry.state(deviceId)?.remotePhoneControl == true &&
+            phoneControlAdvertised(deviceId)
+
+    /**
+     * screen.input: the contract packet, outside the message ID window (its own seq guards replays), handed on with the
+     * nonce of the session it arrived on: the packet cannot name its own sender. Undecryptable ones are dropped.
+     */
+    private fun receiveScreenInput(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        if (!phoneControlAvailable(current.remoteDeviceId)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        if (data.size > dev.bridgey.android.control.PhoneControlLimits.INPUT_MAX_BYTES) return
+        screenListener?.input(current.remoteDeviceId, data, dev.bridgey.android.display.ScreenControl.connectionNonce(key, current.id))
+    }
+
     /** screen.status to the Mac that asked. */
     fun sendScreenStatus(deviceId: String, requestId: String, status: dev.bridgey.android.screen.ScreenStatus): Boolean {
         val current = registry.session(deviceId) ?: return false
@@ -2662,7 +2706,10 @@ class PairingCoordinator(
     fun screenLink(deviceId: String): dev.bridgey.android.screen.ScreenLink? {
         val current = registry.session(deviceId) ?: return null
         if (current.pairingKey == null || !isFeatureAvailable(BridgeyFeature.SCREEN, deviceId)) return null
+        val nonce = dev.bridgey.android.display.ScreenControl.connectionNonce(current.pairingKey ?: return null, current.id)
         return object : dev.bridgey.android.screen.ScreenLink {
+            override val connection: ByteArray get() = nonce.copyOf()
+
             override fun sendJson(kind: String, payload: JSONObject): Boolean =
                 sendEncrypted(current, kind, payload.toString().toByteArray(Charsets.UTF_8))
 
@@ -4416,6 +4463,8 @@ class PairingCoordinator(
             "camera.request" -> receiveCameraMessage(current, message)
             "screen.request" -> receiveScreenRequest(current, message)
             "screen.started", "screen.ack", "screen.stop" -> receiveScreenStream(current, message)
+            dev.bridgey.android.screen.ScreenKinds.CONTROL -> if (phoneControlAvailable(current.remoteDeviceId)) receiveScreenStream(current, message)
+            dev.bridgey.android.screen.ScreenKinds.INPUT -> receiveScreenInput(current, message)
             dev.bridgey.android.display.DisplayKinds.STATUS -> receiveDisplayStatus(current, message)
             dev.bridgey.android.display.DisplayKinds.START, dev.bridgey.android.display.DisplayKinds.STATS,
             dev.bridgey.android.display.DisplayKinds.GEOMETRY, dev.bridgey.android.display.DisplayKinds.CONTROL,
@@ -5762,6 +5811,8 @@ class PairingCoordinator(
         // depends on them, and they must agree. draft2 says this phone remembers the devices that advertise it.
         featureValues.put(LAN_FIRST_FEATURE_KEY, true)
         featureValues.put(LAN_FIRST_DRAFT2_FEATURE_KEY, true)
+        // Draft, edition only: a Mac may control this phone inside a screen share, only while it has a grant here.
+        featureValues.put(dev.bridgey.android.control.PHONE_CONTROL_FEATURE_KEY, phoneControlAdvertised(current.remoteDeviceId))
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -5807,6 +5858,7 @@ class PairingCoordinator(
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null} lanFirst=$lanFirst tier=${current.tier.wire}")
         // Mac screen to phone: read outside the golden vectors' draft list, like LAN first.
         val screenControl = decodeFeatureFlag(plaintext, dev.bridgey.android.display.SCREEN_CONTROL_FEATURE_KEY)
+        val phoneControl = !current.agent && decodeFeatureFlag(plaintext, dev.bridgey.android.control.PHONE_CONTROL_FEATURE_KEY)
         registry.update(deviceId) { state ->
             state.copy(
                 remoteFeatures = received + (BridgeyFeature.SCREEN_CONTROL to screenControl),
@@ -5827,6 +5879,7 @@ class PairingCoordinator(
                 remoteSettingsSync = drafts[dev.bridgey.android.sync.SETTINGS_SYNC_FEATURE_KEY] == true,
                 remoteConnect = drafts[dev.bridgey.android.connect.CONNECT_FEATURE_KEY] == true,
                 remoteLanFirst = lanFirst,
+                remotePhoneControl = phoneControl,
                 remoteAgentsMirror = !current.agent && drafts[dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY] == true,
                 remoteCodesDetect = current.agent && drafts[dev.bridgey.android.agents.CODES_DETECT_FEATURE_KEY] == true,
                 battery = state.battery.takeIf { received[BridgeyFeature.BATTERY] != false },
@@ -5873,6 +5926,7 @@ class PairingCoordinator(
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
         screenPolicyChanged(deviceId)
         displayListener?.policy(deviceId)
+        phoneControlPolicy()
         // Settings sync: the snapshot goes once both sides show the key; sync stops when either turns it off.
         settingsSync.peerChanged(deviceId)
         // Update all: a device that understands it hears this phone's version and update state once per map.

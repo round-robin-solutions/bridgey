@@ -37,6 +37,25 @@ final class PhoneScreenScreenshots: XCTestCase {
         }
     }
 
+    /// Controlling the phone (phone_control_draft1): the bar off, waiting for the phone, active, and after a refusal.
+    @MainActor func testWindowWithControl() throws {
+        for scheme in [ColorScheme.light, .dark] {
+            for (name, control) in [
+                ("off", PhoneControlView(capable: true, allowed: true, width: 720, height: 1600)),
+                ("waiting", PhoneControlView(capable: true, allowed: true, phase: .waiting, width: 720, height: 1600)),
+                ("active", PhoneControlView(capable: true, allowed: true, phase: .active,
+                                            input: ScreenControl.InputCapabilities(pointer: true, touch: true, keys: true, text: true, navigation: true), width: 720, height: 1600)),
+                ("refused", PhoneControlView(capable: true, allowed: false, note: .permission, width: 720, height: 1600)),
+            ] {
+                let model = PhoneScreenWindowModel(phoneName: "OnePlus 11", controllable: true)
+                model.stats = stats
+                model.hasFrame = true
+                model.control = control
+                try write(window(model), scheme: scheme, name: "mac-phone-control-\(name)-\(suffix(scheme))")
+            }
+        }
+    }
+
     @MainActor func testPanelWaitingForThePhone() throws {
         var model = PanelModel()
         model.state = .connected(deviceID: phoneID, peerName: "OnePlus 11")
@@ -96,7 +115,7 @@ final class PhoneScreenScreenshots: XCTestCase {
                 PhoneScreenWindowContent(model: model, stop: {}) {
                     SamplePhoneScreen().frame(width: 405, height: 900)
                 }
-                .frame(width: 405, height: 900 + PhoneScreenHeader.height)
+                .frame(width: 405, height: 900 + PhoneScreenHeader.height + (model.controllable ? PhoneControlBar.height : 0))
             }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .padding(28)
