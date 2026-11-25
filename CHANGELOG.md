@@ -2,6 +2,11 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 5 (1.0.0-beta.5), 25 November 2026
+
+- See your Mac's screen on your phone, and control it from there. It's off until you turn it on for a phone in the Mac's Settings, choosing Ask each time or Allow without asking. The Mac shows who is viewing, with Stop.
+- After a Mac restarts, it goes straight back to Wi-Fi with your other devices.
+
 ## 1.0 Beta 4 (1.0.0-beta.4), 25 November 2026
 
 - An interrupted transfer now picks up where it stopped instead of starting again, and Bridgey sends it again by itself when the device reconnects. Turn this off in Settings > Files.
