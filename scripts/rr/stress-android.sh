@@ -1,8 +1,10 @@
 #!/bin/sh
 # Stress tests against the Android app (docs/testing-stress.md). The stress build (the `stress` build type: minified
 # like release, app ID <edition id>.stress, a control receiver only the shell can reach) runs on an emulator or a test
-# device; the scripted peer (rust/client/examples/stress.rs) plays the Mac, reaches the app through `adb forward` and
-# runs the scenarios. The JSON report, the peer's event log and the app's log land in the output folder.
+# device; the scripted peer (rust/client/examples/stress.rs) plays the Mac, reaches the app through a forwarded port and
+# runs the scenarios. STRESS_FORWARD picks how: `redir` (the emulator's own port redirect, through QEMU's network, so a
+# 1 GiB send cannot stall adb's one connection, which also carries the log and the control broadcasts; the default on
+# an emulator), or `adb` (`adb forward`, the default on a real device). The JSON report, the peer's event log and the app's log land in the output folder.
 #
 # Usage, on a host with adb, a running emulator and Rust:
 #   scripts/rr/stress-android.sh [--apk <stress apk>] [--serial <adb serial>] [--out <dir>] [--keep] [stress run options ...]
@@ -91,6 +93,7 @@ KEEP=0
 WORK=${STRESS_WORK:-${RUNNER_TEMP:-/tmp}/bridgey-stress-android}
 OUT=""
 FORWARD=${STRESS_FORWARD_PORT:-42496}
+FORWARD_MODE=${STRESS_FORWARD:-auto}
 while [ $# -gt 0 ]; do
   case $1 in
     --apk) APK=$2; shift 2 ;;
@@ -107,6 +110,12 @@ ADB=$(command -v adb || echo "$SDK/platform-tools/adb")
 [ -n "$SERIAL" ] || SERIAL=$("$ADB" devices | awk 'NR > 1 && $2 == "device" { print $1; exit }')
 [ -n "$SERIAL" ] || die "no device or emulator on adb"
 export ANDROID_SERIAL="$SERIAL"
+# Two nightly runs stalled adb itself when the app sent 1 GiB through `adb forward` (log and broadcasts went quiet,
+# the device came back later), so an emulator gets its port through the emulator instead.
+if [ "$FORWARD_MODE" = auto ]; then
+  case $SERIAL in emulator-*) FORWARD_MODE=redir ;; *) FORWARD_MODE=adb ;; esac
+fi
+case $FORWARD_MODE in redir|adb) ;; *) die "STRESS_FORWARD must be redir, adb or auto (got $FORWARD_MODE)" ;; esac
 APP_ID="$(edition_value EDITION_APP_ID).stress"
 REAL_ID=$(edition_value EDITION_APP_ID)
 LOGCAT_PID=""
@@ -115,7 +124,11 @@ PEER_PID=""
 cleanup() {
   [ -n "$PEER_PID" ] && kill "$PEER_PID" 2>/dev/null
   [ -n "$LOGCAT_PID" ] && kill "$LOGCAT_PID" 2>/dev/null
-  "$ADB" forward --remove "tcp:$FORWARD" </dev/null 2>/dev/null || true
+  if [ "$FORWARD_MODE" = redir ]; then
+    "$ADB" emu redir del "tcp:$FORWARD" </dev/null >/dev/null 2>&1 || true
+  else
+    "$ADB" forward --remove "tcp:$FORWARD" </dev/null 2>/dev/null || true
+  fi
   [ $KEEP = 1 ] && { echo "kept $WORK and $APP_ID on $SERIAL"; return 0; }
   STRESS_APP_ID=$APP_ID STRESS_ADB=$ADB sh "$SELF" control clean >/dev/null 2>&1 || true
   "$ADB" uninstall "$APP_ID" </dev/null >/dev/null 2>&1 || true
@@ -149,7 +162,13 @@ for other in $("$ADB" shell pm list packages "$REAL_ID" </dev/null | tr -d '\r' 
   "$ADB" shell am force-stop "$other" </dev/null
   echo "stopped $other for the run (force-stop only)"
 done
-"$ADB" forward "tcp:$FORWARD" tcp:42458 </dev/null >/dev/null
+if [ "$FORWARD_MODE" = redir ]; then
+  "$ADB" emu redir del "tcp:$FORWARD" </dev/null >/dev/null 2>&1 || true
+  "$ADB" emu redir add "tcp:$FORWARD:42458" </dev/null | tr -d '\r' | grep -q '^OK' || die "the emulator would not redirect port $FORWARD"
+else
+  "$ADB" forward "tcp:$FORWARD" tcp:42458 </dev/null >/dev/null
+fi
+echo "== port $FORWARD reaches the app through $FORWARD_MODE"
 "$ADB" logcat -c </dev/null || true
 export STRESS_APP_ID="$APP_ID" STRESS_ADB="$ADB"
 sh "$SELF" control start | grep -q '"ok":true' || die "the stress build did not start"

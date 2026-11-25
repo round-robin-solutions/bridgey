@@ -83,8 +83,11 @@ A new install starts with every optional feature off, so the runner turns File t
 receiver before pairing (`files-on`), as setup's Files choice does. The device needs free space for the largest file
 and 64 MiB more; the driver skips a size that does not fit and reports it.
 
-adb installs and removes the stress build, forwards `tcp:42496` to its port 42458, starts it, force-stops it for the
-restart scenarios, sends its control broadcasts and reads its log. Other Bridgey builds on the device listen on the same
+adb installs and removes the stress build, starts it, force-stops it for the restart scenarios, sends its control
+broadcasts and reads its log. Host port 42496 reaches the app's port 42458 through the emulator's own redirect
+(`adb emu redir`), so a 1 GiB send cannot stall adb's one connection, which carries the log and the broadcasts too (two
+nightly runs stalled that way through `adb forward`). A real device uses `adb forward`; `STRESS_FORWARD=adb` or `redir`
+overrides the choice. Other Bridgey builds on the device listen on the same
 port, so they are force-stopped for the run (their data is untouched). The emulator itself is never wiped or reconfigured.
 
 Without a device, the harness can check itself against the session client (in `rust/`):
