@@ -620,11 +620,15 @@ final class PairingCoordinator: ObservableObject {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pairingSystemWillSleep() }
             }
-            // Quitting keeps resumable partials, synced and recorded, for the next attempt (files_resume_draft1).
+            // Quitting keeps resumable partials, synced and recorded, for the next attempt (files_resume_draft1), and
+            // waits for the transfer history's last save.
             terminateObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.willTerminateNotification, object: nil, queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated { self?.keepResumableIncoming() }
+                MainActor.assumeIsolated {
+                    self?.keepResumableIncoming()
+                    self?.transferHistory.flush()
+                }
             }
         }
         let notificationHistoryStore = NotificationHistoryStore()
