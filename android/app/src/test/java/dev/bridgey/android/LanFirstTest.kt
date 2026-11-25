@@ -50,10 +50,22 @@ class LanFirstTest {
 
     @Test fun lanFirstFlagIsReadOutsideTheDraftList() {
         assertFalse(LAN_FIRST_FEATURE_KEY in KNOWN_DRAFT_FEATURE_KEYS)
+        assertFalse(LAN_FIRST_DRAFT2_FEATURE_KEY in KNOWN_DRAFT_FEATURE_KEYS)
         assertTrue(decodeFeatureFlag("""{"version":1,"features":{"lan_first_draft1":true}}""".toByteArray(), LAN_FIRST_FEATURE_KEY))
         assertFalse(decodeFeatureFlag("""{"version":1,"features":{"lan_first_draft1":"true"}}""".toByteArray(), LAN_FIRST_FEATURE_KEY))
         assertFalse(decodeFeatureFlag("""{"version":1,"features":{}}""".toByteArray(), LAN_FIRST_FEATURE_KEY))
         assertFalse(decodeFeatureFlag("not json".toByteArray(), LAN_FIRST_FEATURE_KEY))
+    }
+
+    @Test fun rememberedOnlyWithBothKeys() {
+        fun remembered(features: String): Boolean {
+            val plaintext = """{"version":1,"features":{$features}}""".toByteArray()
+            return lanFirstRemembered(decodeFeatureFlag(plaintext, LAN_FIRST_FEATURE_KEY), decodeFeatureFlag(plaintext, LAN_FIRST_DRAFT2_FEATURE_KEY))
+        }
+        assertTrue(remembered(""""lan_first_draft1":true,"lan_first_draft2":true"""))
+        assertFalse("Beta 2 to 4", remembered(""""lan_first_draft1":true"""))
+        assertFalse("never without the first key", remembered(""""lan_first_draft2":true"""))
+        assertFalse(remembered(""""lan_first_draft1":true,"lan_first_draft2":"true""""))
     }
 
     // endregion
@@ -64,8 +76,8 @@ class LanFirstTest {
         fun verdict(
             stale: Boolean = false, key: Boolean = true, transfer: Boolean = false,
             new: SessionTier = SessionTier.LAN, old: SessionTier = SessionTier.TUNNEL,
-            newLower: Boolean = false, oldLower: Boolean = true,
-        ) = duplicateVerdict(stale, key, transfer, new, old, newLower, oldLower)
+            newLower: Boolean = false, oldLower: Boolean = true, remembered: Boolean = false,
+        ) = duplicateVerdict(stale, key, remembered, transfer, new, old, newLower, oldLower)
 
         // 1. Stale beats everything, a transfer and the tiers included.
         assertEquals(DuplicateVerdict.STALE, verdict(stale = true, transfer = true, new = SessionTier.TUNNEL, old = SessionTier.LAN))
@@ -87,6 +99,20 @@ class LanFirstTest {
         assertEquals(DuplicateVerdict.DIALLED_EXISTING, verdict(new = SessionTier.LAN, old = SessionTier.LAN, newLower = false, oldLower = true))
         assertEquals(DuplicateVerdict.DIALLED_NEW, verdict(new = SessionTier.LAN, old = SessionTier.LAN, newLower = true, oldLower = false))
         assertEquals(DuplicateVerdict.DIALLED_NEW, verdict(new = SessionTier.TUNNEL, old = SessionTier.TUNNEL, newLower = false, oldLower = false))
+        // 2 again, features not yet received on the live session: a remembered peer (lan_first_draft2) gets rules 3
+        // and 4 exactly as with them; one that is not remembered gets the old rule.
+        val tiers = SessionTier.entries
+        for (stale in listOf(false, true)) for (transfer in listOf(false, true)) for (new in tiers) for (old in tiers) {
+            for (newLower in listOf(false, true)) for (oldLower in listOf(false, true)) {
+                assertEquals(
+                    verdict(stale, key = true, transfer = transfer, new = new, old = old, newLower = newLower, oldLower = oldLower),
+                    verdict(stale, key = false, transfer = transfer, new = new, old = old, newLower = newLower, oldLower = oldLower, remembered = true),
+                )
+            }
+        }
+        // 24 Nov: a new LAN session dialled by the higher ID, then a tunnel (always the lower ID's), no features yet.
+        assertEquals(DuplicateVerdict.DIALLED_NEW, verdict(key = false, new = SessionTier.TUNNEL, old = SessionTier.LAN, newLower = true, oldLower = false))
+        assertEquals(DuplicateVerdict.TIER_EXISTING, verdict(key = false, remembered = true, new = SessionTier.TUNNEL, old = SessionTier.LAN, newLower = true, oldLower = false))
         assertTrue(DuplicateVerdict.TIER_NEW.newWins)
         assertFalse(DuplicateVerdict.TRANSFER.newWins)
         assertEquals("tier", DuplicateVerdict.TIER_EXISTING.detail)
@@ -184,6 +210,106 @@ class LanFirstTest {
             assertEquals("phone-lan", atPhone.session(mac))
             assertEquals("phone-lan", atMac.session(phone))
         }
+    }
+
+    /**
+     * One end of a phone (m-phone) and Mac pair, as a registry: the live session [existing] then [candidate], each with
+     * whether the Mac dialled it. [fixed]: a build with lan_first_draft2, else 1.0 Beta 2 to 4 (never remembers, never
+     * remembered). [featuresHere]: this end has the peer's features.update on the live session. [exchanged]: an earlier
+     * session exchanged features, so a fixed end remembers what the peer's build sent.
+     */
+    private fun end(
+        atPhone: Boolean, macId: String, fixed: Boolean, peerFixed: Boolean, exchanged: Boolean, featuresHere: Boolean,
+        existing: Pair<SessionTier, Boolean>, candidate: Pair<SessionTier, Boolean>,
+    ): String {
+        val peerSent = (if (peerFixed) """{"version":1,"features":{"lan_first_draft1":true,"lan_first_draft2":true}}""" else """{"version":1,"features":{"lan_first_draft1":true}}""").toByteArray()
+        val remembered = fixed && exchanged && lanFirstRemembered(decodeFeatureFlag(peerSent, LAN_FIRST_FEATURE_KEY), decodeFeatureFlag(peerSent, LAN_FIRST_DRAFT2_FEATURE_KEY))
+        val registry = SessionRegistry<Fake>(if (atPhone) phone else macId)
+        val remote = if (atPhone) macId else phone
+        val old = Fake("existing", existing.first)
+        val new = Fake("candidate", candidate.first)
+        registry.addPending(old, initiatedLocally = existing.second != atPhone)
+        registry.authenticate(old, remote, "Peer", tierOf = { it.tier })
+        registry.update(remote) { it.copy(remoteLanFirst = featuresHere) }
+        registry.addPending(new, initiatedLocally = candidate.second != atPhone)
+        registry.authenticate(new, remote, "Peer", tierOf = { it.tier }, rememberedLanFirst = remembered)
+        return registry.session(remote)!!.name
+    }
+
+    private fun forEveryPair(body: (String, Pair<SessionTier, Boolean>, Pair<SessionTier, Boolean>, Boolean, Boolean) -> Unit) {
+        val directions = listOf(true to true, true to false, false to true, false to false)
+        for (macId in listOf(mac, lowMac)) for (existingTier in SessionTier.entries) for (candidateTier in SessionTier.entries) {
+            for ((macDialledExisting, macDialledCandidate) in directions) for ((featuresAtPhone, featuresAtMac) in directions) {
+                body(macId, existingTier to macDialledExisting, candidateTier to macDialledCandidate, featuresAtPhone, featuresAtMac)
+            }
+        }
+    }
+
+    @Test fun rememberedPeerKeepsTheLanSessionBeforeItsFeaturesArrive() {
+        // 24 Nov: the Mac (z-mac, the higher ID, so the phone owns the tunnel) redialled over the LAN after a restart, and
+        // the tunnel authenticated before any features.update.
+        val lanByMac = SessionTier.LAN to true
+        val tunnelByPhone = SessionTier.TUNNEL to false
+        assertEquals("tunnel replaced LAN, as in Beta 2 to 4", "candidate",
+            end(atPhone = true, macId = mac, fixed = true, peerFixed = true, exchanged = false, featuresHere = false, existing = lanByMac, candidate = tunnelByPhone))
+        for (atPhone in listOf(true, false)) {
+            assertEquals("existing", end(atPhone, mac, fixed = true, peerFixed = true, exchanged = true, featuresHere = false, existing = lanByMac, candidate = tunnelByPhone))
+        }
+        // The registry carries the verdict for diagnostics.
+        val registry = SessionRegistry<Fake>(phone)
+        val lan = Fake("lan", SessionTier.LAN)
+        registry.addPending(lan, false)
+        registry.authenticate(lan, mac, "lan", tierOf = { it.tier })
+        val verdicts = mutableListOf<DuplicateVerdict>()
+        val tunnel = Fake("tunnel", SessionTier.TUNNEL)
+        registry.addPending(tunnel, true)
+        assertEquals(SessionRegistry.Admission.Rejected, registry.authenticate(tunnel, mac, "tunnel", tierOf = { it.tier }, rememberedLanFirst = true, onVerdict = { verdicts += it }))
+        assertEquals(listOf(DuplicateVerdict.TIER_EXISTING), verdicts)
+        assertSame(lan, registry.session(mac))
+    }
+
+    @Test fun fixedEndsAgreeWhateverFeaturesHaveArrived() {
+        forEveryPair { macId, existing, candidate, featuresAtPhone, featuresAtMac ->
+            val atPhone = end(true, macId, fixed = true, peerFixed = true, exchanged = true, featuresHere = featuresAtPhone, existing = existing, candidate = candidate)
+            val atMac = end(false, macId, fixed = true, peerFixed = true, exchanged = true, featuresHere = featuresAtMac, existing = existing, candidate = candidate)
+            assertEquals("$macId $existing then $candidate features phone=$featuresAtPhone mac=$featuresAtMac", atPhone, atMac)
+        }
+    }
+
+    @Test fun mixedVersionsBehaveAsBefore() {
+        // One end on Beta 2 to 4, or the first session after both updated: each end decides exactly as Beta 2 to 4 does,
+        // so the pair agrees whenever both ends have the same features state, as before.
+        forEveryPair { macId, existing, candidate, featuresAtPhone, featuresAtMac ->
+            for ((phoneFixed, macFixed, exchanged) in listOf(Triple(true, false, true), Triple(false, true, true), Triple(true, true, false))) {
+                for (atPhone in listOf(true, false)) {
+                    val features = if (atPhone) featuresAtPhone else featuresAtMac
+                    val now = end(atPhone, macId, if (atPhone) phoneFixed else macFixed, if (atPhone) macFixed else phoneFixed, exchanged, features, existing, candidate)
+                    val before = end(atPhone, macId, fixed = false, peerFixed = false, exchanged = exchanged, featuresHere = features, existing = existing, candidate = candidate)
+                    assertEquals("$macId phone fixed=$phoneFixed mac fixed=$macFixed at phone=$atPhone", before, now)
+                }
+                if (featuresAtPhone != featuresAtMac) continue
+                assertEquals(
+                    end(true, macId, phoneFixed, macFixed, exchanged, featuresAtPhone, existing, candidate),
+                    end(false, macId, macFixed, phoneFixed, exchanged, featuresAtMac, existing, candidate),
+                )
+            }
+        }
+    }
+
+    @Test fun rememberingTheFirstKeyAloneWouldSplitAMixedPair() {
+        // A fixed Mac that remembered a Beta 2 to 4 phone's lan_first_draft1 would keep the LAN session while the phone,
+        // still waiting for features, keeps its tunnel: both sessions would close.
+        val registry = SessionRegistry<Fake>(mac)
+        val lan = Fake("lan", SessionTier.LAN)
+        registry.addPending(lan, true)
+        registry.authenticate(lan, phone, "lan", tierOf = { it.tier })
+        val tunnel = Fake("tunnel", SessionTier.TUNNEL)
+        registry.addPending(tunnel, false)
+        registry.authenticate(tunnel, phone, "tunnel", tierOf = { it.tier }, rememberedLanFirst = true)
+        val atPhone = end(true, mac, fixed = false, peerFixed = true, exchanged = true, featuresHere = false,
+            existing = SessionTier.LAN to true, candidate = SessionTier.TUNNEL to false)
+        assertEquals("lan", registry.session(phone)!!.name)
+        assertEquals("candidate", atPhone)
     }
 
     // endregion

@@ -23,6 +23,34 @@ final class LanFirstTests: XCTestCase {
         XCTAssertLessThan(SessionTier.socket, .lan)
     }
 
+    // MARK: Remembered peers (lan_first_draft2)
+
+    func testMemoryNeedsBothKeysAndForgetsADowngrade() throws {
+        let suite = "bridgey.tests.lanFirstMemory.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func payload(_ features: String) -> Data { Data(#"{"version":1,"features":{\#(features)}}"#.utf8) }
+        XCTAssertTrue(LanFirstMemory.advertises(payload(#""lan_first_draft1":true,"lan_first_draft2":true"#)))
+        XCTAssertFalse(LanFirstMemory.advertises(payload(#""lan_first_draft1":true"#)), "Beta 2 to 4")
+        XCTAssertFalse(LanFirstMemory.advertises(payload(#""lan_first_draft2":true"#)), "never without the first key")
+        XCTAssertFalse(LanFirstMemory.advertises(payload(#""lan_first_draft1":true,"lan_first_draft2":"true""#)))
+        XCTAssertFalse(knownDraftFeatureKeys.contains(lanFirstDraft2FeatureKey), "read outside the golden vectors' list")
+
+        let memory = LanFirstMemory(defaults: defaults)
+        XCTAssertFalse(memory.remembers("Phone-A"))
+        memory.record("Phone-A", advertised: true)
+        XCTAssertTrue(memory.remembers("phone-a"))
+        XCTAssertFalse(memory.remembers("Phone-B"))
+        // Kept across launches: a new instance on the same preferences still remembers.
+        XCTAssertTrue(LanFirstMemory(defaults: defaults).remembers("Phone-A"))
+        memory.record("Phone-A", advertised: false)
+        XCTAssertFalse(memory.remembers("Phone-A"), "a features.update without the keys forgets at once")
+        memory.record("Phone-A", advertised: true)
+        memory.remove("PHONE-A")
+        XCTAssertFalse(memory.remembers("Phone-A"), "Forget")
+        XCTAssertTrue(defaults.dictionaryRepresentation().keys.allSatisfy { !$0.hasPrefix(LanFirstMemory.prefix) })
+    }
+
     // MARK: Upgrade schedule
 
     private let lan = LanUpgradeAddress(host: "192.168.29.7", port: 42458, origin: "bonjour")

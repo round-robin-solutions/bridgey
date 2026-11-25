@@ -5513,7 +5513,8 @@ class PairingCoordinator(
         var verdict: DuplicateVerdict? = null
         when (val admission = registry.authenticate(
             current, current.remoteDeviceId, current.peerName,
-            tierOf = { it.tier }, activeTransfer = activeTransfer, onVerdict = { verdict = it }, isStale = stale,
+            tierOf = { it.tier }, activeTransfer = activeTransfer, rememberedLanFirst = trust.lanFirstRemembered(current.remoteDeviceId),
+            onVerdict = { verdict = it }, isStale = stale,
         )) {
             SessionRegistry.Admission.Rejected -> {
                 // A live session for this device wins the duplicate rule; this socket closes quietly.
@@ -5648,9 +5649,10 @@ class PairingCoordinator(
         featureValues.put(FILES_RESUME_FEATURE_KEY, current.envelopeKey != null)
         // Draft, edition only: the agents mirror (agents.state, agents.grant_set, codes.found, codes.read). A capability.
         featureValues.put(dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY, true)
-        // Draft, edition only: LAN first (LanFirst.kt). A capability, so always on: the duplicate rule both ends run
-        // depends on it, and they must agree.
+        // Draft, edition only: LAN first (LanFirst.kt). Capabilities, so always on: the duplicate rule both ends run
+        // depends on them, and they must agree. draft2 says this phone remembers the devices that advertise it.
         featureValues.put(LAN_FIRST_FEATURE_KEY, true)
+        featureValues.put(LAN_FIRST_DRAFT2_FEATURE_KEY, true)
         val payload = JSONObject()
             .put("version", 1)
             .put("features", featureValues)
@@ -5680,6 +5682,8 @@ class PairingCoordinator(
         val drafts = decoded.drafts
         val lanFirst = decodeFeatureFlag(plaintext, LAN_FIRST_FEATURE_KEY)
         val deviceId = current.remoteDeviceId
+        // Remembered only with both keys: a build that remembers this phone too (docs/protocol.md "LAN first").
+        trust.rememberLanFirst(deviceId, lanFirstRemembered(lanFirst, decodeFeatureFlag(plaintext, LAN_FIRST_DRAFT2_FEATURE_KEY)))
         if (!current.agent && dev.bridgey.android.agents.advertisesAgent(drafts)) {
             // A server paired over the tailnet (not by invite) says what it is in its own authenticated map: from now on it
             // is an agent here, with every grant off, exactly as one paired by invite (docs/mesh-and-codes.md, phase 2).
@@ -6413,6 +6417,7 @@ class PairingCoordinator(
         values.put(dev.bridgey.android.connect.CONNECT_FEATURE_KEY, connectAdvertised())
         values.put(FILES_FAST_FEATURE_KEY, true)
         values.put(LAN_FIRST_FEATURE_KEY, true)
+        values.put(LAN_FIRST_DRAFT2_FEATURE_KEY, true)
         return values
     }
 
@@ -7417,6 +7422,7 @@ private class AndroidTrustRegistry(context: Context) {
             .remove("peer.$deviceId.identityKey")
             .remove("peer.$deviceId.protocol")
             .remove("peer.$deviceId.platform")
+            .remove("peer.$deviceId.lanFirst")
             .apply()
         mutableIds.value = loadIds()
         mutableDevices.value = loadDevices()
@@ -7432,6 +7438,15 @@ private class AndroidTrustRegistry(context: Context) {
 
     fun pinProtocol(deviceId: String, version: Long) {
         if (version > pinnedProtocol(deviceId)) preferences.edit().putLong("peer.$deviceId.protocol", version).apply()
+    }
+
+    /** The device advertised lan_first_draft2 in the last features.update this phone had from it (LanFirst.kt). */
+    fun lanFirstRemembered(deviceId: String): Boolean = preferences.getBoolean("peer.$deviceId.lanFirst", false)
+
+    /** Every features.update: a build that dropped the key (an older one) is forgotten at once. */
+    fun rememberLanFirst(deviceId: String, advertised: Boolean) {
+        if (advertised == lanFirstRemembered(deviceId)) return
+        preferences.edit().apply { if (advertised) putBoolean("peer.$deviceId.lanFirst", true) else remove("peer.$deviceId.lanFirst") }.apply()
     }
 
     private fun loadIds(): Set<String> = preferences.all.keys

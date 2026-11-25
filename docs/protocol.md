@@ -128,7 +128,7 @@ predating this message are treated as enabling the original v1 features for
 compatibility; the later `calls`, `ping`, `links`, and `media` features are disabled unless a peer
 advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_draft1`,
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
-`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `files_resume_draft1`, `lan_first_draft1`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
+`screen_draft1`, `connect_draft1`, `files_fast_draft1`, `files_resume_draft1`, `lan_first_draft1`, `lan_first_draft2`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
 `ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
 are optional booleans described in their own sections; a missing draft key means `false`.
 
@@ -1734,9 +1734,21 @@ Each session has a tier that both ends work out alike:
 When a session authenticates for a device that already has one, in this order:
 
 1. The live session is stale (silent 15 s, 40 s on a tunnel): the new one wins.
-2. The live session's peer did not advertise `lan_first_draft1`: the rule above (lower dialler).
+2. The live session's peer did not advertise `lan_first_draft1` and is not remembered (below): the rule above (lower dialler).
 3. The live session has an active transfer: the new one closes quietly, whatever its tier.
 4. The higher tier wins; equal tiers fall back to the lower dialler.
+
+A new session has no features yet, and each end receives the other's `features.update` at its own moment, so
+"advertised on the live session" can differ between the ends for the first moments of a session. Seen on 24 November:
+right after a Mac restarted, a tunnel replaced its new LAN session because the LAN session's features had not arrived.
+Builds that fix this also advertise `lan_first_draft2` (a capability, always `true`, wherever they send
+`lan_first_draft1`) and remember, per trusted device, whether its latest `features.update` carried both keys; Forget
+and resetting trusted devices clear it. A remembered device counts as advertising in step 2 from the moment a session
+authenticates. Only builds that remember are remembered, so the two ends of a pair start remembering each other after
+the same exchange and apply the same rule before features arrive. A 1.0 Beta 2 to 4 peer never sends the second key: a
+newer build treats it exactly as it always did. Remembering `lan_first_draft1` alone would not do, since a Beta 2 to 4
+peer still applies the lower-dialler rule until features arrive, the two ends would keep different sessions and both
+would close. The memories can differ only for the session in which one end changes version.
 
 An active transfer is, with that peer: a file transfer offered and not finished, a folder being sent or
 received (Phone files downloads included), a clipboard push or paste fetch, or a speed test. Files and

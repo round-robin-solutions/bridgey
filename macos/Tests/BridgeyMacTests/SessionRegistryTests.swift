@@ -77,9 +77,10 @@ final class SessionRegistryTests: XCTestCase {
         }
     }
 
-    /// One side of the pair. `peerSupports`: the existing session's peer advertised lan_first_draft1.
+    /// One side of the pair. `peerSupports`: the existing session's peer advertised lan_first_draft1 (its features.update
+    /// arrived on the live session). `remembered`: this end remembers the peer advertising lan_first_draft2.
     private func duplicate(local: String, remote: String, existing: (SessionTier, Bool), candidate: (SessionTier, Bool),
-                           peerSupports: Bool, stale: Bool = false, transfer: Bool = false) -> String {
+                           peerSupports: Bool, remembered: Bool = false, stale: Bool = false, transfer: Bool = false) -> String {
         let registry = SessionRegistry<TieredSession>(localDeviceID: local)
         let old = TieredSession("existing", existing.0)
         let new = TieredSession("candidate", candidate.0)
@@ -88,7 +89,8 @@ final class SessionRegistryTests: XCTestCase {
         registry.update(remote) { $0.remoteLanFirst = peerSupports }
         registry.addPending(new, initiatedLocally: candidate.1)
         _ = registry.authenticate(new, deviceID: remote, peerName: "Peer", isStale: { $0 === old && stale },
-                                  tier: { $0.tier }, hasActiveTransfer: { $0 == remote && transfer })
+                                  tier: { $0.tier }, hasActiveTransfer: { $0 == remote && transfer },
+                                  remembersLanFirst: { $0 == remote && remembered })
         return registry.session(for: remote)?.name ?? "none"
     }
 
@@ -153,6 +155,118 @@ final class SessionRegistryTests: XCTestCase {
                 }
             }
         }
+    }
+
+    // MARK: LAN first before features arrive (lan_first_draft2)
+
+    private let tiers: [SessionTier] = [.tunnel, .socket, .lan]
+
+    /// 24 Nov: the Mac restarted and redialled the phone over the LAN. A tunnel (its QUIC client is always the lower ID)
+    /// authenticated before the LAN session's features.update, so the rule did not know the peer ran LAN first and the
+    /// lower dialler's tunnel replaced the LAN session. A remembered peer keeps the LAN session on both ends.
+    func testRememberedPeerKeepsTheLanSessionBeforeItsFeaturesArrive() {
+        // a-phone < m-mac: the Mac's LAN dial loses the old rule to the phone's tunnel.
+        XCTAssertEqual(duplicate(local: macID, remote: phoneA, existing: (.lan, true), candidate: (.tunnel, false), peerSupports: false),
+                       "candidate", "features not yet received, not remembered: lan_to_tunnel, as in Beta 2 to 4")
+        XCTAssertEqual(duplicate(local: macID, remote: phoneA, existing: (.lan, true), candidate: (.tunnel, false), peerSupports: false,
+                                 remembered: true), "existing")
+        XCTAssertEqual(duplicate(local: phoneA, remote: macID, existing: (.lan, false), candidate: (.tunnel, true), peerSupports: false,
+                                 remembered: true), "existing", "the phone's end of the same pair")
+        // The other order on one end: the tunnel first, then the LAN session.
+        XCTAssertEqual(duplicate(local: macID, remote: phoneA, existing: (.tunnel, false), candidate: (.lan, true), peerSupports: false,
+                                 remembered: true), "candidate")
+    }
+
+    /// Remembered without features on the live session: the whole rule, exactly as with them (stale, transfer, tiers).
+    func testRememberedPeerGetsTheWholeRuleBeforeFeatures() {
+        for existingTier in tiers {
+            for candidateTier in tiers {
+                for (existingLocal, candidateLocal) in [(true, true), (true, false), (false, true), (false, false)] {
+                    for (stale, transfer) in [(false, false), (false, true), (true, false), (true, true)] {
+                        for remote in [phoneA, phoneZ] {
+                            let early = duplicate(local: macID, remote: remote, existing: (existingTier, existingLocal),
+                                                  candidate: (candidateTier, candidateLocal), peerSupports: false, remembered: true,
+                                                  stale: stale, transfer: transfer)
+                            let late = duplicate(local: macID, remote: remote, existing: (existingTier, existingLocal),
+                                                 candidate: (candidateTier, candidateLocal), peerSupports: true,
+                                                 stale: stale, transfer: transfer)
+                            XCTAssertEqual(early, late, "\(existingTier) then \(candidateTier) stale=\(stale) transfer=\(transfer)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// One end of a Mac (m-mac) and phone (a-phone or z-phone) pair. `fixed`: a build with lan_first_draft2; else 1.0 Beta 2
+    /// to 4, which never remembers and is never remembered. `featuresHere`: this end has the peer's features.update on
+    /// the live session. `exchanged`: an earlier session exchanged features, so a fixed end remembers a fixed peer.
+    private func end(atMac: Bool, phone: String, fixed: Bool, peerFixed: Bool, exchanged: Bool, featuresHere: Bool,
+                     existing: (SessionTier, Bool), candidate: (SessionTier, Bool)) -> String {
+        // What the peer's build sends; only a fixed end keeps a memory, from that earlier exchange.
+        let peerSent = Data((peerFixed ? #"{"version":1,"features":{"lan_first_draft1":true,"lan_first_draft2":true}}"#
+            : #"{"version":1,"features":{"lan_first_draft1":true}}"#).utf8)
+        let remembered = fixed && exchanged && LanFirstMemory.advertises(peerSent)
+        // `existing.1` and `candidate.1`: the Mac dialled the session.
+        return duplicate(local: atMac ? macID : phone, remote: atMac ? phone : macID,
+                         existing: (existing.0, atMac == existing.1), candidate: (candidate.0, atMac == candidate.1),
+                         peerSupports: featuresHere, remembered: remembered)
+    }
+
+    private func forEveryPair(_ body: (String, (SessionTier, Bool), (SessionTier, Bool), Bool, Bool) -> Void) {
+        for phone in [phoneA, phoneZ] {
+            for existingTier in tiers {
+                for candidateTier in tiers {
+                    for (macDialledExisting, macDialledCandidate) in [(true, true), (true, false), (false, true), (false, false)] {
+                        for (featuresAtMac, featuresAtPhone) in [(true, true), (true, false), (false, true), (false, false)] {
+                            body(phone, (existingTier, macDialledExisting), (candidateTier, macDialledCandidate), featuresAtMac, featuresAtPhone)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Both ends fixed and remembering each other: they keep the same session whichever end has features yet.
+    func testFixedEndsAgreeWhateverFeaturesHaveArrived() {
+        forEveryPair { phone, existing, candidate, featuresAtMac, featuresAtPhone in
+            let mac = end(atMac: true, phone: phone, fixed: true, peerFixed: true, exchanged: true, featuresHere: featuresAtMac,
+                          existing: existing, candidate: candidate)
+            let other = end(atMac: false, phone: phone, fixed: true, peerFixed: true, exchanged: true, featuresHere: featuresAtPhone,
+                            existing: existing, candidate: candidate)
+            XCTAssertEqual(mac, other, "\(phone) \(existing) then \(candidate) features mac=\(featuresAtMac) phone=\(featuresAtPhone)")
+        }
+    }
+
+    /// One end on Beta 2 to 4: the fixed end decides exactly as a Beta 2 to 4 end would, so the pair behaves as before
+    /// (and agrees whenever both ends have the same features state). The first session after both update does too.
+    func testMixedVersionsBehaveAsBefore() {
+        forEveryPair { phone, existing, candidate, featuresAtMac, featuresAtPhone in
+            for (macFixed, phoneFixed, exchanged) in [(true, false, true), (false, true, true), (true, true, false)] {
+                for atMac in [true, false] {
+                    let features = atMac ? featuresAtMac : featuresAtPhone
+                    let now = end(atMac: atMac, phone: phone, fixed: atMac ? macFixed : phoneFixed, peerFixed: atMac ? phoneFixed : macFixed,
+                                  exchanged: exchanged, featuresHere: features, existing: existing, candidate: candidate)
+                    let before = end(atMac: atMac, phone: phone, fixed: false, peerFixed: false, exchanged: exchanged,
+                                     featuresHere: features, existing: existing, candidate: candidate)
+                    XCTAssertEqual(now, before, "\(phone) mac fixed=\(macFixed) phone fixed=\(phoneFixed) at mac=\(atMac)")
+                }
+                guard featuresAtMac == featuresAtPhone else { continue }
+                let mac = end(atMac: true, phone: phone, fixed: macFixed, peerFixed: phoneFixed, exchanged: exchanged,
+                              featuresHere: featuresAtMac, existing: existing, candidate: candidate)
+                let other = end(atMac: false, phone: phone, fixed: phoneFixed, peerFixed: macFixed, exchanged: exchanged,
+                                featuresHere: featuresAtPhone, existing: existing, candidate: candidate)
+                XCTAssertEqual(mac, other)
+            }
+        }
+    }
+
+    /// Why a second key: remembering lan_first_draft1 alone would split a Beta 2 to 4 phone and a fixed Mac on 24 Nov's
+    /// case, the Mac keeping the LAN session and the phone the tunnel, so both would close.
+    func testRememberingTheFirstKeyAloneWouldSplitAMixedPair() {
+        let mac = duplicate(local: macID, remote: phoneA, existing: (.lan, true), candidate: (.tunnel, false), peerSupports: false, remembered: true)
+        let phone = duplicate(local: phoneA, remote: macID, existing: (.lan, false), candidate: (.tunnel, true), peerSupports: false)
+        XCTAssertNotEqual(mac, phone)
     }
 
     func testPerPhoneStateIsIsolated() {

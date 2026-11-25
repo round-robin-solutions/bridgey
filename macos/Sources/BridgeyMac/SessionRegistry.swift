@@ -132,9 +132,10 @@ func pairingOldVersionText(_ name: String) -> String {
 /// the lower device id; if both were dialled by the same side, keep the newer one. A live session that looks stale
 /// (silent past `ReconnectPolicy.staleSessionAfter`) loses to the new one whoever dialled it.
 ///
-/// With a peer that advertised `lan_first_draft1` (docs/protocol.md "Draft: LAN first"), in this order: a stale session
-/// loses; while a transfer with the device runs, a new session is rejected (no switch cancels a transfer); then the
-/// higher tier wins (LAN socket, other socket, tunnel); equal tiers keep the dialled-by-lower-ID rule.
+/// With a peer that advertised `lan_first_draft1` on the live session, or that this Mac remembers advertising
+/// `lan_first_draft2` (docs/protocol.md "LAN first"), in this order: a stale session loses; while a transfer with the
+/// device runs, a new session is rejected (no switch cancels a transfer); then the higher tier wins (LAN socket, other
+/// socket, tunnel); equal tiers keep the dialled-by-lower-ID rule.
 final class SessionRegistry<S: AnyObject> {
     enum Admission: Equatable {
         /// The session is now the device's session; `replaced` (if any) must be closed.
@@ -184,10 +185,13 @@ final class SessionRegistry<S: AnyObject> {
     func isActive(_ session: S) -> Bool { active.contains { $0.session === session } }
 
     /// `isStale`: the session has heard nothing for longer than a healthy heartbeat allows (`sessionLooksStale`).
-    /// `tier` and `hasActiveTransfer` count only with a peer that advertised `lan_first_draft1`.
+    /// `tier` and `hasActiveTransfer` count only with a peer that advertised `lan_first_draft1` on the live session or
+    /// that `remembersLanFirst` (it advertised `lan_first_draft2` before, LanFirstMemory), which also covers a live
+    /// session whose features.update has not arrived yet.
     func authenticate(_ session: S, deviceID: String, peerName: String, isStale: (S) -> Bool = { _ in false },
                       tier: (S) -> SessionTier = { _ in .socket },
-                      hasActiveTransfer: (String) -> Bool = { _ in false }) -> Admission {
+                      hasActiveTransfer: (String) -> Bool = { _ in false },
+                      remembersLanFirst: (String) -> Bool = { _ in false }) -> Admission {
         let entry: Entry
         if let index = pending.firstIndex(where: { $0.session === session }) {
             entry = pending.remove(at: index)
@@ -203,7 +207,8 @@ final class SessionRegistry<S: AnyObject> {
             return .accepted(replaced: nil)
         }
         let existing = active[index]
-        guard admits(entry, over: existing, deviceID: deviceID, isStale: isStale, tier: tier, hasActiveTransfer: hasActiveTransfer) else {
+        guard admits(entry, over: existing, deviceID: deviceID, isStale: isStale, tier: tier, hasActiveTransfer: hasActiveTransfer,
+                     remembersLanFirst: remembersLanFirst) else {
             return .rejected
         }
         entry.state = existing.state
@@ -215,11 +220,13 @@ final class SessionRegistry<S: AnyObject> {
         return .accepted(replaced: existing.session)
     }
 
-    /// The duplicate rule (see the type's note). Without the peer's `lan_first_draft1`, exactly the rule before it.
+    /// The duplicate rule (see the type's note). Without the peer's `lan_first_draft1` on the live session and without
+    /// a remembered `lan_first_draft2`, exactly the rule before it.
     private func admits(_ candidate: Entry, over existing: Entry, deviceID: String, isStale: (S) -> Bool,
-                        tier: (S) -> SessionTier, hasActiveTransfer: (String) -> Bool) -> Bool {
+                        tier: (S) -> SessionTier, hasActiveTransfer: (String) -> Bool,
+                        remembersLanFirst: (String) -> Bool) -> Bool {
         if isStale(existing.session) { return true }
-        guard existing.state.remoteLanFirst else { return prefers(candidate, over: existing) }
+        guard existing.state.remoteLanFirst || remembersLanFirst(deviceID) else { return prefers(candidate, over: existing) }
         if hasActiveTransfer(deviceID) { return false }
         let new = tier(candidate.session)
         let old = tier(existing.session)
