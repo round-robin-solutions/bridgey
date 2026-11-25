@@ -9,13 +9,14 @@
 use crate::crypto::{self, Ephemeral, SigningKey};
 use crate::fast::{self, Pacer};
 use crate::features::{self, FeatureMap};
+use crate::resume::{self, Running};
 use crate::transfer::{self, FILE_CHUNK, MAX_CHUNK_IN, MAX_FILE, QUICK_MAX};
 use crate::wire::{Message, MAX_FRAME};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
@@ -41,6 +42,11 @@ const COMMANDS: usize = 64;
 const CHUNKS_IN_FLIGHT: usize = 16;
 /// How long the other device has to accept a file, and to confirm it after the last chunk.
 const ACCEPT_TIMEOUT: Duration = Duration::from_secs(30);
+/// A resumable offer: the receiver may first re-read up to 10 GiB it kept (files_resume_draft1). Every
+/// `files.resume.wait` it sends while it reads starts this wait again.
+pub(crate) const RESUME_ANSWER_TIMEOUT: Duration = Duration::from_secs(120);
+/// How often a receiver re-reading a kept partial sends `files.resume.wait`, well inside the sender's wait.
+pub(crate) const RESUME_WAIT_EVERY: Duration = Duration::from_secs(30);
 const COMPLETE_TIMEOUT: Duration = Duration::from_secs(60);
 /// A receiver that acknowledges chunks (Android) keeps at most 64 unacknowledged; one silent this long has stalled.
 const CHUNK_WINDOW: i64 = 64;
@@ -154,6 +160,24 @@ pub trait Host: Send + Sync + 'static {
     fn next_id(&self) -> u64;
     /// Where received files go; None refuses them.
     fn receive_dir(&self) -> Option<PathBuf>;
+    /// Kept partials (files_resume_draft1): the one holding this content from this device, in `dir`, claimed for one
+    /// transfer. Partials it can no longer serve (the device's same name with other content: its source changed) go.
+    fn resume_claim(&self, _peer: &str, _size: u64, _sha256: &str, _name: &str, _dir: &Path) -> Option<resume::Record> {
+        None
+    }
+    /// Saves a partial's record, new or updated. Its bytes are on stable storage first.
+    fn resume_save(&self, _record: resume::Record) {}
+    /// A transfer using a partial ended: its record stays for a later attempt (`keep`) or goes. Never deletes the file.
+    fn resume_release(&self, _part: &Path, _keep: bool) {}
+    /// Tests only: a sender stops sending a file after this many bytes (0: never), so a test can cut it at a known place.
+    fn send_limit(&self) -> u64 {
+        0
+    }
+    /// files_resume_draft1 timing: how long a sender waits for the answer to a resumable offer, how often a receiver
+    /// re-reading a partial says it is still reading, and (tests only) how long that re-read is held back.
+    fn resume_timing(&self) -> (Duration, Duration, Duration) {
+        (RESUME_ANSWER_TIMEOUT, RESUME_WAIT_EVERY, Duration::ZERO)
+    }
     /// The size of the chunks this end sends: 24 KiB as JSON, 256 KiB as binary frames (tests use smaller ones).
     fn chunk_size(&self, fast: bool) -> usize {
         if fast {
@@ -173,6 +197,14 @@ pub struct OutgoingFile {
     pub mime: String,
     pub size: u64,
     pub sha256: String,
+    /// The SHA-256 at every 1 MiB, from the same pass (files_resume_draft1 checks a receiver's prefix against them).
+    pub blocks: resume::Blocks,
+}
+
+/// A kept partial re-read off the session's task: its running hash and SHA-256, or None when it could not be read.
+pub struct Checked {
+    id: String,
+    prefix: Option<(ring::digest::Context, [u8; 32])>,
 }
 
 pub enum Command {
@@ -186,6 +218,12 @@ pub enum Command {
     /// Any other encrypted message (battery, find, ...): `plaintext` becomes the AES-GCM payload.
     Encrypted { kind: &'static str, plaintext: Vec<u8>, message_id: String },
     Close(&'static str),
+    /// The session's own: a kept partial has been re-read.
+    #[doc(hidden)]
+    Checked(Box<Checked>),
+    /// The session's own: a kept partial is still being re-read (`files.resume.wait` for this transfer).
+    #[doc(hidden)]
+    Checking(String),
 }
 
 #[derive(Clone, Debug)]
@@ -258,6 +296,8 @@ struct State {
     fast_replay: fast::ReplayGuard,
     /// The other device shows files_fast_draft1 (its latest `features.update`).
     remote_fast: bool,
+    /// The other device shows files_resume_draft1.
+    remote_resume: bool,
     local_confirmed: bool,
     remote_confirmed: bool,
     remote_identity: Option<String>,
@@ -289,8 +329,38 @@ struct Incoming {
     dir: PathBuf,
     part: PathBuf,
     file: std::fs::File,
-    hasher: ring::digest::Context,
+    hasher: Running,
     reported: Option<Instant>,
+    /// files_resume_draft1: an interruption keeps the partial, with its record in the host's private storage.
+    resumable: bool,
+    phase: Phase,
+    /// `received` when the record was last written.
+    checkpoint: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Phase {
+    /// Re-reading a kept partial, whose record says this many verified bytes with this SHA-256.
+    Checking { length: u64, prefix: [u8; 32] },
+    /// `files.resume` sent for this offset; waiting for `files.resume.ack`.
+    Proposed(u64),
+    Receiving,
+}
+
+/// A kept partial's record for an incoming file: `verified` bytes with their SHA-256.
+fn record_of(peer: &str, i: &Incoming, verified: (u64, [u8; 32])) -> Option<resume::Record> {
+    let part = i.part.file_name()?.to_str()?.to_string();
+    Some(resume::Record {
+        peer: peer.to_string(),
+        size: i.size,
+        sha256: crypto::b64(&i.sha256),
+        length: verified.0,
+        prefix: crypto::b64(&verified.1),
+        dir: i.dir.clone(),
+        part,
+        name: i.name.clone(),
+        updated: 0,
+    })
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -318,6 +388,8 @@ struct Outgoing {
     /// Binary frames of up to 256 KiB, paced by the acknowledgements' round trip (files_fast_draft1 at both ends).
     fast: bool,
     pacer: Pacer,
+    /// Offered `resumable` (files_resume_draft1 at both ends): the receiver may answer `files.resume`.
+    resumable: bool,
 }
 
 /// A Connect anywhere tunnel the session runs on (the core's loopback bridge): its ID and TLS exporter.
@@ -432,6 +504,7 @@ impl Session {
                 fast_key: None,
                 fast_replay: fast::ReplayGuard::default(),
                 remote_fast: false,
+                remote_resume: false,
                 local_confirmed: false,
                 remote_confirmed: false,
                 remote_identity: None,
@@ -633,6 +706,14 @@ impl Session {
                 self.start_next().await
             }
             Command::CancelFile(transfer) => self.cancel_file(transfer).await,
+            Command::Checked(c) => self.checked(*c).await,
+            Command::Checking(id) => {
+                // Still re-reading: the sender's wait for the answer starts again (files_resume_draft1).
+                if self.incoming.get(&id).is_some_and(|i| matches!(i.phase, Phase::Checking { .. })) {
+                    return self.outer("files.resume.wait", &id, None).await;
+                }
+                Step::Continue
+            }
             Command::Encrypted { kind, plaintext, message_id } => {
                 if !self.st.authenticated {
                     return Step::Continue;
@@ -1064,6 +1145,7 @@ impl Session {
                 match features::decode(&plain) {
                     features::Decoded::State(features) => {
                         self.st.remote_fast = features.get(fast::FEATURE);
+                        self.st.remote_resume = features.get(resume::FEATURE);
                         self.host.event(Event::Features { session: self.session, device_id, features });
                         Step::Continue
                     }
@@ -1112,6 +1194,16 @@ impl Session {
             "files.offer" => self.file_offer(m).await,
             "files.chunk" => self.file_chunk(m).await,
             "files.complete" => self.file_complete(m).await,
+            "files.resume" => self.file_resume(m).await,
+            "files.resume.ack" => self.file_resume_ack(m).await,
+            "files.resume.wait" => {
+                // The receiver is still re-reading what it kept of this file: wait for its answer a while longer.
+                let window = self.host.resume_timing().0;
+                if let Some(a) = self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref() && a.stage == Stage::Offered && a.resumable) {
+                    a.deadline = Some(Instant::now() + window);
+                }
+                Step::Continue
+            }
             "files.accept" => {
                 if let Some(a) = self.active.as_mut().filter(|a| Some(&a.id) == m.transfer_id.as_ref() && a.stage == Stage::Offered) {
                     a.stage = Stage::Sending;
@@ -1296,8 +1388,43 @@ impl Session {
     fn drop_incoming(&mut self, id: &str, i: Incoming, reason: &str) {
         drop(i.file);
         let _ = std::fs::remove_file(&i.part);
+        if i.resumable {
+            self.host.resume_release(&i.part, false);
+        }
         self.ended(id);
         self.file_failed(i.transfer, true, &i.name, reason);
+    }
+
+    /// An interrupted file that can be resumed: its verified bytes are synced and recorded, and the partial stays for
+    /// a later attempt (files_resume_draft1). Nothing verified, or a write that fails, and it goes as before.
+    fn keep_incoming(&mut self, id: &str, mut i: Incoming, reason: &str) {
+        let kept = match i.phase {
+            // The partial is as its record says: not touched yet, or cut back to the offset proposed.
+            Phase::Checking { .. } | Phase::Proposed(_) => true,
+            Phase::Receiving => {
+                let verified = i.hasher.checkpoint(i.size);
+                let record = (verified.0 > 0).then(|| record_of(&self.st.remote_id, &i, verified)).flatten();
+                match record {
+                    Some(r) if i.file.flush().and_then(|_| i.file.sync_data()).is_ok() => {
+                        self.host.resume_save(r);
+                        true
+                    }
+                    _ => false,
+                }
+            }
+        };
+        if !kept {
+            return self.drop_incoming(id, i, reason);
+        }
+        drop(i.file);
+        self.host.resume_release(&i.part, true);
+        self.ended(id);
+        self.file_failed(i.transfer, true, &i.name, reason);
+    }
+
+    /// Resuming is on with this device: both show files_resume_draft1, on a protocol 2 session.
+    fn resume_on(&self) -> bool {
+        self.st.remote_resume && self.st.envelope.is_some() && self.host.policy(&self.st.remote_id).get(resume::FEATURE)
     }
 
     /// The next waiting file is offered when nothing is being sent.
@@ -1312,7 +1439,12 @@ impl Session {
                 }
             };
             let id = crypto::uuid4();
-            let offer = json!({"transferId": id, "name": file.name, "mimeType": file.mime, "size": file.size, "sha256": file.sha256});
+            let mut offer = json!({"transferId": id, "name": file.name, "mimeType": file.mime, "size": file.size, "sha256": file.sha256});
+            // Files over one block may resume from what the receiver kept of an earlier attempt (files_resume_draft1).
+            let resumable = file.size > resume::BLOCK && self.resume_on();
+            if resumable {
+                offer["resumable"] = Value::Bool(true);
+            }
             // Binary frames when both ends show files_fast_draft1 (this end's switch is in its policy for the device).
             let fast = self.st.remote_fast && self.st.fast_key.is_some() && self.host.policy(&self.st.remote_id).get(fast::FEATURE);
             self.active = Some(Outgoing {
@@ -1324,10 +1456,11 @@ impl Session {
                 acked: -1,
                 acks: false,
                 sent: 0,
-                deadline: Some(Instant::now() + ACCEPT_TIMEOUT),
+                deadline: Some(Instant::now() + if resumable { self.host.resume_timing().0 } else { ACCEPT_TIMEOUT }),
                 reported: None,
                 fast,
                 pacer: Pacer::new(fast, self.host.chunk_size(fast), None),
+                resumable,
             });
             if let Some(a) = &self.active {
                 self.host.event(Event::FileProgress { transfer: a.file.transfer, device_id: self.st.remote_id.clone(), incoming: false, bytes: 0, total: a.file.size });
@@ -1343,7 +1476,11 @@ impl Session {
         if !self.st.authenticated {
             return false;
         }
+        let limit = self.host.send_limit();
         let Some(a) = self.active.as_mut().filter(|a| a.stage == Stage::Sending) else { return false };
+        if limit > 0 && a.sent >= limit {
+            return false;
+        }
         if a.fast {
             let chunk = a.pacer.chunk;
             return a.pacer.room(chunk);
@@ -1448,6 +1585,12 @@ impl Session {
         };
         let a = self.active.take().unwrap();
         self.ended(&a.id);
+        // A resumable file that stopped moving ends as interrupted without files.cancel, as the apps do, so the
+        // receiver keeps its partial and the next attempt resumes (files_resume_draft1).
+        if reason == "stalled" && a.resumable {
+            self.file_failed(a.file.transfer, false, &a.file.name, "interrupted");
+            return self.start_next().await;
+        }
         self.file_failed(a.file.transfer, false, &a.file.name, reason);
         if let Step::Close(r) = self.outer("files.cancel", &a.id, None).await {
             return Step::Close(r);
@@ -1509,22 +1652,204 @@ impl Session {
             return self.outer("files.cancel", &outer_id, None).await;
         }
         let dir = dir.unwrap();
+        let name = transfer::safe_name(name);
+        // files_resume_draft1: the sender marked it, both show the key, and it is more than one block.
+        let resumable = field("resumable") == Some(&Value::Bool(true)) && size > resume::BLOCK && self.resume_on();
+        let new = |part: PathBuf, file: std::fs::File, transfer: u64, phase: Phase, checkpoint: u64| Incoming {
+            transfer,
+            name: name.clone(),
+            size,
+            sha256: sha256.clone(),
+            received: 0,
+            next_sequence: 0,
+            dir: dir.clone(),
+            part,
+            file,
+            hasher: Running::new(false),
+            reported: None,
+            resumable,
+            phase,
+            checkpoint,
+        };
+        if resumable {
+            // Only this device's partial of this very content, in the folder files land in now; never a path or ID from
+            // the sender. Its bytes are read again and checked against the record before anything is offered.
+            if let Some(r) = self.host.resume_claim(&device_id, size, &crypto::b64(&sha256), &name, &dir) {
+                let part = r.part_path();
+                let prefix: Option<[u8; 32]> = crypto::unb64(&r.prefix).and_then(|b| b.try_into().ok());
+                match (std::fs::OpenOptions::new().read(true).write(true).open(&part), prefix) {
+                    (Ok(file), Some(prefix)) => {
+                        let transfer = self.host.next_id();
+                        let i = new(part.clone(), file, transfer, Phase::Checking { length: r.length, prefix }, r.length);
+                        self.incoming.insert(transfer_id.to_string(), i);
+                        self.host.event(Event::FileIncoming { transfer, device_id, name: name.clone(), size, mime });
+                        self.check_partial(transfer_id.to_string(), part, r.length);
+                        return Step::Continue;
+                    }
+                    _ => {
+                        let _ = std::fs::remove_file(&part);
+                        self.host.resume_release(&part, false);
+                    }
+                }
+            }
+        }
         let part = transfer::part_path(&dir, transfer_id);
-        let file = match std::fs::create_dir_all(&dir).and_then(|_| std::fs::OpenOptions::new().write(true).create_new(true).open(&part)) {
+        let file = match std::fs::create_dir_all(&dir).and_then(|_| std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&part)) {
             Ok(f) => f,
             Err(_) => {
-                self.host.event(Event::FileFailed { transfer: 0, device_id, incoming: true, name: transfer::safe_name(name), reason: "storage".into() });
+                self.host.event(Event::FileFailed { transfer: 0, device_id, incoming: true, name, reason: "storage".into() });
                 return self.outer("files.cancel", &outer_id, None).await;
             }
         };
-        let name = transfer::safe_name(name);
         let transfer = self.host.next_id();
-        self.incoming.insert(
-            transfer_id.to_string(),
-            Incoming { transfer, name: name.clone(), size, sha256, received: 0, next_sequence: 0, dir, part, file, hasher: ring::digest::Context::new(&ring::digest::SHA256), reported: None },
-        );
+        let i = new(part, file, transfer, Phase::Receiving, 0);
+        if resumable {
+            // A record from the start, so a crash before the first checkpoint leaves no partial behind: the next start
+            // sweeps records with nothing verified, and their files.
+            if let Some(r) = record_of(&device_id, &i, i.hasher.checkpoint(size)) {
+                self.host.resume_save(r);
+            }
+        }
+        self.incoming.insert(transfer_id.to_string(), i);
         self.host.event(Event::FileIncoming { transfer, device_id, name, size, mime });
         self.outer("files.accept", &outer_id, None).await
+    }
+
+    /// Re-reads a kept partial's verified bytes off the session's task (up to 10 GiB); the result comes back as
+    /// `Command::Checked`. Meanwhile `Command::Checking` every 30 seconds sends `files.resume.wait`, so a sender
+    /// whose 120-second wait would run out first keeps waiting instead of cancelling, which would cost the partial.
+    fn check_partial(&self, id: String, part: PathBuf, length: u64) {
+        let tx = self.handle.tx.clone();
+        let (_, every, held) = self.host.resume_timing();
+        tokio::spawn(async move {
+            let mut read = tokio::task::spawn_blocking(move || {
+                if !held.is_zero() {
+                    std::thread::sleep(held);
+                }
+                resume::hash_prefix(&part, length).ok()
+            });
+            let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
+            let prefix = loop {
+                tokio::select! {
+                    done = &mut read => break done.ok().flatten(),
+                    _ = tick.tick() => {
+                        if tx.send(Command::Checking(id.clone())).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            };
+            let _ = tx.send(Command::Checked(Box::new(Checked { id, prefix }))).await;
+        });
+    }
+
+    /// A kept partial was read again. Its bytes match its record: propose resuming after them (`files.resume`). They do
+    /// not (changed, damaged or unreadable): the file comes from byte zero, as without the key (`files.accept`).
+    async fn checked(&mut self, c: Checked) -> Step {
+        let peer = self.st.remote_id.clone();
+        let Some(i) = self.incoming.get_mut(&c.id) else { return Step::Continue };
+        let Phase::Checking { length, prefix } = i.phase else { return Step::Continue };
+        let good = c.prefix.filter(|(_, d)| crypto::ct_eq(d, &prefix));
+        let proposed = match good {
+            Some((ctx, digest)) if i.file.set_len(length).is_ok() && i.file.seek(SeekFrom::End(0)).is_ok() => {
+                i.hasher = Running::resumed(ctx, length, digest);
+                i.received = length;
+                i.checkpoint = length;
+                i.phase = Phase::Proposed(length);
+                i.reported = Some(Instant::now());
+                self.host.event(Event::FileProgress { transfer: i.transfer, device_id: peer, incoming: true, bytes: length, total: i.size });
+                Some(resume::resume_payload(&c.id, length, &digest))
+            }
+            _ => None,
+        };
+        if let Some(plain) = proposed {
+            return self.encrypted_for("files.resume", &plain, crypto::uuid4(), Some(&c.id)).await;
+        }
+        if !self.restart_incoming(&c.id) {
+            return self.outer("files.cancel", &c.id, None).await;
+        }
+        self.outer("files.accept", &c.id, None).await
+    }
+
+    /// The partial of an incoming file starts again from byte zero; its record now says nothing is verified. False
+    /// when the file could not be cut back (it has gone, failed with `storage`).
+    fn restart_incoming(&mut self, id: &str) -> bool {
+        let peer = self.st.remote_id.clone();
+        let Some(i) = self.incoming.get_mut(id) else { return false };
+        if i.file.set_len(0).is_ok() && i.file.seek(SeekFrom::Start(0)).is_ok() {
+            i.hasher = Running::new(false);
+            i.received = 0;
+            i.checkpoint = 0;
+            i.phase = Phase::Receiving;
+            if let Some(r) = record_of(&peer, i, i.hasher.checkpoint(i.size)) {
+                self.host.resume_save(r);
+            }
+            return true;
+        }
+        let i = self.incoming.remove(id).unwrap();
+        self.drop_incoming(id, i, "storage");
+        false
+    }
+
+    /// `files.resume` for the file this end offered: continue after the receiver's bytes when their SHA-256 is this
+    /// file's own over the same length, else from byte zero. Either way `files.resume.ack` says which.
+    async fn file_resume(&mut self, m: Message) -> Step {
+        let Some(id) = m.transfer_id.clone() else { return Step::Continue };
+        let Some(plain) = self.open(&m) else { return Step::Close("bad_files".into()) };
+        let device_id = self.st.remote_id.clone();
+        let Some(a) = self.active.as_mut().filter(|a| a.id == id && a.stage == Stage::Offered) else { return Step::Continue };
+        if !a.resumable {
+            // Never offered resumable: the receiver broke the rules, so the file ends here.
+            let a = self.active.take().unwrap();
+            self.ended(&a.id);
+            self.file_failed(a.file.transfer, false, &a.file.name, "invalid");
+            if let Step::Close(r) = self.outer("files.cancel", &id, None).await {
+                return Step::Close(r);
+            }
+            return self.start_next().await;
+        }
+        let sha256 = crypto::unb64(&a.file.sha256).unwrap_or_default();
+        let (mut offset, mut reason) = resume::sender_answer(&plain, &id, a.file.size, &sha256, &a.file.blocks);
+        if offset > 0 && a.reader.seek(SeekFrom::Start(offset)).is_err() {
+            (offset, reason) = (0, Some("unreadable"));
+            let _ = a.reader.seek(SeekFrom::Start(0));
+        }
+        a.stage = Stage::Sending;
+        a.sent = offset;
+        a.deadline = Some(Instant::now() + ACK_STALL);
+        a.reported = Some(Instant::now());
+        self.host.event(Event::FileProgress { transfer: a.file.transfer, device_id, incoming: false, bytes: offset, total: a.file.size });
+        let plain = resume::ack_payload(&id, offset, reason);
+        self.encrypted_for("files.resume.ack", &plain, crypto::uuid4(), Some(&id)).await
+    }
+
+    /// `files.resume.ack` for a file this end proposed to resume: chunks follow from the offset proposed, or from byte
+    /// zero. Anything else cancels the file.
+    async fn file_resume_ack(&mut self, m: Message) -> Step {
+        let Some(id) = m.transfer_id.clone() else { return Step::Continue };
+        let Some(plain) = self.open(&m) else { return Step::Close("bad_files".into()) };
+        let Some(i) = self.incoming.get_mut(&id) else { return Step::Continue };
+        let answer = match i.phase {
+            Phase::Proposed(proposed) => resume::parse_ack(&plain, &id, proposed).map(|n| (n, proposed)),
+            _ => None,
+        };
+        match answer {
+            Some((n, proposed)) if n == proposed => {
+                i.phase = Phase::Receiving;
+                Step::Continue
+            }
+            Some(_) => {
+                if !self.restart_incoming(&id) {
+                    return self.outer("files.cancel", &id, None).await;
+                }
+                Step::Continue
+            }
+            None => {
+                let i = self.incoming.remove(&id).unwrap();
+                self.drop_incoming(&id, i, "invalid");
+                self.outer("files.cancel", &id, None).await
+            }
+        }
     }
 
     async fn file_chunk(&mut self, m: Message) -> Step {
@@ -1564,7 +1889,7 @@ impl Session {
     async fn accept_chunk(&mut self, id: String, sequence: Option<i64>, data: &[u8], max: usize) -> Step {
         let device_id = self.st.remote_id.clone();
         let Some(i) = self.incoming.get_mut(&id) else { return Step::Continue };
-        let fits = sequence == Some(i.next_sequence) && !data.is_empty() && data.len() <= max && i.received + data.len() as u64 <= i.size;
+        let fits = i.phase == Phase::Receiving && sequence == Some(i.next_sequence) && !data.is_empty() && data.len() <= max && i.received + data.len() as u64 <= i.size;
         if !fits || i.file.write_all(data).is_err() {
             let reason = if fits { "storage" } else { "invalid" };
             let i = self.incoming.remove(&id).unwrap();
@@ -1574,6 +1899,14 @@ impl Session {
         i.hasher.update(data);
         i.received += data.len() as u64;
         i.next_sequence += 1;
+        // A resumable file's record follows it every 64 MiB, after its bytes are on stable storage, so a crash loses at
+        // most that much (files_resume_draft1).
+        if i.resumable && i.received - i.checkpoint >= resume::CHECKPOINT_EVERY && i.file.sync_data().is_ok() {
+            i.checkpoint = i.received;
+            if let Some(r) = record_of(&device_id, i, i.hasher.checkpoint(i.size)) {
+                self.host.resume_save(r);
+            }
+        }
         let now = Instant::now();
         if i.reported.is_none_or(|t| now.duration_since(t) >= PROGRESS_EVERY) {
             i.reported = Some(now);
@@ -1592,12 +1925,16 @@ impl Session {
         let hash = o.get("sha256").and_then(Value::as_str).and_then(crypto::unb64);
         let Some(i) = self.incoming.remove(&id) else { return Step::Continue };
         let device_id = self.st.remote_id.clone();
-        let Incoming { transfer, name, size, sha256, received, dir, part, mut file, hasher, .. } = i;
+        let Incoming { transfer, name, size, sha256, received, dir, part, mut file, hasher, resumable, phase, .. } = i;
         let digest = hasher.finish();
-        let verified = received == size && crypto::ct_eq(digest.as_ref(), &sha256) && hash.as_deref().is_some_and(|h| crypto::ct_eq(h, &sha256));
+        let verified = phase == Phase::Receiving && received == size && crypto::ct_eq(digest.as_ref(), &sha256) && hash.as_deref().is_some_and(|h| crypto::ct_eq(h, &sha256));
         let flushed = file.flush().and_then(|_| file.sync_all()).is_ok();
         drop(file);
         self.ended(&id);
+        if resumable {
+            // Saved or failed, this partial is never resumed again.
+            self.host.resume_release(&part, false);
+        }
         if !verified || !flushed {
             let _ = std::fs::remove_file(&part);
             self.file_failed(transfer, true, &name, if verified { "storage" } else { "verification_failed" });
@@ -1621,7 +1958,12 @@ impl Session {
     fn end_transfers(&mut self, reason: &str) {
         let why = if reason == "stopped" { "stopped" } else { "interrupted" };
         for (id, i) in std::mem::take(&mut self.incoming) {
-            self.drop_incoming(&id, i, why);
+            // A device that was forgotten takes its partials with it.
+            if i.resumable && reason != "forgotten" {
+                self.keep_incoming(&id, i, why);
+            } else {
+                self.drop_incoming(&id, i, why);
+            }
         }
         if let Some(a) = self.active.take() {
             self.file_failed(a.file.transfer, false, &a.file.name, why);

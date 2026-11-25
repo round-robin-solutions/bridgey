@@ -63,13 +63,16 @@ internal fun sessionLooksStale(
     if (tunnel) ReconnectPolicy.STALE_TUNNEL_SESSION_MILLIS else ReconnectPolicy.STALE_SESSION_MILLIS,
 )
 
+/** The status of a single file a lost connection interrupted; it can be sent again. */
+internal const val TRANSFER_INTERRUPTED_STATUS = "Transfer interrupted. Reconnect to retry."
+
 internal fun recoverInterruptedTransfers(
     transfers: Map<String, FileTransferState>,
 ): Map<String, FileTransferState> = transfers
     .mapValues { (_, transfer) ->
         // Folders report their own interruption (their journal decides whether they resume).
         if (transfer.active && transfer.kind == TransferKind.FILE) transfer.copy(
-            status = "Transfer interrupted — reconnect to retry",
+            status = TRANSFER_INTERRUPTED_STATUS,
             active = false,
             progressPercent = null,
             queued = false,

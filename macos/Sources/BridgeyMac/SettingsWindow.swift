@@ -114,6 +114,7 @@ struct SettingsModel {
     var folderReceiveMode: MacFolderReceiveMode = .fixed
     var folderConflictPolicy: MacFolderConflictPolicy = .ask
     var tagReceivedFiles = false
+    var autoResumeFiles = true
     var launchAtLogin = false
     var loginItemMessage: String?
     var receiveFolderPath = ""
@@ -274,6 +275,7 @@ struct SettingsActions {
     var setFolderReceiveMode: (MacFolderReceiveMode) -> Void = { _ in }
     var setFolderConflictPolicy: (MacFolderConflictPolicy) -> Void = { _ in }
     var setTagReceivedFiles: (Bool) -> Void = { _ in }
+    var setAutoResumeFiles: (Bool) -> Void = { _ in }
     /// Opens the Phone files window on a phone (Devices page).
     var openPhoneFiles: (String) -> Void = { _ in }
     var forget: (String) -> Void = { _ in }
@@ -1015,6 +1017,8 @@ private struct FilesPane: View {
         SettingsCard {
             FeatureSwitch(feature: .files, model: model, actions: actions)
             ReceiveFolderRow(path: model.receiveFolderPath, choose: actions.chooseReceiveFolder)
+            SettingsToggle(title: L10n.text("settings.files.autoResume", fallback: "Resume interrupted files automatically"),
+                           isOn: model.autoResumeFiles, set: actions.setAutoResumeFiles)
         }
         SettingsCard(footnote: L10n.text("settings.folders.note", fallback: "These are the defaults; the send sheet can change them for one folder. Links and Finder aliases are never sent.")) {
             SettingsToggle(title: L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
@@ -2048,6 +2052,7 @@ struct LiveSettingsView: View {
         model.folderReceiveMode = settings.folderReceiveMode
         model.folderConflictPolicy = settings.folderConflictPolicy
         model.tagReceivedFiles = settings.tagReceivedFiles
+        model.autoResumeFiles = settings.autoResumeFiles
         model.clipboardEagerLimit = ClipboardEagerLimit(bytes: settings.clipboardEagerLimit)
         model.launchAtLogin = settings.launchAtLogin
         model.loginItemMessage = settings.loginItemMessage
@@ -2227,6 +2232,7 @@ struct LiveSettingsView: View {
         actions.setFolderReceiveMode = { settings.setFolderReceiveMode($0) }
         actions.setFolderConflictPolicy = { settings.setFolderConflictPolicy($0) }
         actions.setTagReceivedFiles = { settings.setTagReceivedFiles($0) }
+        actions.setAutoResumeFiles = { settings.setAutoResumeFiles($0) }
         actions.setClipboardEagerLimit = { settings.setClipboardEagerLimit($0) }
         actions.forget = { pairing.forget(deviceID: $0) }
         actions.openPhoneFiles = { PhoneFilesWindowController.show(pairing: pairing, phoneID: $0) }

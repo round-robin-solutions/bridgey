@@ -163,6 +163,7 @@ fun rememberFolderUi(
             includeHidden = state.folderIncludeHidden,
             includeSystem = state.folderIncludeSystem,
             allowBrowse = state.allowBrowseFromOtherDevices,
+            autoResume = state.autoResumeFiles,
             supported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q,
             defaultLabelOverride = defaultLabel,
         )
@@ -177,6 +178,7 @@ fun rememberFolderUi(
             setIncludeHidden = settings::setFolderIncludeHidden,
             setIncludeSystem = settings::setFolderIncludeSystem,
             setAllowBrowse = settings::setAllowBrowseFromOtherDevices,
+            setAutoResume = settings::setAutoResumeFiles,
             openPlaces = openPlaces,
         ),
         placesState = PlacesScreenState(placeRows, defaultFullAccess, browsable = settingsState.allowBrowseFromOtherDevices),

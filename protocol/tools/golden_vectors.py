@@ -87,7 +87,7 @@ features_all = {"clipboard":True,"files":True,"notifications":True,"battery":Tru
 drafts_none = {"device_presence_draft1":False,"share_receive_draft1":False,"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
                "mac_actions_draft1":False,"links_open_draft1":False,"focus_sync_draft1":False,"camera_draft1":False,
                "updates_draft1":False,"screen_draft1":False,"sms_draft1":False,"settings_sync_draft1":False,
-               "connect_draft1":False,"files_fast_draft1":False,"email_codes_draft1":False,
+               "connect_draft1":False,"files_fast_draft1":False,"files_resume_draft1":False,"email_codes_draft1":False,
                # Agent devices (docs/protocol.md "Draft: agent devices"), last.
                "agent_draft1":False,"notify_draft1":False,"ask_draft1":False,"clipboard_request_draft1":False,
                "agent_codes_draft1":False,"agents_mirror_draft1":False,

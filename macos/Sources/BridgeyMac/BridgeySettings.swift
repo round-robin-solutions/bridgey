@@ -124,6 +124,9 @@ final class BridgeySettings: ObservableObject {
     @Published private(set) var folderConflictPolicy: MacFolderConflictPolicy
     /// Files > Tag received files in Finder with "Bridgey". Off by default; "Where from" is always set.
     @Published private(set) var tagReceivedFiles: Bool
+    /// Files > Resume interrupted files automatically: single files a disconnect interrupted go again when the phone
+    /// reconnects within 24 hours (files_resume_draft1). On by default.
+    @Published private(set) var autoResumeFiles: Bool
     /// Notifications > Codes from messages: read SMS text that looks like it has a code and show the
     /// code with a Copy button. Off by default.
     @Published private(set) var codesEnabled: Bool
@@ -221,6 +224,7 @@ final class BridgeySettings: ObservableObject {
         folderReceiveMode = MacFolderReceiveMode(rawValue: storedDefaults.string(forKey: "settings.folders.receiveMode") ?? "") ?? .fixed
         folderConflictPolicy = MacFolderConflictPolicy(rawValue: storedDefaults.string(forKey: "settings.folders.conflict") ?? "") ?? .ask
         tagReceivedFiles = storedDefaults.bool(forKey: "settings.files.tagReceived")
+        autoResumeFiles = storedDefaults.object(forKey: "settings.files.autoResume") as? Bool ?? true
         let codesOn = storedDefaults.bool(forKey: "settings.codes.enabled")
         codesEnabled = codesOn
         codesAutoCopy = storedDefaults.bool(forKey: "settings.codes.autoCopy")
@@ -484,6 +488,11 @@ final class BridgeySettings: ObservableObject {
     func setTagReceivedFiles(_ enabled: Bool) {
         defaults.set(enabled, forKey: "settings.files.tagReceived")
         tagReceivedFiles = enabled
+    }
+
+    func setAutoResumeFiles(_ enabled: Bool) {
+        defaults.set(enabled, forKey: "settings.files.autoResume")
+        autoResumeFiles = enabled
     }
 
     /// The defaults for the next folder send.

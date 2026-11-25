@@ -55,6 +55,8 @@ data class FolderSettingsState(
     val includeSystem: Boolean = false,
     /** "Let other devices browse this phone": on by default. */
     val allowBrowse: Boolean = true,
+    /** "Resume interrupted files automatically": on by default. */
+    val autoResume: Boolean = true,
     /** Android 10 or newer (receiving folders, like files, needs scoped storage). */
     val supported: Boolean = true,
     /** The default folder's label, or "Not available" when its place was removed. */
@@ -72,6 +74,7 @@ class FolderSettingsActions(
     val setIncludeHidden: (Boolean) -> Unit = {},
     val setIncludeSystem: (Boolean) -> Unit = {},
     val setAllowBrowse: (Boolean) -> Unit = {},
+    val setAutoResume: (Boolean) -> Unit = {},
     val openPlaces: () -> Unit = {},
 )
 
@@ -91,6 +94,16 @@ fun conflictPolicyLabel(policy: ConflictPolicy): String = stringResource(
         ConflictPolicy.NEW_FOLDER -> R.string.conflict_policy_new_folder
     },
 )
+
+/** "Resume interrupted files automatically", right after the File transfer switch: sending, so on every Android version. */
+internal fun GroupScope.autoResumeRow(state: FolderSettingsState, actions: FolderSettingsActions) {
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.settings_auto_resume), null,
+            BridgeyIcons.Sync, if (state.autoResume) Tint.BLUE else Tint.NEUTRAL, state.autoResume, actions.setAutoResume,
+        )
+    }
+}
 
 /** The folder rows inside the Files group. */
 internal fun GroupScope.folderRows(

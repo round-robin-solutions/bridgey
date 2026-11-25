@@ -632,6 +632,25 @@ class PairingCoordinator(
 
     /** One sequential send queue per device: a device gets one file at a time. */
     private val fileSendQueues = ConcurrentHashMap<String, FileSendQueue<Uri>>()
+
+    /**
+     * files_resume_draft1 (FileResume.kt): the partials this phone keeps for a later attempt, their records in a
+     * private file (never SharedPreferences). [resumeLock] guards the store; take it after `incomingFiles`, never before.
+     */
+    private val resumeLock = Any()
+    private val resumeFile = ResumeRecordFile(java.io.File(appContext.noBackupFilesDir, "file-resume.json"))
+    private val resumeStore: ResumeStore by lazy { ResumeStore.decode(resumeFile.read(), ::isPartialUri) }
+    @Volatile private var partialsSwept = false
+    /** Single files this phone offered resumable: what answers files.resume, and how long it still waits. */
+    private val outgoingResumes = ConcurrentHashMap<String, OutgoingResume>()
+    /** Single files to a device that a disconnect interrupted: sent again when it reconnects, if the setting is on. */
+    private val interruptedFiles = ConcurrentHashMap<String, InterruptedFile>()
+    /** Devices whose latest map showed files_resume_draft1 on a protocol 2 session. */
+    private val resumePeers = ConcurrentHashMap.newKeySet<String>()
+    /** Tests only: the answer window, the files.resume.wait interval, and a hold before each re-read. */
+    internal var resumeAnswerWindowMillis = FileResume.ANSWER_WINDOW_MILLIS
+    internal var resumeWaitEveryMillis = FileResume.WAIT_EVERY_MILLIS
+    internal var resumeRereadHoldMillis = 0L
     val deviceId: String get() = localDeviceId
     private var server: ServerSocket? = null
     private var acceptJob: Job? = null
@@ -861,6 +880,10 @@ class PairingCoordinator(
 
     fun start() {
         observeAttachDraftOwnership()
+        if (!partialsSwept) {
+            partialsSwept = true
+            scope.launch(Dispatchers.IO) { runCatching { sweepPartials() } }
+        }
         callQuietRunning = true
         scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
         if (acceptJob != null) return
@@ -1488,6 +1511,13 @@ class PairingCoordinator(
     fun forget(deviceId: String) {
         // An agent's grants, questions, requests and activity go with it.
         if (isAgent(deviceId)) agents.forget(deviceId)
+        // Its partials go too, the one arriving now included (files_resume_draft1).
+        incomingFiles.entries.filter { transferDevices[it.key] == deviceId }.forEach { (id, transfer) ->
+            if (incomingFiles.remove(id, transfer)) endIncoming(transfer, keep = false)
+        }
+        synchronized(resumeLock) { partialsChanged(resumeStore.forget(deviceId)) }
+        interruptedFiles.entries.removeIf { it.value.deviceId == deviceId }
+        resumePeers -= deviceId
         held.release(deviceId)
         folderJournals.deleteForPeer(deviceId).forEach { record -> record.header.oneOffTree?.let(placesStore::releaseOneOff) }
         folderSender.forget(deviceId)
@@ -3184,7 +3214,7 @@ class PairingCoordinator(
     private fun startFile(transferId: String, uri: Uri, deviceId: String) {
         val connectedSession = registry.session(deviceId)
         if (connectedSession == null) {
-            removeFileTransfer(transferId, "Transfer interrupted — reconnect to retry", TransferEnd.INTERRUPTED)
+            removeFileTransfer(transferId, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED)
             finishQueuedFile(transferId)
             return
         }
@@ -3219,29 +3249,31 @@ class PairingCoordinator(
             }
 
             updateFileTransfer(transferId, metadata.first, "Preparing ${metadata.first}…", true)
-            val digest = MessageDigest.getInstance("SHA-256")
-            val hash = runCatching {
+            // The SHA-256 at every 1 MiB from the same pass, so a files.resume is checked without reading the file again.
+            val hashed = runCatching {
                 resolver.openInputStream(uri)?.use { input ->
-                    val buffer = ByteArray(FILE_CHUNK_SIZE)
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        digest.update(buffer, 0, count)
-                    }
+                    RunningHash.of(input, ByteArray(FILE_CHUNK_SIZE)) { coroutineContext.ensureActive() }
                 } ?: error("File unavailable")
-                Base64.encodeToString(digest.digest(), Base64.NO_WRAP)
             }.getOrElse {
                 mutableFileTransferStatus.value = "Could not read the selected file"
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
+            val hash = Base64.encodeToString(hashed.first, Base64.NO_WRAP)
 
-            val offerPayload = fileOfferPayload(transferId, metadata.first, metadata.second, metadata.third, hash, cameraTransfers[transferId])
+            // files_resume_draft1: a file over one block to a device that shows the key may resume what it kept.
+            val resumable = FileResume.resumable(metadata.third) && connectedSession.resumeFiles
+            val resume = if (resumable) OutgoingResume(metadata.third, hashed.first, hashed.third, resumeAnswerWindowMillis) else null
+            resume?.let { outgoingResumes[transferId] = it }
+            val offerPayload = fileOfferPayload(transferId, metadata.first, metadata.second, metadata.third, hash, cameraTransfers[transferId], resumable)
                 .toString().toByteArray()
             val offer = Crypto.encrypt(connectedSession.pairingKey!!, offerPayload)
             val accepted = CompletableDeferred<Boolean>()
             pendingFileAccepts[transferId] = accepted
+            // The row says "waiting" before the offer leaves: an answer can arrive (and end the file) at once, and a
+            // later "waiting" would leave the row active after the file had already ended.
+            offeredFiles += transferId
+            updateFileTransfer(transferId, metadata.first, "Waiting for $peer…", true)
             if (!registry.isActive(connectedSession) || !connectedSession.send(Message(
                     kind = "files.offer",
                     sessionId = connectedSession.id,
@@ -3255,9 +3287,17 @@ class PairingCoordinator(
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
-            offeredFiles += transferId
-            updateFileTransfer(transferId, metadata.first, "Waiting for $peer…", true)
-            if (withTimeoutOrNull(10_000) { accepted.await() } != true) {
+            // A resumable offer waits 120 seconds, and longer while the receiver says it is still re-reading its partial.
+            val answered = if (resume == null) withTimeoutOrNull(10_000) { accepted.await() } else {
+                var got: Boolean? = null
+                while (got == null) {
+                    val left = resume.waitUntil - nowMonotonicMillis()
+                    if (left <= 0) break
+                    got = withTimeoutOrNull(left) { accepted.await() }
+                }
+                got
+            }
+            if (answered != true) {
                 pendingFileAccepts.remove(transferId)
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
                 // A late accept would leave the other end holding a transfer nobody sends: tell it to let go.
@@ -3266,21 +3306,29 @@ class PairingCoordinator(
                 return@launch
             }
 
+            // files.resume: the receiver keeps the first bytes; files.resume.ack says where chunks start.
+            val answer = resume?.answer
             val completed = CompletableDeferred<Boolean>()
             pendingFileCompletions[transferId] = completed
             val fast = connectedSession.fastTransfers
             val sent = runCatching {
-                if (fast) {
-                    // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.kt).
-                    val pacer = TransferPacer(fast = true, initialWindow = connectedSession.lastFastWindow)
-                    val job = coroutineContext[Job]
-                    outgoingPacers[transferId] = pacer
-                    try {
-                        resolver.openInputStream(uri)?.use { input ->
+                val (input, startAt) = openSourceAt(uri, answer?.first ?: 0L)
+                if (answer != null) {
+                    val reason = if (startAt == answer.first) answer.second else "unreadable"
+                    check(sendEncrypted(connectedSession, "files.resume.ack", FileResume.ackPayload(transferId, startAt, reason), transferId = transferId))
+                    BridgeyLogging.i(LogCategory.FILES, "FILE resume transfer=${transferId.take(8)} offset=$startAt reason=${reason ?: "none"}")
+                }
+                input.use {
+                    if (fast) {
+                        // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.kt).
+                        val pacer = TransferPacer(fast = true, initialWindow = connectedSession.lastFastWindow)
+                        val job = coroutineContext[Job]
+                        outgoingPacers[transferId] = pacer
+                        try {
                             val buffer = ByteArray(pacer.chunkSize)
-                            var total = 0L
+                            var total = startAt
                             var sequence = 0L
-                            val progress = TransferProgress(metadata.third)
+                            val progress = TransferProgress(metadata.third, startAt)
                             while (true) {
                                 coroutineContext.ensureActive()
                                 val count = input.readFully(buffer)
@@ -3295,37 +3343,36 @@ class PairingCoordinator(
                             }
                             check(pacer.waitForAll { job?.isActive == false })
                             connectedSession.lastFastWindow = pacer.window
-                            updateFileTransfer(transferId, metadata.first, "Verifying ${metadata.first} on $peer…", true)
-                        } ?: error("File unavailable")
-                    } finally {
-                        outgoingPacers.remove(transferId)
-                    }
-                } else resolver.openInputStream(uri)?.use { input ->
-                    val buffer = ByteArray(FILE_CHUNK_SIZE)
-                    var total = 0L
-                    var sequence = 0L
-                    val progress = TransferProgress(metadata.third)
-                    while (true) {
-                        coroutineContext.ensureActive()
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        val encrypted = Crypto.encrypt(connectedSession.pairingKey!!, buffer.copyOf(count))
-                        check(connectedSession.send(Message(
-                            kind = "files.chunk",
-                            sessionId = connectedSession.id,
-                            messageId = UUID.randomUUID().toString(),
-                            transferId = transferId,
-                            sequence = sequence++,
-                            nonce = encrypted.nonce,
-                            ciphertext = encrypted.ciphertext,
-                        )))
-                        total += count
-                        progress.status(total)?.let {
-                            updateFileTransfer(transferId, metadata.first, "Sending ${metadata.first}: $it", true)
+                        } finally {
+                            outgoingPacers.remove(transferId)
+                        }
+                    } else {
+                        val buffer = ByteArray(FILE_CHUNK_SIZE)
+                        var total = startAt
+                        var sequence = 0L
+                        val progress = TransferProgress(metadata.third, startAt)
+                        while (true) {
+                            coroutineContext.ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            val encrypted = Crypto.encrypt(connectedSession.pairingKey!!, buffer.copyOf(count))
+                            check(connectedSession.send(Message(
+                                kind = "files.chunk",
+                                sessionId = connectedSession.id,
+                                messageId = UUID.randomUUID().toString(),
+                                transferId = transferId,
+                                sequence = sequence++,
+                                nonce = encrypted.nonce,
+                                ciphertext = encrypted.ciphertext,
+                            )))
+                            total += count
+                            progress.status(total)?.let {
+                                updateFileTransfer(transferId, metadata.first, "Sending ${metadata.first}: $it", true)
+                            }
                         }
                     }
                     updateFileTransfer(transferId, metadata.first, "Verifying ${metadata.first} on $peer…", true)
-                } ?: error("File unavailable")
+                }
                 val completionPayload = Crypto.encrypt(
                     connectedSession.pairingKey!!,
                     JSONObject().put("transferId", transferId).put("sha256", hash).toString().toByteArray(),
@@ -3340,7 +3387,19 @@ class PairingCoordinator(
             }.isSuccess
             if (!sent) {
                 pendingFileCompletions.remove(transferId)
+                // A write that failed because the connection dropped is an interruption, not a failure: the disconnect
+                // handling (a moment behind the socket) ends this transfer as interrupted, so it can resume.
+                if (connectedSession.closed || !registry.isActive(connectedSession)) delay(1_000)
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
+                if (resume != null) {
+                    // A resumable file that stopped moving (no acknowledgement for 10 s, or the socket failed) was
+                    // interrupted, not refused: the receiver keeps what it has until its own timeout or the end of the
+                    // session, so no files.cancel, which would delete it. It goes again on reconnect, or with Retry.
+                    markTransferCancelled(transferId)
+                    if (deviceId in resumePeers) interruptedFiles[transferId] = InterruptedFile(deviceId, System.currentTimeMillis())
+                    removeFileTransfer(transferId, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED)
+                    return@launch
+                }
                 // The other end accepted this file and is waiting for the rest: tell it the transfer is over.
                 abandonOffered(transferId)
                 updateFileTransfer(transferId, metadata.first, "File transfer failed", false)
@@ -3362,9 +3421,41 @@ class PairingCoordinator(
         job.invokeOnCompletion {
             outgoingFileJobs.remove(transferId, job)
             offeredFiles.remove(transferId)
+            outgoingResumes.remove(transferId)
             cameraTransferEnded(transferId)
             finishQueuedFile(transferId)
         }
+    }
+
+    /**
+     * Opens a file to send from [offset] (files_resume_draft1): the stream and where it really starts. A source that
+     * cannot skip that far (shorter now, or unreadable) starts again from byte zero, and files.resume.ack says so.
+     */
+    private fun openSourceAt(uri: Uri, offset: Long): Pair<java.io.InputStream, Long> {
+        val resolver = appContext.contentResolver
+        if (offset > 0) {
+            val input = resolver.openInputStream(uri) ?: error("File unavailable")
+            if (runCatching { skipFully(input, offset) }.getOrDefault(false)) return input to offset
+            runCatching { input.close() }
+        }
+        return (resolver.openInputStream(uri) ?: error("File unavailable")) to 0L
+    }
+
+    /** Skips exactly [count] bytes (a file channel seeks; a provider's pipe reads them). False at the end of the stream. */
+    private fun skipFully(input: java.io.InputStream, count: Long): Boolean {
+        var left = count
+        val scratch = ByteArray(64 * 1024)
+        while (left > 0) {
+            val skipped = input.skip(left)
+            if (skipped > 0) {
+                left -= skipped
+                continue
+            }
+            val read = input.read(scratch, 0, minOf(scratch.size.toLong(), left).toInt())
+            if (read < 0) return false
+            left -= read
+        }
+        return true
     }
 
     /** This phone stops a file it offered and the other end may hold: one files.cancel, and late frames are ignored. */
@@ -3394,7 +3485,8 @@ class PairingCoordinator(
     internal fun failStalledTransfers(nowMillis: Long) {
         val tracked = incomingFiles.keys.toSet() + offeredFiles
         for (transferId in TransferStall.stalledIds(mutableFileTransfers.value.values, tracked, nowMillis)) {
-            incomingFiles.remove(transferId)?.cancel()
+            // A timeout, not a cancel: a resumable partial stays for a later attempt (the sender is still told to stop).
+            incomingFiles.remove(transferId)?.let { endIncoming(it, keep = true) }
             abandonOffered(transferId)
             outgoingFileJobs.remove(transferId)?.cancel()
             pendingFileAccepts.remove(transferId)?.complete(false)
@@ -3442,9 +3534,10 @@ class PairingCoordinator(
             }
         }
         outgoingFileJobs.remove(transferId)?.cancel()
-        incomingFiles.remove(transferId)?.cancel()
+        incomingFiles.remove(transferId)?.let { endIncoming(it, keep = false) }
         pendingFileAccepts.remove(transferId)?.complete(false)
         pendingFileCompletions.remove(transferId)?.complete(false)
+        interruptedFiles.remove(transferId)
         removeFileTransfer(transferId, "Transfer cancelled")
         diagnostics.record("transfer", "cancelled")
     }
@@ -3478,6 +3571,7 @@ class PairingCoordinator(
             mutableFileTransfers.update { it - transferId }
             outgoingFileSources.remove(transferId)
             transferDevices.remove(transferId)
+            interruptedFiles.remove(transferId)
             reconcileAttachDraftOwnership()
             diagnostics.record("transfer", "retry_started")
         }
@@ -3504,7 +3598,7 @@ class PairingCoordinator(
     fun clearTransferHistory() {
         scope.launch(Dispatchers.Main.immediate) {
             val inactiveIds = mutableFileTransfers.value.values.filterNot(FileTransferState::active).map(FileTransferState::id)
-            inactiveIds.forEach { outgoingFileSources.remove(it); transferDevices.remove(it) }
+            inactiveIds.forEach { outgoingFileSources.remove(it); transferDevices.remove(it); interruptedFiles.remove(it) }
             mutableFileTransfers.value = mutableFileTransfers.value.filterValues(FileTransferState::active)
             reconcileAttachDraftOwnership()
             refreshFileTransferSummary()
@@ -3563,9 +3657,11 @@ class PairingCoordinator(
         pendingFileAccepts.clear()
         pendingFileCompletions.values.forEach { it.complete(false) }
         pendingFileCompletions.clear()
-        incomingFiles.values.forEach(IncomingFileTransfer::cancel)
+        // Quitting: resumable partials stay for a later attempt, the rest go.
+        incomingFiles.values.forEach { endIncoming(it, keep = true) }
         incomingFiles.clear()
         folders.deviceGone(null)
+        rememberInterrupted(null)
         interruptFileQueue()
         outgoingFileJobs.values.forEach(Job::cancel)
         outgoingFileJobs.clear()
@@ -4273,6 +4369,15 @@ class PairingCoordinator(
                 else if (clipboardOutbox.handles(it)) clipboardOutbox.onCompleteAcknowledged(it)
                 else if (ownsTransfer(current, it)) pendingFileCompletions.remove(it)?.complete(true)
             }
+            "files.resume" -> receiveFileResume(current, message)
+            "files.resume.ack" -> receiveFileResumeAck(current, message)
+            "files.resume.wait" -> message.transferId?.let { transferId ->
+                // The receiver is still re-reading what it kept of this file: wait for its answer a while longer.
+                if (!registry.isActive(current) || message.sessionId != current.id || !ownsTransfer(current, transferId)) return@let
+                val resume = outgoingResumes[transferId]?.takeIf { it.answer == null && pendingFileAccepts.containsKey(transferId) } ?: return@let
+                resume.waitUntil = nowMonotonicMillis() + resumeAnswerWindowMillis
+                mutableFileTransfers.value[transferId]?.let { updateFileTransfer(transferId, it.name, it.status, true) }
+            }
             "files.offer" -> {
                 if (current.agent) {
                     // Send you files: single files only, into Download/Bridgey/<agent name>.
@@ -4426,10 +4531,14 @@ class PairingCoordinator(
                     if (transferId in cancelledTransferIds) return
                     return fail(current, "Unknown file transfer")
                 }
-                if (!runCatching { transfer.append(payload.plaintext, sequence, FastFrame.MAXIMUM_PLAINTEXT) }.isSuccess) {
-                    incomingFiles.remove(transfer.transferId)?.cancel()
+                val appended = runCatching { transfer.append(payload.plaintext, sequence, FastFrame.MAXIMUM_PLAINTEXT) }
+                if (appended.isFailure) {
+                    // Bad data (or a chunk before files.resume.ack): the partial goes before the session closes.
+                    if (incomingFiles.remove(transfer.transferId, transfer)) endIncoming(transfer, keep = false)
                     return fail(current, "Invalid file data")
                 }
+                // A resumable file's record follows it every 64 MiB, once its bytes are synced (files_resume_draft1).
+                appended.getOrNull()?.let { saveResumeRecord(transfer.record(it)) }
                 transfer.progress.status(transfer.receivedSize)?.let {
                     updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
                 }
@@ -4736,21 +4845,30 @@ class PairingCoordinator(
         // Mac can read; older Macs ignore it.
         val free = runCatching { dev.bridgey.android.folders.MediaStoreTreeStore(appContext.contentResolver).freeBytes() }.getOrNull()
         val deviceId = current.remoteDeviceId
+        // files_resume_draft1: the sender marked it, both show the key on protocol 2, and it is more than one block.
+        val resumable = payload.opt("resumable") == true && FileResume.resumable(size) && current.resumeFiles
         val (admission, transfer) = synchronized(incomingFiles) {
+            // Only this device's partial of this very content, never a path or ID from the sender; its bytes are read
+            // again and checked against the record before anything is offered. What it holds needs no new room.
+            val kept = if (resumable) claimPartial(deviceId, transferId, size, hash, name, mimeType) else null
             val inFlight = incomingFiles.entries.toList()
             val admission = incomingFileAdmission(
-                size = size,
+                size = size - (kept?.keptLength ?: 0L),
                 deviceInFlight = inFlight.count { transferDevices[it.key] == deviceId },
                 totalInFlight = inFlight.size,
                 reservedBytes = inFlight.sumOf { it.value.expectedSize - it.value.receivedSize },
                 freeBytes = free,
             )
+            // Refused (busy or no room): a claimed partial stays as it was for a later attempt.
+            if (admission != IncomingFileAdmission.Accept) kept?.let { endIncoming(it, keep = true) }
             val created = if (admission == IncomingFileAdmission.Accept) {
                 // An agent's files land in Download/Bridgey/<its name>.
                 val subfolder = if (current.agent) dev.bridgey.android.agents.agentFolderName(current.peerName) else null
-                runCatching { IncomingFileTransfer(appContext, transferId, name, mimeType, size, hash, subfolder) }.getOrNull()?.also {
+                (kept ?: runCatching { IncomingFileTransfer.create(appContext, transferId, name, mimeType, size, hash, subfolder, resumable, deviceId) }.getOrNull())?.also {
                     incomingFiles[transferId] = it
                     transferDevices[transferId] = deviceId
+                    // A record from the start, so a crash before the first checkpoint leaves no partial behind.
+                    if (kept == null && it.resumable) saveResumeRecord(it.startRecord())
                 }
             } else {
                 null
@@ -4775,9 +4893,238 @@ class PairingCoordinator(
             return
         }
         if (transfer == null) return fail(current, "Could not create file in Downloads")
+        if (transfer.phase is IncomingPhase.Checking) {
+            updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_resume_checking, transfer.displayName), true)
+            checkPartial(current, transfer)
+            BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "checking kept part", transferId, transfer.displayName, "size=$size"))
+            return
+        }
         updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "accepted", transferId, transfer.displayName, "size=$size"))
+    }
+
+    /**
+     * files_resume_draft1: the partial this device kept of this content in Download/Bridgey, reopened "rw" for
+     * [transferId], or null. Partials it can no longer serve (the same name with other content: the source changed)
+     * go. Called under the `incomingFiles` lock.
+     */
+    private fun claimPartial(deviceId: String, transferId: String, size: Long, sha256: String, offeredName: String, mimeType: String): IncomingFileTransfer? {
+        val record = synchronized(resumeLock) {
+            val (found, gone) = resumeStore.claim(deviceId, size, sha256, IncomingFileTransfer.sanitize(offeredName), FileResume.RECEIVE_DIR, System.currentTimeMillis())
+            if (gone.isNotEmpty()) partialsChanged(gone)
+            found
+        } ?: return null
+        val reopened = IncomingFileTransfer.reopen(appContext, transferId, record, offeredName, mimeType)
+        if (reopened == null) {
+            // It cannot be opened "rw" any more: it goes, and the file comes from byte zero.
+            synchronized(resumeLock) {
+                resumeStore.release(record.part, keep = false)
+                partialsChanged(listOf(record.part))
+            }
+        }
+        return reopened
+    }
+
+    /**
+     * Reads a kept partial's verified bytes again off the session's thread (up to 10 GiB), sending files.resume.wait
+     * every 30 seconds meanwhile so the sender keeps waiting (and the row stays alive), then answers files.resume or,
+     * when the bytes no longer match their record, files.accept from byte zero.
+     */
+    private fun checkPartial(current: Session, transfer: IncomingFileTransfer) {
+        val transferId = transfer.transferId
+        scope.launch(Dispatchers.IO) {
+            val waits = launch {
+                while (true) {
+                    delay(resumeWaitEveryMillis)
+                    if (transfer.phase !is IncomingPhase.Checking || incomingFiles[transferId] !== transfer || !registry.isActive(current)) break
+                    current.send(Message(kind = "files.resume.wait", sessionId = current.id, transferId = transferId))
+                    updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_resume_checking, transfer.displayName), true)
+                }
+            }
+            if (resumeRereadHoldMillis > 0) delay(resumeRereadHoldMillis)
+            val result = transfer.reread { if (transfer.ended) throw java.io.InterruptedIOException("ended") }
+            waits.cancel()
+            partialChecked(current, transfer, result)
+        }
+    }
+
+    /** A kept partial was read again: propose resuming after its bytes, or start from byte zero. */
+    private fun partialChecked(current: Session, transfer: IncomingFileTransfer, result: Pair<MessageDigest, ByteArray>?) {
+        val transferId = transfer.transferId
+        if (incomingFiles[transferId] !== transfer || !registry.isActive(current)) return
+        if (transfer.propose(result)) {
+            val offset = transfer.proposed ?: return
+            transfer.progress.status(offset, force = true)?.let {
+                updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
+            }
+            sendEncrypted(current, "files.resume", FileResume.resumePayload(transferId, offset, result!!.second), transferId = transferId)
+            BridgeyLogging.i(LogCategory.FILES, "FILE resume proposed transfer=${transferId.take(8)} offset=$offset")
+            return
+        }
+        // Damaged, changed or unreadable: emptied, and the file comes from byte zero as without the key.
+        if (!transfer.restart()) return dropIncoming(current, transfer, "Could not write the file")
+        saveResumeRecord(transfer.startRecord())
+        updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
+        current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
+        BridgeyLogging.i(LogCategory.FILES, "FILE kept part did not check out transfer=${transferId.take(8)}")
+    }
+
+    /** An incoming single file fails here: its partial and record go, and the sender is told (files.cancel). */
+    private fun dropIncoming(current: Session, transfer: IncomingFileTransfer, status: String) {
+        val transferId = transfer.transferId
+        if (!incomingFiles.remove(transferId, transfer)) return
+        endIncoming(transfer, keep = false)
+        markTransferCancelled(transferId)
+        if (registry.isActive(current)) current.send(Message(kind = "files.cancel", sessionId = current.id, transferId = transferId))
+        updateFileTransfer(transferId, transfer.displayName, status, false)
+    }
+
+    /**
+     * An incoming single file ends without being saved. With [keep] (an interruption: disconnect, timeout, quitting)
+     * a resumable partial stays with its record for a later attempt; otherwise (a cancel, a failed check, bad data,
+     * forgetting the device) it goes with its record.
+     */
+    private fun endIncoming(transfer: IncomingFileTransfer, keep: Boolean) {
+        val kept = if (keep && transfer.resumable) {
+            when (val k = transfer.keep()) {
+                Kept.Unchanged -> true
+                is Kept.Verified -> {
+                    saveResumeRecord(transfer.record(k.length to k.prefix))
+                    true
+                }
+                Kept.Nothing -> false
+            }
+        } else false
+        if (!kept) transfer.cancel()
+        if (transfer.resumable) releaseResume(transfer.uri.toString(), keep = kept)
+    }
+
+    /** Saves a partial's record (its bytes are synced first) and deletes what the limits push out. */
+    private fun saveResumeRecord(record: ResumeRecord) = synchronized(resumeLock) {
+        partialsChanged(resumeStore.save(record, System.currentTimeMillis()))
+    }
+
+    private fun releaseResume(part: String, keep: Boolean) = synchronized(resumeLock) {
+        if (resumeStore.release(part, keep)) partialsChanged(emptyList())
+    }
+
+    /** Deletes the partials that went and writes the records. Called under [resumeLock]. */
+    private fun partialsChanged(gone: List<String>) {
+        gone.forEach { part -> runCatching { appContext.contentResolver.delete(Uri.parse(part), null, null) } }
+        resumeFile.write(resumeStore.encode())
+    }
+
+    /** A record may name only a MediaStore entry, so a damaged one cannot point a deletion anywhere else. */
+    private fun isPartialUri(part: String): Boolean =
+        part.startsWith("content://media/") && runCatching { Uri.parse(part).lastPathSegment?.toLongOrNull() }.getOrNull() != null
+
+    /** A kept partial's length now, or null when it is gone. */
+    private fun partialLength(part: String): Long? =
+        runCatching { appContext.contentResolver.openFileDescriptor(Uri.parse(part), "r")?.use { it.statSize } }.getOrNull()
+
+    /**
+     * Once per process, before any file arrives: records that can no longer be resumed go with their partials, and
+     * pending entries in Download/Bridgey that no record names (a process death used to leave them behind) are
+     * deleted. Under the same lock that creates incoming single files, so nothing in use is touched.
+     */
+    private fun sweepPartials() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        synchronized(incomingFiles) {
+            synchronized(resumeLock) {
+                val gone = resumeStore.sweep(System.currentTimeMillis(), ::partialLength)
+                if (gone.isNotEmpty()) partialsChanged(gone)
+                val named = resumeStore.records.map { it.part }.toSet() + incomingFiles.values.map { it.uri.toString() }
+                val orphans = pendingDownloads().filter { it.toString() !in named }
+                orphans.forEach { runCatching { appContext.contentResolver.delete(it, null, null) } }
+                if (gone.isNotEmpty() || orphans.isNotEmpty()) {
+                    BridgeyLogging.i(LogCategory.FILES, "FILE swept kept=${resumeStore.records.size} expired=${gone.size} orphans=${orphans.size}")
+                }
+            }
+        }
+    }
+
+    /** This app's pending entries directly in Download/Bridgey (single files; folders write below it). */
+    @android.annotation.TargetApi(Build.VERSION_CODES.Q)
+    private fun pendingDownloads(): List<Uri> = runCatching {
+        val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        val projection = arrayOf(MediaStore.Downloads._ID)
+        val selection = "${MediaStore.Downloads.RELATIVE_PATH} = ? AND ${MediaStore.Downloads.IS_PENDING} = 1"
+        val arguments = arrayOf(FileResume.RECEIVE_DIR)
+        val cursor = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            appContext.contentResolver.query(collection, projection, android.os.Bundle().apply {
+                putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arguments)
+                putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+            }, null)
+        } else {
+            @Suppress("DEPRECATION")
+            appContext.contentResolver.query(MediaStore.setIncludePending(collection), projection, selection, arguments, null)
+        }
+        cursor?.use { c ->
+            val id = c.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+            buildList { while (c.moveToNext()) add(android.content.ContentUris.withAppendedId(collection, c.getLong(id))) }
+        }.orEmpty()
+    }.getOrDefault(emptyList())
+
+    /**
+     * files.resume for a file this phone offered: continue after the receiver's bytes when their SHA-256 is this file's
+     * own over the same length, else from byte zero; the sending coroutine answers files.resume.ack. One that decrypts
+     * but was never asked for (the offer was not resumable) ends the file.
+     */
+    private fun receiveFileResume(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val transferId = message.transferId ?: return
+        if (!ownsTransfer(current, transferId)) return
+        val plaintext = Crypto.decrypt(
+            current.pairingKey!!,
+            message.nonce ?: return fail(current, "Invalid encrypted file resume"),
+            message.ciphertext ?: return fail(current, "Invalid encrypted file resume"),
+        ) ?: return fail(current, "Invalid encrypted file resume")
+        val accepted = pendingFileAccepts[transferId] ?: return
+        val resume = outgoingResumes[transferId]
+        if (resume == null) {
+            // Never offered resumable: the receiver broke the rules, so the file ends here.
+            pendingFileAccepts.remove(transferId)?.complete(false)
+            abandonOffered(transferId)
+            outgoingFileJobs.remove(transferId)?.cancel()
+            mutableFileTransfers.value[transferId]?.let { updateFileTransfer(transferId, it.name, "File transfer failed", false) }
+            return
+        }
+        if (resume.answer != null) return
+        resume.answer = FileResume.senderAnswer(plaintext, transferId, resume.size, resume.sha256, resume.blocks)
+        pendingFileAccepts.remove(transferId)
+        accepted.complete(true)
+    }
+
+    /**
+     * files.resume.ack for a file this phone proposed to resume: chunks follow from the offset proposed, or from byte
+     * zero. Anything else cancels the file and its partial goes.
+     */
+    private fun receiveFileResumeAck(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val messageId = message.messageId ?: return
+        if (!current.acceptMessageId(messageId)) return
+        val transferId = message.transferId ?: return
+        if (!ownsTransfer(current, transferId)) return
+        val plaintext = Crypto.decrypt(
+            current.pairingKey!!,
+            message.nonce ?: return fail(current, "Invalid encrypted file resume answer"),
+            message.ciphertext ?: return fail(current, "Invalid encrypted file resume answer"),
+        ) ?: return fail(current, "Invalid encrypted file resume answer")
+        val transfer = incomingFiles[transferId] ?: return
+        val proposed = transfer.proposed
+        when (proposed?.let { FileResume.parseAck(plaintext, transferId, it) }) {
+            null -> dropIncoming(current, transfer, "File transfer failed")
+            proposed -> transfer.agreed()
+            else -> {
+                if (!transfer.restart()) return dropIncoming(current, transfer, "Could not write the file")
+                saveResumeRecord(transfer.startRecord())
+                updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
+            }
+        }
     }
 
     private fun receiveFileChunk(current: Session, message: Message) {
@@ -4795,10 +5142,12 @@ class PairingCoordinator(
             message.nonce ?: return fail(current, "Invalid encrypted file chunk"),
             message.ciphertext ?: return fail(current, "Invalid encrypted file chunk"),
         ) ?: return fail(current, "Invalid encrypted file chunk")
-        if (!runCatching { transfer.append(chunk, message.sequence ?: -1) }.isSuccess) {
-            incomingFiles.remove(transfer.transferId)?.cancel()
+        val appended = runCatching { transfer.append(chunk, message.sequence ?: -1) }
+        if (appended.isFailure) {
+            if (incomingFiles.remove(transfer.transferId, transfer)) endIncoming(transfer, keep = false)
             return fail(current, "Invalid file data")
         }
+        appended.getOrNull()?.let { saveResumeRecord(transfer.record(it)) }
         transfer.progress.status(transfer.receivedSize)?.let {
             updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
         }
@@ -4831,6 +5180,8 @@ class PairingCoordinator(
             return fail(current, "Unknown file transfer")
         }
         val savedUri = runCatching { transfer.finish(payload.optString("sha256")) }.getOrNull()
+        // Saved or failed, this partial is never resumed again.
+        if (transfer.resumable) releaseResume(transfer.uri.toString(), keep = false)
         if (savedUri == null) {
             transfer.cancel()
             mutableFileTransferStatus.value = "File verification failed"
@@ -4851,7 +5202,8 @@ class PairingCoordinator(
     private fun receiveFileCancel(current: Session, transferId: String?) {
         if (transferId == null || !ownsTransfer(current, transferId)) return
         markTransferCancelled(transferId)
-        incomingFiles.remove(transferId)?.cancel()
+        // A cancel is someone saying they do not want the file: a kept partial goes too.
+        incomingFiles.remove(transferId)?.let { endIncoming(it, keep = false) }
         outgoingFileJobs.remove(transferId)?.cancel()
         pendingFileAccepts.remove(transferId)?.complete(false)
         pendingFileCompletions.remove(transferId)?.complete(false)
@@ -4860,10 +5212,41 @@ class PairingCoordinator(
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "cancellation received", transferId))
     }
 
+    /**
+     * Before a disconnect ends them: the single files this phone was sending or had queued for [deviceId] (null: every
+     * device) that can resume there, to send again when it reconnects (Settings > Files > Resume interrupted files
+     * automatically).
+     */
+    private fun rememberInterrupted(deviceId: String?) {
+        val now = System.currentTimeMillis()
+        mutableFileTransfers.value.values.filter {
+            it.active && it.kind == TransferKind.FILE && outgoingFileSources.containsKey(it.id) && !incomingFiles.containsKey(it.id) &&
+                (deviceId == null || it.deviceId == deviceId) && it.deviceId in resumePeers
+        }.forEach { interruptedFiles[it.id] = InterruptedFile(it.deviceId!!, now) }
+    }
+
+    /**
+     * [deviceId] is back with Files on and the resume key: the single files a disconnect interrupted within the last 24
+     * hours go again, in the order they were queued, unless Resume interrupted files automatically is off.
+     */
+    private fun resendInterrupted(deviceId: String) {
+        if (interruptedFiles.values.none { it.deviceId == deviceId }) return
+        if (!settings.state.value.autoResumeFiles || deviceId !in resumePeers || !isFeatureAvailable(BridgeyFeature.FILES, deviceId)) return
+        val now = System.currentTimeMillis()
+        val due = interruptedFiles.entries.filter { it.value.deviceId == deviceId }.mapNotNull { (id, file) ->
+            interruptedFiles.remove(id)
+            val row = mutableFileTransfers.value[id] ?: return@mapNotNull null
+            val fresh = now - file.atMillis in 0 until FileResume.LIFETIME_MILLIS
+            if (fresh && !row.active && row.outcome == TransferEnd.INTERRUPTED && outgoingFileSources.containsKey(id)) row else null
+        }.sortedBy { it.startedAtMillis }
+        if (due.isNotEmpty()) BridgeyLogging.i(LogCategory.FILES, "FILE resending interrupted count=${due.size} peer=${deviceId.take(8)}")
+        due.forEach { retryFileTransfer(it.id) }
+    }
+
     /** Ends the current and waiting outgoing files of [deviceId] (null: all) after the session is lost. They remain retryable. */
     private fun interruptFileQueue(deviceId: String? = null) {
         val queues = if (deviceId == null) fileSendQueues.values.toList() else listOfNotNull(fileSendQueues[deviceId])
-        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, "Transfer interrupted — reconnect to retry", TransferEnd.INTERRUPTED) }
+        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED) }
     }
 
     private fun markTransferCancelled(transferId: String) {
@@ -4924,7 +5307,7 @@ class PairingCoordinator(
             .take(MAX_TRANSFER_HISTORY)
         val retained = (active + history).associateBy(FileTransferState::id)
         val discarded = mutableFileTransfers.value.keys - retained.keys
-        discarded.forEach { outgoingFileSources.remove(it); transferDevices.remove(it) }
+        discarded.forEach { outgoingFileSources.remove(it); transferDevices.remove(it); interruptedFiles.remove(it) }
         mutableFileTransfers.value = retained
         if (discarded.isNotEmpty()) outgoingOwnershipChanged()
     }
@@ -5261,6 +5644,8 @@ class PairingCoordinator(
         featureValues.put(dev.bridgey.android.connect.CONNECT_FEATURE_KEY, connectAdvertised())
         // Draft, edition only: binary chunk frames and a byte window (FastTransfer.kt). A capability, so always on.
         featureValues.put(FILES_FAST_FEATURE_KEY, true)
+        // Draft, edition only: resuming files from the last verified chunk (FileResume.kt). A capability, on protocol 2 only.
+        featureValues.put(FILES_RESUME_FEATURE_KEY, current.envelopeKey != null)
         // Draft, edition only: the agents mirror (agents.state, agents.grant_set, codes.found, codes.read). A capability.
         featureValues.put(dev.bridgey.android.agents.AGENTS_MIRROR_FEATURE_KEY, true)
         // Draft, edition only: LAN first (LanFirst.kt). A capability, so always on: the duplicate rule both ends run
@@ -5304,6 +5689,8 @@ class PairingCoordinator(
             scope.launch { sendFeatureState(current) }
         }
         current.peerFast = drafts[FILES_FAST_FEATURE_KEY] == true
+        current.peerResume = drafts[FILES_RESUME_FEATURE_KEY] == true
+        if (current.resumeFiles) resumePeers += deviceId else resumePeers -= deviceId
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null} lanFirst=$lanFirst tier=${current.tier.wire}")
         registry.update(deviceId) { state ->
             state.copy(
@@ -5364,6 +5751,8 @@ class PairingCoordinator(
         if (drafts[dev.bridgey.android.codes.SMS_CODES_FEATURE_KEY] == true) sendCodeStatus(current)
         // Folders waiting for this device (queued, or interrupted within 24 hours) start or resume now.
         if (sendsFoldersTo(deviceId)) folderSender.deviceReady(deviceId)
+        // Single files a disconnect interrupted go again and resume from what it kept (files_resume_draft1).
+        resendInterrupted(deviceId)
         // Focus sync: a Mac that understands it hears this phone's Do Not Disturb once per map.
         if (drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true && focusSync.advertised()) focusSync.peerReady(deviceId)
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
@@ -6179,10 +6568,11 @@ class PairingCoordinator(
         val ids = if (deviceId == null) null else transferDevices.filterValues { it == deviceId }.keys
         fun mine(transferId: String) = (ids == null || transferId in ids) && mutableFileTransfers.value[transferId]?.kind != TransferKind.FOLDER
         val hadActiveTransfers = mutableFileTransfers.value.values.any { it.active && mine(it.id) }
+        rememberInterrupted(deviceId)
         interruptFileQueue(deviceId)
+        // An interruption: resumable partials stay with their records for the next attempt (files_resume_draft1).
         incomingFiles.entries.filter { mine(it.key) }.forEach { (id, transfer) ->
-            transfer.cancel()
-            incomingFiles.remove(id)
+            if (incomingFiles.remove(id, transfer)) endIncoming(transfer, keep = true)
         }
         outgoingFileJobs.entries.filter { mine(it.key) }.forEach { (id, job) ->
             job.cancel()
@@ -6284,6 +6674,12 @@ class PairingCoordinator(
 
         /** Fast transfers with this peer (FastTransfer.kt), read by senders when a transfer starts. */
         val fastTransfers: Boolean get() = peerFast && binaryContext != null
+
+        /** The peer's latest features.update shows files_resume_draft1. */
+        @Volatile var peerResume = false
+
+        /** Resuming files with this peer (FileResume.kt): both show the key, on protocol 2, never with an agent. */
+        val resumeFiles: Boolean get() = peerResume && envelopeKey != null && !agent
 
         fun allowBinaryFrames(key: ByteArray, localDeviceId: String, remoteDeviceId: String) {
             binaryContext = BinaryContext(key, localDeviceId, remoteDeviceId)
@@ -6499,10 +6895,16 @@ class PairingCoordinator(
     }
 }
 
-private class TransferProgress(private val totalBytes: Long) {
+private class TransferProgress(private val totalBytes: Long, startBytes: Long = 0L) {
     private var lastUpdateAt = SystemClock.elapsedRealtime()
-    private var lastBytes = 0L
+    private var lastBytes = startBytes
     private var smoothedBytesPerSecond = 0.0
+
+    /** A resumed transfer goes on from [bytes]: they do not count towards the speed. */
+    fun startAt(bytes: Long) {
+        lastUpdateAt = SystemClock.elapsedRealtime()
+        lastBytes = bytes
+    }
 
     fun status(transferred: Long, force: Boolean = false): String? {
         val now = SystemClock.elapsedRealtime()
@@ -6541,75 +6943,234 @@ private class TransferProgress(private val totalBytes: Long) {
     }
 }
 
+/** Where an incoming single file is (files_resume_draft1): re-reading a kept partial, waiting for files.resume.ack, or taking chunks. */
+private sealed class IncomingPhase {
+    /** Re-reading a kept partial whose record says [length] verified bytes with SHA-256 [prefix]. */
+    class Checking(val length: Long, val prefix: ByteArray) : IncomingPhase()
+    /** files.resume sent for [offset]; chunks wait for files.resume.ack. */
+    class Proposed(val offset: Long) : IncomingPhase()
+    object Receiving : IncomingPhase()
+}
+
+/** What an interrupted incoming file leaves: its partial unchanged, a verified prefix to record, or nothing to keep. */
+private sealed class Kept {
+    object Unchanged : Kept()
+    class Verified(val length: Long, val prefix: ByteArray) : Kept()
+    object Nothing : Kept()
+}
+
+/**
+ * One single file arriving in Download/Bridgey: a pending MediaStore entry, opened read-write ("rw", never "w", which
+ * may truncate), hashed as it comes. A resumable file (files_resume_draft1) is kept on an interruption with a private
+ * record ([record]) and reopened by [reopen] for the next attempt.
+ */
 @android.annotation.TargetApi(Build.VERSION_CODES.Q)
-private class IncomingFileTransfer(
+private class IncomingFileTransfer private constructor(
     private val context: Context,
     val transferId: String,
-    offeredName: String,
+    val displayName: String,
     val mimeType: String,
     val expectedSize: Long,
     private val expectedHash: String,
-    /** A folder under Download/Bridgey (an agent's name), or null for Download/Bridgey itself. */
-    private val subfolder: String? = null,
+    val uri: Uri,
+    /** The name the pending entry has (a kept one may have been offered under another name since). */
+    private val rowName: String,
+    private val descriptor: android.os.ParcelFileDescriptor?,
+    private val stream: OutputStream,
+    /** Kept on an interruption, with a private record (files_resume_draft1). */
+    val resumable: Boolean,
+    /** The device it comes from (authenticated), for the record. */
+    val deviceId: String,
+    phase: IncomingPhase,
 ) {
-    val displayName = sanitize(offeredName)
     val progress = TransferProgress(expectedSize)
     private val resolver = context.contentResolver
-    private val uri: Uri
-    private val output: OutputStream
-    private val digest = MessageDigest.getInstance("SHA-256")
+    private val channel: java.nio.channels.FileChannel? = (stream as? java.io.FileOutputStream)?.channel
+    private var hash = RunningHash(keepAll = false)
     var receivedSize = 0L
         private set
     private var nextSequence = 0L
+    /** [receivedSize] when the record was last written. */
+    private var recordedAt = 0L
+    @Volatile var phase: IncomingPhase = phase
+        private set
+    /** Saved, cancelled or kept: nothing more is written. */
+    @Volatile var ended = false
+        private set
 
-    init {
-        val values = ContentValues().apply {
-            put(MediaStore.Downloads.DISPLAY_NAME, displayName)
-            put(MediaStore.Downloads.MIME_TYPE, mimeType.take(255))
-            put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Bridgey" + subfolder?.let { "/$it" }.orEmpty())
-            put(MediaStore.Downloads.IS_PENDING, 1)
-        }
-        uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: error("Could not allocate download")
-        output = resolver.openOutputStream(uri, "w") ?: run {
-            resolver.delete(uri, null, null)
-            error("Could not open download")
-        }
-    }
+    /** The offset files.resume proposed, while files.resume.ack is awaited. */
+    val proposed: Long? get() = (phase as? IncomingPhase.Proposed)?.offset
 
-    /** [maximumChunk] is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1). */
-    @Synchronized fun append(bytes: ByteArray, sequence: Long, maximumChunk: Int = 24 * 1024) {
+    /** The verified bytes of a kept partial being checked (0 for a new file): room it needs no more. */
+    val keptLength: Long get() = (phase as? IncomingPhase.Checking)?.length ?: 0L
+
+    /** This file's record with [verified] bytes and their SHA-256. */
+    fun record(verified: Pair<Long, ByteArray>): ResumeRecord = ResumeRecord(
+        peer = deviceId, size = expectedSize, sha256 = expectedHash, length = verified.first,
+        prefix = java.util.Base64.getEncoder().encodeToString(verified.second), dir = FileResume.RECEIVE_DIR, part = uri.toString(),
+        name = displayName, updated = 0,
+    )
+
+    /** What a new resumable file records at once: nothing verified, so a crash leaves nothing the next start keeps. */
+    fun startRecord(): ResumeRecord = record(hash.checkpoint(expectedSize))
+
+    /**
+     * [maximumChunk] is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1). A resumable file
+     * returns a checkpoint to record every 64 MiB, once its bytes are synced to storage.
+     */
+    @Synchronized fun append(bytes: ByteArray, sequence: Long, maximumChunk: Int = 24 * 1024): Pair<Long, ByteArray>? {
+        check(!ended && phase === IncomingPhase.Receiving)
         check(sequence == nextSequence)
         check(bytes.size <= maximumChunk)
         check(receivedSize + bytes.size <= expectedSize)
-        output.write(bytes)
-        digest.update(bytes)
+        stream.write(bytes)
+        hash.update(bytes)
         receivedSize += bytes.size
         nextSequence++
+        if (resumable && receivedSize - recordedAt >= FileResume.CHECKPOINT_EVERY && sync()) {
+            recordedAt = receivedSize
+            return hash.checkpoint(expectedSize)
+        }
+        return null
     }
 
+    private fun sync(): Boolean = runCatching { stream.flush(); descriptor?.fileDescriptor?.sync() ?: error("no descriptor") }.isSuccess
+
     @Synchronized fun finish(completionHash: String): Uri? {
-        output.flush()
-        output.close()
-        val actual = Base64.encodeToString(digest.digest(), Base64.NO_WRAP)
-        if (receivedSize != expectedSize || completionHash != expectedHash || actual != expectedHash) {
+        ended = true
+        runCatching { stream.flush(); descriptor?.fileDescriptor?.sync() }
+        runCatching { stream.close() }
+        runCatching { descriptor?.close() }
+        val actual = java.util.Base64.getEncoder().encodeToString(hash.finish())
+        if (phase !== IncomingPhase.Receiving || receivedSize != expectedSize || completionHash != expectedHash || actual != expectedHash) {
             resolver.delete(uri, null, null)
             return null
         }
-        resolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+        resolver.update(uri, ContentValues().apply {
+            put(MediaStore.Downloads.IS_PENDING, 0)
+            if (displayName != rowName) put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+        }, null, null)
         return uri
     }
 
     @Synchronized fun cancel() {
-        runCatching { output.close() }
+        ended = true
+        runCatching { stream.close() }
+        runCatching { descriptor?.close() }
         resolver.delete(uri, null, null)
     }
 
-    private fun sanitize(name: String): String {
-        val leaf = name.substringAfterLast('/').substringAfterLast('\\')
-            .replace(Regex("[\\u0000-\\u001f:]"), "_")
-            .take(255)
-        return leaf.ifBlank { "file" }
+    /** An interruption: the bytes are synced and the verified prefix comes back to record, or [Kept.Nothing]. */
+    @Synchronized fun keep(): Kept {
+        if (ended) return Kept.Nothing
+        ended = true
+        val kept = when (phase) {
+            // The partial is as its record says: not touched yet, or cut back to the offset proposed.
+            is IncomingPhase.Checking, is IncomingPhase.Proposed -> Kept.Unchanged
+            IncomingPhase.Receiving -> {
+                val (length, prefix) = hash.checkpoint(expectedSize)
+                if (length > 0 && sync()) Kept.Verified(length, prefix) else Kept.Nothing
+            }
+        }
+        runCatching { stream.close() }
+        runCatching { descriptor?.close() }
+        return kept
+    }
+
+    /**
+     * Reads the recorded prefix of a kept partial again (off the session's thread), through its own read-only
+     * descriptor: the running hash and the SHA-256, or null when it could not be read or is shorter. [keepGoing] runs
+     * between pieces and may throw to stop.
+     */
+    fun reread(keepGoing: () -> Unit): Pair<MessageDigest, ByteArray>? {
+        val checking = phase as? IncomingPhase.Checking ?: return null
+        return runCatching {
+            resolver.openInputStream(uri)!!.use { RunningHash.prefixOf(it, checking.length, keepGoing) }
+        }.getOrNull()
+    }
+
+    /**
+     * The re-read [result] matches the record: cut the partial to the verified length and go on from there
+     * ([IncomingPhase.Proposed]). False when it does not match or the partial could not be cut.
+     */
+    @Synchronized fun propose(result: Pair<MessageDigest, ByteArray>?): Boolean {
+        val checking = phase as? IncomingPhase.Checking ?: return false
+        if (ended || result == null || !MessageDigest.isEqual(result.second, checking.prefix)) return false
+        val channel = channel ?: return false
+        if (runCatching { channel.truncate(checking.length); channel.position(checking.length) }.isFailure) return false
+        hash = RunningHash.resumed(result.first, checking.length, result.second)
+        receivedSize = checking.length
+        recordedAt = checking.length
+        progress.startAt(checking.length)
+        phase = IncomingPhase.Proposed(checking.length)
+        return true
+    }
+
+    /** files.resume.ack agreed: chunks from the proposed offset. */
+    @Synchronized fun agreed() {
+        if (phase is IncomingPhase.Proposed) phase = IncomingPhase.Receiving
+    }
+
+    /** From byte zero: the partial is emptied. False when it could not be. */
+    @Synchronized fun restart(): Boolean {
+        if (ended) return false
+        val channel = channel ?: return false
+        if (runCatching { channel.truncate(0); channel.position(0) }.isFailure) return false
+        hash = RunningHash(keepAll = false)
+        receivedSize = 0
+        recordedAt = 0
+        nextSequence = 0
+        progress.startAt(0)
+        phase = IncomingPhase.Receiving
+        return true
+    }
+
+    companion object {
+        /** A new pending entry in Download/Bridgey (or [subfolder] under it), opened "rw" so a resumable one can be kept. */
+        fun create(
+            context: Context, transferId: String, offeredName: String, mimeType: String, expectedSize: Long, expectedHash: String,
+            subfolder: String?, resumable: Boolean, deviceId: String,
+        ): IncomingFileTransfer {
+            val resolver = context.contentResolver
+            val displayName = sanitize(offeredName)
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, displayName)
+                put(MediaStore.Downloads.MIME_TYPE, mimeType.take(255))
+                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Bridgey" + subfolder?.let { "/$it" }.orEmpty())
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Could not allocate download")
+            // "rw" can be reopened later without truncating; a provider without it gets "w" and nothing is kept there.
+            val descriptor = runCatching { resolver.openFileDescriptor(uri, "rw") }.getOrNull()
+            val stream: OutputStream = descriptor?.let { java.io.FileOutputStream(it.fileDescriptor) }
+                ?: resolver.openOutputStream(uri, "w")
+                ?: run {
+                    resolver.delete(uri, null, null)
+                    error("Could not open download")
+                }
+            return IncomingFileTransfer(context, transferId, displayName, mimeType, expectedSize, expectedHash, uri, displayName, descriptor, stream,
+                resumable && descriptor != null, deviceId, IncomingPhase.Receiving)
+        }
+
+        /**
+         * A kept partial reopened "rw" (never "w") for a new attempt ([transferId]) of the file now offered as
+         * [offeredName], re-read before anything is offered. Null when it cannot be reopened.
+         */
+        fun reopen(context: Context, transferId: String, record: ResumeRecord, offeredName: String, mimeType: String): IncomingFileTransfer? {
+            val uri = Uri.parse(record.part)
+            val prefix = FileResume.hash32(record.prefix) ?: return null
+            val descriptor = runCatching { context.contentResolver.openFileDescriptor(uri, "rw") }.getOrNull() ?: return null
+            return IncomingFileTransfer(context, transferId, sanitize(offeredName), mimeType, record.size, record.sha256, uri, record.name,
+                descriptor, java.io.FileOutputStream(descriptor.fileDescriptor), resumable = true, deviceId = record.peer,
+                IncomingPhase.Checking(record.length, prefix))
+        }
+
+        fun sanitize(name: String): String {
+            val leaf = name.substringAfterLast('/').substringAfterLast('\\')
+                .replace(Regex("[\\u0000-\\u001f:]"), "_")
+                .take(255)
+            return leaf.ifBlank { "file" }
+        }
     }
 }
 
@@ -6884,8 +7445,13 @@ private class AndroidTrustRegistry(context: Context) {
     }.sortedBy { it.name.lowercase() }
 }
 
-/** The encrypted files.offer payload; a camera photo adds `cameraRequestId` (draft camera_draft1). */
-internal fun fileOfferPayload(transferId: String, name: String, mimeType: String, size: Long, sha256: String, cameraRequestId: String? = null): JSONObject =
+/**
+ * The encrypted files.offer payload; a camera photo adds `cameraRequestId` (draft camera_draft1), and a file the
+ * receiver may resume adds `resumable` (draft files_resume_draft1).
+ */
+internal fun fileOfferPayload(
+    transferId: String, name: String, mimeType: String, size: Long, sha256: String, cameraRequestId: String? = null, resumable: Boolean = false,
+): JSONObject =
     JSONObject()
         .put("transferId", transferId)
         .put("name", name)
@@ -6893,6 +7459,21 @@ internal fun fileOfferPayload(transferId: String, name: String, mimeType: String
         .put("size", size)
         .put("sha256", sha256)
         .apply { cameraRequestId?.let { put("cameraRequestId", it) } }
+        .apply { if (resumable) put("resumable", true) }
+
+/** A single file this phone offered resumable (files_resume_draft1): its hashes, the answer, and the wait's end. */
+private class OutgoingResume(val size: Long, val sha256: ByteArray, val blocks: BlockHashes, waitMillis: Long) {
+    /** Monotonic ms ([nowMonotonicMillis]); every files.resume.wait moves it. */
+    @Volatile var waitUntil: Long = nowMonotonicMillis() + waitMillis
+    /** The files.resume answer: the offset to send from and, for 0, why. Null until a files.resume came. */
+    @Volatile var answer: Pair<Long, String?>? = null
+}
+
+/** A single file a disconnect interrupted, to send again when its device reconnects within the 24 hours. */
+private class InterruptedFile(val deviceId: String, val atMillis: Long)
+
+/** Monotonic milliseconds that also move under Robolectric's paused clock (System.nanoTime, not SystemClock). */
+private fun nowMonotonicMillis(): Long = System.nanoTime() / 1_000_000
 
 /** A clip send waiting for [deviceId]'s answer. */
 private class PendingClipSend(val deviceId: String, val callback: (ClipboardSendResult) -> Unit)

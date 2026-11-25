@@ -19,6 +19,7 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Ping (`ping.v1`) | yes | yes | CLI | yes |
 | Files (`files.v1`, JSON chunks of 24 KiB, both ways, one at a time per device, SHA-256 checked, never overwriting) | yes | yes | CLI (sending) | yes, from iOS I1; received files go to a folder the host names, with names Windows accepts (`photo (1).jpg` on Windows, `photo 2.jpg` elsewhere) |
 | Fast transfers (`files_fast_draft1`): binary frames of 256 KiB, their replay guard and the delay-based window | `FastTransfer.kt` | `FastTransfer.swift` | none | yes (`fast.rs`), from Windows M2, checked against `files-fast-v1.json` |
+| Resuming files (`files_resume_draft1`): an interrupted file continues after the receiver's verified 1 MiB blocks | `FileResume.kt` | `FileResume.swift` | none | yes (`resume.rs`), checked against `files-resume-v1.json`; see [file-resume.md](file-resume.md) |
 | Battery (`battery.update`) and find device (`find.*`) | yes | yes | CLI | yes, from Windows M2 |
 | Links (`quick.request` / `quick.result`, feature `links`, `open` to a Mac with `links_open_draft1`) | yes | yes | none | yes, from iOS I1; a received link is an event, never opened by the library |
 | Phone notifications (`notifications.post`, `remove`, `dismiss`, `action` with reply), quiet presentation (`notification_routing_draft1`) and presence (`device_presence_draft1`) | yes (phone side) | yes | none | yes, the desktop side: checked and bounded posts, quiet honoured, presence every ten seconds and on change |
@@ -55,6 +56,10 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 - With a peer that shows `files_fast_draft1` (and `bridgey_set_fast_transfers` on, the default) chunks are binary
   frames of 256 KiB. The receiver acknowledges each one, and the sender keeps its unacknowledged bytes within a
   window that grows while acknowledgements come back quickly and shrinks when their round trip climbs 40 ms.
+- With a peer that shows `files_resume_draft1` (on by default; `Config::file_resume`, `Client::set_file_resume`, not
+  in the C ABI yet) an interrupted file over 1 MiB keeps its verified partial for 24 hours, its record in the host's
+  storage under `file-resume`, and the next send of the same file continues after it. `FileProgress` then starts at
+  the resume offset.
 - Battery and find device: `bridgey_set_battery`, `bridgey_find`, `bridgey_find_stopped`, and the `Battery`,
   `FindRequested` and `FindState` events.
 - ABI 1 grows only at the end: `BridgeyConfig` fields after `data_dir` are read only when `struct_size` covers
@@ -73,7 +78,8 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 - `tests/files.rs`: files both ways, in order, refused, cancelled, changed after hashing; links; manual connect;
   devices the host finds and loses. `tests/files_fast.rs`: binary frames both ways next to JSON chunks, Windows
   names, cancels from either end, a dropped connection, two devices sending 24 MB to each other at once, battery
-  and find device.
+  and find device. `tests/files_resume.rs`: resuming after the sender or the receiver drops or restarts, and starting
+  from zero when the source changed, the partial expired or was tampered with, a peer lacks the key, or on a cancel.
 - `protocol/test-vectors/session-client-files-v1.json` is a recorded session after pairing: battery both ways, find
   device, one file in binary frames and one in JSON chunks. `SessionClientFilesVectorTest.kt` and
   `SessionClientFilesVectorTests.swift` open every frame with the apps' own code (envelope tags, fast frame keys,

@@ -6,6 +6,7 @@
 use crate::events::{Event, EventQueue, Next, SendStatus};
 use crate::fast;
 use crate::features::FeatureMap;
+use crate::resume;
 use crate::session::{self, Admission, Authenticated, Handle, Local, Offer, OutgoingFile, Role};
 use crate::trust::{Identity, KnownAddress, Storage, TrustStore, TrustedDevice};
 use serde_json::{json, Value};
@@ -65,6 +66,8 @@ pub struct Config {
     pub manual_connect: bool,
     /// Binary file frames (files_fast_draft1) with devices that show them.
     pub fast_transfers: bool,
+    /// Resume interrupted files from their last verified chunk (files_resume_draft1) with devices that show it.
+    pub file_resume: bool,
 }
 
 impl Config {
@@ -83,6 +86,7 @@ impl Config {
             receive_dir: None,
             manual_connect: false,
             fast_transfers: true,
+            file_resume: true,
         }
     }
 }
@@ -247,8 +251,15 @@ pub(crate) struct Inner {
     receive_dir: RwLock<Option<PathBuf>>,
     manual: bool,
     fast_transfers: AtomicBool,
+    /// files_resume_draft1: the switch, and the partials kept for a later attempt (their records in `storage`).
+    file_resume: AtomicBool,
+    resume: Mutex<resume::Store>,
     /// Tests only: the size of the chunks sent (0: the protocol's).
     chunk_size: AtomicUsize,
+    /// Tests only: senders stop after this many bytes of a file (0: never).
+    send_limit: AtomicU64,
+    /// Tests only: the files_resume_draft1 answer window, wait interval and held-back re-read (None: the protocol's).
+    resume_timing: Mutex<Option<(Duration, Duration, Duration)>>,
     /// This device's battery, sent to devices that show Battery.
     battery: Mutex<Option<(u8, bool)>>,
     trust: Mutex<TrustStore>,
@@ -299,7 +310,11 @@ impl Client {
             receive_dir: RwLock::new(config.receive_dir.clone()),
             manual: config.manual_connect,
             fast_transfers: AtomicBool::new(config.fast_transfers),
+            file_resume: AtomicBool::new(config.file_resume),
+            resume: Mutex::new(resume::Store::default()),
             chunk_size: AtomicUsize::new(0),
+            send_limit: AtomicU64::new(0),
+            resume_timing: Mutex::new(None),
             battery: Mutex::new(None),
             trust: Mutex::new(trust),
             state: Mutex::new(State::default()),
@@ -333,6 +348,7 @@ impl Client {
                 Err(e) => inner.emit(Event::Error { text: format!("discovery: {e}") }),
             }
         }
+        inner.load_partials();
         let trusted: Vec<String> = inner.trust.lock().unwrap().all().iter().map(|d| d.device_id.clone()).collect();
         for id in trusted {
             inner.ensure_loop(&id);
@@ -517,6 +533,11 @@ impl Client {
             return Err(ClientError::UnknownDevice);
         }
         let id = device_id.to_ascii_lowercase();
+        {
+            let mut store = self.inner.resume.lock().unwrap();
+            let gone = store.forget(&id);
+            self.inner.partials_changed(&store, gone);
+        }
         {
             let mut st = self.inner.state.lock().unwrap();
             for l in st.sessions.values().filter(|l| l.device_id.as_deref() == Some(id.as_str())) {
@@ -770,6 +791,16 @@ impl Client {
         }
     }
 
+    /// Resume interrupted files with devices that show it (on by default). Off: an interrupted file starts again from
+    /// byte zero, and partial files are not kept.
+    pub fn set_file_resume(&self, on: bool) {
+        self.inner.file_resume.store(on, Ordering::Relaxed);
+        let connected: Vec<String> = self.inner.state.lock().unwrap().connected.keys().cloned().collect();
+        for id in connected {
+            self.inner.send_policy(&id);
+        }
+    }
+
     /// Dismisses a phone notification on the phone (`notifications.dismiss`).
     pub fn dismiss_notification(&self, device_id: &str, notification_id: &str) -> Result<(), ClientError> {
         self.inner.encrypted_to(device_id, "notifications", "notifications.dismiss", crate::notifications::dismiss_payload(notification_id))
@@ -905,6 +936,20 @@ impl Client {
         self.inner.chunk_size.store(bytes, Ordering::Relaxed);
     }
 
+    /// Tests only: senders stop sending a file after this many bytes (0: never), so a test can cut a transfer at a
+    /// known place.
+    #[doc(hidden)]
+    pub fn set_send_limit_for_tests(&self, bytes: u64) {
+        self.inner.send_limit.store(bytes, Ordering::Relaxed);
+    }
+
+    /// Tests only: this client waits `answer` for the answer to a resumable offer, sends `files.resume.wait` every
+    /// quarter of it while it re-reads a kept partial, and holds each re-read back by `held` first.
+    #[doc(hidden)]
+    pub fn set_resume_timing_for_tests(&self, answer: Duration, held: Duration) {
+        *self.inner.resume_timing.lock().unwrap() = Some((answer, answer / 4, held));
+    }
+
     /// The network changed: try every trusted device that is not connected again, from the fast delays.
     pub fn network_changed(&self) {
         let node = self.inner.connect.lock().unwrap().node.clone();
@@ -939,6 +984,26 @@ async fn bind(port: u16) -> std::io::Result<(TcpListener, Option<TcpListener>)> 
 }
 
 impl Inner {
+    /// At start: the partials kept for a later attempt, less those that can no longer be resumed (expired, nothing
+    /// verified, their file gone or cut short), whose files are deleted (files_resume_draft1).
+    fn load_partials(&self) {
+        let mut store = resume::Store::decode(&self.storage.load(resume::STORAGE_KEY).ok().flatten().unwrap_or_default());
+        let gone = store.sweep(now_ms(), |p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len()));
+        if !gone.is_empty() {
+            self.partials_changed(&store, gone);
+        }
+        *self.resume.lock().unwrap() = store;
+    }
+
+    /// Deletes the partial files that went and saves the records in private storage.
+    fn partials_changed(&self, store: &resume::Store, gone: Vec<PathBuf>) {
+        for part in gone {
+            // Only names this client gives partials (`resume::valid_part`); records with any other name never load.
+            let _ = std::fs::remove_file(part);
+        }
+        let _ = self.storage.store(resume::STORAGE_KEY, &store.encode());
+    }
+
     fn arc(&self) -> Arc<Inner> {
         self.me.upgrade().expect("client alive")
     }
@@ -971,6 +1036,8 @@ impl Inner {
         };
         // A capability, not a setting: this client reads binary frames whenever it supports them.
         policy.set(fast::FEATURE, self.fast_transfers.load(Ordering::Relaxed));
+        // Also a capability: resuming needs nothing from the person.
+        policy.set(resume::FEATURE, self.file_resume.load(Ordering::Relaxed));
         // Connect away from home: while the node runs, for every peer.
         policy.set(CONNECT_FEATURE, self.connect.lock().unwrap().node.is_some());
         policy
@@ -1177,9 +1244,9 @@ impl Inner {
             }
             let hashed = {
                 let path = path.clone();
-                tokio::task::spawn_blocking(move || crate::transfer::hash_file(&path)).await
+                tokio::task::spawn_blocking(move || resume::hash_file(&path)).await
             };
-            let Ok(Ok((sha256, size))) = hashed else {
+            let Ok(Ok((sha256, size, blocks))) = hashed else {
                 fail("unreadable");
                 continue;
             };
@@ -1187,7 +1254,7 @@ impl Inner {
                 fail("unreadable");
                 continue;
             }
-            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256 };
+            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256, blocks };
             match self.feature_session(&device_id, "files") {
                 Ok((handle, _)) => {
                     // Handed over under the lock, so a cancel goes either here or to the session, never neither.
@@ -1423,6 +1490,36 @@ impl session::Host for Inner {
 
     fn receive_dir(&self) -> Option<PathBuf> {
         self.receive_dir.read().unwrap().clone()
+    }
+
+    fn resume_claim(&self, peer: &str, size: u64, sha256: &str, name: &str, dir: &Path) -> Option<resume::Record> {
+        let mut store = self.resume.lock().unwrap();
+        let (found, gone) = store.claim(peer, size, sha256, name, dir, now_ms());
+        if !gone.is_empty() {
+            self.partials_changed(&store, gone);
+        }
+        found
+    }
+
+    fn resume_save(&self, record: resume::Record) {
+        let mut store = self.resume.lock().unwrap();
+        let gone = store.save(record, now_ms());
+        self.partials_changed(&store, gone);
+    }
+
+    fn resume_release(&self, part: &Path, keep: bool) {
+        let mut store = self.resume.lock().unwrap();
+        if store.release(part, keep) {
+            self.partials_changed(&store, Vec::new());
+        }
+    }
+
+    fn send_limit(&self) -> u64 {
+        self.send_limit.load(Ordering::Relaxed)
+    }
+
+    fn resume_timing(&self) -> (Duration, Duration, Duration) {
+        self.resume_timing.lock().unwrap().unwrap_or((session::RESUME_ANSWER_TIMEOUT, session::RESUME_WAIT_EVERY, Duration::ZERO))
     }
 
     fn chunk_size(&self, fast: bool) -> usize {

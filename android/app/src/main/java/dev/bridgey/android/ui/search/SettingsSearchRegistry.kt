@@ -211,6 +211,7 @@ object SettingsSearchRegistry {
 
         // Files
         feature("files.switch", SearchPage.FILES, R.string.feature_files, R.string.feature_files_detail, BridgeyFeature.FILES, FILE_WORDS),
+        SettingsSearchEntry("files.autoResume", SearchPage.FILES, null, R.string.settings_auto_resume, null, FILE_WORDS + listOf("resume", "interrupted", "retry", "продолжать", "прерванные")),
         SettingsSearchEntry("files.foldersMode", SearchPage.FILES, null, R.string.settings_folders_mode, null, FILE_WORDS + listOf("save", "where", "сохранять"), syncKey = SyncKey.FOLDER_DESTINATION),
         SettingsSearchEntry("files.defaultFolder", SearchPage.FILES, null, R.string.settings_default_folder, null, listOf("download", "save", "папка")),
         SettingsSearchEntry("files.conflict", SearchPage.FILES, null, R.string.settings_folder_conflict, null, listOf("merge", "replace", "conflict", "заменить"), syncKey = SyncKey.FOLDER_CONFLICT),

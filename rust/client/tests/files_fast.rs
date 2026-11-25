@@ -135,7 +135,10 @@ fn cancels_from_either_end_and_a_dropped_connection_leave_no_partial_files() {
     assert_eq!(ended(&a, "A cancelled", Some(transfer), false), Err("cancelled".into()));
     assert_eq!(ended(&b, "B told", None, true), Err("cancelled_remote".into()));
 
-    // The connection drops mid-file: A calls it interrupted, and B's partial file goes.
+    // The connection drops mid-file: A calls it interrupted, and B's partial file goes. (With files_resume_draft1 at both
+    // ends B would keep it for a later attempt, tests/files_resume.rs; B turns it off, as a peer without the key.)
+    b.client.set_file_resume(false);
+    a.wait("B turned resume off", |e| matches!(e, Event::Features { remote, .. } if !remote.get("files_resume_draft1")).then_some(()));
     b.clear();
     let transfer = a.client.send_file(&b.id(), &big, None, None).unwrap();
     b.wait("B receiving a third time", |e| matches!(e, Event::FileProgress { incoming: true, bytes, .. } if *bytes > 0).then_some(()));
