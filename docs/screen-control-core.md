@@ -1,10 +1,15 @@
 # Shared screen/control contract
 
-Status: **foundation only, not wired into an app or advertised to peers**. This
-adds a portable draft contract and host reducer in
-`rust/proto/src/screen_control.rs`. It does not add a native capture/input adapter,
-enable a permission, store a control grant, or make a platform's app complete.
-Existing `screen_draft1` and `remote_input_draft1` behavior is unchanged.
+Status: **draft, used natively by Mac screen to phone** (`screen_control_draft1`,
+[protocol.md](protocol.md)). The portable contract and host reducer are in
+`rust/proto/src/screen_control.rs`. The Mac hosts it through a Swift port of the codec
+and `HostSession` (`macos/Sources/BridgeyMac/ScreenControlContract.swift`); the phone
+sends input through a Kotlin port of the codec
+(`android/app/src/main/java/dev/bridgey/android/display/ScreenControlContract.kt`).
+All three check the same vectors. The apps load the Rust core with `dlopen` and must
+work without it, so they do not link this module (see platform-architecture.md:
+measure before moving working code across the FFI). Existing `screen_draft1` and
+`remote_input_draft1` behavior is unchanged.
 
 Android, macOS, Windows, Linux and iOS/iPadOS clients use this same contract when
 their native adapters are implemented. The requested experience includes both
@@ -15,7 +20,8 @@ on Android requires API 33+; older Android retains basic app and gesture support
 ## Wire schema
 
 `bridgey-screen-control-draft1`, version `1`, is additive to the current protocol.
-Do not advertise it until the native adapter can enforce every host invariant.
+Do not advertise it until the native adapter can enforce every host invariant. The
+Mac advertises `screen_control_draft1` only to a device with a screen grant there.
 
 `Capabilities` declares source/viewer roles, full-display source support, H.264
 encoding/decoding, and separate host/controller pointer, touch, key, text and
@@ -154,8 +160,11 @@ source/geometry epochs, nonfinite coordinates, held-state release, rate limits,
 clock/idle behavior, counter exhaustion, text limits and malformed operations.
 These are pure synthetic tests, not evidence of native gesture/capture behavior.
 
-Still required: C/JNI adapter integration, native grant storage/indicators/Stop,
-OS capture/input permissions, hardware encode/decode, Android gesture sequencing,
-Mac absolute display mapping, Windows/Linux/iOS clients, mixed-version and
-cross-platform native acceptance, and measured latency/memory/battery budgets.
-No native support or speed claim follows from compiling the Rust contract.
+Done for the Mac as host and the phone as viewer and controller: grant storage,
+indicators and Stop on both ends, selected-display capture, H.264 encode and decode,
+absolute display mapping and input fencing (protocol.md, "Mac screen to phone";
+measurements in screen-sharing.md). Still required: the phone as host (Android gesture
+sequencing and full-display capture), Windows/Linux/iOS clients, live checks of the
+real ScreenCaptureKit and CGEvent paths and a phone's hardware decoder, cross-platform
+native acceptance, and measured latency/memory/battery budgets on real devices. No
+native support or speed claim follows from compiling the Rust contract.

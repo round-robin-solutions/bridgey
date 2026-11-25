@@ -635,6 +635,11 @@ private fun RemoteControlPage(state: SettingsState, actions: SettingsActions, li
             }
         }
         item(key = "remote.note") { Note(stringResource(R.string.remote_settings_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
+        item(key = "remote.screen") {
+            RowGroup(Modifier.padding(top = 16.dp)) {
+                featureRows(BridgeyFeature.SCREEN_CONTROL, state, actions)
+            }
+        }
     }
 }
 
@@ -1209,6 +1214,7 @@ private fun globalFeatureDetail(feature: BridgeyFeature): String = stringResourc
         BridgeyFeature.SMS -> R.string.feature_sms_detail
         BridgeyFeature.CALL_QUIET -> R.string.call_quiet_detail
         BridgeyFeature.DIALER -> R.string.dialer_detail
+        BridgeyFeature.SCREEN_CONTROL -> R.string.settings_screen_control_detail
     },
 )
 

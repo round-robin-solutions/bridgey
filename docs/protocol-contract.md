@@ -156,6 +156,7 @@ the tables at the end of this page are generated from it with
 | `camera_draft1` | edition-draft | no | false |
 | `updates_draft1` | edition-draft | no | false |
 | `screen_draft1` | edition-draft | no | false |
+| `screen_control_draft1` | edition-draft | no | false |
 | `files_fast_draft1` | edition-draft | no | false |
 | `files_resume_draft1` | edition-draft | no | false |
 | `sms_draft1` | edition-draft | no | false |
@@ -202,7 +203,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-188 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+199 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -1187,6 +1188,136 @@ Once a second while streaming; shown in the Mac window.
 - `reason`: user | closed | ended | screen_off | disabled | invalid | timeout | failed; an unknown reason reads as failed
 
 Either side ends the stream. A Mac refusing a start sends it with the start's streamId and its own sequence 1.
+
+#### `display.*`
+
+| Kind | Status | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `display.request` | edition-draft | viewer-to-source | screen_control_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.status` | edition-draft | source-to-viewer | screen_control_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.start` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.started` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.frame` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
+| `display.ack` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.stats` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.geometry` | edition-draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.control` | edition-draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.input` | edition-draft | viewer-to-source | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.stop` | edition-draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+
+`display.request`
+
+- `version`: integer, 1
+- `requestId`: string, UUID
+- `capabilities`: object, the contract Capabilities (v 1; screenSource, screenViewer, fullDisplaySource, h264Encode, h264Decode, inputHost, inputController, captureRequiresPrompt, captureRestoreSupported); missing flags false, unknown flags ignored, another v rejected
+
+Answered by `display.status`, `display.start`.
+
+See screen on the phone. One open request per viewer, at most one every 3 seconds; it expires after 2 minutes. The source answers display.status, then display.start once allowed (Ask each time: the person allows it on the source; Allow without asking: at once). A request from a device whose stream runs ends that stream first. A malformed request is dropped without an answer.
+
+`display.status`
+
+- `version`: integer, 1
+- `requestId`: string, echoes the request
+- `status`: waiting | declined | busy | disabled | permission | locked | failed; the viewer drops an unknown status
+
+permission: the OS does not allow capture (macOS Screen Recording); the source never asks the OS for it because of a request.
+
+`display.start`
+
+- `version`: integer, 1
+- `streamId`: string, UUID chosen by the source, used once
+- `sequence`: integer, 1 (the source's first)
+- `requestId`: string, UUID of the request it answers
+- `codec`: h264
+- `fps`: integer, 1 to 60
+- `bitrate`: integer, 100000 to 50000000
+- `stream`: integer, 1 to 2^53-1, the contract stream counter
+- `transport`: integer, 1 to 2^53-1, the source's generation for this session
+- `geometry`: object, the contract Geometry {generation 1 to 2^53-1, source 1 to 2^53-1, kind display, width and height even, 16 to 32768, at most 67108864 pixels}
+- `capabilities`: object, the contract Capabilities (v 1; screenSource, screenViewer, fullDisplaySource, h264Encode, h264Decode, inputHost, inputController, captureRequiresPrompt, captureRestoreSupported); missing flags false, unknown flags ignored, another v rejected
+- `control`: boolean, control may be asked for now
+- `displayName`: optional string, at most 64 UTF-8 bytes
+
+Answered by `display.started`, `display.stop`.
+
+Its first frame is a key frame with SPS and PPS. The viewer ignores a start whose streamId is one of the last 16 that ended, and refuses an invalid one with display.stop invalid.
+
+`display.started`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer, the viewer's stream sequence (1 here)
+
+The source gives up after 5 seconds without it (display.stop timeout).
+
+`display.frame`
+
+- `(raw)`: the screen.frame plaintext: 40-byte big-endian header (version 1, flags: bit 0 key frame, bit 1 starts with SPS and PPS, bit 2 last part; part 0 to 63; 16-byte stream ID; sequence 1 to 2^53-1; frame 1 to 2^32-1; capture time 0 to 2^63-1 microseconds) then 1 to 32768 bytes of H.264 Annex B
+
+Paced by display.ack exactly as screen.frame is by screen.ack. Not in the messageId window: the header sequence is the replay guard. An undecryptable or malformed frame is dropped and the session stays.
+
+`display.ack`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `frame`: integer, 1 to 2^32-1, newest frame received completely
+- `decodeMs`: integer, 0 to 60000
+- `keyframe`: optional boolean, true asks for a key frame (at most one a second)
+
+The source keeps at most 6 frames and max(64 KiB, 250 ms at the bit rate) unacknowledged.
+
+`display.stats`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `latencyMs`: integer, 0 to 60000
+- `rttMs`: integer, 0 to 60000
+- `bitrate`: integer, 0 to 50000000
+- `sentBitrate`: integer, 0 to 50000000
+- `fps`: integer, 0 to 120
+- `dropped`: integer, 0 to 1000
+
+Once a second while streaming; also keeps a still screen's stream alive.
+
+`display.geometry`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `geometry`: object, the contract Geometry {generation 1 to 2^53-1, source 1 to 2^53-1, kind display, width and height even, 16 to 32768, at most 67108864 pixels}; a higher generation, the same source
+
+The shared display changed size or scale. Held input is released on the source and input waits for a geometry_ack of the new generation.
+
+`display.control`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `action`: viewer: begin | end
+- `state`: source: active | ended | refused
+- `session`: integer, 1 to 2^53-1, with active
+- `input`: object {pointer, touch, keys, text, navigation}, the negotiated input, with active
+- `reason`: string, with ended or refused: user | local_stop | disabled | permission | locked | busy | focus | timeout | rate | invalid | source_changed | failed; an unknown reason reads as failed
+
+Control during a stream; ending control leaves the stream running.
+
+`display.input`
+
+- `(contract)`: the input packet of bridgey-screen-control-draft1 (rust/proto/test-vectors/screen-control-v1.json): v 1, session, transport, connection (16 bytes, HMAC-SHA256 of the session key over "bridgey-screen-control-connection-v1" 0x00 sessionId, first 16), stream, geometry, seq, input {op: geometry_ack | pointer | button | scroll | key | text | navigate | touch | heartbeat | stop}
+
+Not in the messageId window: the contract seq is the replay guard, checked by the source's HostSession with its own authority. Unknown fields or operations are rejected.
+
+`display.stop`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer
+- `reason`: user | left_screen | screen_off | local_stop | disabled | permission | locked | source_changed | invalid | timeout | failed; an unknown reason reads as failed
+
+Ends the stream and any control with it. A viewer refusing a start sends it with the start's streamId and its own sequence 1.
 
 #### `sms.*`
 

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- See Mac screens (draft screen_control_draft1): the viewer and its settings. -->
+<resources>
+    <string name="feature_screen_control">See Mac screens</string>
+    <string name="settings_screen_control_detail">See a Mac\'s screen on this phone, and control it when the Mac allows that</string>
+    <string name="feature_screen_control_detail">See the screen of %1$s when it allows this phone</string>
+    <string name="display_entry_title">See screen</string>
+    <string name="display_entry_detail">The screen of %1$s on this phone</string>
+    <string name="display_picture">Screen of %1$s</string>
+    <string name="display_status_asking">Asking the Mac…</string>
+    <string name="display_status_waiting">Waiting for the Mac</string>
+    <string name="display_status_viewing">Viewing</string>
+    <string name="display_status_controlling">Controlling</string>
+    <string name="display_status_control_starting">Asking for control…</string>
+    <string name="display_status_stopped">Stopped</string>
+    <string name="display_stats">%1$d ms · %2$d fps</string>
+    <string name="display_control">Control</string>
+    <string name="display_control_stop">Stop control</string>
+    <string name="display_start_again">Start again</string>
+    <string name="display_asking_title">Asking %1$s to show its screen</string>
+    <string name="display_waiting_title">Allow this phone on %1$s</string>
+    <string name="display_type_hint">Type on the Mac</string>
+    <string name="display_type_send">Send text</string>
+    <string name="display_outcome_declined">%1$s did not allow it</string>
+    <string name="display_outcome_busy">Another device is viewing %1$s</string>
+    <string name="display_outcome_disabled">%1$s does not let this phone see its screen. Allow it in Bridgey on the Mac, in Remote control.</string>
+    <string name="display_outcome_permission">%1$s needs Screen Recording for Bridgey. Allow it in System Settings on the Mac.</string>
+    <string name="display_outcome_locked">%1$s is locked</string>
+    <string name="display_outcome_failed">Could not show the screen of %1$s</string>
+    <string name="display_outcome_no_answer">No answer from %1$s</string>
+    <string name="display_outcome_stopped_here">Stopped</string>
+    <string name="display_outcome_stopped_mac">Stopped on %1$s</string>
+    <string name="display_outcome_disconnected">%1$s disconnected</string>
+    <string name="display_outcome_timeout">Lost the picture from %1$s</string>
+    <string name="display_outcome_display_changed">The shared display on %1$s changed</string>
+    <string name="display_outcome_unavailable">Not available with %1$s now. Both need to be connected, and the Mac needs to allow this phone.</string>
+    <string name="display_control_note_disabled">Remote control is off for this phone on %1$s</string>
+    <string name="display_control_note_permission">%1$s needs Accessibility for Bridgey</string>
+    <string name="display_control_note_busy">Another device is controlling %1$s</string>
+    <string name="display_control_note_focus">Typing stopped: the window is on another display</string>
+    <string name="display_control_note_timeout">Control ended after 6 seconds without input</string>
+    <string name="display_control_note_stopped">Control stopped on %1$s</string>
+    <string name="display_control_note_ended">Control ended</string>
+</resources>

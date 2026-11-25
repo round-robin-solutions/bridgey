@@ -450,6 +450,12 @@ class PairingCoordinator(
      */
     @Volatile var screenListener: ScreenListener? = null
 
+    /**
+     * Set by the application (the viewer hub, display/DisplayViewerHub.kt): Mac screen to phone (draft
+     * screen_control_draft1). Told about the Macs' answers, stream messages and frames, disconnects and policy changes.
+     */
+    @Volatile var displayListener: DisplayListener? = null
+
     /** Camera photos being sent: transfer ID to request ID, and what to do when the transfer ends. */
     private val cameraTransfers = ConcurrentHashMap<String, String>()
     private val cameraTransferDone = ConcurrentHashMap<String, (Boolean) -> Unit>()
@@ -871,6 +877,7 @@ class PairingCoordinator(
                 focusSettingsChanged(it.focusShare, it.focusFollow)
                 registry.connectedIds().filter { id -> !isFeatureAvailable(BridgeyFeature.CAMERA, id) }.forEach(::endCameraRequest)
                 registry.connectedIds().forEach(::screenPolicyChanged)
+                registry.connectedIds().forEach { id -> displayListener?.policy(id) }
                 smsAvailabilityChanged()
                 dialerAvailabilityChanged()
                 scope.launch(Dispatchers.Main.immediate) { callQuietPolicyChanged() }
@@ -2692,6 +2699,102 @@ class PairingCoordinator(
         screenListener?.policy(deviceId, localOn, remoteOn)
     }
 
+    // MARK: Mac screen to phone (draft screen_control_draft1, docs/protocol.md "Mac screen to phone")
+
+    /** What the viewer hub hears from the sessions. */
+    interface DisplayListener {
+        /** display.status, through the shared message ID window. */
+        fun status(deviceId: String, plaintext: ByteArray)
+
+        /** display.start: [link] is that Mac's current session. */
+        fun start(deviceId: String, plaintext: ByteArray, link: dev.bridgey.android.display.DisplayLink)
+
+        /** display.stats, display.geometry, display.control or display.stop. */
+        fun stream(deviceId: String, kind: String, plaintext: ByteArray)
+
+        /** One display.frame plaintext, on the session's reader thread: must not block. */
+        fun frame(deviceId: String, plaintext: ByteArray)
+
+        fun disconnected(deviceId: String)
+
+        /** The feature may have changed here or on the Mac for a connected Mac. */
+        fun policy(deviceId: String)
+    }
+
+    /** display.status: through the message ID window, only while the feature is on with that Mac. */
+    private fun receiveDisplayStatus(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val id = message.messageId ?: return
+        if (!current.acceptMessageId(id)) return
+        if (!isFeatureAvailable(BridgeyFeature.SCREEN_CONTROL, current.remoteDeviceId)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        displayListener?.status(current.remoteDeviceId, data)
+    }
+
+    /**
+     * The stream's JSON messages: decrypted here, outside the message ID window (the stream's own sequence guards
+     * replays). Malformed or undecryptable ones are dropped and the session stays.
+     */
+    private fun receiveDisplayStream(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        if (!isFeatureAvailable(BridgeyFeature.SCREEN_CONTROL, current.remoteDeviceId)) return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        val listener = displayListener ?: return
+        if (message.kind == dev.bridgey.android.display.DisplayKinds.START) {
+            listener.start(current.remoteDeviceId, data, displayLink(current))
+        } else {
+            listener.stream(current.remoteDeviceId, message.kind, data)
+        }
+    }
+
+    /** display.frame: decrypted on the reader thread and handed on; the hub never blocks it. */
+    private fun receiveDisplayFrame(current: Session, message: Message) {
+        if (!registry.isActive(current) || message.sessionId != current.id) return
+        val key = current.pairingKey ?: return
+        val listener = displayListener ?: return
+        val data = Crypto.decrypt(key, message.nonce ?: return, message.ciphertext ?: return) ?: return
+        listener.frame(current.remoteDeviceId, data)
+    }
+
+    /** The way the viewer reaches [current]: every write checks that it is still that Mac's session. */
+    private fun displayLink(current: Session): dev.bridgey.android.display.DisplayLink {
+        val nonce = dev.bridgey.android.display.ScreenControl.connectionNonce(current.pairingKey ?: ByteArray(32), current.id)
+        return object : dev.bridgey.android.display.DisplayLink {
+            override val connection: ByteArray get() = nonce.copyOf()
+
+            override fun send(kind: String, payload: ByteArray): Boolean {
+                // Only to a Mac whose latest map shows the key; this phone's own switch going off still lets the stop go.
+                if (registry.state(current.remoteDeviceId)?.remoteFeatures?.get(BridgeyFeature.SCREEN_CONTROL) != true) return false
+                return sendEncrypted(current, kind, payload)
+            }
+        }
+    }
+
+    /** What the viewer hub needs from the sessions. */
+    fun displayHost(): dev.bridgey.android.display.DisplayHost = object : dev.bridgey.android.display.DisplayHost {
+        override fun link(deviceId: String): dev.bridgey.android.display.DisplayLink? {
+            val current = registry.session(deviceId) ?: return null
+            if (current.pairingKey == null || !isFeatureAvailable(BridgeyFeature.SCREEN_CONTROL, deviceId)) return null
+            return displayLink(current)
+        }
+
+        override fun available(deviceId: String): Boolean =
+            registry.session(deviceId)?.pairingKey != null && isFeatureAvailable(BridgeyFeature.SCREEN_CONTROL, deviceId)
+
+        override fun enabledHere(deviceId: String): Boolean = settings.isEnabled(BridgeyFeature.SCREEN_CONTROL, deviceId)
+
+        override fun record(event: String, deviceId: String, detail: String) = recordRemoteControlEvent(event, deviceId, detail)
+
+        override fun log(message: String) = BridgeyLogging.i(LogCategory.REMOTE_CONTROL, message)
+    }
+
+    /** The connected Macs whose screen this phone may see now, by device ID with their names. */
+    fun displayTargets(): List<Pair<String, String>> =
+        registry.connectedIds().filter { isFeatureAvailable(BridgeyFeature.SCREEN_CONTROL, it) }
+            .mapNotNull { id -> registry.session(id)?.let { id to it.peerName } }
+
     /** actions.run to one Mac, only while its latest map shows mac_actions_draft1. */
     private fun sendActionsPayload(deviceId: String, kind: String, payload: JSONObject): Boolean {
         val current = registry.session(deviceId) ?: return false
@@ -3711,6 +3814,7 @@ class PairingCoordinator(
         endCameraRequest(deviceId)
         screenRequests.ended(deviceId)?.let { screenListener?.requestEnded(it) }
         screenListener?.disconnected(deviceId)
+        displayListener?.disconnected(deviceId)
         updates?.disconnected(deviceId)
         if (smsPeers.remove(deviceId)) sms.peerGone(deviceId)
         if (dialerPeers.remove(deviceId)) dialer.peerGone(deviceId)
@@ -4312,6 +4416,11 @@ class PairingCoordinator(
             "camera.request" -> receiveCameraMessage(current, message)
             "screen.request" -> receiveScreenRequest(current, message)
             "screen.started", "screen.ack", "screen.stop" -> receiveScreenStream(current, message)
+            dev.bridgey.android.display.DisplayKinds.STATUS -> receiveDisplayStatus(current, message)
+            dev.bridgey.android.display.DisplayKinds.START, dev.bridgey.android.display.DisplayKinds.STATS,
+            dev.bridgey.android.display.DisplayKinds.GEOMETRY, dev.bridgey.android.display.DisplayKinds.CONTROL,
+            dev.bridgey.android.display.DisplayKinds.STOP -> receiveDisplayStream(current, message)
+            dev.bridgey.android.display.DisplayKinds.FRAME -> receiveDisplayFrame(current, message)
             // Every kind in SmsKinds.fromMac (SmsProtocolTest checks this line lists them all).
             "sms.threads", "sms.messages", "sms.sync", "sms.send", "sms.attachment", "sms.contacts",
             "sms.mark_read", "sms.blocked_numbers" -> receiveSmsMessage(current, message)
@@ -5696,9 +5805,11 @@ class PairingCoordinator(
         current.peerResume = drafts[FILES_RESUME_FEATURE_KEY] == true
         if (current.resumeFiles) resumePeers += deviceId else resumePeers -= deviceId
         BridgeyLogging.i(LogCategory.CONNECTION, "TRANSPORT fast transfers=${current.fastTransfers} peerKey=${current.peerFast} protocol2=${current.envelopeKey != null} lanFirst=$lanFirst tier=${current.tier.wire}")
+        // Mac screen to phone: read outside the golden vectors' draft list, like LAN first.
+        val screenControl = decodeFeatureFlag(plaintext, dev.bridgey.android.display.SCREEN_CONTROL_FEATURE_KEY)
         registry.update(deviceId) { state ->
             state.copy(
-                remoteFeatures = received,
+                remoteFeatures = received + (BridgeyFeature.SCREEN_CONTROL to screenControl),
                 remoteClipboardFiles = drafts[CLIPBOARD_FILES_FEATURE_KEY] == true,
                 remoteFolders = drafts[dev.bridgey.android.folders.FOLDERS_FEATURE_KEY] == true,
                 remotePlaces = drafts[dev.bridgey.android.folders.PLACES_FEATURE_KEY] == true,
@@ -5761,6 +5872,7 @@ class PairingCoordinator(
         if (drafts[dev.bridgey.android.focus.FOCUS_SYNC_FEATURE_KEY] == true && focusSync.advertised()) focusSync.peerReady(deviceId)
         if (!isFeatureAvailable(BridgeyFeature.CAMERA, deviceId)) endCameraRequest(deviceId)
         screenPolicyChanged(deviceId)
+        displayListener?.policy(deviceId)
         // Settings sync: the snapshot goes once both sides show the key; sync stops when either turns it off.
         settingsSync.peerChanged(deviceId)
         // Update all: a device that understands it hears this phone's version and update state once per map.

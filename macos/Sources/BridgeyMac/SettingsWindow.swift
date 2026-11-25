@@ -200,6 +200,14 @@ struct SettingsModel {
     var cameraCopyToClipboard = false
     /// Remote control > Show phone screens (screen_draft1). Off by default.
     var phoneScreenEnabled = false
+    /// Remote control > This Mac's screen (screen_control_draft1): each phone's choice, Off when missing.
+    var screenGrants: [String: MacScreenGrantMode] = [:]
+    var screenDisplays: [ScreenDisplayChoice] = []
+    var screenDisplayID: UInt32?
+    var screenRecordingAllowed = false
+    var screenSession: MacScreenShare.Session?
+    /// Connected phones that show screen_control_draft1 (See Mac screens is on there).
+    var phoneScreenControl: [String: Bool] = [:]
     /// Settings > Text messages (draft sms_draft1).
     var smsEnabled = false
     var smsKeepOnMac = true
@@ -353,6 +361,11 @@ struct SettingsActions {
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
     var setPhoneScreen: (Bool) -> Void = { _ in }
+    /// Remote control > This Mac's screen.
+    var setScreenGrant: (String, MacScreenGrantMode) -> Void = { _, _ in }
+    var setScreenDisplay: (UInt32) -> Void = { _ in }
+    var openScreenRecordingSettings: () -> Void = {}
+    var stopScreenShare: () -> Void = {}
     /// Settings > Text messages.
     var setSmsEnabled: (Bool) -> Void = { _ in }
     var setSmsKeepOnMac: (Bool) -> Void = { _ in }
@@ -1351,6 +1364,7 @@ struct DeviceCard: View {
             }
             // Granted on its own, off by default; see Settings > Remote control.
             RemoteControlGrantToggle(device: device, model: model, actions: actions)
+            MacScreenGrantRow(device: device, model: model, actions: actions)
             // The same for Mac actions; see Settings > Media and actions.
             MacActionsGrantToggle(device: device, model: model, actions: actions)
             CallMediaGrantToggle(device: device, model: model, actions: actions)
@@ -1943,6 +1957,7 @@ struct LiveSettingsView: View {
     @ObservedObject var autoUpdate = AutoUpdateCoordinator.shared
     @ObservedObject var handoff = HandoffTakeover.shared
     @ObservedObject var phoneScreen: PhoneScreen
+    @ObservedObject var macScreen: MacScreenShare
     @ObservedObject var connect: ConnectAnywhere
     @ObservedObject var agentsMirror: AgentsMirror
     @ObservedObject var localAgentCodes: LocalAgentCodes
@@ -1970,6 +1985,7 @@ struct LiveSettingsView: View {
         focusSync = pairing.focusSync
         camera = pairing.camera
         phoneScreen = pairing.phoneScreen
+        macScreen = pairing.macScreen
         settingsSync = pairing.settingsSync
         connect = pairing.connect
         agentsMirror = pairing.agentsMirror
@@ -2010,6 +2026,7 @@ struct LiveSettingsView: View {
         }
         .onReceive(accessibilityTicker) { _ in
             if pane == .remoteControl || pane == .media { remoteInput.refreshAccessibility() }
+            if pane == .remoteControl { macScreen.refreshDisplays() }
         }
         .onChange(of: pane) { shown in
             if shown == .devices || shown == .away { Task { await pairing.refreshTailnet() } }
@@ -2121,6 +2138,14 @@ struct LiveSettingsView: View {
         model.focusSync = focusSync.settings
         model.cameraCopyToClipboard = camera.copyToClipboard
         model.phoneScreenEnabled = phoneScreen.enabled
+        _ = macScreen.grantsVersion
+        model.screenGrants = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, macScreen.grantMode(for: $0.id)) })
+        model.screenDisplays = macScreen.displayList.map { ScreenDisplayChoice(id: $0.id, name: $0.name) }
+        model.screenDisplayID = macScreen.selectedDisplay?.id
+        model.screenRecordingAllowed = macScreen.environment.captureAllowed()
+        model.screenSession = macScreen.active
+        model.phoneScreenControl = Dictionary(pairing.connectedPhones.filter(\.state.featureStateReceived).map { ($0.id, $0.state.remoteScreenControl) },
+                                              uniquingKeysWith: { $1 })
         model.smsEnabled = settings.smsEnabled
         model.smsKeepOnMac = settings.smsKeepOnMac
         model.smsPhone = pairing.textMessagesDisplay
@@ -2195,6 +2220,10 @@ struct LiveSettingsView: View {
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
         actions.setPhoneScreen = { phoneScreen.setEnabled($0) }
+        actions.setScreenGrant = { id, mode in macScreen.setGrant(mode, for: id) }
+        actions.setScreenDisplay = { macScreen.setSelectedDisplay($0) }
+        actions.openScreenRecordingSettings = { NSWorkspace.shared.open(ScreenRecordingAccess.settingsURL) }
+        actions.stopScreenShare = { macScreen.stopLocally() }
         actions.setSmsEnabled = { pairing.setTextMessagesEnabled($0) }
         actions.setSmsKeepOnMac = { pairing.setTextMessagesKeepOnMac($0) }
         actions.deleteMessages = { pairing.deleteTextMessagesOnMac() }

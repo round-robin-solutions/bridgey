@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- See Mac screens (draft screen_control_draft1): the viewer and its settings. -->
+<resources>
+    <string name="feature_screen_control">Экран Mac</string>
+    <string name="settings_screen_control_detail">Экран Mac на этом телефоне и управление им, если Mac это разрешает</string>
+    <string name="feature_screen_control_detail">Экран %1$s, если он разрешает этому телефону</string>
+    <string name="display_entry_title">Показать экран</string>
+    <string name="display_entry_detail">Экран %1$s на этом телефоне</string>
+    <string name="display_picture">Экран %1$s</string>
+    <string name="display_status_asking">Запрос к Mac…</string>
+    <string name="display_status_waiting">Ждём ответа Mac</string>
+    <string name="display_status_viewing">Просмотр</string>
+    <string name="display_status_controlling">Управление</string>
+    <string name="display_status_control_starting">Запрос управления…</string>
+    <string name="display_status_stopped">Остановлено</string>
+    <string name="display_stats">%1$d мс · %2$d к/с</string>
+    <string name="display_control">Управлять</string>
+    <string name="display_control_stop">Не управлять</string>
+    <string name="display_start_again">Начать снова</string>
+    <string name="display_asking_title">Запрашиваем экран %1$s</string>
+    <string name="display_waiting_title">Разрешите этот телефон на %1$s</string>
+    <string name="display_type_hint">Текст для Mac</string>
+    <string name="display_type_send">Отправить текст</string>
+    <string name="display_outcome_declined">%1$s не разрешил</string>
+    <string name="display_outcome_busy">Экран %1$s уже смотрит другое устройство</string>
+    <string name="display_outcome_disabled">%1$s не разрешает этому телефону видеть экран. Разрешите в Bridgey на Mac, в разделе «Удалённое управление».</string>
+    <string name="display_outcome_permission">На %1$s Bridgey нужна запись экрана. Разрешите её в Системных настройках на Mac.</string>
+    <string name="display_outcome_locked">%1$s заблокирован</string>
+    <string name="display_outcome_failed">Не удалось показать экран %1$s</string>
+    <string name="display_outcome_no_answer">%1$s не ответил</string>
+    <string name="display_outcome_stopped_here">Остановлено</string>
+    <string name="display_outcome_stopped_mac">Остановлено на %1$s</string>
+    <string name="display_outcome_disconnected">%1$s отключился</string>
+    <string name="display_outcome_timeout">Изображение с %1$s пропало</string>
+    <string name="display_outcome_display_changed">Общий дисплей на %1$s изменился</string>
+    <string name="display_outcome_unavailable">Сейчас недоступно с %1$s. Оба устройства должны быть подключены, и Mac должен разрешить этот телефон.</string>
+    <string name="display_control_note_disabled">На %1$s удалённое управление для этого телефона выключено</string>
+    <string name="display_control_note_permission">На %1$s Bridgey нужно разрешение в разделе «Универсальный доступ»</string>
+    <string name="display_control_note_busy">%1$s: уже управляет другое устройство</string>
+    <string name="display_control_note_focus">Ввод остановлен: окно на другом дисплее</string>
+    <string name="display_control_note_timeout">Управление завершено: 6 секунд без ввода</string>
+    <string name="display_control_note_stopped">Управление остановлено на %1$s</string>
+    <string name="display_control_note_ended">Управление завершено</string>
+</resources>

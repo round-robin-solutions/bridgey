@@ -1,0 +1,2614 @@
+{
+ "format": "bridgey.display.v1",
+ "description": "Mac screen to phone (screen_control_draft1). connection: the 16-byte contract nonce both sides derive from the session key and session ID. request and sourceStream: what the source (Mac) decodes; status, start and viewerStream: what the viewer (phone) decodes. Expected values are normalised: UUIDs lowercased, capabilities with every flag, absent optionals null, an unknown stop or control reason as failed. frame: display.frame plaintexts (the screen.frame layout) as the phone reads them. captureSize, letterbox, macPoint and keyboardEligible: the geometry rules (fractions compared to 1e-9). Edit protocol/tools/display_vectors.py, then run it.",
+ "connection": [
+  {
+   "name": "key 00..1f",
+   "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+   "sessionId": "8d6f0e2a-1b3c-4d5e-9f60-718293a4b5c6",
+   "expect": [
+    178,
+    107,
+    119,
+    56,
+    191,
+    239,
+    23,
+    240,
+    235,
+    6,
+    73,
+    215,
+    48,
+    110,
+    178,
+    95
+   ]
+  },
+  {
+   "name": "another session ID, same key",
+   "keyHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+   "sessionId": "session-2",
+   "expect": [
+    189,
+    54,
+    252,
+    161,
+    248,
+    170,
+    184,
+    209,
+    37,
+    249,
+    199,
+    25,
+    197,
+    109,
+    53,
+    148
+   ]
+  },
+  {
+   "name": "another key",
+   "keyHex": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+   "sessionId": "8d6f0e2a-1b3c-4d5e-9f60-718293a4b5c6",
+   "expect": [
+    245,
+    171,
+    92,
+    166,
+    98,
+    49,
+    212,
+    139,
+    103,
+    161,
+    17,
+    84,
+    37,
+    206,
+    160,
+    248
+   ]
+  }
+ ],
+ "request": [
+  {
+   "name": "see the screen",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenViewer": true,
+     "h264Decode": true,
+     "inputController": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    }
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   }
+  },
+  {
+   "name": "upper-case request ID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3F2E1D0C-4B5A-4968-8776-A5B4C3D2E1F0",
+    "capabilities": {
+     "v": 1,
+     "screenViewer": true,
+     "h264Decode": true,
+     "inputController": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    }
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   }
+  },
+  {
+   "name": "unknown fields and capabilities are ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "future": 1,
+    "capabilities": {
+     "v": 1,
+     "screenViewer": true,
+     "h264Decode": true,
+     "inputController": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     },
+     "holograms": true
+    }
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   }
+  },
+  {
+   "name": "capabilities with no flags",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1
+    }
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": false,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   }
+  },
+  {
+   "name": "capabilities version 2",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 2,
+     "screenViewer": true
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "capabilities without v",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "screenViewer": true
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "a flag that is not a boolean",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenViewer": "yes"
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "capabilities missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "see-1",
+    "capabilities": {
+     "v": 1,
+     "screenViewer": true,
+     "h264Decode": true,
+     "inputController": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenViewer": true,
+     "h264Decode": true,
+     "inputController": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 1,024 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0\",\"capabilities\":{\"v\":1},\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": false,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   }
+  },
+  {
+   "name": "over 1,024 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0\",\"capabilities\":{\"v\":1},\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "lenient JSON",
+   "plaintextString": "{version:1,requestId:'3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0',capabilities:{v:1}}",
+   "expect": "reject"
+  }
+ ],
+ "status": [
+  {
+   "name": "waiting",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "waiting"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "waiting"
+   }
+  },
+  {
+   "name": "declined",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "declined"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "declined"
+   }
+  },
+  {
+   "name": "busy",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "busy"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "busy"
+   }
+  },
+  {
+   "name": "disabled",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "disabled"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "disabled"
+   }
+  },
+  {
+   "name": "permission",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "permission"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "permission"
+   }
+  },
+  {
+   "name": "locked",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "locked"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "locked"
+   }
+  },
+  {
+   "name": "failed",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "failed"
+   },
+   "expect": {
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "failed"
+   }
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "status": "maybe"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "status missing",
+   "plaintext": {
+    "version": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 512 bytes",
+   "plaintextString": "{\"version\":1,\"requestId\":\"3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0\",\"status\":\"waiting\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  }
+ ],
+ "start": [
+  {
+   "name": "a stream with control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": true
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   }
+  },
+  {
+   "name": "view only, no display name",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": false
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": true
+    },
+    "control": false,
+    "displayName": null
+   }
+  },
+  {
+   "name": "upper-case IDs",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6C1B2A39-4857-4F6E-8D7C-0B1A29384756",
+    "sequence": 1,
+    "requestId": "3F2E1D0C-4B5A-4968-8776-A5B4C3D2E1F0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": true
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   }
+  },
+  {
+   "name": "geometry at the largest counters",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 9007199254740991,
+    "transport": 9007199254740991,
+    "geometry": {
+     "generation": 9007199254740991,
+     "source": 9007199254740991,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 9007199254740991,
+    "transport": 9007199254740991,
+    "geometry": {
+     "generation": 9007199254740991,
+     "source": 9007199254740991,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": true
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   }
+  },
+  {
+   "name": "codec h265",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h265",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "fps 0",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 0,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "fps 61",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 61,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "bitrate too low",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 99999,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stream 0",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 0,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "transport over 2^53-1",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 9007199254740992,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "geometry generation 0",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 0,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "geometry of a window",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "window",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "geometry with an unknown field",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246,
+     "scale": 2
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "odd width",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1919,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "width under 16",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 14,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "width over 32,768",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 32770,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 67,108,864 pixels",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 8200,
+     "height": 8200
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "capabilities version 2",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 2
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control missing",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control not a boolean",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": "yes",
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "display name over 64 bytes",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId missing",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "sequence 0",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 0,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "codec": "h264",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "captureRestoreSupported": true,
+     "inputHost": {
+      "pointer": true,
+      "keys": true,
+      "text": true
+     }
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "over 2,048 bytes",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c1b2a39-4857-4f6e-8d7c-0b1a29384756\",\"sequence\":1,\"requestId\":\"3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0\",\"codec\":\"h264\",\"fps\":30,\"bitrate\":4000000,\"stream\":3,\"transport\":2,\"geometry\":{\"generation\":1,\"source\":69734662,\"kind\":\"display\",\"width\":1920,\"height\":1246},\"capabilities\":{\"v\":1,\"screenSource\":true,\"fullDisplaySource\":true,\"h264Encode\":true,\"captureRestoreSupported\":true,\"inputHost\":{\"pointer\":true,\"keys\":true,\"text\":true}},\"control\":true,\"displayName\":\"Built-in Retina Display\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  },
+  {
+   "name": "exactly 2,048 bytes",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c1b2a39-4857-4f6e-8d7c-0b1a29384756\",\"sequence\":1,\"requestId\":\"3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0\",\"codec\":\"h264\",\"fps\":30,\"bitrate\":4000000,\"stream\":3,\"transport\":2,\"geometry\":{\"generation\":1,\"source\":69734662,\"kind\":\"display\",\"width\":1920,\"height\":1246},\"capabilities\":{\"v\":1,\"screenSource\":true,\"fullDisplaySource\":true,\"h264Encode\":true,\"captureRestoreSupported\":true,\"inputHost\":{\"pointer\":true,\"keys\":true,\"text\":true}},\"control\":true,\"displayName\":\"Built-in Retina Display\",\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1,
+    "requestId": "3f2e1d0c-4b5a-4968-8776-a5b4c3d2e1f0",
+    "fps": 30,
+    "bitrate": 4000000,
+    "stream": 3,
+    "transport": 2,
+    "geometry": {
+     "generation": 1,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1920,
+     "height": 1246
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": false,
+      "keys": true,
+      "text": true,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": true
+    },
+    "control": true,
+    "displayName": "Built-in Retina Display"
+   }
+  }
+ ],
+ "viewerStream": [
+  {
+   "name": "stats",
+   "kind": "display.stats",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "latencyMs": 28,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 3800000,
+    "fps": 30,
+    "dropped": 0
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "latencyMs": 28,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 3800000,
+    "fps": 30,
+    "dropped": 0
+   }
+  },
+  {
+   "name": "stats, fps over 120",
+   "kind": "display.stats",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "latencyMs": 28,
+    "rttMs": 6,
+    "bitrate": 4000000,
+    "sentBitrate": 3800000,
+    "fps": 121,
+    "dropped": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "geometry, a new generation",
+   "kind": "display.geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "geometry": {
+     "generation": 2,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1600,
+     "height": 1000
+    }
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "geometry": {
+     "generation": 2,
+     "source": 69734662,
+     "kind": "display",
+     "width": 1600,
+     "height": 1000
+    }
+   }
+  },
+  {
+   "name": "geometry missing",
+   "kind": "display.geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "geometry of a window",
+   "kind": "display.geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "geometry": {
+     "generation": 2,
+     "source": 69734662,
+     "kind": "window",
+     "width": 1920,
+     "height": 1246
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control active",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "active",
+    "session": 1,
+    "input": {
+     "pointer": true,
+     "keys": true,
+     "text": true
+    }
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "active",
+    "session": 1,
+    "input": {
+     "pointer": true,
+     "touch": false,
+     "keys": true,
+     "text": true,
+     "navigation": false
+    },
+    "reason": null
+   }
+  },
+  {
+   "name": "control active without a session",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "active",
+    "input": {
+     "pointer": true
+    }
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control active without input",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "active",
+    "session": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control ended, reason focus",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "ended",
+    "reason": "focus"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "ended",
+    "session": null,
+    "input": null,
+    "reason": "focus"
+   }
+  },
+  {
+   "name": "control refused, reason busy",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "refused",
+    "reason": "busy"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "refused",
+    "session": null,
+    "input": null,
+    "reason": "busy"
+   }
+  },
+  {
+   "name": "control ended, reason teleported",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "ended",
+    "reason": "teleported"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "ended",
+    "session": null,
+    "input": null,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "control refused, reason None",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "refused"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "refused",
+    "session": null,
+    "input": null,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "control, unknown state",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "paused"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control from a viewer is not read by the viewer",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "action": "begin"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stop local_stop",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "local_stop"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "local_stop"
+   }
+  },
+  {
+   "name": "stop source_changed",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "source_changed"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "source_changed"
+   }
+  },
+  {
+   "name": "stop lost",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "lost"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "stop without a reason",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "stop, sequence 0",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 0,
+    "reason": "user"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stop, stream ID not a UUID",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "s1",
+    "sequence": 2,
+    "reason": "user"
+   },
+   "expect": "reject"
+  }
+ ],
+ "sourceStream": [
+  {
+   "name": "started",
+   "kind": "display.started",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 1
+   }
+  },
+  {
+   "name": "ack",
+   "kind": "display.ack",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 12,
+    "decodeMs": 3
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 12,
+    "decodeMs": 3,
+    "keyframe": false
+   }
+  },
+  {
+   "name": "ack asking for a key frame",
+   "kind": "display.ack",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 13,
+    "decodeMs": 0,
+    "keyframe": true
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 13,
+    "decodeMs": 0,
+    "keyframe": true
+   }
+  },
+  {
+   "name": "ack, frame 0",
+   "kind": "display.ack",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 0,
+    "decodeMs": 3
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack, frame over 2^32-1",
+   "kind": "display.ack",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 4294967296,
+    "decodeMs": 3
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "ack, keyframe not a boolean",
+   "kind": "display.ack",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "frame": 1,
+    "decodeMs": 3,
+    "keyframe": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control begin",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "action": "begin"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "action": "begin"
+   }
+  },
+  {
+   "name": "control end",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "action": "end"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "action": "end"
+   }
+  },
+  {
+   "name": "control, unknown action",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "action": "take"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "control from a source is not read by the source",
+   "kind": "display.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "state": "active",
+    "session": 1,
+    "input": {}
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "stop user",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "user"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "user"
+   }
+  },
+  {
+   "name": "stop left_screen",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "left_screen"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "left_screen"
+   }
+  },
+  {
+   "name": "stop screen_off",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "screen_off"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "screen_off"
+   }
+  },
+  {
+   "name": "stop bored",
+   "kind": "display.stop",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "bored"
+   },
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 2,
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "over 512 bytes",
+   "kind": "display.ack",
+   "plaintextString": "{\"version\":1,\"streamId\":\"6c1b2a39-4857-4f6e-8d7c-0b1a29384756\",\"sequence\":2,\"frame\":1,\"decodeMs\":1,\"pad\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+   "expect": "reject"
+  }
+ ],
+ "frame": [
+  {
+   "name": "a key frame in one part",
+   "hex": "010700006c1b2a3948574f6e8d7c0b1a2938475600000000000000030000000100000000075bcd15000000016742001f0000000168ce00000001658884",
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 3,
+    "frame": 1,
+    "part": 0,
+    "key": true,
+    "parameterSets": true,
+    "last": true,
+    "captureMicros": 123456789,
+    "payloadHex": "000000016742001f0000000168ce00000001658884"
+   }
+  },
+  {
+   "name": "a middle part needs no start code",
+   "hex": "010000016c1b2a3948574f6e8d7c0b1a293847560000000000000009000000020000000000000000419a02",
+   "expect": {
+    "streamId": "6c1b2a39-4857-4f6e-8d7c-0b1a29384756",
+    "sequence": 9,
+    "frame": 2,
+    "part": 1,
+    "key": false,
+    "parameterSets": false,
+    "last": false,
+    "captureMicros": 0,
+    "payloadHex": "419a02"
+   }
+  },
+  {
+   "name": "version 2",
+   "hex": "020700006c1b2a3948574f6e8d7c0b1a293847560000000000000003000000010000000000000001000000016742001f0000000168ce00000001658884",
+   "expect": "reject"
+  },
+  {
+   "name": "part 64",
+   "hex": "010700406c1b2a3948574f6e8d7c0b1a293847560000000000000003000000010000000000000001000000016742001f0000000168ce00000001658884",
+   "expect": "reject"
+  },
+  {
+   "name": "frame 0",
+   "hex": "010700006c1b2a3948574f6e8d7c0b1a293847560000000000000003000000000000000000000001000000016742001f0000000168ce00000001658884",
+   "expect": "reject"
+  },
+  {
+   "name": "sequence 0",
+   "hex": "010700006c1b2a3948574f6e8d7c0b1a293847560000000000000000000000010000000000000001000000016742001f0000000168ce00000001658884",
+   "expect": "reject"
+  },
+  {
+   "name": "part 0 without a start code",
+   "hex": "010700006c1b2a3948574f6e8d7c0b1a2938475600000000000000030000000100000000000000016742",
+   "expect": "reject"
+  },
+  {
+   "name": "header only",
+   "hex": "010700006c1b2a3948574f6e8d7c0b1a293847560000000000000003000000010000000000000001",
+   "expect": "reject"
+  }
+ ],
+ "captureSize": [
+  {
+   "name": "Retina 14-inch (3024x1964)",
+   "native": [
+    3024,
+    1964
+   ],
+   "expect": [
+    1920,
+    1246
+   ]
+  },
+  {
+   "name": "1080p external",
+   "native": [
+    1920,
+    1080
+   ],
+   "expect": [
+    1920,
+    1080
+   ]
+  },
+  {
+   "name": "5K (5120x2880)",
+   "native": [
+    5120,
+    2880
+   ],
+   "expect": [
+    1920,
+    1080
+   ]
+  },
+  {
+   "name": "portrait 1440x2560",
+   "native": [
+    1440,
+    2560
+   ],
+   "expect": [
+    1080,
+    1920
+   ]
+  },
+  {
+   "name": "small 1280x800 kept",
+   "native": [
+    1280,
+    800
+   ],
+   "expect": [
+    1280,
+    800
+   ]
+  },
+  {
+   "name": "odd 1366x768",
+   "native": [
+    1366,
+    768
+   ],
+   "expect": [
+    1366,
+    768
+   ]
+  },
+  {
+   "name": "tiny 10x10",
+   "native": [
+    10,
+    10
+   ],
+   "expect": [
+    16,
+    16
+   ]
+  }
+ ],
+ "letterbox": [
+  {
+   "name": "portrait phone, centre",
+   "view": [
+    1080,
+    2340
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    540,
+    1170
+   ],
+   "expect": [
+    0.5,
+    0.5
+   ]
+  },
+  {
+   "name": "portrait phone, top edge of the picture",
+   "view": [
+    1080,
+    2340
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    0,
+    819.5625
+   ],
+   "expect": [
+    0.0,
+    0.0
+   ]
+  },
+  {
+   "name": "portrait phone, on the top letterbox",
+   "view": [
+    1080,
+    2340
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    540,
+    100
+   ],
+   "expect": null
+  },
+  {
+   "name": "portrait phone, on the bottom letterbox",
+   "view": [
+    1080,
+    2340
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    540,
+    2300
+   ],
+   "expect": null
+  },
+  {
+   "name": "landscape phone (rotated), centre",
+   "view": [
+    2340,
+    1080
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    1170,
+    540
+   ],
+   "expect": [
+    0.5,
+    0.5
+   ]
+  },
+  {
+   "name": "landscape phone, on the left pillarbox",
+   "view": [
+    2340,
+    1080
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    20,
+    540
+   ],
+   "expect": null
+  },
+  {
+   "name": "landscape phone, bottom right corner",
+   "view": [
+    2340,
+    1080
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    2002.102728731942,
+    1080
+   ],
+   "expect": [
+    0.9999999999999999,
+    1.0
+   ]
+  },
+  {
+   "name": "exact fit",
+   "view": [
+    1920,
+    1246
+   ],
+   "video": [
+    1920,
+    1246
+   ],
+   "touch": [
+    960,
+    623
+   ],
+   "expect": [
+    0.5,
+    0.5
+   ]
+  }
+ ],
+ "macPoint": [
+  {
+   "name": "Retina main display, centre",
+   "geometry": {
+    "width": 1920,
+    "height": 1246
+   },
+   "bounds": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "x": 0.5,
+   "y": 0.5,
+   "expect": {
+    "pixel": [
+     960,
+     623
+    ],
+    "point": [
+     756.39375,
+     491.3940609951846
+    ]
+   }
+  },
+  {
+   "name": "Retina main display, top left",
+   "geometry": {
+    "width": 1920,
+    "height": 1246
+   },
+   "bounds": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "x": 0.0,
+   "y": 0.0,
+   "expect": {
+    "pixel": [
+     0,
+     0
+    ],
+    "point": [
+     0.39375,
+     0.3940609951845907
+    ]
+   }
+  },
+  {
+   "name": "Retina main display, bottom right",
+   "geometry": {
+    "width": 1920,
+    "height": 1246
+   },
+   "bounds": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "x": 1.0,
+   "y": 1.0,
+   "expect": {
+    "pixel": [
+     1919,
+     1245
+    ],
+    "point": [
+     1511.60625,
+     981.6059390048154
+    ]
+   }
+  },
+  {
+   "name": "external display to the left (negative origin)",
+   "geometry": {
+    "width": 1920,
+    "height": 1080
+   },
+   "bounds": [
+    -1920,
+    0,
+    1920,
+    1080
+   ],
+   "x": 0.25,
+   "y": 0.75,
+   "expect": {
+    "pixel": [
+     480,
+     809
+    ],
+    "point": [
+     -1439.5,
+     809.5
+    ]
+   }
+  },
+  {
+   "name": "external display above and left",
+   "geometry": {
+    "width": 1920,
+    "height": 1080
+   },
+   "bounds": [
+    -2560,
+    -1440,
+    2560,
+    1440
+   ],
+   "x": 1.0,
+   "y": 0.0,
+   "expect": {
+    "pixel": [
+     1919,
+     0
+    ],
+    "point": [
+     -0.6666666666665151,
+     -1439.3333333333333
+    ]
+   }
+  },
+  {
+   "name": "5K at 2x captured at 1920",
+   "geometry": {
+    "width": 1920,
+    "height": 1080
+   },
+   "bounds": [
+    1512,
+    -200,
+    2560,
+    1440
+   ],
+   "x": 0.5,
+   "y": 0.5,
+   "expect": {
+    "pixel": [
+     960,
+     540
+    ],
+    "point": [
+     2792.666666666667,
+     520.6666666666666
+    ]
+   }
+  },
+  {
+   "name": "outside on x",
+   "geometry": {
+    "width": 1920,
+    "height": 1080
+   },
+   "bounds": [
+    0,
+    0,
+    1920,
+    1080
+   ],
+   "x": 1.0000001,
+   "y": 0.5,
+   "expect": "reject"
+  },
+  {
+   "name": "negative y",
+   "geometry": {
+    "width": 1920,
+    "height": 1080
+   },
+   "bounds": [
+    0,
+    0,
+    1920,
+    1080
+   ],
+   "x": 0.5,
+   "y": -0.1,
+   "expect": "reject"
+  }
+ ],
+ "keyboardEligible": [
+  {
+   "name": "one display, no focused window",
+   "display": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "window": null,
+   "displays": 1,
+   "expect": true
+  },
+  {
+   "name": "one display, a window anywhere",
+   "display": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "window": [
+    3000,
+    0,
+    100,
+    100
+   ],
+   "displays": 1,
+   "expect": true
+  },
+  {
+   "name": "two displays, window on the shared one",
+   "display": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "window": [
+    100,
+    100,
+    800,
+    600
+   ],
+   "displays": 2,
+   "expect": true
+  },
+  {
+   "name": "two displays, window on the other one",
+   "display": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "window": [
+    -1800,
+    100,
+    800,
+    600
+   ],
+   "displays": 2,
+   "expect": false
+  },
+  {
+   "name": "two displays, window across, centre on the shared one",
+   "display": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "window": [
+    -200,
+    100,
+    800,
+    600
+   ],
+   "displays": 2,
+   "expect": true
+  },
+  {
+   "name": "two displays, no focused window",
+   "display": [
+    0,
+    0,
+    1512,
+    982
+   ],
+   "window": null,
+   "displays": 2,
+   "expect": false
+  }
+ ]
+}
