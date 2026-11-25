@@ -69,7 +69,7 @@ class ReliabilityTest {
         val recovered = recoverInterruptedTransfers(mapOf(active.id to active, complete.id to complete))
 
         assertFalse(recovered.getValue("a").active)
-        assertEquals("Transfer interrupted — reconnect to retry", recovered.getValue("a").status)
+        assertEquals("Transfer interrupted. Reconnect to retry.", recovered.getValue("a").status)
         assertNull(recovered.getValue("a").progressPercent)
         assertEquals("Saved", recovered.getValue("b").status)
     }

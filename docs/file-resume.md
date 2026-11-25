@@ -110,5 +110,3 @@ Both apps run the same rules as the session client, identical on the wire; the r
 - Resuming into another receive folder: the partial stays put and expires.
 - Clipboard files and Phone files downloads (folders) until the folder design is built.
 - Measured gains on real Wi-Fi and phones; the tests run on loopback.
-- In `rust/client` a sender's own stall timeout mid-transfer still sends a plain `files.cancel`, which deletes the
-  receiver's partial. The apps end a resumable send that stops moving as interrupted instead (below).

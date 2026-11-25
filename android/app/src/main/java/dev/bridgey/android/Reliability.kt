@@ -64,7 +64,7 @@ internal fun sessionLooksStale(
 )
 
 /** The status of a single file a lost connection interrupted; it can be sent again. */
-internal const val TRANSFER_INTERRUPTED_STATUS = "Transfer interrupted — reconnect to retry"
+internal const val TRANSFER_INTERRUPTED_STATUS = "Transfer interrupted. Reconnect to retry."
 
 internal fun recoverInterruptedTransfers(
     transfers: Map<String, FileTransferState>,

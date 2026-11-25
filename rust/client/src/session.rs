@@ -1585,6 +1585,12 @@ impl Session {
         };
         let a = self.active.take().unwrap();
         self.ended(&a.id);
+        // A resumable file that stopped moving ends as interrupted without files.cancel, as the apps do, so the
+        // receiver keeps its partial and the next attempt resumes (files_resume_draft1).
+        if reason == "stalled" && a.resumable {
+            self.file_failed(a.file.transfer, false, &a.file.name, "interrupted");
+            return self.start_next().await;
+        }
         self.file_failed(a.file.transfer, false, &a.file.name, reason);
         if let Step::Close(r) = self.outer("files.cancel", &a.id, None).await {
             return Step::Close(r);
