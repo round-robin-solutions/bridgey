@@ -599,7 +599,7 @@ Releases are built by `scripts/rr/` (see [docs/rr-edition.md](docs/rr-edition.md
 [Architecture](docs/architecture.md), [wire protocol](docs/protocol.md),
 [security model](SECURITY.md), [security testing](docs/security-testing.md),
 [reconnect reliability](docs/reconnect-reliability.md), [device test plans](docs/testing-0.6.md),
-and [Mac signing](docs/rr-mac-signing.md).
+[stress tests](docs/testing-stress.md) and [Mac signing](docs/rr-mac-signing.md).
 
 ## Contributing
 

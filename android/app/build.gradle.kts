@@ -108,6 +108,20 @@ android {
             matchingFallbacks += listOf("release")
             signingConfig = signingConfigs.findByName("test")
         }
+        // Stress tests (scripts/rr/stress-android.sh, docs/testing-stress.md): minified like release, its own app ID so it
+        // installs beside any other Bridgey, the local debug key, no update feed, no relays, and the control receiver in
+        // src/stress/ that a test runner drives with `adb shell am broadcast` (the sender needs DUMP). Never published.
+        create("stress") {
+            initWith(getByName("release"))
+            matchingFallbacks += listOf("release")
+            applicationIdSuffix = ".stress"
+            versionNameSuffix = "-stress"
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("String", "UPDATE_FEED_BASE_URL", "\"\"")
+            buildConfigField("String", "UPDATE_ASSET_URL_PREFIX", "\"\"")
+            buildConfigField("String", "OTP_PROXY_URL", "\"\"")
+            buildConfigField("String", "CONNECT_CONTROL_URL", "\"\"")
+        }
     }
 
     externalNativeBuild {
