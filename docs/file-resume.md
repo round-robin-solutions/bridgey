@@ -85,7 +85,10 @@ Both apps run the same rules as the session client, identical on the wire; the r
   every 64 MiB, and when it is kept. A disconnect, this end's own stall timeout or quitting keeps a resumable partial
   (`cancelTransfers` and the stall sweep now do); a cancel from either side, a failed check, an invalid answer or
   chunk, a changed source and forgetting the device delete it. The re-read runs off the session's thread, with
-  `files.resume.wait` every 30 seconds, and it keeps the row alive so the stall sweep never ends a check.
+  `files.resume.wait` every 30 seconds, and it keeps the row alive so the stall sweep never ends a check. A resumable
+  send that stops moving (no acknowledgement in time, or a failed write, while the session still looks alive) ends as
+  interrupted without `files.cancel`, so the receiver keeps its partial and automatic retry picks the file up; seen in
+  the live check, where a receiver killed over a Connect anywhere tunnel left the session up for another 50 seconds.
 - **Resume interrupted files automatically** (Settings > Files, on by default; Android `files.auto_resume`, Mac
   `settings.files.autoResume`, on that device only, not synced). Single files a disconnect interrupted to a device that
   showed the key (the one in flight and the queued ones) go again, in their order, through the same path as Retry
@@ -106,5 +109,5 @@ Both apps run the same rules as the session client, identical on the wire; the r
 - Resuming into another receive folder: the partial stays put and expires.
 - Clipboard files and Phone files downloads (folders) until the folder design is built.
 - Measured gains on real Wi-Fi and phones; the tests run on loopback.
-- A sender's own stall timeout mid-transfer still sends a plain `files.cancel`, which deletes the receiver's partial
-  (unchanged from before; only the receiver's timeouts keep it).
+- In `rust/client` a sender's own stall timeout mid-transfer still sends a plain `files.cancel`, which deletes the
+  receiver's partial. The apps end a resumable send that stops moving as interrupted instead (below).
