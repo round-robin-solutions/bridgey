@@ -4,14 +4,23 @@
 # folder, Keychain items and preferences, its own TCP port, the update feed off and no Share extension. The installed
 # Bridgey, its data and its pairings are never touched. Setup is marked done so the instance starts straight away.
 # Usage (in macos/, on the Mac, after ./build-app.sh):
-#   ./make-test-instance.sh <label> <port> [--model]
+#   ./make-test-instance.sh <label> <port> [--model] [--synthetic-screen]
 #   --model  downloads the code model (Codes from messages > On this Mac) from the manifest's public URL into the
 #            instance's own support folder and checks its SHA-256, so the instance reads codes on this Mac.
+#   --synthetic-screen  Mac screen to phone shares a synthetic display (a moving test pattern) instead of a real one,
+#            and records control input instead of posting it: no Screen Recording or Accessibility is ever asked for.
 # Prints the app path. Control files go in /tmp/<bundle id>-control/ (PairingCoordinator test control).
 set -eu
 LABEL=$1
 PORT=$2
-WANT_MODEL=${3:-}
+WANT_MODEL=
+WANT_SYNTHETIC_SCREEN=
+for option in "$@"; do
+  case "$option" in
+    --model) WANT_MODEL=--model ;;
+    --synthetic-screen) WANT_SYNTHETIC_SCREEN=1 ;;
+  esac
+done
 value() { sed -n "s/^$1=//p" ../rr-edition.properties | tail -n 1; }
 BASE=$(value EDITION_APP_ID)
 APP_NAME=$(value EDITION_MAC_APP_NAME)
@@ -30,6 +39,7 @@ PB=/usr/libexec/PlistBuddy
 "$PB" -c "Add :BridgeyTestInstance bool true" "$APP/Contents/Info.plist"
 "$PB" -c "Add :BridgeyTestPort integer $PORT" "$APP/Contents/Info.plist"
 "$PB" -c "Set :SUFeedURL http://127.0.0.1:9/none/appcast.xml" "$APP/Contents/Info.plist"
+if [ -n "$WANT_SYNTHETIC_SCREEN" ]; then "$PB" -c "Add :BridgeyTestScreenSource string synthetic" "$APP/Contents/Info.plist"; fi
 codesign --force --sign - --entitlements Resources/Bridgey.entitlements \
   --requirements "=designated => identifier \"$BID\"" "$APP" >/dev/null 2>&1
 codesign --verify --deep --strict "$APP"

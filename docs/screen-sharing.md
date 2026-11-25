@@ -106,3 +106,54 @@ Capture 720x1600 from 1080x2400.
 - On a still screen the emulator's encoder stops repeating frames after a few seconds, so the Mac
   shows the last frame and the stream stays alive on `screen.stats`; to check on a real phone.
 - Secure windows (banking apps, password fields with FLAG_SECURE) are black, by Android's design.
+
+## Mac screen on the phone (`screen_control_draft1`)
+
+The other direction uses the same lane and the same pacing, with the roles swapped: the Mac captures a
+display it chose, encodes H.264 with VideoToolbox and paces frames on the phone's acks; the phone
+decodes with MediaCodec straight to a surface. Control rides in the shared contract's input packets
+(protocol in [protocol.md](protocol.md), "Mac screen to phone"; the contract in
+[screen-control-core.md](screen-control-core.md)).
+
+Capture sits behind a protocol. The app uses ScreenCaptureKit on the selected display; test instances
+(`make-test-instance.sh <label> <port> --synthetic-screen`) use a synthetic display, a moving test
+pattern that also draws a crosshair where control input landed, and a recording injector that never
+posts an event, so no Screen Recording or Accessibility permission is involved.
+
+### Measured
+
+Live, 2026-11-25: a throwaway test instance of the debug Mac app with the synthetic display (1512 by
+982 points at 2x, streamed at 1,920 by 1,246) on the personal Mac (M4), viewed by the release-minified
+test build (`stress`, its own app ID) on the Android 16 emulator (bridgey-api36) on the same Mac,
+through `adb forward`, so a loopback rather than Wi-Fi. The emulator decodes in software
+(`c2.goldfish.h264.decoder`). The Mac used VideoToolbox's low-latency encoder
+(`com.apple.videotoolbox.videoencoder.h264.rtvc`); macOS does not say whether that one runs in
+hardware, while the plain hardware-preferred session on the same Mac reports `ave.avc` in hardware.
+
+| Measure | Result |
+| --- | --- |
+| Frames a second, Mac sent and phone decoded (30 s) | 30 sent every second; 29 to 31 decoded |
+| Latency, capture to decoded, minus half the round trip (30 s) | 13 to 23 ms, median 19 ms |
+| Round trip | 1 to 8 ms, median 4 ms |
+| Phone decode (software decoder) | 8.8 ms median of the per-second averages, 27 ms at most |
+| Dropped or lost in the measured 30 s | 0 |
+| A tap on the phone to the point the Mac would click | exact: (1133.6, 736.5) in display points, as computed from the geometry rules; also after a size change and in landscape |
+
+The test pattern compresses well (about 180 kb/s), so these numbers say nothing yet about a busy
+desktop, real Wi-Fi or a phone's hardware decoder.
+
+Also checked live: Ask each time asks for every stream (Allow and Don't allow), Allow without asking
+starts at once, a size change moves both ends to a new geometry generation with control still working,
+rotation keeps the stream and control, a tap on the letterbox sends nothing, keys and text arrive in
+order, Stop on either end, turning off the phone's remote control permission ends control and keeps
+the picture, turning off the screen grant ends the stream and hides See screen, and after a disconnect
+and reconnect nothing resumes on either end.
+
+### Still to check on real devices
+
+- The ScreenCaptureKit source on a Mac where Bridgey has Screen Recording: picture, cursor, display
+  choice, a display unplugged or resized, Retina and a display left of or above the main one.
+- Real CGEvent clicks, drags, scrolls and typing at absolute points on that Mac, with Accessibility,
+  and the focused-window rule with two displays.
+- A real phone's hardware decoder (latency, surface behaviour after rotation and backgrounding).
+- Real Wi-Fi and a busy screen (video, scrolling), and long sessions (memory, heat).

@@ -37,6 +37,8 @@ final class RemoteInputHost: ObservableObject {
     var send: (String, String, [String: Any]) -> Bool = { _, _, _ in false }
     /// Remote control is on here for this device and on the phone (both advertise the key).
     var isAllowed: (String) -> Bool = { _ in false }
+    /// Another device controls this Mac through a screen stream (MacScreenShare): a touchpad start is busy.
+    var controlledElsewhere: (String) -> Bool = { _ in false }
 
     private let injector: RemoteInputInjecting
     private let indicator: RemoteControlIndicating
@@ -192,6 +194,7 @@ final class RemoteInputHost: ObservableObject {
             }
             end(.replaced, notify: false)
         }
+        guard !controlledElsewhere(deviceID) else { return refuse(id, deviceID: deviceID, deviceName: deviceName, mode: mode, reason: .busy) }
         guard isAllowed(deviceID) else { return refuse(id, deviceID: deviceID, deviceName: deviceName, mode: mode, reason: .disabled) }
         guard !screenLocked else { return refuse(id, deviceID: deviceID, deviceName: deviceName, mode: mode, reason: .screenOff) }
         guard accessibility() else {

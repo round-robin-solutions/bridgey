@@ -143,6 +143,7 @@ object SettingsSearchRegistry {
     private val RESET_WORDS = listOf("erase", "factory", "clear data", "сброс")
     private val DEVELOPER_WORDS = listOf("debug", "speed test", "perf")
     private val TURN_OFF_WORDS = listOf("quit", "stop", "disable", "выключить")
+    private val SCREEN_CONTROL_WORDS = listOf("Mac screen", "screen sharing", "view Mac", "remote desktop", "экран Mac", "удалённый рабочий стол")
 
     /** Synced rows also answer to these, plus the setting's sync name. */
     private val SYNCED_WORDS = listOf("sync", "synced", "синхронизация")
@@ -241,6 +242,7 @@ object SettingsSearchRegistry {
         feature("remote.switch", SearchPage.REMOTE_CONTROL, R.string.feature_remote_input, R.string.settings_remote_detail, BridgeyFeature.REMOTE_INPUT, REMOTE_WORDS),
         SettingsSearchEntry("remote.speed", SearchPage.REMOTE_CONTROL, null, R.string.remote_speed_title, null, REMOTE_WORDS + listOf("pointer", "cursor", "скорость")),
         SettingsSearchEntry("remote.volumeKeys", SearchPage.REMOTE_CONTROL, null, R.string.remote_volume_keys_title, R.string.remote_volume_keys_detail, listOf("volume", "slides", "громкость")),
+        feature("remote.screenControl", SearchPage.REMOTE_CONTROL, R.string.feature_screen_control, R.string.settings_screen_control_detail, BridgeyFeature.SCREEN_CONTROL, SCREEN_CONTROL_WORDS),
 
         // Privacy
         SettingsSearchEntry("privacy.previews", SearchPage.PRIVACY, null, R.string.settings_show_previews, R.string.settings_show_previews_detail, PREVIEW_WORDS, syncKey = SyncKey.ACTIVITY_PREVIEWS),
@@ -319,6 +321,7 @@ object SettingsSearchRegistry {
         R.string.feature_calls to listOf(BridgeyFeature.CALLS),
         R.string.feature_media to listOf(BridgeyFeature.MEDIA),
         R.string.feature_remote_input to listOf(BridgeyFeature.REMOTE_INPUT),
+        R.string.feature_screen_control to listOf(BridgeyFeature.SCREEN_CONTROL),
         R.string.feature_mac_actions to listOf(BridgeyFeature.MAC_ACTIONS),
         R.string.feature_camera to listOf(BridgeyFeature.CAMERA),
         R.string.call_quiet_title to listOf(BridgeyFeature.CALL_QUIET),
@@ -344,6 +347,7 @@ object SettingsSearchRegistry {
             BridgeyFeature.PING -> PING_WORDS
             BridgeyFeature.BATTERY -> BATTERY_WORDS
             BridgeyFeature.REMOTE_INPUT -> REMOTE_WORDS
+            BridgeyFeature.SCREEN_CONTROL -> SCREEN_CONTROL_WORDS
             else -> emptyList()
         }
     }

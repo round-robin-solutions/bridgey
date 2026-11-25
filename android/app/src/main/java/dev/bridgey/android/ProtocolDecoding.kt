@@ -311,6 +311,8 @@ internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {
     if (jsonInteger(payload.opt("version")) != 1L) return FeatureStateDecoding.Ignored
     val features = HashMap<BridgeyFeature, Boolean>()
     for (feature in BridgeyFeature.entries) {
+        // Read outside the golden vectors' list with decodeFeatureFlag, like lan_first_draft1 (Mac screen to phone).
+        if (feature.key in FLAG_FEATURE_KEYS) continue
         // A draft key that is also a switch here (Mac actions, camera) reads like every draft key: true only
         // when it is JSON true. The Mac keeps camera_draft1 as a draft key only, so both decode it alike.
         if (feature.key in KNOWN_DRAFT_FEATURE_KEYS) {
@@ -327,6 +329,9 @@ internal fun decodeFeatureState(plaintext: ByteArray): FeatureStateDecoding {
     val drafts = KNOWN_DRAFT_FEATURE_KEYS.associateWith { values.opt(it) == true }
     return FeatureStateDecoding.State(features, drafts)
 }
+
+/** Switch features whose key is read with [decodeFeatureFlag], outside [decodeFeatureState]'s map. */
+internal val FLAG_FEATURE_KEYS = setOf(dev.bridgey.android.display.SCREEN_CONTROL_FEATURE_KEY)
 
 /**
  * One boolean key of a features.update that is not in [KNOWN_DRAFT_FEATURE_KEYS] (lan_first_draft1): true only when it

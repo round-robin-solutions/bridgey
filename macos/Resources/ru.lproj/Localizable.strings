@@ -1905,3 +1905,34 @@
 "settings.presence.detail" = "Помогает другим устройствам отправлять сюда. Передаются только статус и время с последнего ввода.";
 "share.text.copied" = "Текст скопирован";
 "share.text.from" = "От %@";
+
+/* Mac screen to phone (screen_control_draft1) */
+"remote.pill.shortcut.stops" = "Control-Option-Escape тоже останавливает";
+"display.pill.viewing" = "%@ смотрит этот экран";
+"display.pill.controlling" = "%@ смотрит этот экран и управляет им";
+"display.active.since" = "С %@";
+"display.consent.title" = "%@ хочет видеть этот экран";
+"display.consent.blocked" = "Сначала остановите удалённое управление.";
+"display.consent.deny" = "Не разрешать";
+"display.consent.allow" = "Разрешить";
+"display.name.fallback" = "Дисплей";
+"display.name.test" = "Тестовая таблица";
+"display.settings.card" = "Экран этого Mac";
+"display.settings.note" = "Просмотр и управление разрешаются отдельно: телефон управляет этим экраном, только если ему разрешено и удалённое управление выше. Пока телефон смотрит, плашка вверху экрана показывает его имя и кнопку «Стоп».";
+"display.settings.display" = "Какой экран показывать";
+"display.settings.recording" = "Доступ к записи экрана";
+"display.settings.recording.on" = "Разрешено. Bridgey записывает экран, только пока его смотрит разрешённый телефон.";
+"display.settings.recording.off" = "Нужен, чтобы показывать этот экран. macOS спросит, когда вы впервые разрешите телефон. Если вы отказали, включите Bridgey в «Конфиденциальность и безопасность» > «Запись экрана и системного звука».";
+"display.grant.title" = "Видеть экран этого Mac";
+"display.grant.off" = "Выкл.";
+"display.grant.ask" = "Спрашивать каждый раз";
+"display.grant.always" = "Разрешать без вопроса";
+"display.grant.phoneOff" = "Включите «Видеть экраны Mac» в Bridgey на %@";
+"display.grant.recordingOff" = "Нужен доступ к записи экрана, ниже";
+"display.log.phone" = "Остановлено на телефоне";
+"display.log.disabled" = "Завершено: разрешение выключено";
+"display.log.permission" = "Завершено: запись экрана выключена";
+"display.log.locked" = "Завершено: этот Mac заблокирован";
+"display.log.sourceChanged" = "Завершено: общий экран изменился";
+"display.log.timeout" = "Завершено: телефон не ответил";
+"display.log.failed" = "Завершено: что-то пошло не так";

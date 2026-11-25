@@ -1905,3 +1905,34 @@
 "settings.presence.detail" = "Helps other devices send here. Only activity status and time since input are shared.";
 "share.text.copied" = "Text copied";
 "share.text.from" = "From %@";
+
+/* Mac screen to phone (screen_control_draft1) */
+"remote.pill.shortcut.stops" = "Control-Option-Escape also stops";
+"display.pill.viewing" = "%@ is viewing this screen";
+"display.pill.controlling" = "%@ is viewing and controlling this screen";
+"display.active.since" = "Since %@";
+"display.consent.title" = "%@ wants to see this screen";
+"display.consent.blocked" = "Stop remote control first.";
+"display.consent.deny" = "Don’t allow";
+"display.consent.allow" = "Allow";
+"display.name.fallback" = "Display";
+"display.name.test" = "Test pattern";
+"display.settings.card" = "This Mac’s screen";
+"display.settings.note" = "Seeing and controlling are separate: a phone controls this screen only if it may also use remote control, above. While a phone watches, the pill at the top of the screen names it, with Stop.";
+"display.settings.display" = "Screen to share";
+"display.settings.recording" = "Screen Recording access";
+"display.settings.recording.on" = "Allowed. Bridgey captures the screen only while a phone you allow is watching.";
+"display.settings.recording.off" = "Needed to share this screen. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Screen & System Audio Recording.";
+"display.grant.title" = "See this Mac’s screen";
+"display.grant.off" = "Off";
+"display.grant.ask" = "Ask each time";
+"display.grant.always" = "Allow without asking";
+"display.grant.phoneOff" = "Turn on See Mac screens in Bridgey on %@";
+"display.grant.recordingOff" = "Needs Screen Recording access, below";
+"display.log.phone" = "Stopped on the phone";
+"display.log.disabled" = "Ended: permission turned off";
+"display.log.permission" = "Ended: Screen Recording was turned off";
+"display.log.locked" = "Ended: this Mac locked";
+"display.log.sourceChanged" = "Ended: the shared display changed";
+"display.log.timeout" = "Ended: no answer from the phone";
+"display.log.failed" = "Ended: something went wrong";
