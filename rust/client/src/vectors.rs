@@ -790,7 +790,8 @@ mod resume {
         a.send_file(&peer, &source, None, None).unwrap();
         let deadline = Instant::now() + Duration::from_secs(60);
         let has_part = |len: u64| {
-            std::fs::read_dir(&receive_dir).into_iter().flatten().flatten().any(|e| e.path().to_string_lossy().ends_with(".part") && e.metadata().is_ok_and(|m| m.len() >= len))
+            // std::fs::metadata, not the directory entry's: Windows keeps an entry's size stale while the file is open.
+            std::fs::read_dir(&receive_dir).into_iter().flatten().flatten().any(|e| e.path().to_string_lossy().ends_with(".part") && std::fs::metadata(e.path()).is_ok_and(|m| m.len() >= len))
         };
         while !has_part(1024 * 1024 + 2 * CHUNK as u64) {
             assert!(Instant::now() < deadline, "the first attempt never reached the cut");

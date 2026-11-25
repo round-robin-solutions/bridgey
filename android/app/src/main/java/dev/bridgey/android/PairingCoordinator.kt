@@ -3214,7 +3214,7 @@ class PairingCoordinator(
     private fun startFile(transferId: String, uri: Uri, deviceId: String) {
         val connectedSession = registry.session(deviceId)
         if (connectedSession == null) {
-            removeFileTransfer(transferId, "Transfer interrupted — reconnect to retry", TransferEnd.INTERRUPTED)
+            removeFileTransfer(transferId, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED)
             finishQueuedFile(transferId)
             return
         }
@@ -3389,6 +3389,15 @@ class PairingCoordinator(
                 // handling (a moment behind the socket) ends this transfer as interrupted, so it can resume.
                 if (connectedSession.closed || !registry.isActive(connectedSession)) delay(1_000)
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
+                if (resume != null) {
+                    // A resumable file that stopped moving (no acknowledgement for 10 s, or the socket failed) was
+                    // interrupted, not refused: the receiver keeps what it has until its own timeout or the end of the
+                    // session, so no files.cancel, which would delete it. It goes again on reconnect, or with Retry.
+                    markTransferCancelled(transferId)
+                    if (deviceId in resumePeers) interruptedFiles[transferId] = InterruptedFile(deviceId, System.currentTimeMillis())
+                    removeFileTransfer(transferId, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED)
+                    return@launch
+                }
                 // The other end accepted this file and is waiting for the rest: tell it the transfer is over.
                 abandonOffered(transferId)
                 updateFileTransfer(transferId, metadata.first, "File transfer failed", false)
@@ -5233,7 +5242,7 @@ class PairingCoordinator(
     /** Ends the current and waiting outgoing files of [deviceId] (null: all) after the session is lost. They remain retryable. */
     private fun interruptFileQueue(deviceId: String? = null) {
         val queues = if (deviceId == null) fileSendQueues.values.toList() else listOfNotNull(fileSendQueues[deviceId])
-        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, "Transfer interrupted — reconnect to retry", TransferEnd.INTERRUPTED) }
+        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED) }
     }
 
     private fun markTransferCancelled(transferId: String) {

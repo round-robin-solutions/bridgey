@@ -136,10 +136,10 @@ class FileResumeSessionTest {
             }
         }
 
-        fun features(resume: Boolean) {
+        fun features(resume: Boolean, fast: Boolean = false) {
             val features = JSONObject().apply {
                 BridgeyFeature.entries.forEach { put(it.key, true) }
-                put(FILES_FAST_FEATURE_KEY, false)
+                put(FILES_FAST_FEATURE_KEY, fast)
                 put(FILES_RESUME_FEATURE_KEY, resume)
             }
             encrypted("features.update", JSONObject().put("version", 1).put("features", features).toString().toByteArray())
@@ -166,7 +166,7 @@ class FileResumeSessionTest {
         PairingCoordinator(context, phoneId, "Test phone", port = port, settings = BridgeySettings(context, "Test phone"))
 
     /** A first pairing the phone starts with the fake Mac, then both features maps. */
-    private fun pair(pairing: PairingCoordinator, server: ServerSocket, resume: Boolean = true): Link {
+    private fun pair(pairing: PairingCoordinator, server: ServerSocket, resume: Boolean = true, fast: Boolean = false): Link {
         pairing.pair(loopback.hostAddress!!, server.localPort, "Fake Mac")
         server.soTimeout = 10_000
         var peer: Peer
@@ -190,8 +190,10 @@ class FileResumeSessionTest {
         peer.write(confirm(sessionId, material.key, listOf(phoneId, macId, phonePublic, minePublic)))
         assertTrue("paired", waitFor(5_000) { connected(pairing) })
         val link = Link(peer, material.key, sessionId)
+        // The fake Mac reads the phone's binary frames when it shows files_fast_draft1 (and skips them).
+        peer.frames.binaryAllowed = fast
         link.until("features.update")
-        link.features(resume)
+        link.features(resume, fast)
         return link
     }
 
@@ -741,6 +743,27 @@ class FileResumeSessionTest {
             link.encrypted("files.resume", FileResume.resumePayload(id, data.size.toLong(), sha(data)), transferId = id)
             assertEquals(id, link.next(setOf("files.cancel"), 5_000)?.transferId)
             assertTrue(waitFor(5_000) { pairing.fileTransfers.value[id]?.active == false })
+            link.close()
+        }
+    }
+
+    /**
+     * A resumable file whose receiver stops acknowledging (binary frames, the byte window fills) was interrupted, not
+     * refused: no files.cancel, which would delete the receiver's partial, and Retry stays.
+     */
+    @Test
+    fun aResumableSendThatStopsMovingEndsInterruptedWithoutACancel() {
+        ServerSocket(0, 8, loopback).use { server ->
+            val pairing = coordinator()
+            val link = pair(pairing, server, fast = true)
+            sourceFile(pattern())
+            pairing.sendFile(sourceUri, macId)
+            val (id, _) = offerFromPhone(link)
+            link.outer("files.accept", id)
+            // Binary frames come and are never acknowledged: after 10 s the phone stops.
+            assertNull("no cancel for a resumable file", link.next(setOf("files.cancel"), 14_000))
+            assertTrue(waitFor(5_000) { pairing.fileTransfers.value[id]?.outcome == TransferEnd.INTERRUPTED })
+            assertTrue("Retry stays", pairing.fileTransfers.value[id]!!.retryable)
             link.close()
         }
     }

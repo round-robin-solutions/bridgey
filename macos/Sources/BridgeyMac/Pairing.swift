@@ -2586,6 +2586,22 @@ final class PairingCoordinator: ObservableObject {
                     current.send(completion)
                 case .failure:
                     self.outgoingFiles.removeValue(forKey: transferID)
+                    if transfer.resumable && !transfer.isCancelled {
+                        // A resumable file that stopped moving (no acknowledgement in time, or the connection failed)
+                        // was interrupted, not refused: the phone keeps what it has until its own timeout or the end
+                        // of the session, so no files.cancel, which would delete it. It goes again when the phone
+                        // reconnects (Resume interrupted files automatically), or with Retry.
+                        self.markTransferCancelled(transferID)
+                        if self.fileResumePhones.contains(current.remoteDeviceID) {
+                            self.autoResume.interrupted([(id: transferID, startedAt: self.fileTransfers[transferID]?.startedAt ?? Date())],
+                                                        phone: current.remoteDeviceID, at: Date())
+                        }
+                        self.fileTransferStatus = "File transfer interrupted"
+                        self.markFileTransferFinished(id: transferID, status: "Transfer interrupted; reconnect to retry")
+                        self.fileTransferActive = self.fileTransfers.values.contains(where: { $0.active })
+                        self.finishQueuedFile(transferID)
+                        return
+                    }
                     // The phone accepted this file and may still be waiting for it: tell it to let go.
                     if !transfer.isCancelled { self.markTransferCancelled(transferID); self.sendFileCancel(transferID) }
                     self.recordFileHistory(transferID, direction: .sent, outcome: transfer.isCancelled ? .cancelled : .failed, name: transfer.displayName,
