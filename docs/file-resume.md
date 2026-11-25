@@ -76,7 +76,8 @@ Both apps run the same rules as the session client, identical on the wire; the r
   its file channel and written from there. A provider that cannot open `"rw"` gets `"w"` and nothing is kept there.
   Records are `noBackupFilesDir/file-resume.json`, written atomically, naming each entry by its URI. Once per process,
   before any file arrives, the sweep drops records that can no longer be resumed and deletes this app's pending
-  entries directly in `Download/Bridgey` that no record names (folders write below it and keep their own).
+  entries directly in `Download/Bridgey` that no record names (folders write below it and keep their own). The free
+  space check counts only what a kept partial still lacks, so a nearly full phone can still finish a file.
 - **Receiver, Mac.** Single files are `name.bridgey-part` beside the name they reserve, opened with
   `FileHandle(forUpdating:)`; a kept one is reopened the same way, re-read, then `truncate(atOffset:)` and
   `seekToEnd()`. Records are `file-resume.json` in the Application Support folder (owner-only). The final name is

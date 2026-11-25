@@ -388,6 +388,34 @@ class FileResumeSessionTest {
         }
     }
 
+    /** A kept partial needs room only for the rest: with too little space for the whole file, the resume still goes. */
+    @Test
+    fun aResumeNeedsRoomOnlyForTheRest() {
+        ServerSocket(0, 8, loopback).use { server ->
+            val port = freePort()
+            val pairing = coordinator(port)
+            pairing.start()
+            val data = pattern()
+            interruptedReceive(pair(pairing, server), data)
+            // Room for the 64 MiB margin and the last 1.1 MB, not for the whole 3.1 MB file.
+            val downloads = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+            val room = dev.bridgey.android.folders.FolderLimits.SPACE_MARGIN + (data.size - 2 * mib) + 100_000
+            org.robolectric.shadows.ShadowStatFs.registerStats(downloads, 1_000_000, (room / 4096).toInt(), (room / 4096).toInt())
+            val link = reconnect(pairing, port)
+            val id = offer(link, data)
+            assertEquals("files.resume", link.next(setOf("files.resume", "files.cancel", "files.accept"), 10_000)?.kind)
+            link.encrypted("files.resume.ack", FileResume.ackPayload(id, 2 * mib, null), transferId = id)
+            chunks(link, id, data, (2 * mib).toInt(), data.size)
+            complete(link, id, data)
+            // The same file offered whole now does not fit.
+            val other = pattern(salt = 0x33)
+            offer(link, other, name = "other.mov")
+            assertEquals("files.cancel", link.next(setOf("files.resume", "files.cancel", "files.accept"), 10_000)?.kind)
+            link.close()
+            pairing.stop()
+        }
+    }
+
     @Test
     fun aTamperedPartialStartsFromZero() {
         ServerSocket(0, 8, loopback).use { server ->

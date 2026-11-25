@@ -4846,18 +4846,20 @@ class PairingCoordinator(
         // files_resume_draft1: the sender marked it, both show the key on protocol 2, and it is more than one block.
         val resumable = payload.opt("resumable") == true && FileResume.resumable(size) && current.resumeFiles
         val (admission, transfer) = synchronized(incomingFiles) {
+            // Only this device's partial of this very content, never a path or ID from the sender; its bytes are read
+            // again and checked against the record before anything is offered. What it holds needs no new room.
+            val kept = if (resumable) claimPartial(deviceId, transferId, size, hash, name, mimeType) else null
             val inFlight = incomingFiles.entries.toList()
             val admission = incomingFileAdmission(
-                size = size,
+                size = size - (kept?.keptLength ?: 0L),
                 deviceInFlight = inFlight.count { transferDevices[it.key] == deviceId },
                 totalInFlight = inFlight.size,
                 reservedBytes = inFlight.sumOf { it.value.expectedSize - it.value.receivedSize },
                 freeBytes = free,
             )
+            // Refused (busy or no room): a claimed partial stays as it was for a later attempt.
+            if (admission != IncomingFileAdmission.Accept) kept?.let { endIncoming(it, keep = true) }
             val created = if (admission == IncomingFileAdmission.Accept) {
-                // Only this device's partial of this very content, never a path or ID from the sender; its bytes are
-                // read again and checked against the record before anything is offered.
-                val kept = if (resumable) claimPartial(deviceId, transferId, size, hash, name, mimeType) else null
                 // An agent's files land in Download/Bridgey/<its name>.
                 val subfolder = if (current.agent) dev.bridgey.android.agents.agentFolderName(current.peerName) else null
                 (kept ?: runCatching { IncomingFileTransfer.create(appContext, transferId, name, mimeType, size, hash, subfolder, resumable, deviceId) }.getOrNull())?.also {
@@ -6996,6 +6998,9 @@ private class IncomingFileTransfer private constructor(
 
     /** The offset files.resume proposed, while files.resume.ack is awaited. */
     val proposed: Long? get() = (phase as? IncomingPhase.Proposed)?.offset
+
+    /** The verified bytes of a kept partial being checked (0 for a new file): room it needs no more. */
+    val keptLength: Long get() = (phase as? IncomingPhase.Checking)?.length ?: 0L
 
     /** This file's record with [verified] bytes and their SHA-256. */
     fun record(verified: Pair<Long, ByteArray>): ResumeRecord = ResumeRecord(
