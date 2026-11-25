@@ -3270,6 +3270,10 @@ class PairingCoordinator(
             val offer = Crypto.encrypt(connectedSession.pairingKey!!, offerPayload)
             val accepted = CompletableDeferred<Boolean>()
             pendingFileAccepts[transferId] = accepted
+            // The row says "waiting" before the offer leaves: an answer can arrive (and end the file) at once, and a
+            // later "waiting" would leave the row active after the file had already ended.
+            offeredFiles += transferId
+            updateFileTransfer(transferId, metadata.first, "Waiting for $peer…", true)
             if (!registry.isActive(connectedSession) || !connectedSession.send(Message(
                     kind = "files.offer",
                     sessionId = connectedSession.id,
@@ -3283,8 +3287,6 @@ class PairingCoordinator(
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
-            offeredFiles += transferId
-            updateFileTransfer(transferId, metadata.first, "Waiting for $peer…", true)
             // A resumable offer waits 120 seconds, and longer while the receiver says it is still re-reading its partial.
             val answered = if (resume == null) withTimeoutOrNull(10_000) { accepted.await() } else {
                 var got: Boolean? = null
