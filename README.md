@@ -5,9 +5,8 @@ notifications, calls and texts on the Mac, and move files either way. It is Roun
 [Bridgey](https://github.com/singeol/bridgey) by Semyon Mikhailov, a separate app
 (`in.roundrobin.bridgey`) that installs next to upstream Bridgey.
 
-The current version is 0.11.0-rr.1 Beta 3, from 15 November 2026. The next releases are 1.0 Beta 1,
-1.0 Beta 2 and so on, then 1.0. From 1.0 the edition has its own version numbers. Every release is in the
-[changelog](CHANGELOG.md).
+The current version is 1.0 Beta 4 (1.0.0-beta.4), from 25 November 2026. More betas follow, then 1.0.
+Every release is in the [changelog](CHANGELOG.md).
 
 ## Install
 
@@ -127,10 +126,9 @@ experimental capabilities and the acceptance work still required before v1.0.
 
 ## Roadmap
 
-Updated 2026-11-04 against `rr/main` through the Settings search merge (`b7d30c0`),
-app releases through Beta 22 and CLI 0.2.0. Checked items are implemented in this edition;
-they do not imply upstream acceptance or certification on every device. Beta 23 items are
-identified separately until the release publishes.
+Updated 2026-11-25 against `rr/main` through 1.0 Beta 4 (`231e3ad`), the latest release
+(1.0.0-beta.4), and CLI 0.3.0. Checked items are implemented in this edition; they do not imply
+upstream acceptance or certification on every device.
 
 Milestones describe direction, without fixed dates. They are upstream's roadmap numbers, not app
 versions (the app's own versions are in the [changelog](CHANGELOG.md)). **The v0.10 stabilisation
@@ -175,8 +173,9 @@ experimental plugins do not block it. Device coverage is recorded in the
 - [x] Control Music/Spotify on macOS from Android: play/pause, previous/next, seek, and player volume
 - [x] Show bounded now-playing metadata and local Music artwork when exposed by the player
 - [x] Optionally pause the selected player while a phone call is ringing or active
-- [ ] Quiet media on permitted linked devices during calls: pause with safe mute fallback,
-      configurable restoration and a manual Mac call action ([in progress](docs/call-media.md))
+- [x] Quiet media on permitted linked devices during calls: pause with safe mute fallback,
+      configurable restoration and a manual Mac call action ([call media](docs/call-media.md),
+      [#5](https://github.com/round-robin-solutions/bridgey/pull/5), shipped in [#20](https://github.com/round-robin-solutions/bridgey/pull/20))
 - [x] Send and explicitly open web links in either direction
 - [x] Add a lightweight Ping action separate from Find Device
 - [x] Show Mac battery status on Android
@@ -206,18 +205,21 @@ Implemented with `remote_input_draft1`. Physical-device acceptance is tracked in
 
 - [x] Send multiple files and folders with a visible queue and deterministic conflict handling
 - [x] Resume folders at file boundaries, keeping verified completed files after disconnect or restart
-- [ ] Resume an interrupted file from its last verified chunk rather than byte zero
+- [x] Resume an interrupted file from its last verified chunk rather than byte zero, in the
+      session client and both apps ([#47](https://github.com/round-robin-solutions/bridgey/pull/47), [#48](https://github.com/round-robin-solutions/bridgey/pull/48)); an
+      interrupted file inside a folder still starts again (designed, not built)
 - [x] Browse only Android folders explicitly granted through the system Storage Access Framework
 - [x] Upload to and download from granted folders without broad storage permissions
 - [x] Improve Finder, Quick Look, Downloads, and transfer-history integration
 - [x] Support multiple simultaneous trusted-device sessions with per-device settings
-- [ ] Stress-test cancellation, reconnection, and multi-gigabyte transfers in both directions
+- [x] Stress-test cancellation, reconnection, and multi-gigabyte transfers in both directions,
+      with a scripted peer against each app, nightly on hosted runners ([#49](https://github.com/round-robin-solutions/bridgey/pull/49))
 
-Includes the Mac Phone files browser, thumbnails, previews, folders both ways and the
-[fast binary transfer path](docs/transfer-speed.md). File-level folder recovery is implemented;
-the broader resumable transfer engine remains on hold. Existing emulator benchmarks do not
-close real-Wi-Fi, large-library and long-running acceptance. See
-[Files](docs/files-browse.md) and [folders and settings sync](docs/folders-and-settings-sync.md).
+Includes the Mac Phone files browser, thumbnails, previews, folders both ways, the Transfers
+window and the [fast binary transfer path](docs/transfer-speed.md). Emulator benchmarks and the
+stress runs do not close real-Wi-Fi, large-library and long-running acceptance. See
+[Files](docs/files-browse.md), [folders and settings sync](docs/folders-and-settings-sync.md),
+[file resume](docs/file-resume.md) and [stress tests](docs/testing-stress.md).
 
 ### v0.9.0 — automation and experimental communication
 
@@ -250,8 +252,9 @@ capability blocks v1.0. See [automation](docs/automation.md),
 - [x] Ship Homebrew/Obtainium install paths, Stable/Beta/Nightly channels, What's new,
       Update all and automatic coordinated updates
 - [x] Redesign both apps around devices and a private activity stream; add shared settings sync
-- [x] Connect away from home through direct internet routes or an optional encrypted relay,
-      with LAN preferred and no phone VPN required for relay connections
+- [x] Connect away from home through direct internet routes or an optional encrypted relay
+      (Cloudflare first, our own relays as the backup), with no phone VPN; devices on the same
+      network move to the LAN connection
 - [x] Add automatic clipboard, explicit image/file clipboard handoff, Handoff takeover controls
       and selection of other installed media players
 - [x] Read SMS codes locally on a Mac or through the chosen cloud route; read email codes from
@@ -264,9 +267,9 @@ capability blocks v1.0. See [automation](docs/automation.md),
 - [x] Add pairing over Tailscale addresses for Mac–Mac, server–Mac and server–server;
       new peers start restricted until explicitly trusted
 - [x] Merge Settings search on Mac and Android: synonyms, typo tolerance, grouped results,
-      and a jump/highlight to the setting (included in the published Beta 25 source)
+      and a jump/highlight to the setting
 - [x] Read SMS conversations directly from eligible paired phones instead of selecting a
-      connected Mac as the source (Beta 25)
+      connected Mac as the source
 - [ ] Complete live Settings search checks on Android and Mac keyboard/scroll interactions
 - [ ] Complete the v1.0 acceptance work below before freezing the protocol or declaring Stable
 
@@ -295,38 +298,36 @@ membership is available, but do not prevent a documented open-source v1.0.
 
 ### Remaining extensions
 
+Done since the 4 November update:
+
+- [x] Open the menu bar panel faster: retained panel, deferred provider reads, reliable rapid
+      reopening and reversible short transitions ([#10](https://github.com/round-robin-solutions/bridgey/pull/10))
+- [x] Guide external Tailscale setup alongside Bridgey's own connection service, without
+      bundling another VPN engine ([#11](https://github.com/round-robin-solutions/bridgey/pull/11), [guide](docs/tailscale-setup.md))
+- [x] Add contextual phone clipboard notification actions: Open link, Call or Email, beside
+      Send copied item; unknown content keeps Send only, calls open the dialler ([#12](https://github.com/round-robin-solutions/bridgey/pull/12))
+- [x] Add standard file-selection shortcuts to the Mac and Android pickers
+      ([shortcuts](docs/file-selection.md), [#5](https://github.com/round-robin-solutions/bridgey/pull/5), shipped in [#20](https://github.com/round-robin-solutions/bridgey/pull/20))
+- [x] Route notifications to the active or preferred device and show explicit sharing
+      destinations ([#7](https://github.com/round-robin-solutions/bridgey/pull/7), shipped in #20)
+- [x] Share screen/control capabilities and session rules in Rust ([#13](https://github.com/round-robin-solutions/bridgey/pull/13))
+- [x] Calls window with a dialer, contacts and WhatsApp voice/video actions ([#23](https://github.com/round-robin-solutions/bridgey/pull/23))
+
 These are open items, not promises for the next Beta:
 
-**Next focused work, in order:**
+**Next focused work:**
 
-- [ ] Verify and ship the menu-bar opening optimisation: retained panel, deferred
-      provider reads, reliable rapid reopening and reversible short transitions
-      ([PR #10](https://github.com/round-robin-solutions/bridgey/pull/10); main gates passed,
-      native performance/visual acceptance pending)
-- [ ] Guide external Tailscale setup alongside Bridgey's own connection service,
-      without bundling another VPN engine
-      ([PR #11](https://github.com/round-robin-solutions/bridgey/pull/11); verification pending)
-- [ ] Add contextual phone clipboard notification actions: Open link, Call or Email,
-      beside Send copied item; unknown content keeps Send only, calls open the dialler
-- [ ] Finish integration and native acceptance of call-aware media quieting and standard
-      file-selection shortcuts ([PR #5](https://github.com/round-robin-solutions/bridgey/pull/5));
-      these changes remain outside the published Beta 25 source
-- [ ] Integrate active/preferred-device notification routing and explicit sharing destinations
-      ([PR #7](https://github.com/round-robin-solutions/bridgey/pull/7), stacked on PR #5);
-      earlier green branch checks do not establish release or current-main acceptance
-- [ ] Share screen/control capabilities and session rules in Rust, then complete
-      phone-to-computer and computer-to-phone screen sharing with input control;
-      persistent unattended grants apply only to selected trusted devices
+- [ ] Complete phone-to-computer and computer-to-phone screen sharing with input control on
+      the shared Rust rules; persistent unattended grants apply only to selected trusted devices
 
-Small follow-up candidates to review after these: copy a device's pairing details
+Small follow-up candidates to review after this: copy a device's pairing details
 and search longer device pickers. These are proposals, not implemented features.
-Existing interrupted-send retry stays separate from the resumable transfer engine below.
 
-- [ ] Calls window with a dialer, contacts and WhatsApp voice/video actions
 - [ ] Further email-code sources (phase 2); email detection on servers remains deferred
 - [ ] Fully peer-to-peer mesh invites (`v: 2`) and one-hop Update all without a phone hub
 - [ ] Local code detection on the phone; the shipped fallback uses the cloud by explicit choice
-- [ ] Resumable content-addressed transfer engine (on hold), with verified recovery inside a file
+- [ ] Resumable content-addressed transfer engine (on hold); resuming inside a file shipped
+      without it (v0.8)
 - [ ] Temporary guest pairing without permanent trust and wider one-time remote permissions
 - [ ] Home, Work and Public Network profiles with conservative defaults on unfamiliar networks
 - [ ] A documented plugin SDK for future clients
@@ -334,15 +335,21 @@ Existing interrupted-send retry stays separate from the resumable transfer engin
 ### Required platform clients
 
 Android, macOS, Windows, Linux and iOS/iPadOS are core targets. Native Android and
-macOS apps exist; Windows, Linux and iOS clients remain required milestones.
+macOS apps exist, the Windows app is in the beta and the iOS/iPadOS app has its first slice;
+Linux has no client yet.
 Use the existing shared Rust protocol/networking core and native OS adapters,
 with actual capabilities and permissions negotiated per device. See
 [the five-platform architecture and delivery plan](docs/platform-architecture.md).
 
-- [ ] Windows native app with the shared core and supported screen/view/control adapters
+- [x] Windows native app on the shared core, M0 to M2: pairing, clipboard, files, notifications
+      with reply, codes, links, media controls, Connect away from home and self-update
+      ([#26](https://github.com/round-robin-solutions/bridgey/pull/26), [#28](https://github.com/round-robin-solutions/bridgey/pull/28), [#31](https://github.com/round-robin-solutions/bridgey/pull/31), [#32](https://github.com/round-robin-solutions/bridgey/pull/32), [#34](https://github.com/round-robin-solutions/bridgey/pull/34), [#35](https://github.com/round-robin-solutions/bridgey/pull/35))
+- [ ] Windows M3: messages, Calls window, Phone files and the screen/view/control adapters
 - [ ] Linux native app, including explicit Wayland and X11 capability handling
-- [ ] iOS/iPadOS native app: viewer/controller, consented capture and supported sharing;
-      do not promise unrestricted remote input into other apps
+- [x] iOS/iPadOS first slice: pairing, clipboard text, files and links both ways on the local
+      network, and a Share extension ([#33](https://github.com/round-robin-solutions/bridgey/pull/33), [notes](docs/ios.md))
+- [ ] iOS/iPadOS viewer/controller, consented capture and TestFlight; do not promise
+      unrestricted remote input into other apps
 - [ ] Cross-platform native builds, mixed-version compatibility and performance acceptance
 
 Time-windowed agent grants, private action audits, image/file clipboard handoff, QR/link server

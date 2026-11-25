@@ -421,6 +421,8 @@ final class PairingCoordinator: ObservableObject {
     private let pairingStore: MacPairingStore
     private let trustRegistry: MacTrustRegistry
     private let protocolPins = ProtocolPins()
+    /// Trusted devices that advertised lan_first_draft2: the LAN first rule holds with them before features.update.
+    private let lanFirstMemory = LanFirstMemory()
     private var inboundPairingLimiter = InboundPairingLimiter()
     private var arming = PairingArming()
     private var sleepObserver: NSObjectProtocol?
@@ -1200,6 +1202,7 @@ final class PairingCoordinator: ObservableObject {
         clearClipboardCache()
         trustRegistry.remove(deviceID: deviceID)
         protocolPins.remove(deviceID)
+        lanFirstMemory.remove(deviceID)
         trustedDeviceIDs.remove(deviceID)
         settings.removeDevice(deviceID)
         batteryAlerts.forget(deviceID)
@@ -3130,7 +3133,8 @@ final class PairingCoordinator: ObservableObject {
                 if settings.isAgent(phoneID) {
                     // A restricted device (a server, or anything paired over the tailnet until trusted): nothing it claims
                     // (settings sync, Focus, updates, texts, the agents mirror) is set up; only Connect anywhere, which keeps
-                    // the pair reachable.
+                    // the pair reachable. This Mac sends it no LAN first keys either, so neither end remembers the other.
+                    lanFirstMemory.record(phoneID, advertised: false)
                     registry.update(phoneID) { link in
                         link.remoteFeatures = Dictionary(uniqueKeysWithValues: BridgeyFeature.allCases.map { ($0, false) })
                         link.featureStateReceived = true
@@ -3144,6 +3148,9 @@ final class PairingCoordinator: ObservableObject {
                     if draftKeys[connectFeatureKey] == true { sendConnectAddresses(to: current) }
                     return
                 }
+                let lanFirst = decodeFeatureFlag(plaintext, lanFirstFeatureKey)
+                // Remembered only with both keys: a build that remembers this Mac too (docs/protocol.md "LAN first").
+                lanFirstMemory.record(phoneID, advertised: LanFirstMemory.advertises(plaintext))
                 registry.update(phoneID) { link in
                     link.remoteFeatures = features
                     link.featureStateReceived = true
@@ -3166,7 +3173,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteSettingsSync = draftKeys[settingsSyncFeatureKey] == true
                     link.remoteConnect = draftKeys[connectFeatureKey] == true
                     link.remoteHandoffTakeover = handoffTakeover
-                    link.remoteLanFirst = decodeFeatureFlag(plaintext, lanFirstFeatureKey)
+                    link.remoteLanFirst = lanFirst
                     link.remoteAgentsMirror = draftKeys[agentsMirrorFeatureKey] == true && !AgentPeerRules.isAgent(draftKeys)
                     if !link.remoteAgentsMirror { link.agentsStateReceived = false }
                     if features[.battery] == false { link.battery = nil }
@@ -3814,7 +3821,8 @@ final class PairingCoordinator: ObservableObject {
         let id = current.remoteDeviceID
         let stale: (Session) -> Bool = { sessionLooksStale(supported: $0.heartbeatSupported, lastReceivedAt: $0.lastReceivedAt, tunnel: $0.tunnel != nil) }
         switch registry.authenticate(current, deviceID: id, peerName: current.peerName, isStale: stale,
-                                     tier: { self.tier(of: $0) }, hasActiveTransfer: { self.hasActiveTransfer($0) }) {
+                                     tier: { self.tier(of: $0) }, hasActiveTransfer: { self.hasActiveTransfer($0) },
+                                     remembersLanFirst: { self.lanFirstMemory.remembers($0) }) {
         case .rejected:
             // A live session for this phone wins the duplicate rule; this socket closes quietly.
             BridgeyLog.transport.notice("duplicate session closed peer=\(shortDeviceID(id), privacy: .public) tier=\(self.tier(of: current).token, privacy: .public)")
@@ -3964,8 +3972,10 @@ final class PairingCoordinator: ObservableObject {
         features[FileResume.featureKey] = current.envelopeKey != nil
         // Mac only: this device applies Let Bridgey handle copy and paste, so other Macs sync it here. Phones never send it.
         features[handoffTakeoverFeatureKey] = true
-        // Draft, edition only: LAN first (LanFirst.swift). A capability, so always on.
+        // Draft, edition only: LAN first (LanFirst.swift). Capabilities, so always on; draft2 says this Mac remembers
+        // the phones that advertise it, so the rule holds with them before their features.update arrives.
         features[lanFirstFeatureKey] = true
+        features[lanFirstDraft2FeatureKey] = true
         // Draft, edition only: agent devices. A capability, so always on: this Mac finds codes and shows the phone's agents.
         features[agentsMirrorFeatureKey] = true
         guard let payload = try? JSONEncoder().encode(FeatureStatePayload(version: 1, features: features)),

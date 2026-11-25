@@ -11,6 +11,17 @@ package dev.bridgey.android
 /** Advertised in features.update by builds with LAN first; a capability, so always true. */
 internal const val LAN_FIRST_FEATURE_KEY = "lan_first_draft1"
 
+/**
+ * Advertised beside [LAN_FIRST_FEATURE_KEY] by builds that remember it: such a build keeps, per trusted device, whether
+ * that device advertised this key ([lanFirstRemembered]) and runs the LAN first rule with a remembered device from the
+ * first moment of a session, before its features.update arrives. Builds from 1.0 Beta 2 to 4 never advertise it, so they
+ * are never remembered and get the rule exactly as they run it. Read outside the draft list, like the first key.
+ */
+internal const val LAN_FIRST_DRAFT2_FEATURE_KEY = "lan_first_draft2"
+
+/** What to remember for a device from its features.update: both keys, so only a build that remembers this one too. */
+internal fun lanFirstRemembered(draft1: Boolean, draft2: Boolean): Boolean = draft1 && draft2
+
 /** How good a session's path is. Both ends see the same addresses, so both rank a session alike. */
 internal enum class SessionTier(val rank: Int, val wire: String) {
     /** A Connect anywhere tunnel, whatever its route: the two ends can label one tunnel differently. */
@@ -86,15 +97,18 @@ internal enum class DuplicateVerdict(val newWins: Boolean, val detail: String?) 
 /**
  * The duplicate rule, applied identically on the phone and the Mac (both ends must keep the same session):
  * 1. the live session is stale: the new one wins;
- * 2. the peer did not advertise lan_first_draft1: the rule older builds apply, the lower dialler;
+ * 2. the peer did not advertise lan_first_draft1 on the live session ([peerLanFirst]) and is not remembered for
+ *    lan_first_draft2 ([peerRemembered]): the rule older builds apply, the lower dialler;
  * 3. the live session carries a transfer: the new one is rejected, whatever its tier;
  * 4. the higher tier wins; equal tiers fall back to the lower dialler.
  * Rule 2 sits before the transfer check so a peer without the key gets exactly the old answer: it cannot see this
- * device's transfers, and two ends that disagree close both sessions.
+ * device's transfers, and two ends that disagree close both sessions. [peerRemembered] covers a live session whose
+ * features.update has not arrived yet; the peer remembers this device too, so it runs the same rule at that moment.
  */
 internal fun duplicateVerdict(
     existingStale: Boolean,
     peerLanFirst: Boolean,
+    peerRemembered: Boolean,
     activeTransfer: Boolean,
     candidateTier: SessionTier,
     existingTier: SessionTier,
@@ -108,7 +122,7 @@ internal fun duplicateVerdict(
     }
     return when {
         existingStale -> DuplicateVerdict.STALE
-        !peerLanFirst -> dialled()
+        !peerLanFirst && !peerRemembered -> dialled()
         activeTransfer -> DuplicateVerdict.TRANSFER
         candidateTier.rank > existingTier.rank -> DuplicateVerdict.TIER_NEW
         candidateTier.rank < existingTier.rank -> DuplicateVerdict.TIER_EXISTING

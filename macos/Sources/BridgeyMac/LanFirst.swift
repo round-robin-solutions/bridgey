@@ -13,6 +13,36 @@ import Network
 /// knownDraftFeatureKeys (decodeFeatureFlag), so the golden vectors stay as they are.
 let lanFirstFeatureKey = "lan_first_draft1"
 
+/// Advertised beside `lanFirstFeatureKey` by builds that remember it: such a build keeps, per trusted device, whether that
+/// device advertised this key, and runs the LAN first rule with a remembered device from the first moment of a session,
+/// before its features.update arrives. Builds from 1.0 Beta 2 to 4 never advertise it, so they are never remembered and
+/// get the rule exactly as they run it. Read outside knownDraftFeatureKeys, like `lanFirstFeatureKey`.
+let lanFirstDraft2FeatureKey = "lan_first_draft2"
+
+/// Per trusted device: it advertised `lan_first_draft2` in the last features.update this Mac had from it. Kept in
+/// preferences like ProtocolPins, so the trust format stays as it is; Forget and Reset > Trusted devices remove it.
+struct LanFirstMemory {
+    static let prefix = "lanFirstPeer."
+    var defaults: UserDefaults = .standard
+
+    private func key(_ deviceID: String) -> String { Self.prefix + deviceID.lowercased() }
+
+    /// What to remember from a features.update: both keys, so only a build that remembers this Mac too.
+    static func advertises(_ plaintext: Data) -> Bool {
+        decodeFeatureFlag(plaintext, lanFirstFeatureKey) && decodeFeatureFlag(plaintext, lanFirstDraft2FeatureKey)
+    }
+
+    func remembers(_ deviceID: String) -> Bool { defaults.bool(forKey: key(deviceID)) }
+
+    /// Every features.update from the device: a build that dropped the key (an older one) is forgotten at once.
+    func record(_ deviceID: String, advertised: Bool) {
+        guard advertised != remembers(deviceID) else { return }
+        if advertised { defaults.set(true, forKey: key(deviceID)) } else { defaults.removeObject(forKey: key(deviceID)) }
+    }
+
+    func remove(_ deviceID: String) { defaults.removeObject(forKey: key(deviceID)) }
+}
+
 /// What a session runs on, best last. Both ends see the same tier for one session.
 enum SessionTier: Int, Comparable {
     /// A Connect anywhere tunnel, whatever its route: the two ends can label one tunnel differently.

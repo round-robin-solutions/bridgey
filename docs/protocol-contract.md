@@ -162,6 +162,7 @@ the tables at the end of this page are generated from it with
 | `settings_sync_draft1` | edition-draft | no | false |
 | `connect_draft1` | edition-draft | no | false |
 | `lan_first_draft1` | edition-draft | no | false |
+| `lan_first_draft2` | edition-draft | no | false |
 | `agent_draft1` | edition-draft | no | false |
 | `notify_draft1` | edition-draft | no | false |
 | `ask_draft1` | edition-draft | no | false |
