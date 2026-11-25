@@ -2,6 +2,12 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 4 (1.0.0-beta.4), 25 November 2026
+
+- An interrupted transfer now picks up where it stopped instead of starting again, and Bridgey sends it again by itself when the device reconnects. Turn this off in Settings > Files.
+- Transfers on the Mac stay fast however long your transfer history gets.
+- Receiving many files at once on the Mac shows them in Finder once, instead of bringing Finder forward for each file.
+
 ## 1.0 Beta 3 (1.0.0-beta.3), 24 November 2026
 
 - A new Transfers window on the Mac: what's moving now, with speed, time left and how your devices are connected, plus your history in the same place.
