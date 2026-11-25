@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Quartz
 import SwiftUI
 
@@ -9,6 +10,8 @@ import SwiftUI
 final class FileTransferWindowController: NSWindowController {
     static let autosaveName = "BridgeyTransfersWindow"
     private let model: TransfersWindowModel
+    private var autoShow = TransfersAutoShow()
+    private var subscriptions: Set<AnyCancellable> = []
 
     init(pairing: PairingCoordinator) {
         let model = TransfersWindowModel()
@@ -16,7 +19,8 @@ final class FileTransferWindowController: NSWindowController {
         let window = TransfersNSWindow(contentRect: NSRect(origin: .zero, size: TransfersWindowView.size),
                                        styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                        backing: .buffered, defer: false)
-        let hosting = NSHostingController(rootView: TransfersLiveView(pairing: pairing, history: pairing.transferHistory, model: model))
+        let actions = TransfersLiveView.actions(pairing: pairing, history: pairing.transferHistory, model: model)
+        let hosting = NSHostingController(rootView: TransfersLiveView(model: model, actions: actions))
         hosting.sizingOptions = []
         window.contentViewController = hosting
         window.title = L10n.text("transfers.window.title", fallback: "Transfers")
@@ -35,6 +39,14 @@ final class FileTransferWindowController: NSWindowController {
         window.onEscape = { [weak model] in model?.escape() ?? false }
         model.window = window
         super.init(window: window)
+        model.connect(pairing)
+        pairing.$fileTransferActive
+            .sink { [weak self] active in self?.autoShow.activeChanged(active, at: ProcessInfo.processInfo.systemUptime) }
+            .store(in: &subscriptions)
+        // A closed window is not worked out while files move; showing it again catches up at once.
+        NotificationCenter.default.publisher(for: NSWindow.willCloseNotification, object: window)
+            .sink { [weak model] _ in model?.visible = false }
+            .store(in: &subscriptions)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -46,28 +58,55 @@ final class FileTransferWindowController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        model.visible = true
         model.refreshMissing()
         if history { model.scrollToken += 1 }
     }
+
+    /// A transfer starts. The first of a run of transfers brings the window (and Bridgey) forward, as before; the rest
+    /// of the run leave it where it is, closed included. True when it came forward.
+    @discardableResult
+    func transferStarted() -> Bool {
+        guard autoShow.transferStarted(at: ProcessInfo.processInfo.systemUptime) else { return false }
+        show()
+        return true
+    }
 }
 
-/// The window's own state: filters, selection, the device picker, and which files went missing.
+/// The window's own state (filters, selection, the device picker) and what it shows, worked out from the coordinator
+/// at most five times a second. The live card's rows and speeds go to `feed`, which only the card observes, so
+/// progress redraws the card alone; `state` (history, devices, routes, totals) is published only when it changes, and
+/// the history is rebuilt only when its entries, the finished rows or the device names change.
 @MainActor
 final class TransfersWindowModel: ObservableObject {
     @Published var filter = TransfersFilter()
     @Published var selection: String?
     @Published var pendingSend: [URL]?
     @Published var scrollToken = 0
-    @Published private(set) var missing: Set<String> = []
+    @Published private(set) var state = TransfersWindowState()
+    let feed = TransfersLiveFeed()
     let meter = TransferRollingSpeed()
     weak var window: TransfersNSWindow?
-    /// The items as last shown, for Space (Quick Look) and the missing-file check.
-    var items: [TransferItem] = [] {
-        didSet { if items.map(\.id) != oldValue.map(\.id) { refreshMissing() } }
+    /// On screen. A closed window is not worked out; showing it again refreshes at once.
+    var visible = false {
+        didSet {
+            guard visible != oldValue else { return }
+            if visible { refreshNow() } else { stopTicker() }
+        }
     }
 
+    private weak var pairing: PairingCoordinator?
+    private weak var history: TransferHistoryStore?
+    private lazy var coalescer = TransfersCoalescer { [weak self] in self?.refreshNow() }
+    private var subscriptions: Set<AnyCancellable> = []
+    private var ticker: Timer?
+    private var tickerInterval: TimeInterval = 0
+    /// What the history was last built from.
+    private var built: (entries: [TransferHistoryEntry], finished: [FileTransferRow], names: [TransferDevice])?
+    private var missingCheck = 0
+
     var selectedURL: URL? {
-        guard let selection, !missing.contains(selection), let item = items.first(where: { $0.id == selection }) else { return nil }
+        guard let selection, !state.missing.contains(selection), let item = state.items.first(where: { $0.id == selection }) else { return nil }
         return item.localURL
     }
 
@@ -78,10 +117,73 @@ final class TransfersWindowModel: ObservableObject {
         return false
     }
 
+    /// Follows the coordinator and the history. Any change asks for a refresh; refreshes are coalesced.
+    func connect(_ pairing: PairingCoordinator) {
+        self.pairing = pairing
+        history = pairing.transferHistory
+        pairing.objectWillChange.sink { [weak self] _ in self?.changed() }.store(in: &subscriptions)
+        pairing.transferHistory.objectWillChange.sink { [weak self] _ in self?.changed() }.store(in: &subscriptions)
+    }
+
+    func pruneHistory() { history?.prune() }
+
+    private func changed() {
+        guard visible else { return }
+        coalescer.signal()
+    }
+
+    /// Works the window out from the coordinator now.
+    func refreshNow() {
+        guard visible, let pairing, let history else { return }
+        let connected = pairing.connectedPhones.map { TransferDevice(id: $0.id, name: $0.name) }
+        let trusted = pairing.trustedDevices.map { TransferDevice(id: $0.id, name: $0.name) }
+        refresh(TransfersSource(rows: Array(pairing.fileTransfers.values), entries: history.entries, connected: connected, trusted: trusted,
+                                route: { pairing.transferRouteChip(for: $0) }, fallbackName: { pairing.phoneName($0) }),
+                now: Date())
+        updateTicker()
+    }
+
+    /// Works the window out from `source`: the live card every time, the rest only when it changed.
+    func refresh(_ source: TransfersSource, now: Date) {
+        let ordered = TransferLiveList.ordered(source.rows)
+        record(ordered, now: now)
+        let live = ordered.map { TransferLive.make($0, deviceName: source.deviceName) }
+        var speeds: [String: Double] = [:]
+        for row in ordered { speeds[row.id] = meter.speed(row.id, now: now) }
+        feed.update(live: live, speeds: speeds)
+
+        var next = state
+        // The rows history items read: finished ones (a failure's reason, Retry, Resume, or a failure history never saw).
+        let finished = source.rows.filter { !$0.active }.sorted { $0.id < $1.id }
+        let names = source.connected + source.trusted
+        var rebuilt = false
+        // A new day: Today and Yesterday move on, and today's totals start again.
+        let newDay = built == nil || !Calendar.current.isDate(next.now, inSameDayAs: now)
+        if newDay { next.now = now }
+        if let built, built.entries == source.entries, built.finished == finished, built.names == names {
+            if newDay { next.today = TransferTotals.text(source.entries, now: now) }
+        } else {
+            built = (source.entries, finished, names)
+            next.items = TransferItems.make(entries: source.entries, rows: finished, deviceName: source.deviceName)
+            next.today = TransferTotals.text(source.entries, now: now)
+            var seen = Set<String>()
+            next.devices = (source.trusted + next.items.map { TransferDevice(id: $0.deviceID, name: $0.deviceName) })
+                .filter { !$0.id.isEmpty && seen.insert($0.id).inserted }
+            rebuilt = next.items.map(\.id) != state.items.map(\.id)
+        }
+        next.hasLive = !live.isEmpty
+        next.connected = source.connected
+        var routes: [String: TransferRouteChip] = [:]
+        for id in Set(live.compactMap(\.deviceID)).union(source.connected.map(\.id)) { routes[id] = source.route(id) }
+        next.routes = routes
+        if next != state { state = next }
+        if rebuilt { refreshMissing() }
+    }
+
     /// Records each transfer's bytes for the rolling speed.
-    func record(_ rows: [String: FileTransferRow], now: Date = Date()) {
+    private func record(_ live: [FileTransferRow], now: Date) {
         var ids = Set<String>()
-        for row in rows.values where row.active {
+        for row in live {
             guard let bytes = row.bytesDone ?? (row.folder.map { $0.progress.bytesDone }) else { continue }
             meter.record(row.id, bytes: bytes, at: now)
             ids.insert(row.id)
@@ -89,87 +191,118 @@ final class TransfersWindowModel: ObservableObject {
         meter.keep(ids)
     }
 
+    /// Speeds and time left move on while nothing reports progress (every second), and Today becomes Yesterday at
+    /// midnight (checked every minute while idle).
+    private func updateTicker() {
+        let interval: TimeInterval = state.hasLive ? 1 : 60
+        guard ticker == nil || tickerInterval != interval else { return }
+        ticker?.invalidate()
+        tickerInterval = interval
+        ticker = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.changed() }
+        }
+    }
+
+    private func stopTicker() {
+        ticker?.invalidate()
+        ticker = nil
+    }
+
     /// Which history files are no longer where they were (moved or deleted in Finder), checked off the main thread.
     func refreshMissing() {
-        let paths = items.compactMap { item in item.localURL.map { (item.id, $0.path) } }
+        let paths = state.items.compactMap { item in item.localURL.map { (item.id, $0.path) } }
+        missingCheck += 1
+        let check = missingCheck
         Task.detached(priority: .utility) {
             let gone = Set(paths.filter { !FileManager.default.fileExists(atPath: $0.1) }.map(\.0))
             await MainActor.run { [weak self] in
-                if self?.missing != gone { self?.missing = gone }
+                // A later check (the history changed meanwhile) has the last word.
+                guard let self, check == self.missingCheck, self.state.missing != gone else { return }
+                self.state.missing = gone
             }
         }
     }
 }
 
+/// What the window is worked out from, read from the coordinator at each refresh (tests build their own).
+struct TransfersSource {
+    var rows: [FileTransferRow]
+    var entries: [TransferHistoryEntry]
+    var connected: [TransferDevice] = []
+    var trusted: [TransferDevice] = []
+    var route: (String) -> TransferRouteChip? = { _ in nil }
+    var fallbackName: (String) -> String = { _ in "" }
+
+    func deviceName(_ id: String) -> String {
+        connected.first { $0.id == id }?.name ?? trusted.first { $0.id == id }?.name ?? fallbackName(id)
+    }
+}
+
+/// The live card's rows and speeds. They change several times a second while files move, so only the live card
+/// observes this; the rest of the window, the history above all, is not redrawn for them.
+@MainActor
+final class TransfersLiveFeed: ObservableObject {
+    @Published private(set) var live: [TransferLive]
+    @Published private(set) var speeds: [String: Double]
+
+    init(live: [TransferLive] = [], speeds: [String: Double] = [:]) {
+        self.live = live
+        self.speeds = speeds
+    }
+
+    /// Publishes only what changed.
+    func update(live: [TransferLive], speeds: [String: Double]) {
+        if live != self.live { self.live = live }
+        if speeds != self.speeds { self.speeds = speeds }
+    }
+}
+
 private struct TransfersLiveView: View {
-    @ObservedObject var pairing: PairingCoordinator
-    @ObservedObject var history: TransferHistoryStore
     @ObservedObject var model: TransfersWindowModel
+    let actions: TransfersWindowActions
     @AppStorage("settings.reduceMotion") private var reduceMotion = false
 
     var body: some View {
         BrandRoot(reduceMotion: reduceMotion) {
-            TimelineView(.periodic(from: .now, by: pairing.fileTransferActive ? 1 : 3_600)) { context in
-                TransfersWindowView(state: state(now: context.date), filter: $model.filter, selection: $model.selection,
-                                    pendingSend: $model.pendingSend, scrollToken: model.scrollToken, actions: actions)
-            }
+            TransfersWindowView(state: model.state, live: model.feed, filter: $model.filter, selection: $model.selection,
+                                pendingSend: $model.pendingSend, scrollToken: model.scrollToken, actions: actions)
         }
         .ignoresSafeArea()
-        .onReceive(pairing.$fileTransfers) { model.record($0) }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
             if note.object as AnyObject? === model.window { model.refreshMissing() }
         }
-        .onAppear { history.prune() }
+        .onAppear { model.pruneHistory() }
     }
 
-    private func state(now: Date) -> TransfersWindowState {
-        let rows = Array(pairing.fileTransfers.values)
-        let names = Dictionary(pairing.trustedDevices.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-        let deviceName: (String) -> String = { id in pairing.connectedPhones.first { $0.id == id }?.name ?? names[id] ?? pairing.phoneName(id) }
-        let items = TransferItems.make(entries: history.entries, rows: rows, deviceName: deviceName)
-        if model.items != items { DispatchQueue.main.async { model.items = items } }
-        let live = TransferLiveList.ordered(rows)
-        var state = TransfersWindowState()
-        state.live = live.map { TransferLive.make($0, deviceName: deviceName) }
-        for row in live { state.speeds[row.id] = model.meter.speed(row.id, now: now) }
-        for id in Set(state.live.compactMap(\.deviceID)) { state.routes[id] = pairing.transferRouteChip(for: id) }
-        state.connected = pairing.connectedPhones.map { TransferDevice(id: $0.id, name: $0.name) }
-        for device in state.connected where state.routes[device.id] == nil { state.routes[device.id] = pairing.transferRouteChip(for: device.id) }
-        var seen = Set<String>()
-        state.devices = (pairing.trustedDevices.map { TransferDevice(id: $0.id, name: $0.name) }
-            + items.map { TransferDevice(id: $0.deviceID, name: $0.deviceName) })
-            .filter { !$0.id.isEmpty && seen.insert($0.id).inserted }
-        state.items = items
-        state.missing = model.missing
-        state.today = TransferTotals.text(history.entries, now: now)
-        state.now = now
-        return state
-    }
-
-    private var actions: TransfersWindowActions {
+    static func actions(pairing: PairingCoordinator, history: TransferHistoryStore, model: TransfersWindowModel) -> TransfersWindowActions {
         var actions = TransfersWindowActions()
-        let pairing = pairing, history = history, model = model
-        actions.chooseFiles = { TransfersSend.choose(pairing: pairing, model: model) }
-        actions.send = { urls, id in _ = SendDispatcher.send(urls: urls, to: id, pairing: pairing) }
-        actions.cancel = { pairing.cancelFileTransfer(id: $0) }
-        actions.retry = { pairing.retryFileTransfer(id: $0.id) }
-        actions.resume = { pairing.resumeFolderTransfer(id: $0) }
+        actions.chooseFiles = { [weak pairing, weak model] in
+            guard let pairing, let model else { return }
+            TransfersSend.choose(pairing: pairing, model: model)
+        }
+        actions.send = { [weak pairing] urls, id in
+            guard let pairing else { return }
+            _ = SendDispatcher.send(urls: urls, to: id, pairing: pairing)
+        }
+        actions.cancel = { [weak pairing] in pairing?.cancelFileTransfer(id: $0) }
+        actions.retry = { [weak pairing] in pairing?.retryFileTransfer(id: $0.id) }
+        actions.resume = { [weak pairing] in pairing?.resumeFolderTransfer(id: $0) }
         actions.open = { NSWorkspace.shared.open($0) }
-        actions.quickLook = { url in model.window?.showQuickLook([url]) }
+        actions.quickLook = { [weak model] url in model?.window?.showQuickLook([url]) }
         actions.showInFinder = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         actions.copy = { url in
             NSPasteboard.general.clearContents()
             NSPasteboard.general.writeObjects([url as NSURL])
         }
-        actions.remove = { item in
-            if !item.sessionOnly { history.remove(item.id) }
-            pairing.removeFinishedTransfer(id: item.id)
-            if model.selection == item.id { model.selection = nil }
+        actions.remove = { [weak pairing, weak history, weak model] item in
+            if !item.sessionOnly { history?.remove(item.id) }
+            pairing?.removeFinishedTransfer(id: item.id)
+            if model?.selection == item.id { model?.selection = nil }
         }
-        actions.clear = {
-            history.clear()
-            pairing.clearTransferHistory()
-            model.selection = nil
+        actions.clear = { [weak pairing, weak history, weak model] in
+            history?.clear()
+            pairing?.clearTransferHistory()
+            model?.selection = nil
         }
         actions.openFolder = {
             let folder = PhoneFilesPaths.receivedFolder()

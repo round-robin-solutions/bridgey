@@ -11,7 +11,7 @@ Mac app) or for the Mac (against the Android app), so each app is tested without
 | `scripts/rr/stress-mac.sh` | Builds the debug Mac app and the driver, makes a throwaway test instance of the app and runs the driver against it. |
 | `scripts/rr/stress-android.sh` | Builds (or takes) the stress APK, installs it on a running emulator, forwards its port and runs the driver against it. |
 | `stress` build type (Android) | Minified like release, app ID `in.roundrobin.bridgey.stress`, the local debug key, no update feed and no relays. Its own source set adds a control receiver that only the shell can reach (senders need `DUMP`). |
-| Mac test instance hooks | Debug builds with `BridgeyTestInstance` only: `cancel-files`, `send-file` with several paths, transfer rows in `status.json`, and `BridgeyTestServiceType` for a Bonjour type no real Bridgey browses. |
+| Mac test instance hooks | Debug builds with `BridgeyTestInstance` only: `cancel-files`, `send-file` with several paths, transfer rows in `status.json`, and `BridgeyTestServiceType` for a Bonjour type no real Bridgey browses. `status.json` also counts the Finder reveals of received files (`reveals`: the instance counts them and never reveals) and how often a transfer brought the Transfers window forward (`transfersWindowShown`). |
 | `stress serve` | The session client standing in for the app, with the apps' automatic retry. It checks the harness itself on any machine, with no device. |
 
 Every connection goes through a TCP proxy inside the driver. A scenario can cut it, so both ends see the socket close,

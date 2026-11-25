@@ -5,8 +5,8 @@ import UserNotifications
 // Files 2.0 quick win: a notification for what arrives from a phone (single files, folders the phone pushed,
 // downloads saved from the Phone files window), with Open and Show in Finder. A burst from one phone (items
 // less than 3 s apart) is one notification, updated in place ("12 files from OnePlus 11"). Posted only while
-// macOS allows Bridgey's notifications; otherwise the received item is revealed in Finder as before. Bridgey
-// has no setting of its own for local notifications: the macOS switch decides.
+// macOS allows Bridgey's notifications; otherwise the received items are revealed in Finder, a batch at a time
+// (ReceivedRevealBatcher). Bridgey has no setting of its own for local notifications: the macOS switch decides.
 
 let receivedNotificationCategory = "bridgey.received"
 let receivedOpenActionIdentifier = "bridgey.received.open"
@@ -144,6 +144,69 @@ enum ReceivedNotificationAction: Equatable {
         case .none:
             break
         }
+    }
+}
+
+/// Without notification permission, what arrives is revealed in Finder. Items that arrive close together are revealed
+/// once, together: after `quiet` seconds with nothing new, and once nothing else is still arriving, so a batch of 200
+/// files brings Finder forward once instead of 200 times. A single file is revealed on its own, as before.
+@MainActor
+final class ReceivedRevealBatcher {
+    nonisolated static let quiet: TimeInterval = 1
+
+    private let quiet: TimeInterval
+    private let clock: () -> TimeInterval
+    private let schedule: TransfersCoalescer.Schedule
+    private let busy: () -> Bool
+    private let reveal: ([URL]) -> Void
+    private var waiting: [URL] = []
+    private var lastAdded: TimeInterval = 0
+    private var armed = false
+
+    /// `busy`: a file or folder is still arriving. `reveal` gets each batch, at most `ReceivedNotificationGrouper.maxPaths`
+    /// items in arrival order, as Show in Finder on a notification selects.
+    init(quiet: TimeInterval = ReceivedRevealBatcher.quiet, clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         schedule: @escaping TransfersCoalescer.Schedule = TransfersCoalescer.onMainQueue, busy: @escaping () -> Bool,
+         reveal: @escaping ([URL]) -> Void) {
+        self.quiet = quiet
+        self.clock = clock
+        self.schedule = schedule
+        self.busy = busy
+        self.reveal = reveal
+    }
+
+    var isWaiting: Bool { !waiting.isEmpty }
+
+    func add(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        waiting.append(contentsOf: urls)
+        lastAdded = clock()
+        arm(after: quiet)
+    }
+
+    private func arm(after delay: TimeInterval) {
+        guard !armed else { return }
+        armed = true
+        schedule(delay) { [weak self] in self?.fire() }
+    }
+
+    private func fire() {
+        armed = false
+        guard !waiting.isEmpty else { return }
+        let since = clock() - lastAdded
+        if since < quiet {
+            arm(after: quiet - since)
+            return
+        }
+        // More is on its way: wait for it, so the batch stays one reveal.
+        if busy() {
+            arm(after: quiet)
+            return
+        }
+        var seen = Set<String>()
+        let batch = waiting.filter { seen.insert($0.standardizedFileURL.path).inserted }
+        waiting = []
+        reveal(Array(batch.prefix(ReceivedNotificationGrouper.maxPaths)))
     }
 }
 

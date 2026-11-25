@@ -11,11 +11,24 @@ enum TransferKind: Equatable {
     static func of(name: String, isFolder: Bool) -> TransferKind {
         if isFolder { return .folder }
         let ext = (name as NSString).pathExtension.lowercased()
-        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return .document }
-        if type.conforms(to: .image) { return .photo }
-        if type.conforms(to: .movie) || type.conforms(to: .video) { return .video }
-        return .document
+        guard !ext.isEmpty else { return .document }
+        kindsLock.lock()
+        defer { kindsLock.unlock() }
+        if let known = kinds[ext] { return known }
+        let kind: TransferKind
+        if let type = UTType(filenameExtension: ext) {
+            kind = type.conforms(to: .image) ? .photo : (type.conforms(to: .movie) || type.conforms(to: .video)) ? .video : .document
+        } else {
+            kind = .document
+        }
+        // A history of 2,000 entries asks for the same few extensions each time it is rebuilt.
+        if kinds.count >= 512 { kinds.removeAll() }
+        kinds[ext] = kind
+        return kind
     }
+
+    private static var kinds: [String: TransferKind] = [:]
+    private static let kindsLock = NSLock()
 
     var isMedia: Bool { self == .photo || self == .video }
 }
@@ -238,6 +251,36 @@ enum TransferDays {
     }
 }
 
+/// One line of the history list, in order: a day's title, a row of the day's media grid, or a history row. The list is
+/// lazy over these, so only the lines on screen are built, however long the history.
+enum TransferHistoryLine: Identifiable, Equatable {
+    case title(id: String, text: String)
+    /// `last`: the grid's last row, which has the gap before the day's rows under it.
+    case grid(id: String, items: [TransferItem], last: Bool)
+    case row(TransferItem)
+
+    var id: String {
+        switch self {
+        case let .title(id, _), let .grid(id, _, _): id
+        case let .row(item): item.id
+        }
+    }
+
+    static func lines(_ days: [TransferDay], columns: Int) -> [TransferHistoryLine] {
+        let columns = max(1, columns)
+        var lines: [TransferHistoryLine] = []
+        for day in days {
+            lines.append(.title(id: day.id, text: day.title))
+            let rows = stride(from: 0, to: day.media.count, by: columns).map { Array(day.media[$0..<min($0 + columns, day.media.count)]) }
+            for (index, row) in rows.enumerated() {
+                lines.append(.grid(id: "\(day.id)-grid-\(row[0].id)", items: row, last: index == rows.count - 1))
+            }
+            lines.append(contentsOf: day.rows.map(TransferHistoryLine.row))
+        }
+        return lines
+    }
+}
+
 /// "Today: 418 MB moved, fastest 38.2 MB/s", from the history. Nil when nothing moved today.
 enum TransferTotals {
     static func today(_ entries: [TransferHistoryEntry], now: Date, calendar: Calendar = .current) -> (bytes: Int64, fastest: Double?)? {
@@ -345,6 +388,81 @@ struct TransferLive: Identifiable, Equatable {
     /// "photos" when every file seen so far is a photo or video.
     private static func allPhotos(_ recent: [String]) -> Bool {
         !recent.isEmpty && recent.allSatisfy { TransferKind.of(name: $0, isFolder: false).isMedia }
+    }
+}
+
+// MARK: - Coalescing
+
+/// Runs its work at most once per `interval`. The first signal after a quiet spell runs on the next turn of the run
+/// loop; signals inside the interval wait for its end and run once, together. The Transfers window redraws from it
+/// at most five times a second, however often transfers report progress.
+@MainActor
+final class TransfersCoalescer {
+    typealias Schedule = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Void
+
+    nonisolated static let interval: TimeInterval = 0.2
+
+    private let interval: TimeInterval
+    private let clock: () -> TimeInterval
+    private let schedule: Schedule
+    private let work: () -> Void
+    private var pending = false
+    private var lastRun = -TimeInterval.infinity
+
+    init(interval: TimeInterval = TransfersCoalescer.interval, clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         schedule: @escaping Schedule = TransfersCoalescer.onMainQueue, work: @escaping () -> Void) {
+        self.interval = interval
+        self.clock = clock
+        self.schedule = schedule
+        self.work = work
+    }
+
+    /// Something changed: the work runs once, on the next turn or at the end of the interval.
+    func signal() {
+        guard !pending else { return }
+        pending = true
+        schedule(max(0, lastRun + interval - clock())) { [weak self] in self?.fire() }
+    }
+
+    private func fire() {
+        guard pending else { return }
+        pending = false
+        lastRun = clock()
+        work()
+    }
+
+    nonisolated static func onMainQueue(_ delay: TimeInterval, _ block: @escaping @MainActor () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { block() } }
+    }
+}
+
+/// When a transfer brings the Transfers window forward by itself: the first of a run of transfers. A phone sends
+/// files one after another with short gaps between them, so a run ends only after `idle` seconds with nothing moving
+/// or waiting; within a run, more files leave the window (and the app in front) as they are, closed included.
+struct TransfersAutoShow {
+    static let idle: TimeInterval = 10
+
+    private var active = false
+    private var idleSince: TimeInterval?
+    private var newRun = true
+
+    /// Whether anything is moving or waiting (the coordinator's `fileTransferActive`).
+    mutating func activeChanged(_ value: Bool, at now: TimeInterval) {
+        guard value != active else { return }
+        active = value
+        if !value {
+            idleSince = now
+        } else if let idleSince, now - idleSince >= Self.idle {
+            newRun = true
+        }
+    }
+
+    /// A transfer starts: true when it is the first of a run, so the window comes forward.
+    mutating func transferStarted(at now: TimeInterval) -> Bool {
+        if !active, let idleSince, now - idleSince >= Self.idle { newRun = true }
+        guard newRun else { return false }
+        newRun = false
+        return true
     }
 }
 
