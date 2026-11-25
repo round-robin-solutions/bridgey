@@ -885,6 +885,8 @@
 "settings.folders.conflict.replace" = "Replace files";
 "settings.folders.conflict.newFolder" = "Save as new folder";
 "settings.files.tag" = "Tag received files in Finder";
+"settings.files.autoResume" = "Resume interrupted files automatically";
+"files.resume.checking" = "Checking the part of %@ already received…";
 "settings.files.tag.detail" = "Adds the Bridgey tag, so Finder can list everything received from other devices.";
 "settings.phoneFiles.quality" = "Copy and download from the phone";
 "settings.phoneFiles.quality.note" = "Optimised uses the Before sending sizes. If those are set to original size, photos go to 2048 px and videos to 1080p. Files that would not get smaller stay as they are.";
