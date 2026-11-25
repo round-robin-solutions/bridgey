@@ -173,6 +173,21 @@ PY
   rm -rf "$tmp"
 }
 
+# Brings the simulator service and this run's simulator back after the service failed. On a GitHub-hosted runner (a
+# throwaway machine) every simulator stops and the service is killed, which launchd restarts. Anywhere else (an owned
+# Mac, including RR CI's fallback to one) only this run's simulator is restarted, so other simulators are left alone.
+restart_simulator() {
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    xcrun simctl shutdown all >/dev/null 2>&1 || true
+    killall -9 com.apple.CoreSimulator.CoreSimulatorService >/dev/null 2>&1 || true
+    sleep 5
+  else
+    xcrun simctl shutdown "$1" >/dev/null 2>&1 || true
+  fi
+  xcrun simctl boot "$1" >/dev/null 2>&1 || true
+  xcrun simctl bootstatus "$1" -b > /dev/null || true
+}
+
 run_tests() {
   label=$1 sim=$2; shift 2
   bundle="$RESULTS/$label.xcresult"
@@ -180,11 +195,19 @@ run_tests() {
   echo "> xcodebuild test-without-building ($label)"
   xcodebuild test-without-building -project "$IOS/Bridgey.xcodeproj" -scheme Bridgey -destination "id=$sim" \
     -derivedDataPath "$BUILD" -resultBundlePath "$bundle" "$@" > "$LOGS/test-$label.log" 2>&1 || status=$?
-  # A new simulator's first UI test can stall the test runner while it loads accessibility, before any test
-  # runs (XCTWaiter handleStalledWait). That one case is tried once more, and said so; test failures are not.
+  # Two cases are tried once more, and said so; test failures are not. A new simulator's first UI test can stall the
+  # test runner while it loads accessibility, before any test runs (XCTWaiter handleStalledWait). And on GitHub's
+  # macOS runner the simulator service can fall over mid-job ("simulator runtime is not available", Mach error -308).
+  retry=""
   if [ "$status" != 0 ] && grep -q "test runner crashed while preparing to run tests" "$LOGS/test-$label.log"; then
-    echo "note: the test runner crashed before any test ran ($label); trying once more"
-    mv "$LOGS/test-$label.log" "$LOGS/test-$label-runner-crash.log"
+    retry="the test runner crashed before any test ran"
+  elif [ "$status" != 0 ] && grep -Eq "simulator runtime is not available|runtime path not found|Mach error -308|CoreSimulatorService" "$LOGS/test-$label.log"; then
+    retry="the simulator service failed"
+    restart_simulator "$sim"
+  fi
+  if [ -n "$retry" ]; then
+    echo "note: $retry ($label); trying once more"
+    mv "$LOGS/test-$label.log" "$LOGS/test-$label-retry.log"
     rm -rf "$bundle"
     status=0
     xcodebuild test-without-building -project "$IOS/Bridgey.xcodeproj" -scheme Bridgey -destination "id=$sim" \
@@ -227,6 +250,8 @@ if [ "$UI_TESTS" = 1 ]; then
 
   if [ "$IPAD" = 1 ]; then
     step "iPad: screenshots"
+    # One simulator at a time: GitHub's macOS runner (3 CPUs, 7 GB) lost its simulator service with two booted.
+    xcrun simctl shutdown "$IPHONE" >/dev/null 2>&1 || true
     IPAD_SIM=$(new_simulator "iPad" "${IOS_IPAD_TYPE:-}")
     SIMS="$SIMS $IPAD_SIM"
     xcrun simctl list devices | grep "$IPAD_SIM" | sed 's/^ */simulator: /'
