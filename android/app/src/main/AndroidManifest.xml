@@ -185,6 +185,12 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:taskAffinity="${applicationId}.camera" />
+        <!-- See Mac screens: the viewer. configChanges keeps its surface and decoder when the phone rotates. -->
+        <activity
+            android:name=".display.MacScreenActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|navigation"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
         <!-- Share screen with Macs: opens Android's capture dialog; a fresh consent every time. -->
         <activity
             android:name=".screen.ScreenConsentActivity"

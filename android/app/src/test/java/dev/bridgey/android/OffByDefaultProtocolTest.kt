@@ -18,6 +18,8 @@ class OffByDefaultProtocolTest {
         val decoded = decodeFeatureState(payload)
         assertTrue(decoded.toString(), decoded is FeatureStateDecoding.State)
         decoded as FeatureStateDecoding.State
-        assertEquals(BridgeyFeature.entries.associateWith { false }, decoded.features)
+        // Keys read outside this map (FLAG_FEATURE_KEYS, decodeFeatureFlag) are checked where they are read.
+        assertEquals(BridgeyFeature.entries.filter { it.key !in FLAG_FEATURE_KEYS }.associateWith { false }, decoded.features)
+        assertTrue(FLAG_FEATURE_KEYS.none { decodeFeatureFlag(payload, it) })
     }
 }

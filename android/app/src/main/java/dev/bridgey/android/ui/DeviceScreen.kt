@@ -129,6 +129,8 @@ class DeviceActions(
     val sendText: (String) -> Unit = {},
     /** Opens the touchpad and presentation remote for this Mac. */
     val remoteControl: () -> Unit = {},
+    /** Opens this Mac's screen on the phone (Mac screen to phone). */
+    val seeScreen: () -> Unit = {},
     /** Opens Android's consent dialog to share this phone's screen with this Mac. */
     val shareScreen: () -> Unit = {},
     val stopScreen: () -> Unit = {},
@@ -172,6 +174,10 @@ fun DeviceScreen(
             // Only while both devices allow it: this Mac granted this phone, and it is on here.
             if (BridgeyFeature.REMOTE_INPUT in state.available) {
                 RemoteControlEntry(actions.remoteControl, Modifier.padding(top = 8.dp))
+            }
+            // Only while both allow it: See Mac screens here, and this Mac lets the phone see its screen.
+            if (BridgeyFeature.SCREEN_CONTROL in state.available) {
+                MacScreenEntry(state.ring.name, actions.seeScreen, Modifier.padding(top = 8.dp))
             }
             // Only while both devices allow it: Share screen with Macs here, Show phone screens on the Mac.
             if (BridgeyFeature.SCREEN in state.available || state.screen?.active == true) {
@@ -359,6 +365,24 @@ private fun RemoteControlEntry(onClick: () -> Unit, modifier: Modifier = Modifie
             title = stringResource(R.string.remote_entry_title),
             detail = stringResource(R.string.remote_entry_detail),
             icon = BridgeyIcons.Mouse,
+            tint = Tint.BLUE,
+            compact = true,
+            onClick = onClick,
+            role = Role.Button,
+            searchable = false,
+        ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
+    }
+}
+
+/** See screen: this Mac's screen on the phone, in its own viewer. */
+@Composable
+private fun MacScreenEntry(macName: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.padding(horizontal = 16.dp)) {
+        ListRow(
+            shape = RoundedCornerShape(24.dp),
+            title = stringResource(R.string.display_entry_title),
+            detail = stringResource(R.string.display_entry_detail, macName),
+            icon = BridgeyIcons.DesktopMac,
             tint = Tint.BLUE,
             compact = true,
             onClick = onClick,
@@ -568,6 +592,7 @@ fun permissionVisual(feature: BridgeyFeature): Pair<ImageVector, Tint> = when (f
     BridgeyFeature.SMS -> BridgeyIcons.Sms to Tint.GREEN
     BridgeyFeature.CALL_QUIET -> BridgeyIcons.MusicNote to Tint.BLUE
     BridgeyFeature.DIALER -> BridgeyIcons.Call to Tint.GREEN
+    BridgeyFeature.SCREEN_CONTROL -> BridgeyIcons.DesktopMac to Tint.BLUE
 }
 
 @Composable
@@ -588,6 +613,7 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.SMS -> R.string.feature_sms
         BridgeyFeature.CALL_QUIET -> R.string.call_quiet_title
         BridgeyFeature.DIALER -> R.string.dialer_title
+        BridgeyFeature.SCREEN_CONTROL -> R.string.feature_screen_control
     },
 )
 
@@ -612,6 +638,7 @@ private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): Strin
     BridgeyFeature.SMS -> stringResource(R.string.feature_sms_device_detail, state.ring.name)
     BridgeyFeature.CALL_QUIET -> stringResource(R.string.call_quiet_device_detail, state.ring.name)
     BridgeyFeature.DIALER -> stringResource(R.string.dialer_device_detail, state.ring.name)
+    BridgeyFeature.SCREEN_CONTROL -> stringResource(R.string.feature_screen_control_detail, state.ring.name)
 }
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */
