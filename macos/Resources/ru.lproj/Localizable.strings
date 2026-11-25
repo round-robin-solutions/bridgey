@@ -885,6 +885,8 @@
 "settings.folders.conflict.replace" = "Заменить файлы";
 "settings.folders.conflict.newFolder" = "Сохранить как новую папку";
 "settings.files.tag" = "Помечать полученные файлы в Finder";
+"settings.files.autoResume" = "Автоматически продолжать прерванные файлы";
+"files.resume.checking" = "Проверка уже полученной части %@…";
 "settings.files.tag.detail" = "Добавляет тег Bridgey, чтобы Finder мог показать всё полученное с других устройств.";
 "settings.phoneFiles.quality" = "Копирование и загрузка с телефона";
 "settings.phoneFiles.quality.note" = "Оптимизация берёт размеры из «Перед отправкой». Если там выбран исходный размер, фото уменьшаются до 2048 пикс., а видео до 1080p. Файлы, которые не станут меньше, остаются как есть.";

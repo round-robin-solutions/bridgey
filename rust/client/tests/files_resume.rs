@@ -200,6 +200,42 @@ fn resumes_after_the_receiver_restarts_with_json_chunks() {
     finish(p);
 }
 
+/// The receiver's re-read of its partial takes longer than the sender's whole answer window. Its `files.resume.wait`
+/// messages keep the sender waiting, so the sender never cancels (which would cost the partial) and the file resumes.
+#[test]
+fn a_reread_longer_than_the_answer_window_keeps_the_sender_waiting() {
+    let p = setup("slow-check");
+    let t = send_until_cut(&p);
+    receiver_drops(&p, t);
+    // A one-second window, waits every 250 ms, and a re-read held back for two and a half windows.
+    p.a.client.set_resume_timing_for_tests(Duration::from_secs(1), Duration::ZERO);
+    p.b.client.set_resume_timing_for_tests(Duration::from_secs(1), Duration::from_millis(2500));
+    features_seen(&p.a, &p.b, RESUME, Some(true));
+    assert_eq!(send_again(&p), 3 * MIB, "resumed after the slow re-read, not cancelled at the window");
+    finish(p);
+}
+
+/// Without the receiver's waits (its wait interval is longer than its re-read), the sender gives up when its window
+/// runs out and cancels, as the protocol says, and the cancel takes the partial with it: what the waits prevent.
+#[test]
+fn a_sender_that_hears_nothing_gives_up_at_its_window() {
+    let p = setup("no-wait");
+    let t = send_until_cut(&p);
+    receiver_drops(&p, t);
+    p.a.client.set_resume_timing_for_tests(Duration::from_millis(500), Duration::ZERO);
+    // Waits every 2.5 s (a quarter of 10 s): none before the sender's half-second window ends.
+    p.b.client.set_resume_timing_for_tests(Duration::from_secs(10), Duration::from_millis(1500));
+    features_seen(&p.a, &p.b, RESUME, Some(true));
+    p.a.client.set_send_limit_for_tests(0);
+    p.a.clear();
+    p.b.clear();
+    let t = p.a.client.send_file(&p.b.id(), &p.source, None, None).unwrap();
+    assert_eq!(ended(&p.a, "sender gave up", Some(t), false), Err("not_accepted".into()));
+    assert_eq!(ended(&p.b, "receiver told", None, true), Err("cancelled_remote".into()));
+    assert!(part_files(&p.db).is_empty() && records(&p.storage_b).is_empty());
+    finish(p);
+}
+
 #[test]
 fn a_whole_file_kept_completes_without_a_chunk() {
     let p = setup("whole");

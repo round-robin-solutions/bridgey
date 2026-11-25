@@ -44,4 +44,7 @@ enum TestInstance {
     /// The listening port; nil keeps 42458.
     static let port: UInt16? = enabled ? (Bundle.main.object(forInfoDictionaryKey: "BridgeyTestPort") as? NSNumber)?.uint16Value : nil
     static var listeningPort: UInt16 { port ?? 42_458 }
+    /// Its own Bonjour type (`BridgeyTestServiceType`, such as `_bridgeyst._tcp.`), so no real Bridgey on the network
+    /// lists it and it lists none of them; nil keeps `_bridgey._tcp.`.
+    static let serviceType: String? = enabled ? (Bundle.main.object(forInfoDictionaryKey: "BridgeyTestServiceType") as? String).flatMap { $0.hasPrefix("_") ? $0 : nil } : nil
 }

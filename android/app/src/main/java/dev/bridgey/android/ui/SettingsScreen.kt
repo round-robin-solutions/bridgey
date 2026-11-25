@@ -575,6 +575,7 @@ private fun FilesPage(state: SettingsState, actions: SettingsActions, listState:
             Column {
                 RowGroup(Modifier.padding(top = 8.dp)) {
                     featureRows(BridgeyFeature.FILES, state, actions)
+                    if (filesOn) autoResumeRow(state.folders, actions.folders)
                     if (filesOn && state.folders.supported) folderRows(state.folders, actions.folders, state.sync, actions.sync)
                 }
                 if (filesOn && state.folders.supported) {

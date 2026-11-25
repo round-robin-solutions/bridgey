@@ -247,6 +247,8 @@ enum SettingsSearchRegistry {
             // Files
             feature(.files, .files, files),
             row("files.received", .files, L10n.text("settings.receivedFiles", fallback: "Received files"), nil, files + ["download", "save", "папка"]),
+            row("files.autoResume", .files, L10n.text("settings.files.autoResume", fallback: "Resume interrupted files automatically"), nil,
+                ["resume", "continue", "retry", "interrupted", "продолжить", "прерванные"]),
             row("files.hidden", .files, L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
                 L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
                 ["dotfiles", "hidden", "скрытые"], sync: .folderIncludeHidden),

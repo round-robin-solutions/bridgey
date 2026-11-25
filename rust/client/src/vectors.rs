@@ -200,56 +200,83 @@ mod files {
 
     /// Forwards one connection, splitting each direction into JSON lines and binary frames as it goes.
     pub(super) fn proxy(target: u16) -> (u16, Recording) {
-        use std::io::Read;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let frames: Recording = Arc::default();
         let log = frames.clone();
         std::thread::spawn(move || {
             let (inbound, _) = listener.accept().unwrap();
-            let outbound = TcpStream::connect(("127.0.0.1", target)).unwrap();
-            let pipe = |from: TcpStream, mut to: TcpStream, side: &'static str, log: Recording| {
-                std::thread::spawn(move || {
-                    let mut r = BufReader::new(from);
-                    loop {
-                        let first = match r.fill_buf() {
-                            Ok([]) | Err(_) => return,
-                            Ok(b) => b[0],
-                        };
-                        let wire = if first == fast::MARKER {
-                            let mut header = [0u8; fast::HEADER];
-                            if r.read_exact(&mut header).is_err() {
-                                return;
-                            }
-                            let len = fast::body_length(&header).expect("a valid binary frame");
-                            let mut frame = header.to_vec();
-                            frame.resize(fast::HEADER + len, 0);
-                            if r.read_exact(&mut frame[fast::HEADER..]).is_err() {
-                                return;
-                            }
-                            Wire::Binary(frame)
-                        } else {
-                            let mut line = String::new();
-                            if r.read_line(&mut line).unwrap_or(0) == 0 {
-                                return;
-                            }
-                            Wire::Line(line.trim_end_matches('\n').to_string())
-                        };
-                        let bytes = match &wire {
-                            Wire::Line(l) => format!("{l}\n").into_bytes(),
-                            Wire::Binary(b) => b.clone(),
-                        };
-                        log.lock().unwrap().push((side.to_string(), wire));
-                        if to.write_all(&bytes).is_err() {
-                            return;
-                        }
-                    }
-                })
-            };
-            pipe(inbound.try_clone().unwrap(), outbound.try_clone().unwrap(), "initiator", log.clone());
-            pipe(outbound, inbound, "responder", log);
+            relay(inbound, target, log);
         });
         (port, frames)
+    }
+
+    /// Forwards every connection it takes, each recorded on its own, in the order they came.
+    pub(super) fn proxy_each(target: u16) -> (u16, Arc<Mutex<Vec<Recording>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let all: Arc<Mutex<Vec<Recording>>> = Arc::default();
+        let list = all.clone();
+        std::thread::spawn(move || {
+            for inbound in listener.incoming() {
+                let Ok(inbound) = inbound else { return };
+                let log: Recording = Arc::default();
+                list.lock().unwrap().push(log.clone());
+                relay(inbound, target, log);
+            }
+        });
+        (port, all)
+    }
+
+    fn relay(inbound: TcpStream, target: u16, log: Recording) {
+        use std::io::Read;
+        let Ok(outbound) = TcpStream::connect(("127.0.0.1", target)) else { return };
+        // Each frame goes on at once: with Nagle's algorithm and Windows' delayed acknowledgements, a run of small
+        // frames (a thousand 1 KB chunks) would wait up to 200 ms each.
+        let _ = inbound.set_nodelay(true);
+        let _ = outbound.set_nodelay(true);
+        let pipe = |from: TcpStream, mut to: TcpStream, side: &'static str, log: Recording| {
+            std::thread::spawn(move || {
+                let mut r = BufReader::new(from);
+                loop {
+                    let first = match r.fill_buf() {
+                        Ok([]) | Err(_) => break,
+                        Ok(b) => b[0],
+                    };
+                    let wire = if first == fast::MARKER {
+                        let mut header = [0u8; fast::HEADER];
+                        if r.read_exact(&mut header).is_err() {
+                            break;
+                        }
+                        let len = fast::body_length(&header).expect("a valid binary frame");
+                        let mut frame = header.to_vec();
+                        frame.resize(fast::HEADER + len, 0);
+                        if r.read_exact(&mut frame[fast::HEADER..]).is_err() {
+                            break;
+                        }
+                        Wire::Binary(frame)
+                    } else {
+                        let mut line = String::new();
+                        if r.read_line(&mut line).unwrap_or(0) == 0 {
+                            break;
+                        }
+                        Wire::Line(line.trim_end_matches('\n').to_string())
+                    };
+                    let bytes = match &wire {
+                        Wire::Line(l) => format!("{l}\n").into_bytes(),
+                        Wire::Binary(b) => b.clone(),
+                    };
+                    log.lock().unwrap().push((side.to_string(), wire));
+                    if to.write_all(&bytes).is_err() {
+                        break;
+                    }
+                }
+                // One side ended: the other goes too, as a dropped connection would.
+                let _ = to.shutdown(std::net::Shutdown::Both);
+            })
+        };
+        pipe(inbound.try_clone().unwrap(), outbound.try_clone().unwrap(), "initiator", log.clone());
+        pipe(outbound, inbound, "responder", log);
     }
 
     fn temp(tag: &str) -> std::path::PathBuf {
@@ -698,6 +725,216 @@ mod quick {
 
     #[test]
     fn a_fresh_quick_recording_checks() {
+        check(&record());
+    }
+}
+
+/// `protocol/test-vectors/session-client-resume-v1.json`: resuming a file (files_resume_draft1) between two session
+/// clients. A first session (not recorded) cuts a file after its first 1 MiB block and drops; the recorded session is
+/// the reconnect, where the same file is offered again `resumable`, the receiver says it is still re-reading its
+/// partial (`files.resume.wait`), answers `files.resume` with 1 MiB and its SHA-256, the sender agrees
+/// (`files.resume.ack`) and only the rest travels, in binary frames numbered from 0. The Android and Mac suites open
+/// every frame with their own code and check the resume messages with their own decoders. `BRIDGEY_WRITE_VECTORS=resume`
+/// records it.
+mod resume {
+    use super::files::{proxy_each, Wire};
+    use super::*;
+    use crate::{fast, resume};
+
+    const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../protocol/test-vectors/session-client-resume-v1.json");
+    const NAME: &str = "resume.bin";
+    /// One block and a short tail: the recorded session carries only the tail.
+    const SIZE: usize = 1024 * 1024 + 5000;
+    const CHUNK: usize = 1000;
+
+    fn pattern() -> Vec<u8> {
+        (0..SIZE).map(|i| (i * 31 % 251) as u8).collect()
+    }
+
+    fn connected(e: &Event) -> bool {
+        matches!(e, Event::Features { remote, .. } if remote.get("files") && remote.get(resume::FEATURE))
+    }
+
+    fn record() -> Value {
+        let start = |name: &str, manual: bool| {
+            let mut c = Config::new(name, "windows");
+            c.port = 0;
+            c.discovery = false;
+            // The receiver never dials, so the reconnect goes through the recording proxy.
+            c.manual_connect = manual;
+            c.defaults.set("files", true);
+            Client::start(c, Arc::new(MemoryStorage::default())).unwrap()
+        };
+        let (a, b) = (start("Vector sender", false), start("Vector receiver", true));
+        let dir = std::env::temp_dir().join(format!("bridgey-vector-resume-{}", crypto::uuid4()));
+        let (send_dir, receive_dir) = (dir.join("send"), dir.join("receive"));
+        std::fs::create_dir_all(&send_dir).unwrap();
+        b.set_receive_dir(Some(&receive_dir));
+        b.allow_pairing(Duration::from_secs(60));
+        a.set_chunk_size_for_tests(CHUNK);
+        let source = send_dir.join(NAME);
+        std::fs::write(&source, pattern()).unwrap();
+        let (port, connections) = proxy_each(b.port());
+        a.pair(None, Some("127.0.0.1"), port).unwrap();
+        let b_thread = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            wait(&b, connected, &mut seen);
+            b
+        });
+        let mut seen = Vec::new();
+        wait(&a, connected, &mut seen);
+        let b = b_thread.join().unwrap();
+        let peer = seen.iter().find_map(|e| if let Event::Connected { device_id, .. } = e { Some(device_id.clone()) } else { None }).unwrap();
+        // First attempt: stops two chunks past the first block, so the receiver keeps 1 MiB.
+        a.set_send_limit_for_tests(1024 * 1024 + 2 * CHUNK as u64);
+        a.send_file(&peer, &source, None, None).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let has_part = |len: u64| {
+            // std::fs::metadata, not the directory entry's: Windows keeps an entry's size stale while the file is open.
+            std::fs::read_dir(&receive_dir).into_iter().flatten().flatten().any(|e| e.path().to_string_lossy().ends_with(".part") && std::fs::metadata(e.path()).is_ok_and(|m| m.len() >= len))
+        };
+        while !has_part(1024 * 1024 + 2 * CHUNK as u64) {
+            assert!(Instant::now() < deadline, "the first attempt never reached the cut");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        b.set_lan_for_tests(false);
+        seen.clear();
+        wait(&a, |e| matches!(e, Event::FileFailed { incoming: false, .. }), &mut seen);
+        // The recorded session: the receiver re-reads slowly enough to send files.resume.wait, then resumes.
+        a.set_send_limit_for_tests(0);
+        a.set_resume_timing_for_tests(Duration::from_millis(800), Duration::ZERO);
+        b.set_resume_timing_for_tests(Duration::from_millis(800), Duration::from_millis(500));
+        b.set_lan_for_tests(true);
+        let b_thread = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            wait(&b, |e| matches!(e, Event::FileDone { incoming: true, .. }), &mut seen);
+            b
+        });
+        a.network_changed();
+        seen.clear();
+        wait(&a, connected, &mut seen);
+        a.send_file(&peer, &source, None, None).unwrap();
+        wait(&a, |e| matches!(e, Event::FileDone { incoming: false, .. }), &mut seen);
+        let b = b_thread.join().unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        a.stop();
+        b.stop();
+        assert_eq!(std::fs::read(receive_dir.join(NAME)).unwrap(), pattern());
+        let _ = std::fs::remove_dir_all(dir);
+        let recorded = connections.lock().unwrap().last().cloned().expect("a reconnect");
+        let frames: Vec<(String, Wire)> = recorded.lock().unwrap().iter().filter(|(_, w)| !matches!(w, Wire::Line(l) if l.contains("\"heartbeat."))).cloned().collect();
+        let Wire::Line(first) = &frames[0].1 else { panic!("the offer comes first") };
+        let offer = Message::decode(first.as_bytes()).unwrap();
+        let (_, prk, key) = KEYLOG.lock().unwrap().iter().find(|(s, ..)| *s == offer.session_id).cloned().unwrap();
+        let data = pattern();
+        json!({
+            "version": 1,
+            "description": "Resuming a file (files_resume_draft1) between two Bridgey session clients (rust/client), recorded on the wire. A first session, not recorded, sent the file's first 1 MiB and a little more and dropped; the receiver kept its first 1 MiB block. This is the reconnect: features.update both ways with files_resume_draft1, the same file offered again with resumable: true under a new transferId, files.resume.wait from the receiver while it re-reads its partial (held back on purpose), files.resume with offset 1048576 and the SHA-256 of those bytes, files.resume.ack with the same offset, then only the file's last 5000 bytes as binary frames of 1000 bytes numbered from 0 (each acknowledged), files.complete and files.complete.ack. The file is 'size' bytes, byte i is (i * 31) mod 251. Each frame is a JSON line ('line') or a whole binary frame ('binaryBase64'). Heartbeats are left out. prk and sessionKey come from the test key log. Generated by rust/client/src/vectors.rs.",
+            "prk": crypto::b64(&prk),
+            "sessionKey": crypto::b64(&key),
+            "file": {"name": NAME, "size": SIZE, "pattern": "byte i is (i * 31) mod 251", "sha256": crypto::b64(ring::digest::digest(&ring::digest::SHA256, &data).as_ref())},
+            "resumeAt": resume::BLOCK,
+            "frames": frames.iter().map(|(from, w)| match w {
+                Wire::Line(l) => json!({"from": from, "line": l}),
+                Wire::Binary(b) => json!({"from": from, "binaryBase64": crypto::b64(b)}),
+            }).collect::<Vec<_>>(),
+        })
+    }
+
+    /// Checks the recorded resume as each end would: tags, the resumable offer, files.resume.wait before the answer,
+    /// files.resume and its prefix hash against the file, the agreed files.resume.ack, chunks from 0 carrying exactly
+    /// the bytes after the offset, and the whole file's SHA-256.
+    fn check(v: &Value) {
+        let key: [u8; 32] = crypto::unb64(v["sessionKey"].as_str().unwrap()).unwrap().try_into().unwrap();
+        let prk: [u8; 32] = crypto::unb64(v["prk"].as_str().unwrap()).unwrap().try_into().unwrap();
+        assert_eq!(crypto::hmac_key(&prk), key);
+        let (envelope, frame_key) = (crypto::envelope_key(&key), fast::frame_key(&key));
+        let size = v["file"]["size"].as_u64().unwrap();
+        let data: Vec<u8> = (0..size as usize).map(|i| (i * 31 % 251) as u8).collect();
+        let sha = ring::digest::digest(&ring::digest::SHA256, &data);
+        assert_eq!(crypto::b64(sha.as_ref()), v["file"]["sha256"].as_str().unwrap());
+        let at = v["resumeAt"].as_u64().unwrap();
+        let mut ids = std::collections::HashMap::new();
+        let mut order = Vec::new();
+        let (mut transfer, mut chunks, mut resume_maps) = (None::<String>, Vec::new(), 0);
+        for f in v["frames"].as_array().unwrap() {
+            let from = f["from"].as_str().unwrap().to_string();
+            if let Some(line) = f["line"].as_str() {
+                let m = Message::decode(line.as_bytes()).expect("every JSON frame decodes");
+                if m.kind == "pairing.offer" || m.kind == "pairing.answer" {
+                    ids.insert(from.clone(), m.device_id.clone().unwrap());
+                }
+                if m.kind.starts_with("pairing.") {
+                    continue;
+                }
+                assert!(m.tag_matches(&envelope, &ids[&from]), "{} is tagged by its sender", m.kind);
+                let open = || crypto::decrypt(&key, m.nonce.as_deref().unwrap(), m.ciphertext.as_deref().unwrap()).unwrap();
+                order.push((from.clone(), m.kind.clone()));
+                match m.kind.as_str() {
+                    "features.update" => {
+                        let features::Decoded::State(map) = features::decode(&open()) else { panic!("features decode") };
+                        if map.get(resume::FEATURE) {
+                            resume_maps += 1;
+                        }
+                    }
+                    "files.offer" => {
+                        let p: Value = serde_json::from_slice(&open()).unwrap();
+                        assert_eq!(p["resumable"], Value::Bool(true), "offered resumable");
+                        assert_eq!((p["size"].as_u64(), p["sha256"].as_str()), (Some(size), v["file"]["sha256"].as_str()));
+                        transfer = m.transfer_id.clone();
+                    }
+                    "files.resume.wait" => {
+                        assert_eq!(from, "responder");
+                        assert!(m.ciphertext.is_none() && m.transfer_id == transfer, "outer only, for the offer");
+                    }
+                    "files.resume" => {
+                        let t = transfer.clone().unwrap();
+                        let (offset, prefix) = resume::parse_resume(&open(), &t, size).expect("a valid files.resume");
+                        assert_eq!(offset, at);
+                        assert_eq!(prefix.as_slice(), ring::digest::digest(&ring::digest::SHA256, &data[..at as usize]).as_ref());
+                    }
+                    "files.resume.ack" => {
+                        assert_eq!(resume::parse_ack(&open(), transfer.as_deref().unwrap(), at), Some(at), "the sender agrees");
+                    }
+                    "files.complete" => {
+                        let p: Value = serde_json::from_slice(&open()).unwrap();
+                        assert_eq!(p["sha256"].as_str(), v["file"]["sha256"].as_str());
+                    }
+                    _ => {}
+                }
+            } else {
+                let bytes = crypto::unb64(f["binaryBase64"].as_str().unwrap()).unwrap();
+                let header: [u8; fast::HEADER] = bytes[..fast::HEADER].try_into().unwrap();
+                let frame = fast::open_body(header[1], &bytes[fast::HEADER..], &frame_key, &ids[&from]).expect("the binary frame opens under its sender");
+                assert_eq!(Some(&frame.id), transfer.as_ref());
+                order.push((from, "binary".into()));
+                chunks.push((frame.sequence, frame.plaintext));
+            }
+        }
+        assert_eq!(resume_maps, 2, "both ends show files_resume_draft1");
+        let position = |kind: &str| order.iter().position(|(_, k)| k == kind).unwrap_or_else(|| panic!("{kind} was recorded"));
+        let (offered, waited, resumed, acked, first_chunk, completed) =
+            (position("files.offer"), position("files.resume.wait"), position("files.resume"), position("files.resume.ack"), position("binary"), position("files.complete.ack"));
+        assert!(offered < waited && waited < resumed && resumed < acked && acked < first_chunk && first_chunk < completed);
+        assert!(!order.iter().any(|(_, k)| k == "files.accept"), "files.resume instead of files.accept");
+        assert!(chunks.iter().enumerate().all(|(i, c)| c.0 == i as u64), "sequences from 0");
+        let tail: Vec<u8> = chunks.into_iter().flat_map(|c| c.1).collect();
+        assert_eq!(tail, data[at as usize..], "only the bytes after the offset travel");
+    }
+
+    #[test]
+    fn recorded_resume_vector() {
+        if writes("resume") {
+            let v = record();
+            check(&v);
+            std::fs::write(PATH, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(PATH).unwrap()).unwrap();
+        check(&v);
+    }
+
+    #[test]
+    fn a_fresh_resume_recording_checks() {
         check(&record());
     }
 }

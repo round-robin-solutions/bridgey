@@ -50,6 +50,7 @@
     <string name="settings_folder_send_note">These apply to folders this phone sends and to folders a Mac downloads from it.</string>
     <string name="settings_allow_browse">Let other devices browse this phone</string>
     <string name="settings_allow_browse_detail">Paired devices with File transfer on can see your places, recent documents and the photos and videos you allowed, and download them. They change nothing</string>
+    <string name="settings_auto_resume">Resume interrupted files automatically</string>
     <string name="settings_folders_note_browse">Folders need Android 10 or newer. With browsing on, paired devices can see and download what is in your places; they change files only with your permission.</string>
     <string name="places_intro_browse">Folders Bridgey may save into. Paired devices can browse and download what is inside them; changing files needs Allow other devices to change files here.</string>
 

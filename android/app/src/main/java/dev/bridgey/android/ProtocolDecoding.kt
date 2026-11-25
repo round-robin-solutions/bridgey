@@ -270,7 +270,7 @@ internal sealed interface FeatureStateDecoding {
  * Automation (v0.9): mac_actions_draft1, links_open_draft1, focus_sync_draft1 and camera_draft1. Update all:
  * updates_draft1. Screen sharing (v0.9): screen_draft1, a switch here like the camera. Text messages: sms_draft1
  * (a switch here too). Settings sync (v0.10): settings_sync_draft1. Connect anywhere: connect_draft1. Fast transfers:
- * files_fast_draft1. Codes from email: email_codes_draft1. Agent devices: agent_draft1, notify_draft1, ask_draft1,
+ * files_fast_draft1, then resuming files files_resume_draft1. Codes from email: email_codes_draft1. Agent devices: agent_draft1, notify_draft1, ask_draft1,
  * clipboard_request_draft1, agent_codes_draft1, agents_mirror_draft1, then codes_detect_draft1, call_quiet_draft1,
  * notification_routing_draft1 and dialer_draft1 (the Calls window), last. Connection health has no key (no wire
  * change). The Mac has the same list in the same order.
@@ -285,8 +285,9 @@ internal val KNOWN_DRAFT_FEATURE_KEYS = listOf(
     SMS_FEATURE_KEY,
     SETTINGS_SYNC_FEATURE_KEY,
     dev.bridgey.android.connect.CONNECT_FEATURE_KEY,
-    // Fast transfers (FastTransfer.kt).
+    // Fast transfers (FastTransfer.kt), then resuming files (FileResume.kt) right after it.
     FILES_FAST_FEATURE_KEY,
+    FILES_RESUME_FEATURE_KEY,
     // Codes from email (docs/codes-from-email.md).
     dev.bridgey.android.codes.EMAIL_CODES_FEATURE_KEY,
     // Agent devices (docs/protocol.md, agent devices), last, in this order on both platforms.

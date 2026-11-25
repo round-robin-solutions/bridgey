@@ -358,7 +358,7 @@ enum FeatureStateDecoding: Equatable {
 /// Files 2.0 (BrowseMessages.swift): the Mac reads files_browse_draft1 (the phone serves browsing); it reads
 /// folders_receive_draft1 too, so both platforms decode the golden vectors alike, though only phones act on it.
 /// Update all (UpdateAllProtocol.swift) adds updates_draft1, then screen sharing screen_draft1, text messages sms_draft1
-/// settings sync settings_sync_draft1, fast transfers files_fast_draft1, codes from email email_codes_draft1 and
+/// settings sync settings_sync_draft1, fast transfers files_fast_draft1 and files_resume_draft1, codes from email email_codes_draft1 and
 /// the six agent device keys, then codes_detect_draft1 (last). Android has the same list in the same order.
 let knownDraftFeatureKeys = ["device_presence_draft1", "share_receive_draft1", clipboardFilesFeatureKey, foldersFeatureKey, placesFeatureKey, smsCodesFeatureKey,
                              foldersReceiveFeatureKey, filesBrowseFeatureKey,
@@ -373,8 +373,8 @@ let knownDraftFeatureKeys = ["device_presence_draft1", "share_receive_draft1", c
                              settingsSyncFeatureKey,
                              // Connect anywhere (ConnectProtocol.swift).
                              connectFeatureKey,
-                             // Fast transfers (FastTransfer.swift).
-                             filesFastFeatureKey,
+                             // Fast transfers (FastTransfer.swift), then resuming files (FileResume.swift).
+                             filesFastFeatureKey, FileResume.featureKey,
                              // Codes from email (CodeCards.swift, docs/codes-from-email.md).
                              emailCodesFeatureKey,
                              // Agent devices (AgentsMirror.swift, docs/protocol.md "Draft: agent devices"), last. Only

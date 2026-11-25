@@ -19,7 +19,7 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Ping (`ping.v1`) | yes | yes | CLI | yes |
 | Files (`files.v1`, JSON chunks of 24 KiB, both ways, one at a time per device, SHA-256 checked, never overwriting) | yes | yes | CLI (sending) | yes, from iOS I1; received files go to a folder the host names, with names Windows accepts (`photo (1).jpg` on Windows, `photo 2.jpg` elsewhere) |
 | Fast transfers (`files_fast_draft1`): binary frames of 256 KiB, their replay guard and the delay-based window | `FastTransfer.kt` | `FastTransfer.swift` | none | yes (`fast.rs`), from Windows M2, checked against `files-fast-v1.json` |
-| Resuming files (`files_resume_draft1`): an interrupted file continues after the receiver's verified 1 MiB blocks | next | next | none | yes (`resume.rs`), checked against `files-resume-v1.json`; see [file-resume.md](file-resume.md) |
+| Resuming files (`files_resume_draft1`): an interrupted file continues after the receiver's verified 1 MiB blocks | `FileResume.kt` | `FileResume.swift` | none | yes (`resume.rs`), checked against `files-resume-v1.json`; see [file-resume.md](file-resume.md) |
 | Battery (`battery.update`) and find device (`find.*`) | yes | yes | CLI | yes, from Windows M2 |
 | Links (`quick.request` / `quick.result`, feature `links`, `open` to a Mac with `links_open_draft1`) | yes | yes | none | yes, from iOS I1; a received link is an event, never opened by the library |
 | Phone notifications (`notifications.post`, `remove`, `dismiss`, `action` with reply), quiet presentation (`notification_routing_draft1`) and presence (`device_presence_draft1`) | yes (phone side) | yes | none | yes, the desktop side: checked and bounded posts, quiet honoured, presence every ten seconds and on change |

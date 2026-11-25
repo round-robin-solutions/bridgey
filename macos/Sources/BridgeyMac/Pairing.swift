@@ -207,6 +207,10 @@ struct FileOfferPayload: Codable {
     let sha256: String
     /// Edition (camera_draft1): the photo answers this Mac's camera.request.
     var cameraRequestId: String? = nil
+    /// Edition (files_resume_draft1): true only to a peer that shows the key, on a single file over 1 MiB; the
+    /// receiver may answer files.resume instead of files.accept. Absent otherwise; read leniently, so a malformed
+    /// value is "not resumable", never a closed session.
+    var resumable: LenientFlag? = nil
 }
 
 private struct FileCompletePayload: Codable {
@@ -543,6 +547,16 @@ final class PairingCoordinator: ObservableObject {
     private var lastCodesAdvertiseAt = Date.distantPast
     private var remoteNotificationCategories: [String: UNNotificationCategory] = [:]
     private var incomingFiles: [String: IncomingFileTransfer] = [:]
+    /// files_resume_draft1: kept partials of single files and their private records (FileResume.swift).
+    private let resumePartials = ResumePartials()
+    /// Kept partials being read again before files.resume, by transfer.
+    private var resumeChecks: [String: ResumeCheck] = [:]
+    /// Single files a disconnect interrupted, sent again when their phone reconnects (Resume interrupted files
+    /// automatically).
+    private var autoResume = AutoResumeList()
+    /// Phones whose latest map shows files_resume_draft1 on a protocol 2 session.
+    private var fileResumePhones: Set<String> = []
+    private var terminateObserver: NSObjectProtocol?
     /// Runs while a single-file transfer is active: fails one that has made no progress (TransferStall).
     private var transferStallTimer: Timer?
     private var outgoingFiles: [String: OutgoingFileTransfer] = [:]
@@ -597,6 +611,12 @@ final class PairingCoordinator: ObservableObject {
                 forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.pairingSystemWillSleep() }
+            }
+            // Quitting keeps resumable partials, synced and recorded, for the next attempt (files_resume_draft1).
+            terminateObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.keepResumableIncoming() }
             }
         }
         let notificationHistoryStore = NotificationHistoryStore()
@@ -667,6 +687,7 @@ final class PairingCoordinator: ObservableObject {
         if TestInstance.enabled { startTestControl() }
         folders.loadJournals()
         folderReceiver.loadJournals()
+        loadResumePartials()
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.availableFor = { [weak self] feature, id in self?.isFeatureAvailable(feature, for: id) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
@@ -1152,6 +1173,13 @@ final class PairingCoordinator: ObservableObject {
     }
 
     func forget(deviceID: String) {
+        // Forgetting a phone takes its kept partials (files_resume_draft1) and interrupted sends with it.
+        for transferID in transferDevices.filter({ $0.value == deviceID }).map(\.key) where incomingFiles[transferID] != nil {
+            _ = dropIncoming(transferID)
+        }
+        resumePartials.forget(peer: deviceID)
+        _ = autoResume.due(phone: deviceID, now: Date(), enabled: false)
+        fileResumePhones.remove(deviceID)
         alertedNotificationIdentifiers.remove(deviceID: deviceID)
         notificationPresentations.remove(deviceID: deviceID)
         folders.forget(deviceID)
@@ -2470,7 +2498,9 @@ final class PairingCoordinator: ObservableObject {
                         return
                     }
                     do {
-                        let payload = try JSONEncoder().encode(transfer.offer)
+                        // files_resume_draft1: a file over one block may resume from what the phone kept of an earlier attempt.
+                        transfer.resumable = FileResume.isResumable(size: transfer.offer.size) && current.fileResume
+                        let payload = try transfer.offerPayload()
                         let encrypted = try encrypt(payload, key: current.pairingKey!)
                         self.outgoingFiles[transfer.transferID] = transfer
                         self.outgoingFileSources[transfer.transferID] = url
@@ -2515,7 +2545,7 @@ final class PairingCoordinator: ObservableObject {
             return queue.removeAll()
         }
         fileSendQueues.removeAll()
-        queued.filter { !folders.owns($0) }.forEach { markFileTransferFinished(id: $0, status: "Transfer cancelled") }
+        queued.filter { !folders.owns($0) }.forEach { autoResume.remove($0); markFileTransferFinished(id: $0, status: "Transfer cancelled") }
         // Folders: the running one sends folders.cancel; the waiting ones end here.
         folders.cancelAll()
         folderReceiver.cancelAll()
@@ -2524,13 +2554,72 @@ final class PairingCoordinator: ObservableObject {
             markTransferCancelled(transferID)
             sendFileCancel(transferID)
         }
-        incomingFiles.values.forEach { $0.cancel() }
-        incomingFiles.removeAll()
+        for transferID in Array(incomingFiles.keys) { _ = dropIncoming(transferID) }
         outgoingFiles.values.forEach { $0.cancel() }
         outgoingFiles.removeAll()
-        transferIDs.forEach { markFileTransferFinished(id: $0, status: "Transfer cancelled") }
+        transferIDs.forEach { autoResume.remove($0); markFileTransferFinished(id: $0, status: "Transfer cancelled") }
         fileTransferActive = false
         fileTransferStatus = "Transfer cancelled"
+    }
+
+    /// Sends a single file the phone accepted, from `offset` (files_resume_draft1: the agreed offset; 0 otherwise).
+    private func startSendingFile(_ transfer: OutgoingFileTransfer, transferID: String, in current: Session, from offset: Int64) {
+        updateFileTransfer(id: transferID, name: transfer.displayName, status: "Sending \(transfer.displayName)…", active: true)
+        transfer.send(
+            through: current,
+            key: current.pairingKey!,
+            from: offset,
+            status: { [weak self] value in
+                guard let self, self.outgoingFiles[transferID] === transfer,
+                      !transfer.isCancelled,
+                      !self.cancelledTransferIDs.contains(transferID) else { return }
+                self.fileTransferStatus = value
+                self.updateFileTransfer(id: transferID, name: transfer.displayName, status: value, active: true)
+            },
+            completion: { [weak self, weak current] result in
+                guard let self, let current, self.registry.isActive(current) else { return }
+                switch result {
+                case let .success(completion):
+                    guard !transfer.isCancelled,
+                          self.outgoingFiles[transferID] === transfer,
+                          !self.cancelledTransferIDs.contains(transferID) else { return }
+                    current.send(completion)
+                case .failure:
+                    self.outgoingFiles.removeValue(forKey: transferID)
+                    if transfer.resumable && !transfer.isCancelled {
+                        // A resumable file that stopped moving (no acknowledgement in time, or the connection failed)
+                        // was interrupted, not refused: the phone keeps what it has until its own timeout or the end
+                        // of the session, so no files.cancel, which would delete it. It goes again when the phone
+                        // reconnects (Resume interrupted files automatically), or with Retry.
+                        self.markTransferCancelled(transferID)
+                        if self.fileResumePhones.contains(current.remoteDeviceID) {
+                            self.autoResume.interrupted([(id: transferID, startedAt: self.fileTransfers[transferID]?.startedAt ?? Date())],
+                                                        phone: current.remoteDeviceID, at: Date())
+                        }
+                        self.fileTransferStatus = "File transfer interrupted"
+                        self.markFileTransferFinished(id: transferID, status: "Transfer interrupted; reconnect to retry")
+                        self.fileTransferActive = self.fileTransfers.values.contains(where: { $0.active })
+                        self.finishQueuedFile(transferID)
+                        return
+                    }
+                    // The phone accepted this file and may still be waiting for it: tell it to let go.
+                    if !transfer.isCancelled { self.markTransferCancelled(transferID); self.sendFileCancel(transferID) }
+                    self.recordFileHistory(transferID, direction: .sent, outcome: transfer.isCancelled ? .cancelled : .failed, name: transfer.displayName,
+                                           bytes: 0, localURL: self.outgoingFileSources[transferID], phoneID: current.remoteDeviceID)
+                    if transfer.isCancelled {
+                        self.fileTransferStatus = "Transfer cancelled"
+                        self.markFileTransferFinished(id: transferID, status: "Transfer cancelled")
+                        self.finishQueuedFile(transferID)
+                        return
+                    } else {
+                        self.fileTransferStatus = "File transfer failed"
+                    }
+                    self.fileTransferActive = self.fileTransfers.values.contains(where: { $0.active })
+                    self.updateFileTransfer(id: transferID, name: transfer.displayName, status: self.fileTransferStatus!, active: false)
+                    self.finishQueuedFile(transferID)
+                }
+            }
+        )
     }
 
     /// Frames of a single-file transfer count only from the phone it belongs to.
@@ -2563,13 +2652,15 @@ final class PairingCoordinator: ObservableObject {
             return
         }
         if let targetID = transferDevices[transferID], fileSendQueues[targetID]?.removePending(id: transferID) == true {
+            autoResume.remove(transferID)
             markFileTransferFinished(id: transferID, status: "Transfer cancelled")
             return
         }
         filePreparationCancellations.removeValue(forKey: transferID)?.cancel()
         markTransferCancelled(transferID)
         sendFileCancel(transferID)
-        incomingFiles.removeValue(forKey: transferID)?.cancel()
+        autoResume.remove(transferID)
+        _ = dropIncoming(transferID)
         outgoingFiles.removeValue(forKey: transferID)?.cancel()
         markFileTransferFinished(id: transferID, status: "Transfer cancelled")
         fileTransferStatus = "Transfer cancelled"
@@ -2583,6 +2674,7 @@ final class PairingCoordinator: ObservableObject {
             return
         }
         guard let url = outgoingFileSources[transferID] else { return }
+        autoResume.remove(transferID)
         // A retry goes to the phone the file first went to.
         guard let targetID = transferDevices[transferID] ?? session?.remoteDeviceID,
               registry.session(for: targetID) != nil else {
@@ -3011,6 +3103,7 @@ final class PairingCoordinator: ObservableObject {
                 let handoffTakeover = decodeFeatureFlag(plaintext, handoffTakeoverFeatureKey)
                 let phoneID = current.remoteDeviceID
                 current.fastTransfers = draftKeys[filesFastFeatureKey] == true
+                current.peerResume = draftKeys[FileResume.featureKey] == true && !AgentPeerRules.isAgent(draftKeys)
                 BridgeyLog.transport.notice("fast transfers=\(current.fastTransfers, privacy: .public) peerKey=\(draftKeys[filesFastFeatureKey] == true, privacy: .public) protocol2=\(current.envelopeKey != nil, privacy: .public)")
                 // A server paired over the tailnet says what it is in its own authenticated map: it gets nothing here from now on.
                 if AgentPeerRules.isAgent(draftKeys), !settings.isAgent(phoneID) {
@@ -3087,6 +3180,9 @@ final class PairingCoordinator: ObservableObject {
                 refreshAutoClipboard()
                 // Folders interrupted for this phone resume now (within 24 hours of their last progress).
                 folders.phoneReady(phoneID)
+                // Single files a disconnect interrupted go again, within 24 hours (files_resume_draft1).
+                if current.fileResume { fileResumePhones.insert(phoneID) } else { fileResumePhones.remove(phoneID) }
+                resumeInterruptedFiles(phoneID, in: current)
                 refreshPhoneFreeSpace(phoneID)
                 sendActionsCatalog(to: current)
                 if draftKeys[focusSyncFeatureKey] == true, let active = focusSync.stateForNewPhone {
@@ -3312,7 +3408,9 @@ final class PairingCoordinator: ObservableObject {
                     freeBytes: FolderReceiveSession.freeBytes(access.url) ?? FolderReceiveSession.freeBytes(access.url.deletingLastPathComponent()),
                     reservedBytes: incomingFiles.values.reduce(0) { $0 + max(0, $1.expectedSize - $1.receivedSize) }
                 )
-                guard admission == .accept, let transfer = try? IncomingFileTransfer(offer: offer, directoryAccess: access) else {
+                // files_resume_draft1: the phone marked it, both ends show the key on protocol 2, and it is over one block.
+                let resumable = offer.resumable?.value == true && FileResume.isResumable(size: offer.size) && current.fileResume
+                guard admission == .accept, let transfer = openIncomingFile(offer, from: phoneID, access: access, resumable: resumable) else {
                     if admission == .noSpace { fileTransferStatus = "Not enough free space on this Mac" }
                     current.send(PairingMessage(kind: "files.rejected", sessionId: current.id, transferId: offer.transferId))
                     BridgeyLog.files.notice("file refused transfer=\(String(offer.transferId.prefix(8)), privacy: .public) reason=\(String(describing: admission), privacy: .public)")
@@ -3324,6 +3422,15 @@ final class PairingCoordinator: ObservableObject {
                 incomingFiles[offer.transferId] = transfer
                 transferDevices[offer.transferId] = current.remoteDeviceID
                 beginFileTransferUI()
+                if case let .checking(length, _) = transfer.phase {
+                    // A partial kept from an earlier attempt: read it again before proposing to resume after it.
+                    let status = String(format: L10n.text("files.resume.checking", fallback: "Checking the part of %@ already received…"), transfer.displayName)
+                    fileTransferStatus = status
+                    updateFileTransfer(id: offer.transferId, name: transfer.displayName, status: status, active: true)
+                    checkKeptPartial(offer.transferId, transfer: transfer, length: length)
+                    BridgeyLog.line(BridgeyLog.files, LogLines.file(BridgeyLog.policy, event: "checking kept part", transfer: offer.transferId, name: transfer.displayName, extra: "size=\(offer.size) kept=\(length)"))
+                    return
+                }
                 fileTransferStatus = "Receiving \(transfer.displayName): \(transfer.progressStatus(force: true)!)"
                 updateFileTransfer(id: offer.transferId, name: transfer.displayName, status: fileTransferStatus!, active: true)
                 current.send(PairingMessage(
@@ -3368,7 +3475,14 @@ final class PairingCoordinator: ObservableObject {
                       let chunk = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: current.pairingKey!) else {
                     throw PairingError.invalidMessage
                 }
-                try transfer.append(chunk, sequence: sequence)
+                do {
+                    try transfer.append(chunk, sequence: sequence)
+                } catch {
+                    // An invalid chunk (or one before files.resume.ack) takes the partial with it before the session closes.
+                    _ = dropIncoming(transferID)
+                    throw error
+                }
+                if let record = transfer.checkpointIfDue() { resumePartials.save(record) }
                 if let progress = transfer.progressStatus() {
                     fileTransferStatus = "Receiving \(transfer.displayName): \(progress)"
                     updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: true)
@@ -3401,6 +3515,9 @@ final class PairingCoordinator: ObservableObject {
                     if cancelledTransferIDs.contains(completion.transferId) { return }
                     throw PairingError.invalidMessage
                 }
+                resumeChecks.removeValue(forKey: completion.transferId)?.cancel()
+                // Saved or failed, this partial is never resumed again (finish deletes it when it fails).
+                resumePartials.finished(transfer)
                 do {
                     let destination = try transfer.finish(expectedHash: completion.sha256)
                     let folder = destination.deletingLastPathComponent().path
@@ -3444,45 +3561,58 @@ final class PairingCoordinator: ObservableObject {
                       message.sessionId == current.id,
                       let transferID = message.transferId,
                       let transfer = outgoingFiles[transferID] else { throw PairingError.invalidMessage }
-                updateFileTransfer(id: transferID, name: transfer.displayName, status: "Sending \(transfer.displayName)…", active: true)
-                transfer.send(
-                    through: current,
-                    key: current.pairingKey!,
-                    status: { [weak self] value in
-                        guard let self, self.outgoingFiles[transferID] === transfer,
-                              !transfer.isCancelled,
-                              !self.cancelledTransferIDs.contains(transferID) else { return }
-                        self.fileTransferStatus = value
-                        self.updateFileTransfer(id: transferID, name: transfer.displayName, status: value, active: true)
-                    },
-                    completion: { [weak self, weak current] result in
-                        guard let self, let current, self.registry.isActive(current) else { return }
-                        switch result {
-                        case let .success(completion):
-                            guard !transfer.isCancelled,
-                                  self.outgoingFiles[transferID] === transfer,
-                                  !self.cancelledTransferIDs.contains(transferID) else { return }
-                            current.send(completion)
-                        case .failure:
-                            self.outgoingFiles.removeValue(forKey: transferID)
-                            // The phone accepted this file and may still be waiting for it: tell it to let go.
-                            if !transfer.isCancelled { self.markTransferCancelled(transferID); self.sendFileCancel(transferID) }
-                            self.recordFileHistory(transferID, direction: .sent, outcome: transfer.isCancelled ? .cancelled : .failed, name: transfer.displayName,
-                                                   bytes: 0, localURL: self.outgoingFileSources[transferID], phoneID: current.remoteDeviceID)
-                            if transfer.isCancelled {
-                                self.fileTransferStatus = "Transfer cancelled"
-                                self.markFileTransferFinished(id: transferID, status: "Transfer cancelled")
-                                self.finishQueuedFile(transferID)
-                                return
-                            } else {
-                                self.fileTransferStatus = "File transfer failed"
-                            }
-                            self.fileTransferActive = self.fileTransfers.values.contains(where: { $0.active })
-                            self.updateFileTransfer(id: transferID, name: transfer.displayName, status: self.fileTransferStatus!, active: false)
-                            self.finishQueuedFile(transferID)
-                        }
-                    }
-                )
+                guard !transfer.answered else { return }
+                transfer.answered = true
+                startSendingFile(transfer, transferID: transferID, in: current, from: 0)
+            case "files.resume":
+                // files_resume_draft1: the phone kept part of this file. Decrypted first: one that does not decrypt
+                // closes the session, as any files.* message does.
+                guard registry.isActive(current), message.sessionId == current.id,
+                      let messageID = message.messageId, current.acceptMessageID(messageID),
+                      let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+                      let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
+                guard let transferID = message.transferId, transferOwned(transferID, by: current),
+                      let transfer = outgoingFiles[transferID], !transfer.answered else { return }
+                transfer.answered = true
+                guard transfer.resumable else {
+                    // Never offered resumable: the phone broke the rules, so the file ends here.
+                    outgoingFiles.removeValue(forKey: transferID)
+                    transfer.cancel()
+                    markTransferCancelled(transferID)
+                    sendFileCancel(transferID)
+                    fileTransferStatus = "File transfer failed"
+                    markFileTransferFinished(id: transferID, status: "File transfer failed")
+                    finishQueuedFile(transferID)
+                    return
+                }
+                // Its offset when the phone's prefix hash is this file's own, else from byte zero; files.resume.ack says which.
+                let (offset, reason) = transfer.resumeAnswer(plaintext)
+                sendEncryptedClipboardMessage(kind: "files.resume.ack", payload: FileResume.ackPayload(transferID: transferID, offset: offset, reason: reason),
+                                              transferID: transferID, to: current)
+                BridgeyLog.files.notice("file resume transfer=\(String(transferID.prefix(8)), privacy: .public) offset=\(offset, privacy: .public) reason=\(reason ?? "none", privacy: .public)")
+                startSendingFile(transfer, transferID: transferID, in: current, from: offset)
+            case "files.resume.wait":
+                // The phone is still reading what it kept of this file: the 120-second wait for its answer starts again.
+                guard registry.isActive(current), message.sessionId == current.id, let transferID = message.transferId,
+                      transferOwned(transferID, by: current), let transfer = outgoingFiles[transferID], transfer.resumable, !transfer.answered else { return }
+                updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransfers[transferID]?.status ?? "Waiting for Android…", active: true)
+            case "files.resume.ack":
+                guard registry.isActive(current), message.sessionId == current.id,
+                      let messageID = message.messageId, current.acceptMessageID(messageID),
+                      let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
+                      let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key) else { throw PairingError.invalidMessage }
+                guard let transferID = message.transferId, transferOwned(transferID, by: current), let transfer = incomingFiles[transferID] else { return }
+                switch transfer.applyAck(plaintext) {
+                case .resume:
+                    break
+                case let .restart(record):
+                    if let record { resumePartials.save(record) }
+                    let status = "Receiving \(transfer.displayName): \(transfer.progressStatus(force: true)!)"
+                    fileTransferStatus = status
+                    updateFileTransfer(id: transferID, name: transfer.displayName, status: status, active: true)
+                case .invalid, .failed:
+                    failIncomingFile(transferID, in: current)
+                }
             case "files.rejected":
                 if clipboardOutbox.owns(message.transferId), let transferID = message.transferId {
                     if clipboardOutbox.serves(transferID, to: current.remoteDeviceID) { clipboardOutbox.handleCancel(transferID) }
@@ -3534,8 +3664,9 @@ final class PairingCoordinator: ObservableObject {
                                       localURL: outgoingFileSources[transferID], phoneID: current.remoteDeviceID)
                 }
                 markTransferCancelled(transferID)
-                incomingFiles.removeValue(forKey: transferID)?.cancel()
+                _ = dropIncoming(transferID)
                 outgoingFiles.removeValue(forKey: transferID)?.cancel()
+                autoResume.remove(transferID)
                 // Only a row still running: a late cancel must not rewrite a transfer that already ended.
                 if fileTransfers[transferID]?.active == true { markFileTransferFinished(id: transferID, status: "Transfer cancelled by Android") }
                 fileTransferStatus = "Transfer cancelled by Android"
@@ -3647,13 +3778,14 @@ final class PairingCoordinator: ObservableObject {
         if incomingFiles[transferID] != nil, !transferOwned(transferID, by: current) { return }
         guard let transfer = incomingFiles[transferID],
               (try? transfer.append(payload.plaintext, sequence: sequence, maximumChunk: FastFrame.maximumPlaintext)) != nil else {
-            if let transfer = incomingFiles.removeValue(forKey: transferID) { transfer.cancel() }
+            _ = dropIncoming(transferID)
             if current.failure == nil { current.failure = .invalid }
             current.close()
             diagnostics.record(category: "protocol", event: "message_rejected", outcome: "session_closed")
             return
         }
         acknowledge()
+        if let record = transfer.checkpointIfDue() { resumePartials.save(record) }
         if let progress = transfer.progressStatus() {
             fileTransferStatus = "Receiving \(transfer.displayName): \(progress)"
             updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransferStatus!, active: true)
@@ -3811,6 +3943,8 @@ final class PairingCoordinator: ObservableObject {
         features[connectFeatureKey] = connectAdvertised
         // Draft, edition only: binary chunk frames and a byte window (FastTransfer.swift). A capability, so always on.
         features[filesFastFeatureKey] = FastTransferSettings.enabled
+        // Draft, edition only: resuming interrupted files (FileResume.swift). A capability, on protocol 2 sessions only.
+        features[FileResume.featureKey] = current.envelopeKey != nil
         // Mac only: this device applies Let Bridgey handle copy and paste, so other Macs sync it here. Phones never send it.
         features[handoffTakeoverFeatureKey] = true
         // Draft, edition only: LAN first (LanFirst.swift). A capability, so always on.
@@ -3838,15 +3972,27 @@ final class PairingCoordinator: ObservableObject {
         phoneFilesController.phoneDisconnected(id)
         let ids = Set(transferDevices.filter { $0.value == id && !folders.owns($0.key) }.keys)
         let hadActiveTransfers = fileTransfers.values.contains(where: { $0.active && ids.contains($0.id) })
+        // Single files to this phone that the disconnect interrupts, oldest first: sent again when it reconnects
+        // with files_resume_draft1, unless Resume interrupted files automatically is off.
+        var interrupted: [String] = []
         if var queue = fileSendQueues.removeValue(forKey: id) {
             queue.removeAll().filter { !folders.owns($0) }.forEach {
                 filePreparationCancellations.removeValue(forKey: $0)?.cancel()
                 markFileTransferFinished(id: $0, status: "Transfer interrupted; reconnect to retry")
+                interrupted.append($0)
             }
         }
         for transferID in ids {
-            incomingFiles.removeValue(forKey: transferID)?.cancel()
-            outgoingFiles.removeValue(forKey: transferID)?.cancel()
+            // A resumable partial survives, synced and recorded; anything else goes as before.
+            keepIncoming(transferID)
+            if let outgoing = outgoingFiles.removeValue(forKey: transferID) {
+                outgoing.cancel()
+                interrupted.append(transferID)
+            }
+        }
+        if fileResumePhones.remove(id) != nil {
+            let files = interrupted.filter { outgoingFileSources[$0] != nil }.map { ($0, fileTransfers[$0]?.startedAt ?? Date()) }
+            autoResume.interrupted(files.map { (id: $0.0, startedAt: $0.1) }, phone: id, at: Date())
         }
         let affected = fileTransfers.filter { ids.contains($0.key) }
         fileTransfers = fileTransfers.filter { !ids.contains($0.key) }.merging(recoverInterruptedTransfers(affected)) { $1 }
@@ -3911,10 +4057,11 @@ final class PairingCoordinator: ObservableObject {
         let stalledIDs = TransferStall.stalledIDs(Array(candidates), now: now)
         for transferID in stalledIDs {
             let phoneID = transferDevices[transferID] ?? ""
-            if let incoming = incomingFiles.removeValue(forKey: transferID) {
-                incoming.cancel()
+            if let incoming = incomingFiles[transferID] {
                 recordFileHistory(transferID, direction: .received, outcome: .failed, name: incoming.displayName, bytes: incoming.receivedSize,
                                   localURL: nil, phoneID: phoneID)
+                // A timeout, not a cancel: a resumable partial stays for a later attempt (the phone is still told to stop).
+                if incoming.resumable { keepIncoming(transferID) } else { _ = dropIncoming(transferID) }
             }
             if let outgoing = outgoingFiles.removeValue(forKey: transferID) {
                 outgoing.cancel()
@@ -6205,7 +6352,9 @@ extension PairingCoordinator: FolderReceiverHost {
     func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
         if notificationsAuthorized {
             receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
-        } else if revealIfSilent {
+        } else if revealIfSilent && !TestInstance.enabled {
+            // A test instance never has notification permission, and revealing would bring Finder to the front of the
+            // Mac it runs on once for every file a test sends.
             NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
         }
     }
@@ -6466,6 +6615,11 @@ final class Session {
         set { fastLock.withLock { peerFast = newValue } }
     }
 
+    /// The peer's latest features.update shows files_resume_draft1 (main thread).
+    var peerResume = false
+    /// Resuming files with this peer (files_resume_draft1): it shows the key and the session is on protocol 2.
+    var fileResume: Bool { peerResume && envelopeKey != nil }
+
     /// Protocol 2: every frame but pairing ones carries the envelope tag; pairing.cancel does too once there is a key.
     private func framed(_ message: PairingMessage) -> PairingMessage {
         guard let envelopeKey,
@@ -6636,19 +6790,26 @@ struct ParkedPairing {
     let session: ObjectIdentifier
 }
 
-private final class FileCancellationToken: @unchecked Sendable {
+final class FileCancellationToken: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
     var isCancelled: Bool { lock.withLock { value } }
     func cancel() { lock.withLock { value = true } }
 }
 
-private final class OutgoingFileTransfer {
+final class OutgoingFileTransfer {
     private static let chunkSize = 24 * 1024
     private static let acknowledgementWindow: Int64 = 64
     let transferID: String
     let displayName: String
     let offer: FileOfferPayload
+    /// The SHA-256 at every 1 MiB, from the pass that hashed the file for the offer (files_resume_draft1 checks a
+    /// receiver's prefix against them without reading the file again).
+    let blocks: [Data]
+    /// Offered `resumable` (files_resume_draft1 at both ends): the receiver may answer files.resume.
+    var resumable = false
+    /// files.accept or files.resume came: sending started (or ended), so a second answer changes nothing.
+    var answered = false
     private let url: URL
     private let lock = NSLock()
     private var cancelled = false
@@ -6698,23 +6859,51 @@ private final class OutgoingFileTransfer {
         guard size >= 0, size <= 10 * 1024 * 1024 * 1024 else { throw PairingError.invalidMessage }
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        var digest = SHA256()
+        var hasher = ResumeHasher(keepBlocks: true)
         while let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty {
             guard !cancellation.isCancelled else { throw PairingError.cancelled }
-            digest.update(data: data)
+            hasher.update(data)
         }
+        // The size the hash describes: a file that changed since its size was read is sent as it was hashed.
+        guard hasher.length == size else { throw PairingError.invalidMessage }
+        blocks = hasher.blocks ?? []
         offer = FileOfferPayload(
             transferId: transferID,
             name: displayName,
             mimeType: values.contentType?.preferredMIMEType ?? "application/octet-stream",
             size: size,
-            sha256: Data(digest.finalize()).base64EncodedString()
+            sha256: hasher.finalize().base64EncodedString()
         )
     }
 
+    /// The files.offer plaintext, marked resumable when `resumable`.
+    func offerPayload() throws -> Data {
+        var payload = offer
+        payload.resumable = resumable ? LenientFlag(true) : nil
+        return try JSONEncoder().encode(payload)
+    }
+
+    /// The answer to the receiver's files.resume (files_resume_draft1): its offset when its prefix hash is this file's
+    /// own over the same length, else 0 and why; `unreadable` when the file cannot be read from there.
+    func resumeAnswer(_ plaintext: Data) -> (offset: Int64, reason: String?) {
+        let sha256 = Data(base64Encoded: offer.sha256) ?? Data()
+        var answer = FileResume.senderAnswer(plaintext, transferID: transferID, size: offer.size, sha256: sha256, blocks: blocks)
+        if answer.offset > 0 {
+            let readable = (try? FileHandle(forReadingFrom: url)).map { handle -> Bool in
+                defer { try? handle.close() }
+                return (try? handle.seek(toOffset: UInt64(answer.offset))) != nil
+            } ?? false
+            if !readable { answer = (0, "unreadable") }
+        }
+        return answer
+    }
+
+    /// Sends the file from `offset` (files_resume_draft1: the offset both ends agreed; 0 otherwise), chunks numbered
+    /// from 0 either way.
     func send(
         through session: Session,
         key: Data,
+        from offset: Int64 = 0,
         status: @escaping @MainActor (String) -> Void,
         completion: @escaping @MainActor (Result<PairingMessage, Error>) -> Void
     ) {
@@ -6724,10 +6913,11 @@ private final class OutgoingFileTransfer {
             do {
                 let handle = try FileHandle(forReadingFrom: self.url)
                 defer { try? handle.close() }
-                var sent: Int64 = 0
+                if offset > 0 { try handle.seek(toOffset: UInt64(offset)) }
+                var sent: Int64 = offset
                 var sequence: Int64 = 0
-                let progress = MacTransferProgress(totalBytes: self.offer.size)
-                self.setProgressBytes(0)
+                let progress = MacTransferProgress(totalBytes: self.offer.size, startingAt: offset)
+                self.setProgressBytes(offset)
                 if fast {
                     // Binary frames of 256 KiB in a byte window that follows the link (FastTransfer.swift).
                     let pacer = self.pacer
@@ -6805,7 +6995,11 @@ private final class MacTransferProgress {
     private var lastBytes: Int64 = 0
     private var smoothed = 0.0
 
-    init(totalBytes: Int64) { self.totalBytes = totalBytes }
+    /// `startingAt`: a resumed file's offset, which did not travel now.
+    init(totalBytes: Int64, startingAt: Int64 = 0) {
+        self.totalBytes = totalBytes
+        lastBytes = startingAt
+    }
 
     func status(transferred: Int64, force: Bool = false) -> String? {
         let now = ProcessInfo.processInfo.systemUptime
@@ -6894,11 +7088,14 @@ func incomingFileAdmission(size: Int64, phoneActive: Int, totalActive: Int, free
 }
 
 /// Finder-style collision handling: "name.ext", then "name 2.ext", "name 3.ext", and so on.
-/// A name whose partial file is still being received counts as taken.
-func uniqueReceivedFileURL(_ requested: URL) -> URL {
+/// A name whose partial file is still being received counts as taken, except `ownPart`: a file being saved does
+/// not lose its own name to its own partial.
+func uniqueReceivedFileURL(_ requested: URL, ownPart: URL? = nil) -> URL {
+    let own = ownPart?.standardizedFileURL.path
     func isTaken(_ url: URL) -> Bool {
-        FileManager.default.fileExists(atPath: url.path) ||
-            FileManager.default.fileExists(atPath: url.appendingPathExtension("bridgey-part").path)
+        let part = url.appendingPathExtension("bridgey-part")
+        return FileManager.default.fileExists(atPath: url.path) ||
+            (part.standardizedFileURL.path != own && FileManager.default.fileExists(atPath: part.path))
     }
     guard isTaken(requested) else { return requested }
     let extensionPart = requested.pathExtension
@@ -6911,59 +7108,224 @@ func uniqueReceivedFileURL(_ requested: URL) -> URL {
     return requested.deletingLastPathComponent().appendingPathComponent(UUID().uuidString)
 }
 
+/// A single file coming to this Mac, written to `name.bridgey-part` beside the name it reserves. With
+/// files_resume_draft1 (`resumable`) an interruption keeps the part for a later attempt, with a private record
+/// (FileResume.swift); a kept part is reopened for update, read again and cut to its record before it is resumed.
 final class IncomingFileTransfer {
+    enum Phase: Equatable {
+        /// Reading a kept partial again; its record says `length` verified bytes with this SHA-256.
+        case checking(length: Int64, prefix: Data)
+        /// files.resume sent for this offset; waiting for files.resume.ack.
+        case proposed(Int64)
+        case receiving
+    }
+
+    /// After the kept partial was read again.
+    enum CheckOutcome: Equatable {
+        /// Send files.resume with this plaintext.
+        case propose(offset: Int64, payload: Data)
+        /// The partial no longer matches its record: from byte zero (files.accept), with this record to save.
+        case restart(ResumeRecord?)
+        /// The partial could not be cut back: the file fails (storage).
+        case failed
+    }
+
+    enum AckOutcome: Equatable {
+        case resume
+        case restart(ResumeRecord?)
+        /// Not an answer to what this Mac proposed: cancel the file and delete the partial.
+        case invalid
+        case failed
+    }
+
+    /// What an interruption leaves: the record as it was, a new record to save, or nothing (the partial goes).
+    enum KeptOutcome: Equatable {
+        case unchanged
+        case record(ResumeRecord)
+        case discard
+    }
+
+    let transferID: String
     let displayName: String
     let expectedSize: Int64
     private let expectedHash: String
-    private let partialURL: URL
-    private let finalURL: URL
+    let partialURL: URL
+    private let directory: URL
+    /// The name the part reserves (its own name less `.bridgey-part`), and the offered name it was reserved for.
+    private let reservedURL: URL
+    private let reservedFor: String
     private let handle: FileHandle
     private let directoryAccess: ReceiveDirectoryAccess
-    private var hasher = SHA256()
+    private var hasher: ResumeHasher
     private(set) var receivedSize: Int64 = 0
     private var nextSequence: Int64 = 0
+    /// files_resume_draft1: kept on an interruption, with a record in private storage.
+    let resumable: Bool
+    /// The authenticated device it comes from.
+    let peer: String
+    private(set) var phase: Phase = .receiving
+    /// `receivedSize` when the record was last written.
+    private var checkpointAt: Int64 = 0
+    private var closed = false
     private var lastProgressAt = ProcessInfo.processInfo.systemUptime
     private var lastProgressBytes: Int64 = 0
     private var smoothedBytesPerSecond = 0.0
 
-    init(offer: FileOfferPayload, directoryAccess: ReceiveDirectoryAccess) throws {
+    init(offer: FileOfferPayload, directoryAccess: ReceiveDirectoryAccess, resumable: Bool = false, peer: String = "") throws {
+        transferID = offer.transferId
         expectedSize = offer.size
         expectedHash = offer.sha256
         self.directoryAccess = directoryAccess
+        self.resumable = resumable
+        self.peer = peer.lowercased()
         let sanitized = receivedFileName(offer.name)
         displayName = sanitized
-        let directory = directoryAccess.url
+        directory = directoryAccess.url
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        finalURL = uniqueReceivedFileURL(directory.appendingPathComponent(sanitized))
+        let finalURL = uniqueReceivedFileURL(directory.appendingPathComponent(sanitized))
         guard receivedFileIsContained(finalURL, in: directory) else { throw PairingError.invalidMessage }
+        reservedURL = finalURL
+        reservedFor = sanitized
         partialURL = finalURL.appendingPathExtension("bridgey-part")
-        FileManager.default.createFile(atPath: partialURL.path, contents: nil)
-        handle = try FileHandle(forWritingTo: partialURL)
+        guard FileManager.default.createFile(atPath: partialURL.path, contents: nil) else { throw PairingError.invalidMessage }
+        handle = try FileHandle(forUpdating: partialURL)
+        hasher = ResumeHasher(keepBlocks: false)
     }
 
-    /// `maximumChunk` is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1).
+    /// A kept partial for this offer: reopened for update (never truncated here), to be read again first.
+    init(resuming record: ResumeRecord, offer: FileOfferPayload, directoryAccess: ReceiveDirectoryAccess) throws {
+        transferID = offer.transferId
+        expectedSize = offer.size
+        expectedHash = offer.sha256
+        self.directoryAccess = directoryAccess
+        resumable = true
+        peer = record.peer
+        displayName = receivedFileName(offer.name)
+        directory = directoryAccess.url
+        partialURL = record.partURL
+        reservedURL = URL(fileURLWithPath: String(record.partURL.path.dropLast(FileResume.partSuffix.count)))
+        reservedFor = record.name
+        guard ResumeRecord.validPart(record.part), receivedFileIsContained(record.partURL, in: directoryAccess.url),
+              let prefix = Data(base64Encoded: record.prefix), prefix.count == 32, record.length > 0, record.length <= offer.size else {
+            throw PairingError.invalidMessage
+        }
+        handle = try FileHandle(forUpdating: record.partURL)
+        hasher = ResumeHasher(keepBlocks: false)
+        phase = .checking(length: record.length, prefix: prefix)
+        checkpointAt = record.length
+    }
+
+    /// The record of `verified` bytes of this partial, for private storage.
+    func record(verified: (length: Int64, digest: Data)) -> ResumeRecord {
+        ResumeRecord(peer: peer, size: expectedSize, sha256: expectedHash, length: verified.length, prefix: verified.digest.base64EncodedString(),
+                     dir: directory.standardizedFileURL.path, part: partialURL.lastPathComponent, name: displayName, updated: 0)
+    }
+
+    /// Written as a resumable file starts, with nothing verified, so a crash before the first checkpoint leaves
+    /// nothing behind: the next start sweeps records with nothing verified, and their parts.
+    func initialRecord() -> ResumeRecord? {
+        resumable ? record(verified: hasher.checkpoint(size: expectedSize)) : nil
+    }
+
+    /// `maximumChunk` is 24 KiB for JSON chunks and 1 MiB for binary ones (draft files_fast_draft1). A chunk before
+    /// files.resume.ack is invalid.
     func append(_ data: Data, sequence: Int64, maximumChunk: Int = 24 * 1024) throws {
-        guard sequence == nextSequence,
+        guard phase == .receiving,
+              sequence == nextSequence,
               data.count <= maximumChunk,
               receivedSize + Int64(data.count) <= expectedSize else { throw PairingError.invalidMessage }
         try handle.write(contentsOf: data)
-        hasher.update(data: data)
+        hasher.update(data)
         receivedSize += Int64(data.count)
         nextSequence += 1
     }
 
+    /// Every 64 MiB of a resumable file: its bytes go to stable storage, then the record that names them.
+    func checkpointIfDue() -> ResumeRecord? {
+        guard resumable, receivedSize - checkpointAt >= FileResume.checkpointEvery, (try? handle.synchronize()) != nil else { return nil }
+        checkpointAt = receivedSize
+        return record(verified: hasher.checkpoint(size: expectedSize))
+    }
+
+    /// The kept partial was read again (`result`, nil when it could not be read). Its bytes match the record: cut
+    /// it to that length and propose resuming. They do not: empty it and start from zero.
+    func applyCheck(_ result: (hasher: SHA256, digest: Data)?) -> CheckOutcome {
+        guard case let .checking(length, prefix) = phase else { return .failed }
+        if let result, FileResume.equalInConstantTime(result.digest, prefix),
+           (try? handle.truncate(atOffset: UInt64(length))) != nil, (try? handle.seekToEnd()) != nil {
+            hasher = ResumeHasher(resumed: result.hasher, length: length, digest: result.digest)
+            receivedSize = length
+            checkpointAt = length
+            phase = .proposed(length)
+            // Progress counts from the offset, not as bytes that arrived in an instant.
+            lastProgressAt = ProcessInfo.processInfo.systemUptime
+            lastProgressBytes = length
+            return .propose(offset: length, payload: FileResume.resumePayload(transferID: transferID, offset: length, prefix: result.digest))
+        }
+        return restart() ? .restart(initialRecord()) : .failed
+    }
+
+    /// files.resume.ack for what this Mac proposed: go on from there, or from byte zero; anything else is invalid.
+    func applyAck(_ plaintext: Data) -> AckOutcome {
+        guard case let .proposed(proposed) = phase,
+              let offset = FileResume.parseAck(plaintext, transferID: transferID, proposed: proposed) else { return .invalid }
+        if offset == proposed {
+            phase = .receiving
+            return .resume
+        }
+        return restart() ? .restart(initialRecord()) : .failed
+    }
+
+    private func restart() -> Bool {
+        guard (try? handle.truncate(atOffset: 0)) != nil, (try? handle.seek(toOffset: 0)) != nil else { return false }
+        hasher = ResumeHasher(keepBlocks: false)
+        receivedSize = 0
+        checkpointAt = 0
+        nextSequence = 0
+        phase = .receiving
+        return true
+    }
+
+    /// The transfer was interrupted (disconnect, timeout, quit): a resumable file's verified bytes go to stable
+    /// storage and stay for a later attempt. Closes the file either way; the caller deletes it on `.discard`.
+    func keepForLater() -> KeptOutcome {
+        defer { close() }
+        guard resumable, !closed else { return .discard }
+        switch phase {
+        case .checking, .proposed:
+            // Untouched since its record, or cut back to the offset proposed.
+            return .unchanged
+        case .receiving:
+            let verified = hasher.checkpoint(size: expectedSize)
+            guard verified.length > 0, (try? handle.synchronize()) != nil else { return .discard }
+            return .record(record(verified: verified))
+        }
+    }
+
     func finish(expectedHash completionHash: String) throws -> URL {
-        try handle.close()
-        let actual = Data(hasher.finalize()).base64EncodedString()
-        guard receivedSize == expectedSize,
+        let synced = (try? handle.synchronize()) != nil
+        close()
+        let actual = hasher.finalize().base64EncodedString()
+        guard synced,
+              phase == .receiving,
+              receivedSize == expectedSize,
               completionHash == expectedHash,
               actual == expectedHash else {
             try? FileManager.default.removeItem(at: partialURL)
             throw PairingError.invalidMessage
         }
+        // The name is chosen now: the one the part reserved while it is free, else the next free one. Never
+        // overwriting: moveItem fails when the destination exists.
+        let destination = reservedFor == displayName && !FileManager.default.fileExists(atPath: reservedURL.path)
+            ? reservedURL
+            : uniqueReceivedFileURL(directory.appendingPathComponent(displayName), ownPart: partialURL)
+        guard receivedFileIsContained(destination, in: directory) else {
+            try? FileManager.default.removeItem(at: partialURL)
+            throw PairingError.invalidMessage
+        }
         FinderMetadata.quarantine(partialURL)
-        try FileManager.default.moveItem(at: partialURL, to: finalURL)
-        return finalURL
+        try FileManager.default.moveItem(at: partialURL, to: destination)
+        return destination
     }
 
     func progressStatus(force: Bool = false) -> String? {
@@ -6984,8 +7346,15 @@ final class IncomingFileTransfer {
         return "\(percent)% · \(Self.formatBytes(receivedSize)) / \(Self.formatBytes(expectedSize)) · \(Self.formatBytes(Int64(smoothedBytesPerSecond)))/s · \(eta) left"
     }
 
-    func cancel() {
+    private func close() {
+        guard !closed else { return }
+        closed = true
         try? handle.close()
+    }
+
+    /// Cancelled, failed or invalid: the partial goes.
+    func cancel() {
+        close()
         try? FileManager.default.removeItem(at: partialURL)
     }
 
@@ -7282,10 +7651,11 @@ enum SmsPhoneDisplay: Equatable {
 /// clipboard), `send-file` (a path), `codes` (`local` or `cloud`: turns Codes from messages on with that engine, as
 /// the switch in Settings > Notifications does; `off` turns it off), `read-code` (a message's text, read with the
 /// engine Codes from messages uses for text messages, through the same guard; status.json gets the outcome and the
-/// time, never the code), and `autoconfirm` (kept: "Codes match" is
-/// pressed for any prompt). Every second the instance writes `status.json` with its sessions, the codes settings,
-/// each phone's agents (name and whether Codes is on) and how many codes.found it sent, so a test can time
-/// connects and failovers and follow a code to the phone.
+/// time, never the code), `cancel-files` (Cancel on every transfer, as Cancel all), and `autoconfirm` (kept: "Codes
+/// match" is pressed for any prompt). `send-file` takes one path per line, sent in that order. Every second the
+/// instance writes `status.json` with its sessions, its transfer rows, the codes settings, each phone's agents (name
+/// and whether Codes is on) and how many codes.found it sent, so a test can time connects and failovers, follow a
+/// transfer and follow a code to the phone.
 extension PairingCoordinator {
     fileprivate var testControlDirectory: URL { URL(fileURLWithPath: "/tmp/\(Edition.identifier)-control", isDirectory: true) }
 
@@ -7392,7 +7762,11 @@ extension PairingCoordinator {
                                       "engine": self?.settings.codesEngine.rawValue ?? ""]
             }
         }
-        if let path = takeTestCommand("send-file") { _ = sendDroppedFiles([URL(fileURLWithPath: path)], to: nil) }
+        if let paths = takeTestCommand("send-file") {
+            let urls = paths.split(whereSeparator: \.isNewline).map { URL(fileURLWithPath: String($0)) }
+            if !urls.isEmpty { _ = sendDroppedFiles(urls, to: nil) }
+        }
+        if takeTestCommand("cancel-files") != nil { cancelFileTransfer() }
         if FileManager.default.fileExists(atPath: testControlDirectory.appendingPathComponent("autoconfirm").path),
            let current = pairingSession, let token = current.token, current.code != nil, !current.localConfirmed {
             confirm(token: token)
@@ -7410,7 +7784,11 @@ extension PairingCoordinator {
                                                                   stateThisSession: registry.state(for: id)?.agentsStateReceived == true,
                                                                   agents: agentsMirror.agents(on: id), now: now)]
         }
-        let status: [String: Any] = ["at": now.timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions,
+        let transfers: [[String: Any]] = fileTransfers.values.sorted { $0.startedAt < $1.startedAt }.map { row in
+            ["id": String(row.id.prefix(8)), "name": row.name, "status": row.status, "active": row.active, "incoming": row.incoming,
+             "queued": row.queued, "bytes": row.bytesDone ?? -1, "total": row.bytesTotal ?? -1]
+        }
+        let status: [String: Any] = ["at": now.timeIntervalSince1970, "lanBlocked": testLanBlocked, "sessions": sessions, "transfers": transfers,
                                      "presence": connect.presence.rawValue, "trusted": trustRegistry.devices.count,
                                      "codes": ["enabled": settings.codesEnabled, "engine": settings.codesEngine.rawValue,
                                                "modelReady": codeModel.isReady],
@@ -7418,6 +7796,106 @@ extension PairingCoordinator {
                                      "lastRead": testLastRead ?? NSNull()]
         if let data = try? JSONSerialization.data(withJSONObject: status) {
             try? data.write(to: testControlDirectory.appendingPathComponent("status.json"), options: .atomic)
+        }
+    }
+}
+
+// MARK: Resuming files (draft files_resume_draft1, FileResume.swift)
+
+extension PairingCoordinator {
+    /// At start: the kept partials, less those that can no longer be resumed.
+    fileprivate func loadResumePartials() {
+        let access = settings.receiveDirectoryAccess()
+        resumePartials.load()
+        withExtendedLifetime(access) {}
+    }
+
+    fileprivate func openIncomingFile(_ offer: FileOfferPayload, from phoneID: String, access: ReceiveDirectoryAccess, resumable: Bool) -> IncomingFileTransfer? {
+        resumePartials.openIncoming(offer, from: phoneID, access: access, resumable: resumable)
+    }
+
+    /// Reads a kept partial again off the main thread, with files.resume.wait every 30 seconds meanwhile.
+    fileprivate func checkKeptPartial(_ transferID: String, transfer: IncomingFileTransfer, length: Int64) {
+        resumeChecks[transferID]?.cancel()
+        resumeChecks[transferID] = ResumeCheck(url: transfer.partialURL, length: length, waiting: { [weak self] in
+            MainActor.assumeIsolated { self?.keptPartialStillChecking(transferID, transfer: transfer) }
+        }, done: { [weak self] result in
+            MainActor.assumeIsolated { self?.keptPartialChecked(transferID, transfer: transfer, result: result) }
+        })
+    }
+
+    private func keptPartialStillChecking(_ transferID: String, transfer: IncomingFileTransfer) {
+        guard incomingFiles[transferID] === transfer, case .checking = transfer.phase else { return }
+        // The phone's wait for the answer starts again, and the row stays alive for the stall sweep.
+        sendTransferControl(kind: "files.resume.wait", transferID: transferID, to: transferDevices[transferID].flatMap { registry.session(for: $0) })
+        updateFileTransfer(id: transferID, name: transfer.displayName, status: fileTransfers[transferID]?.status ?? transfer.displayName, active: true)
+    }
+
+    /// The kept partial was read again: propose resuming after it (files.resume), or take the file from byte zero.
+    private func keptPartialChecked(_ transferID: String, transfer: IncomingFileTransfer, result: (hasher: SHA256, digest: Data)?) {
+        resumeChecks.removeValue(forKey: transferID)
+        guard incomingFiles[transferID] === transfer, let current = transferDevices[transferID].flatMap({ registry.session(for: $0) }) else { return }
+        switch transfer.applyCheck(result) {
+        case let .propose(offset, payload):
+            sendEncryptedClipboardMessage(kind: "files.resume", payload: payload, transferID: transferID, to: current)
+            BridgeyLog.files.notice("file resume proposed transfer=\(String(transferID.prefix(8)), privacy: .public) offset=\(offset, privacy: .public)")
+        case let .restart(record):
+            if let record { resumePartials.save(record) }
+            sendTransferControl(kind: "files.accept", transferID: transferID, to: current)
+            BridgeyLog.files.notice("file kept part did not check out transfer=\(String(transferID.prefix(8)), privacy: .public)")
+        case .failed:
+            failIncomingFile(transferID, in: current)
+            return
+        }
+        let status = "Receiving \(transfer.displayName): \(transfer.progressStatus(force: true)!)"
+        fileTransferStatus = status
+        updateFileTransfer(id: transferID, name: transfer.displayName, status: status, active: true)
+    }
+
+    /// An invalid answer or a storage error: the file ends, the phone is told and the partial goes.
+    fileprivate func failIncomingFile(_ transferID: String, in current: Session) {
+        guard let transfer = dropIncoming(transferID) else { return }
+        markTransferCancelled(transferID)
+        sendTransferControl(kind: "files.cancel", transferID: transferID, to: current)
+        recordFileHistory(transferID, direction: .received, outcome: .failed, name: transfer.displayName, bytes: transfer.receivedSize,
+                          localURL: nil, phoneID: current.remoteDeviceID)
+        fileTransferStatus = "File transfer failed"
+        markFileTransferFinished(id: transferID, status: "File transfer failed")
+    }
+
+    /// An incoming single file ends for good (cancelled, invalid, failed): the partial and its record go.
+    fileprivate func dropIncoming(_ transferID: String) -> IncomingFileTransfer? {
+        resumeChecks.removeValue(forKey: transferID)?.cancel()
+        guard let transfer = incomingFiles.removeValue(forKey: transferID) else { return nil }
+        resumePartials.drop(transfer)
+        return transfer
+    }
+
+    /// An incoming single file was interrupted (disconnect, timeout, quit): a resumable one keeps its verified bytes,
+    /// synced and recorded, for a later attempt; anything else goes as before.
+    @discardableResult
+    fileprivate func keepIncoming(_ transferID: String) -> IncomingFileTransfer? {
+        resumeChecks.removeValue(forKey: transferID)?.cancel()
+        guard let transfer = incomingFiles.removeValue(forKey: transferID) else { return nil }
+        resumePartials.keep(transfer)
+        return transfer
+    }
+
+    /// Quitting: every resumable partial is kept.
+    fileprivate func keepResumableIncoming() {
+        for transferID in Array(incomingFiles.keys) where incomingFiles[transferID]?.resumable == true {
+            keepIncoming(transferID)
+        }
+    }
+
+    /// The phone is back with Files and the key: the single files a disconnect interrupted go again, oldest first,
+    /// while Resume interrupted files automatically is on (Settings > Files).
+    fileprivate func resumeInterruptedFiles(_ phoneID: String, in current: Session) {
+        guard current.fileResume, isFeatureAvailable(.files, for: phoneID) else { return }
+        for transferID in autoResume.due(phone: phoneID, now: Date(), enabled: settings.autoResumeFiles)
+            where outgoingFileSources[transferID] != nil && fileTransfers[transferID]?.active != true {
+            BridgeyLog.files.notice("file sent again after an interruption transfer=\(String(transferID.prefix(8)), privacy: .public)")
+            retryFileTransfer(id: transferID)
         }
     }
 }
