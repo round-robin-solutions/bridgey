@@ -1443,7 +1443,7 @@
 "screen.settings.card" = "Phone screen";
 "screen.settings.switch" = "Show phone screens";
 "screen.settings.switch.detail" = "See your phone’s screen in a window on this Mac. The phone asks you each time.";
-"screen.settings.note" = "View only. In the menu bar panel, choose File > Show Screen, or start sharing on the phone. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.";
+"screen.settings.note" = "In the menu bar panel, choose File > Show Screen, or start sharing on the phone. If the phone allows this Mac, Control in the window taps, scrolls and types on it. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.";
 "screen.status.notConnected" = "%@ is not connected";
 "screen.status.asked" = "Asking %@ to share its screen";
 "screen.status.expired" = "No answer from %@";
@@ -1936,3 +1936,20 @@
 "display.log.sourceChanged" = "Ended: the shared display changed";
 "display.log.timeout" = "Ended: no answer from the phone";
 "display.log.failed" = "Ended: something went wrong";
+
+"phonecontrol.control" = "Control";
+"phonecontrol.control.help" = "Tap, swipe and type on the phone";
+"phonecontrol.stop" = "Stop control";
+"phonecontrol.stop.help" = "Stop controlling the phone; the picture stays";
+"phonecontrol.waiting" = "Allow control on %@";
+"phonecontrol.back" = "Back";
+"phonecontrol.home" = "Home";
+"phonecontrol.recents" = "Recents";
+"phonecontrol.note.declined" = "%@ did not allow control";
+"phonecontrol.note.disabled" = "Control from this Mac is off on %@";
+"phonecontrol.note.permission" = "Turn on Bridgey control on %@";
+"phonecontrol.note.locked" = "%@ is locked";
+"phonecontrol.note.focus" = "Typing stopped: %@ has another display on";
+"phonecontrol.note.timeout" = "Control stopped: no answer from %@";
+"phonecontrol.note.localStop" = "Control stopped on %@";
+"phonecontrol.note.failed" = "Control stopped";

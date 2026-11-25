@@ -1115,9 +1115,9 @@ accepted also when an update was already running. Progress follows as updates.st
 | `screen.ack` | edition-draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `screen.stats` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `screen.stop` | edition-draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.geometry` | edition-draft | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android |
-| `screen.control` | edition-draft | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android |
-| `screen.input` | edition-draft | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android |
+| `screen.geometry` | edition-draft | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.control` | edition-draft | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.input` | edition-draft | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
 `screen.request`
 
