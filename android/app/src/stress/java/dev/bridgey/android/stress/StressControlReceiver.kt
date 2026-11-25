@@ -51,6 +51,12 @@ import org.json.JSONObject
  * - `display-control` with `--es state on|off`: Control on or off in the running viewer, as its button does.
  * - `display-status`: the viewer: phase, Mac name, geometry, control, decoded frames a second, decode time, frames
  *   lost, and the Mac's latest stats.
+ * - `screen-on`: Share screen with Macs on, for every Mac (fresh installs start with it off).
+ * - `control-grant` with `--es mode off|ask|always`: the phone control grant for every paired Mac, as Settings sets it.
+ * - `control-answer` with `--es state allow|deny`: answers the prompt showing now, as its buttons do.
+ * - `control-stop`: Stop on the indicator.
+ * - `control-status`: phone control: phase, geometry, display size, inputs accepted and rejected, gestures, latency
+ *   from arrival to dispatch and to completion, and whether Bridgey control is on and connected.
  */
 class StressControlReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -109,6 +115,31 @@ internal object StressControl {
                 if (intent.getStringExtra("state") == "off") app.display.endControl() else app.display.beginControl()
             }
             "display-status" -> displayStatus(app)
+            "screen-on" -> ok().also {
+                app.settings.setGlobal(BridgeyFeature.SCREEN, true)
+                app.pairing.trustedDeviceIds.value.forEach { id -> app.settings.setForDevice(id, BridgeyFeature.SCREEN, true) }
+            }
+            "control-grant" -> {
+                val hub = app.phoneControlOrNull ?: return JSONObject().put("ok", false).put("error", "not in this build")
+                val mode = dev.bridgey.android.control.PhoneControlGrantMode.fromWire(intent.getStringExtra("mode"))
+                    ?: return JSONObject().put("ok", false).put("error", "mode is off, ask or always")
+                val set = app.pairing.trustedDeviceIds.value.filterNot(app.pairing::isAgent).map { id -> hub.setGrant(id, mode) }
+                ok().put("set", set.count { it }).put("refused", set.count { !it })
+            }
+            "control-answer" -> {
+                val hub = app.phoneControlOrNull ?: return JSONObject().put("ok", false).put("error", "not in this build")
+                hub.answerPending(intent.getStringExtra("state") == "allow")
+                ok()
+            }
+            "control-stop" -> ok().also { app.phoneControlOrNull?.stopLocally() }
+            "control-status" -> {
+                val hub = app.phoneControlOrNull ?: return JSONObject().put("ok", false).put("error", "not in this build")
+                val latch = java.util.concurrent.CountDownLatch(1)
+                var stats = JSONObject()
+                hub.stats { stats = it; latch.countDown() }
+                latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+                ok().put("control", stats).put("state", hub.state.value.phase.name.lowercase())
+            }
             else -> JSONObject().put("ok", false).put("error", "unknown command")
         }
     }

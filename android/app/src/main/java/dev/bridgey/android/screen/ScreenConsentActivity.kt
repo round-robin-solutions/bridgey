@@ -3,7 +3,9 @@ package dev.bridgey.android.screen
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.ComponentActivity
@@ -34,7 +36,7 @@ class ScreenConsentActivity : ComponentActivity() {
         if (result.resultCode == Activity.RESULT_OK && data != null && deviceId.isNotEmpty() &&
             app.isBridgeyEnabled && app.pairing.connections.value.any { it.deviceId == deviceId } &&
             app.pairing.isFeatureAvailable(BridgeyFeature.SCREEN, deviceId)) {
-            app.screenShare.consentGranted(this, deviceId, macName, requestId, result.resultCode, data)
+            app.screenShare.consentGranted(this, deviceId, macName, requestId, result.resultCode, data, intent.getBooleanExtra(EXTRA_CONTROL, false))
         } else {
             app.screenShare.consentDeclined(deviceId, requestId)
         }
@@ -82,7 +84,16 @@ class ScreenConsentActivity : ComponentActivity() {
         if (app.screenShare.state.value.phase == ScreenShareState.Phase.IDLE) app.screenShare.markAsking(deviceId, macName)
         ScreenNotifier.dismissAsk(this, deviceId)
         val manager = getSystemService(MediaProjectionManager::class.java)
-        return runCatching { consent.launch(manager.createScreenCaptureIntent()); true }.getOrElse {
+        // A Mac that may control this phone gets the whole display: gestures land on all of it, so Android's choice of a
+        // single app is left out (phone_control_draft1). Before Android 14 the whole display is the only choice.
+        val control = app.phoneControlOrNull?.controlCapable(deviceId) == true
+        intent.putExtra(EXTRA_CONTROL, control)
+        val consentIntent = if (control && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        } else {
+            manager.createScreenCaptureIntent()
+        }
+        return runCatching { consent.launch(consentIntent); true }.getOrElse {
             app.screenShare.consentDeclined(deviceId, requestId)
             false
         }
@@ -90,6 +101,7 @@ class ScreenConsentActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_CHOOSE_DEVICE = "dev.bridgey.android.extra.SCREEN_CHOOSE_DEVICE"
+        private const val EXTRA_CONTROL = "dev.bridgey.android.extra.SCREEN_CONSENT_CONTROL"
 
         fun chooseIntent(context: Context): Intent = Intent(context, ScreenConsentActivity::class.java)
             .putExtra(EXTRA_CHOOSE_DEVICE, true)

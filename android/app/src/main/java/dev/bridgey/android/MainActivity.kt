@@ -1169,6 +1169,10 @@ private fun BridgeyApp(
                     val developerMenu = remember { DeveloperMenu(context) }
                     val developerOn by developerMenu.enabled.collectAsStateWithLifecycle()
                     val transferPaths = remember(connections, developerOn) { if (developerOn) pairing.transferPaths() else emptyList() }
+                    val phoneControlUi = dev.bridgey.android.ui.rememberPhoneControlSettings(
+                        trustedDevices.filterNot { it.isAgent }.map { it.id to it.name },
+                        sharingWith = { id -> settings.isEnabled(BridgeyFeature.SCREEN, id) },
+                    )
                     val settingsUi =
                         SettingsState(
                             deviceName = settingsState.deviceName,
@@ -1247,6 +1251,7 @@ private fun BridgeyApp(
                             tailscale = tailscaleState,
                             developerMenu = developerOn,
                             transferPaths = transferPaths,
+                            phoneControl = phoneControlUi.state,
                         )
                     val settingsUiActions =
                         SettingsActions(
@@ -1368,6 +1373,7 @@ private fun BridgeyApp(
                                 },
                                 openAccess = onOpenDndAccess,
                             ),
+                            phoneControl = phoneControlUi.actions,
                             dialer = dev.bridgey.android.ui.DialerSettingsActions(
                                 allowPlace = dialerPermissions.askPlace,
                                 allowContacts = dialerPermissions.askContacts,

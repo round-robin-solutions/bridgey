@@ -143,6 +143,10 @@ object SettingsSearchRegistry {
     private val RESET_WORDS = listOf("erase", "factory", "clear data", "сброс")
     private val DEVELOPER_WORDS = listOf("debug", "speed test", "perf")
     private val TURN_OFF_WORDS = listOf("quit", "stop", "disable", "выключить")
+    private val PHONE_CONTROL_WORDS = listOf(
+        "control phone", "Bridgey control", "accessibility", "tap from Mac", "type from Mac", "unattended", "remote control phone",
+        "управление телефоном", "специальные возможности", "печатать с Mac",
+    )
     private val SCREEN_CONTROL_WORDS = listOf("Mac screen", "screen sharing", "view Mac", "remote desktop", "экран Mac", "удалённый рабочий стол")
 
     /** Synced rows also answer to these, plus the setting's sync name. */
@@ -243,6 +247,7 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("remote.speed", SearchPage.REMOTE_CONTROL, null, R.string.remote_speed_title, null, REMOTE_WORDS + listOf("pointer", "cursor", "скорость")),
         SettingsSearchEntry("remote.volumeKeys", SearchPage.REMOTE_CONTROL, null, R.string.remote_volume_keys_title, R.string.remote_volume_keys_detail, listOf("volume", "slides", "громкость")),
         feature("remote.screenControl", SearchPage.REMOTE_CONTROL, R.string.feature_screen_control, R.string.settings_screen_control_detail, BridgeyFeature.SCREEN_CONTROL, SCREEN_CONTROL_WORDS),
+        SettingsSearchEntry("remote.phoneControl", SearchPage.REMOTE_CONTROL, null, R.string.control_settings_title, R.string.control_settings_search_detail, PHONE_CONTROL_WORDS),
 
         // Privacy
         SettingsSearchEntry("privacy.previews", SearchPage.PRIVACY, null, R.string.settings_show_previews, R.string.settings_show_previews_detail, PREVIEW_WORDS, syncKey = SyncKey.ACTIVITY_PREVIEWS),
@@ -370,6 +375,7 @@ object SettingsSearchRegistry {
             if (entry.page == SearchPage.UPDATES && !dev.bridgey.android.BuildGates.selfUpdate) continue
             if (entry.id in setOf("permissions.sms", "permissions.contacts") && !dev.bridgey.android.BuildGates.sms) continue
             if (entry.id == "permissions.install" && !dev.bridgey.android.BuildGates.selfUpdate) continue
+            if (entry.id == "remote.phoneControl" && !dev.bridgey.android.BuildGates.phoneControl) continue
             val page = context.getString(entry.page.titleRes)
             val section = entry.section?.let(context::getString)
             val title = context.getString(entry.title)

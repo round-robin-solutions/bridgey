@@ -24,6 +24,11 @@ object ScreenKinds {
     const val ACK = "screen.ack"
     const val STATS = "screen.stats"
     const val STOP = "screen.stop"
+
+    /** The Mac controls the phone (phone_control_draft1), inside a control-capable stream. */
+    const val GEOMETRY = "screen.geometry"
+    const val CONTROL = "screen.control"
+    const val INPUT = "screen.input"
 }
 
 object ScreenLimits {
@@ -102,11 +107,18 @@ sealed interface ScreenMacMessage {
     data class Ack(override val streamId: String, override val sequence: Long, val frame: Long, val decodeMs: Long, val keyframe: Boolean) : ScreenMacMessage
 
     data class Stop(override val streamId: String, override val sequence: Long, val reason: ScreenStopReason) : ScreenMacMessage
+
+    /** screen.control from the Mac (phone_control_draft1): begin, with its capabilities, or end. */
+    data class Control(val message: dev.bridgey.android.control.MacControlMessage) : ScreenMacMessage {
+        override val streamId: String get() = message.streamId
+        override val sequence: Long get() = message.sequence
+    }
 }
 
 /** screen.started, screen.ack or screen.stop from the Mac; null for anything malformed (dropped, never answered). */
 fun decodeScreenMacMessage(kind: String, plaintext: ByteArray): ScreenMacMessage? {
     if (plaintext.size > ScreenLimits.MESSAGE_MAX_BYTES) return null
+    if (kind == ScreenKinds.CONTROL) return dev.bridgey.android.control.decodeMacControl(plaintext)?.let(ScreenMacMessage::Control)
     val json = strictJsonObject(plaintext) ?: return null
     if (jsonInteger(json.opt("version")) != 1L) return null
     val streamId = canonicalUuid(json.opt("streamId")) ?: return null
@@ -134,7 +146,8 @@ data class ScreenStartInfo(val width: Int, val height: Int, val fps: Int, val bi
 private fun streamBase(streamId: String, sequence: Long): JSONObject =
     JSONObject().put("version", 1).put("streamId", streamId).put("sequence", sequence)
 
-fun screenStartPayload(streamId: String, sequence: Long, info: ScreenStartInfo): JSONObject =
+/** [control]: the control object of a control-capable stream (phone_control_draft1), only to a Mac that shows the key. */
+fun screenStartPayload(streamId: String, sequence: Long, info: ScreenStartInfo, control: JSONObject? = null): JSONObject =
     streamBase(streamId, sequence).apply {
         info.requestId?.let { put("requestId", it) }
         put("codec", "h264")
@@ -142,6 +155,7 @@ fun screenStartPayload(streamId: String, sequence: Long, info: ScreenStartInfo):
         put("height", info.height)
         put("fps", info.fps)
         put("bitrate", info.bitrate)
+        control?.let { put("control", it) }
     }
 
 /** One second of the phone's view of the stream, for screen.stats and the log. */

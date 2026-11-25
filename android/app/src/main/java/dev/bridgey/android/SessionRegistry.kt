@@ -40,6 +40,8 @@ data class DeviceLinkState(
     val remoteCodesDetect: Boolean = false,
     /** The device advertised lan_first_draft1: the duplicate rule ranks sessions by tier (LanFirst.kt). */
     val remoteLanFirst: Boolean = false,
+    /** The Mac advertised phone_control_draft1: it may control this phone inside a screen share it sees. */
+    val remotePhoneControl: Boolean = false,
     /** The session's tunnel route (Connect anywhere); null for a plain LAN session. */
     val connectRoute: dev.bridgey.android.connect.ConnectRoute? = null,
     val battery: RemoteBatteryStatus? = null,

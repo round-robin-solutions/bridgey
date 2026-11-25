@@ -8,6 +8,19 @@ import org.json.JSONObject
 interface ScreenLink {
     fun sendJson(kind: String, payload: JSONObject): Boolean
     fun sendFrame(plaintext: ByteArray): Boolean
+
+    /** The session's 16-byte contract nonce (phone_control_draft1); all zero, which binds nothing, when unknown. */
+    val connection: ByteArray get() = ByteArray(16)
+}
+
+/** A control-capable stream's phone control (phone_control_draft1, PhoneControlHub). Every call is quick. */
+interface StreamControl {
+    /** The control object for screen.start: the stream is [width] by [height], the display [displayWidth] by [displayHeight]. */
+    fun offer(width: Int, height: Int, displayWidth: Int, displayHeight: Int): JSONObject
+    fun started()
+    fun resized(width: Int, height: Int, displayWidth: Int, displayHeight: Int)
+    fun mac(message: dev.bridgey.android.control.MacControlMessage)
+    fun ended()
 }
 
 /** What the stream asks of the encoder. */
@@ -31,11 +44,18 @@ class ScreenStream(
     private val link: ScreenLink,
     private val clock: () -> Long,
     private val log: (String) -> Unit = {},
-    val streamId: String = UUID.randomUUID().toString(),
+    override val streamId: String = UUID.randomUUID().toString(),
     /** Where screen.stop is written: stops come from the main thread too, and sockets may not be written there. */
     private val stopWriter: (Runnable) -> Unit = { it.run() },
-) {
+    /** Where screen.geometry and screen.control are written, in order, so input handling never waits for a frame. */
+    private val controlWriter: (Runnable) -> Unit = { it.run() },
+) : dev.bridgey.android.control.ControlStreamLink {
     @Volatile var encoder: ScreenEncoderControl? = null
+
+    /** Set before [start] for a control-capable stream (the Mac shows phone_control_draft1 and has a grant here). */
+    @Volatile var control: StreamControl? = null
+
+    override val connection: ByteArray get() = link.connection
 
     /** Called once when the stream ends, with the reason and whether this phone said so. */
     @Volatile var onEnded: (ScreenStopReason, Boolean) -> Unit = { _, _ -> }
@@ -62,11 +82,12 @@ class ScreenStream(
 
     val currentBitrate: Long get() = bitrate.bitrate
 
-    /** Sends screen.start. False when the session is gone. */
-    fun start(width: Int, height: Int): Boolean {
+    /** Sends screen.start, with the control object when the stream is control-capable. False when the session is gone. */
+    fun start(width: Int, height: Int, displayWidth: Int = width, displayHeight: Int = height): Boolean {
         val info = ScreenStartInfo(width, height, ScreenRates.FPS, bitrate.bitrate, requestId)
-        val sent = synchronized(sendLock) { link.sendJson(ScreenKinds.START, screenStartPayload(streamId, sequence.incrementAndGet(), info)) }
-        log("SCREEN start stream=${streamId.take(8)} size=${width}x$height bitrate=${bitrate.bitrate} sent=$sent")
+        val offer = control?.offer(width, height, displayWidth, displayHeight)
+        val sent = synchronized(sendLock) { link.sendJson(ScreenKinds.START, screenStartPayload(streamId, sequence.incrementAndGet(), info, offer)) }
+        log("SCREEN start stream=${streamId.take(8)} size=${width}x$height bitrate=${bitrate.bitrate} control=${offer != null} sent=$sent")
         if (!sent) end(ScreenStopReason.FAILED, tell = false)
         return sent
     }
@@ -83,7 +104,10 @@ class ScreenStream(
                 pacer.requireKey()
                 requestKey(now, force = true)
                 log("SCREEN started stream=${streamId.take(8)}")
-            }.also { onStarted() }
+            }.also {
+                onStarted()
+                control?.started()
+            }
             is ScreenMacMessage.Ack -> {
                 lastAckAt = now
                 pacer.acknowledge(message.frame, message.decodeMs, now)?.let { sample ->
@@ -99,7 +123,24 @@ class ScreenStream(
                 log("SCREEN stopped by the Mac stream=${streamId.take(8)} reason=${message.reason.wire}")
                 end(message.reason, tell = false)
             }
+            is ScreenMacMessage.Control -> if (phase == ScreenStreamPhase.STREAMING) control?.mac(message.message)
         }
+    }
+
+    /** screen.geometry or screen.control, numbered and written in order on the control writer. */
+    override fun send(kind: String, payload: (sequence: Long) -> JSONObject): Boolean {
+        if (phase == ScreenStreamPhase.ENDED) return false
+        controlWriter(Runnable {
+            synchronized(sendLock) {
+                if (phase != ScreenStreamPhase.ENDED) link.sendJson(kind, payload(sequence.incrementAndGet()))
+            }
+        })
+        return true
+    }
+
+    /** The capture has a new size or the display rotated: control moves to a new geometry generation. */
+    fun resized(width: Int, height: Int, displayWidth: Int, displayHeight: Int) {
+        if (phase != ScreenStreamPhase.ENDED) control?.resized(width, height, displayWidth, displayHeight)
     }
 
     /**
@@ -194,6 +235,7 @@ class ScreenStream(
         }
         pacer.clear()
         log("SCREEN end stream=${streamId.take(8)} reason=${reason.wire} told=$tell")
+        control?.ended()
         onEnded(reason, tell)
     }
 

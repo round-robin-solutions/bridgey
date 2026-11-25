@@ -79,6 +79,14 @@ class BridgeyApplication : Application() {
     /** Share screen with Macs (draft screen_draft1): consent, the stream and its state. */
     lateinit var screenShare: dev.bridgey.android.screen.ScreenShareHub
 
+    /** The Mac controls the phone (phone_control_draft1): grants, the accessibility service and control sessions. */
+    lateinit var phoneControl: dev.bridgey.android.control.PhoneControlHub
+        private set
+
+    /** [phoneControl] in builds that have it, once it exists. */
+    val phoneControlOrNull: dev.bridgey.android.control.PhoneControlHub?
+        get() = if (BuildGates.phoneControl && ::phoneControl.isInitialized) phoneControl else null
+
     /** See Mac screens (draft screen_control_draft1): the viewer's stream, decoding and control. */
     lateinit var display: dev.bridgey.android.display.DisplayViewerHub
         private set
@@ -213,7 +221,8 @@ class BridgeyApplication : Application() {
         startUpdateAll()
         startCamera()
         startBlockedNumbers()
-        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing) { startedActivityCount > 0 }
+        startPhoneControl()
+        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing, { startedActivityCount > 0 }) { phoneControlOrNull }
         pairing.screenListener = screenShare
         startDisplay()
         busyMonitor.start()
@@ -268,6 +277,60 @@ class BridgeyApplication : Application() {
     /** The app came to the front: a permission may have changed, so the Macs hear the new waiting list. */
     fun syncPermissionsChanged() {
         if (::pairing.isInitialized) pairing.settingsSync.permissionsChanged()
+    }
+
+    /** The accessibility service connected or went away, or a display came or went: control re-checks itself. */
+    fun phoneControlChanged() {
+        phoneControlOrNull?.policyChanged()
+    }
+
+    private fun startPhoneControl() {
+        val worker = java.util.concurrent.Executors.newSingleThreadScheduledExecutor { Thread(it, "bridgey-control").apply { isDaemon = true } }
+        val keyguard = getSystemService(android.app.KeyguardManager::class.java)
+        val displays = getSystemService(android.hardware.display.DisplayManager::class.java)
+        val environment = object : dev.bridgey.android.control.PhoneControlEnvironment {
+            override val sdkInt: Int = android.os.Build.VERSION.SDK_INT
+            override val built: Boolean get() = BuildGates.phoneControl
+            override fun identityKey(deviceId: String): String? = pairing.pinnedIdentityKey(deviceId)
+            override fun isAgent(deviceId: String): Boolean = pairing.isAgent(deviceId)
+            override fun trusted(deviceId: String): Boolean = pairing.trustedDevices.value.any { it.id == deviceId }
+            override fun viewGrant(deviceId: String): Boolean = settings.isEnabled(BridgeyFeature.SCREEN, deviceId)
+            override fun macAdvertises(deviceId: String): Boolean = pairing.macShowsPhoneControl(deviceId)
+            override fun unlocked(): Boolean = keyguard?.isKeyguardLocked != true
+            override fun otherDisplayActive(): Boolean = dev.bridgey.android.control.otherDisplayActive(displays)
+            override fun service(): dev.bridgey.android.control.ControlService? = dev.bridgey.android.control.BridgeyControlService.current
+            override fun serviceEnabled(): Boolean = dev.bridgey.android.control.BridgeyControlService.enabled(this@BridgeyApplication)
+            override fun showPrompt(deviceId: String, macName: String, promptId: Long) =
+                dev.bridgey.android.control.PhoneControlNotifier.showAsk(this@BridgeyApplication, macName, promptId)
+            override fun dismissPrompt() = dev.bridgey.android.control.PhoneControlNotifier.dismissAsk(this@BridgeyApplication)
+            override fun controlling(macName: String?) {
+                val share = screenShare.state.value
+                if (share.phase != dev.bridgey.android.screen.ScreenShareState.Phase.SHARING) return
+                dev.bridgey.android.screen.ScreenNotifier.updateSharing(this@BridgeyApplication, share.macName.orEmpty(), sharing = true, controlling = macName != null)
+            }
+            override fun grantsChanged(deviceId: String) = pairing.refreshFeatureState(deviceId)
+            override fun record(event: String, deviceId: String, detail: String) = pairing.recordRemoteControlEvent(event, deviceId, detail)
+            override fun log(message: String) = BridgeyLogging.i(LogCategory.REMOTE_CONTROL, message)
+        }
+        phoneControl = dev.bridgey.android.control.PhoneControlHub(
+            environment,
+            dev.bridgey.android.control.PhoneControlGrants(java.io.File(noBackupFilesDir, dev.bridgey.android.control.PhoneControlGrants.FILE_NAME)),
+            executor = worker,
+            timers = { delay, task ->
+                val future = worker.schedule({ runCatching(task) }, delay, java.util.concurrent.TimeUnit.MILLISECONDS)
+                ({ future.cancel(false); Unit })
+            },
+            clock = android.os.SystemClock::elapsedRealtime,
+            touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop.toDouble(),
+        )
+        pairing.phoneControlAdvertised = { id -> phoneControlOrNull?.advertised(id) == true }
+        pairing.phoneControlForget = { id -> phoneControlOrNull?.forget(id) }
+        pairing.phoneControlPolicy = ::phoneControlChanged
+        displays?.registerDisplayListener(object : android.hardware.display.DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) = phoneControlChanged()
+            override fun onDisplayRemoved(displayId: Int) = phoneControlChanged()
+            override fun onDisplayChanged(displayId: Int) = Unit
+        }, null)
     }
 
     private fun startDisplay() {

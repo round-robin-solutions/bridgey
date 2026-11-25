@@ -64,6 +64,7 @@ android {
         // Calls window: contact search (READ_CONTACTS) and recent calls (READ_CALL_LOG). Off only in the Play build.
         buildConfigField("boolean", "CONTACTS_AVAILABLE", "true")
         buildConfigField("boolean", "CALL_LOG_AVAILABLE", "true")
+        buildConfigField("boolean", "PHONE_CONTROL_AVAILABLE", "true")
     }
 
     signingConfigs {
@@ -102,6 +103,8 @@ android {
             buildConfigField("boolean", "CODE_TEST_AVAILABLE", "false")
             buildConfigField("boolean", "CONTACTS_AVAILABLE", "false")
             buildConfigField("boolean", "CALL_LOG_AVAILABLE", "false")
+            // No accessibility service in the Play build (its policy needs a separate declaration).
+            buildConfigField("boolean", "PHONE_CONTROL_AVAILABLE", "false")
         }
         create("qa") {
             initWith(getByName("release"))

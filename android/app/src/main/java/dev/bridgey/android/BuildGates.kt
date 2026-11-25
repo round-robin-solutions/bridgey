@@ -14,6 +14,9 @@ object BuildGates {
     /** READ_CALL_LOG for the Calls window's recent calls. Off in the Play build. */
     val callLog: Boolean get() = BuildConfig.CALL_LOG_AVAILABLE
 
+    /** A Mac controlling this phone through Bridgey's accessibility service. Off in the Play build. */
+    val phoneControl: Boolean get() = BuildConfig.PHONE_CONTROL_AVAILABLE
+
     /** False for a feature this build does not have, whatever the saved or synced setting says. */
     fun featureBuilt(feature: BridgeyFeature): Boolean = feature != BridgeyFeature.SMS || sms
 }
