@@ -6352,7 +6352,9 @@ extension PairingCoordinator: FolderReceiverHost {
     func announceReceived(_ items: [ReceivedItem], phoneID: String, revealIfSilent: Bool) {
         if notificationsAuthorized {
             receivedNotifier.post(items, phoneID: phoneID, phoneName: phoneName(phoneID))
-        } else if revealIfSilent {
+        } else if revealIfSilent && !TestInstance.enabled {
+            // A test instance never has notification permission, and revealing would bring Finder to the front of the
+            // Mac it runs on once for every file a test sends.
             NSWorkspace.shared.activateFileViewerSelecting(items.map(\.url))
         }
     }
