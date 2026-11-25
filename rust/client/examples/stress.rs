@@ -1054,14 +1054,13 @@ fn cancel(run: &mut Run, sc: &mut Scenario, from_app: bool, by_app: bool) -> Ste
         let seed = 0xCA_0000 + round as u64 + if from_app { 0x100 } else { 0 };
         let name = run.name(if from_app { "crecv" } else { "csend" });
         let mut r = Map::new();
-        // The app's cancel goes through its control program, so it lands later than this end's: the point is earlier,
-        // the file takes at least five seconds, and one that finished first is tried once more near its start.
+        // The file takes at least five seconds either way, so a cancel lands mid-file even on a fast link (a hosted
+        // runner finished 64 MiB before this end's own cancel). The app's cancel goes through its control program and
+        // lands later, so its point is earlier. A file that still finished first is tried again near its start.
         let mut attempt = 0;
         let (id, sha, t_cancel) = loop {
             attempt += 1;
-            if by_app {
-                run.proxy.limit(size / 5);
-            }
+            run.proxy.limit(size / 5);
             let at = match (attempt, by_app) {
                 (1, true) => run.rng.between(0.05, 0.5),
                 (1, false) => run.rng.between(0.05, 0.95),
@@ -1090,7 +1089,7 @@ fn cancel(run: &mut Run, sc: &mut Scenario, from_app: bool, by_app: bool) -> Ste
             }
             let t = run.wait_end(id, Duration::from_secs(30))?;
             r.insert("cancelled_at_mib".into(), json!(mb(reached)));
-            if t.done && attempt == 1 {
+            if t.done && attempt < 3 {
                 r.insert("first_try_finished_before_the_cancel".into(), json!(true));
                 run.settle()?;
                 continue;
