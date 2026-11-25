@@ -32,6 +32,7 @@ v0.10 is still stabilisation, before the v1.0 protocol freeze and wider device a
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
 | Phone screen on the Mac | planned for 0.9 | View-only prototype: the Mac shows the phone's screen in a window, H.264 from MediaProjection to VideoToolbox over the session, off by default on both sides (draft `screen_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
+| Mac controls the phone | none | Off by default for every Mac: on the phone, each Mac gets Ask each time or Allow without asking, and Android's accessibility service (Bridgey control) must be on. Taps, drags, scrolling, Back, Home, Recents and, on Android 13 and later, typing, from the phone screen window (draft `phone_control_draft1`, see below) |
 | Mac screen on the phone | none | Off by default for every phone: on the Mac, each phone gets Ask each time or Allow without asking. The phone shows the chosen Mac display and, when that phone also has remote control, taps and types on it; H.264 from ScreenCaptureKit and VideoToolbox over the session (draft `screen_control_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
 | Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
 | Connect away from home | none (LAN only) | On by default, one switch to turn it off (Settings > Devices > Connect away from home): paired devices reach each other off the home network, directly or through a Round Robin relay that sees only ciphertext. It keeps a connection to `connect.roundrobin.in` and uses a relay only when the same Wi-Fi is not available (draft `connect_draft1`, see [Connect anywhere](connect-anywhere.md)) |
@@ -212,8 +213,27 @@ The Mac can show the phone's screen in a window, view only, through the draft `s
 - **Mac:** Settings > Remote control > Show phone screens. Phone Screen is in the panel's File menu
   and the device menu. The window keeps the phone's shape, follows rotation, shows latency, Mb/s and
   frames a second, and closing it stops the share. Nothing is recorded or saved.
-- **Control** from the Mac is not built; the options and the recommendation are in
-  [screen-control-decision.md](screen-control-decision.md).
+- **Control** from the Mac: see "The Mac controls the phone" below.
+
+### The Mac controls the phone (draft protocol)
+
+Inside a phone screen window, the Mac can tap, drag, scroll and type on the phone and press Back, Home and
+Recents, through the draft `phone_control_draft1` (protocol and security review in `docs/protocol.md`;
+measurements in [screen-sharing.md](screen-sharing.md)). It uses the shared contract in
+[screen-control-core.md](screen-control-core.md) with the phone as the input host.
+
+- **Android:** Settings > Remote control > Let Macs control this phone. Each Mac is Off until you choose
+  Ask each time or Allow without asking; raising a Mac's choice is refused while a Mac controls the phone.
+  Android needs Bridgey control, an accessibility service, turned on in its accessibility settings (on
+  Android 13 and later, an APK installed from a file first needs Allow restricted settings in App info).
+  It never reads the screen. A share with a Mac that may control the phone captures the whole display.
+  Ask each time shows "MacBook Air wants to control this phone" with Allow and Don't allow. While a Mac
+  controls the phone, a bar at the top says "MacBook Air is controlling this phone" with Stop, and the
+  sharing notification has Stop control. Typing needs Android 13 or later. Not in the Play build.
+- **Mac:** Control in the bar under the phone's picture (nothing to turn on beyond Show phone screens).
+  A click is a tap, a drag is a swipe, a right click is a long press, scrolling and pinching work on a
+  trackpad, typing goes to the focused field, Command-V types the Mac's clipboard text, and Back, Home and
+  Recents are in the bar. Stop control keeps the picture.
 
 ### Mac screen on the phone (draft protocol)
 

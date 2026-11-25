@@ -1,8 +1,9 @@
 # Phone screen on the Mac (v0.9 prototype)
 
-Status: **prototype, view only, off by default on both sides.** The wire format is the draft
-`screen_draft1` in [protocol.md](protocol.md) ("Phone screen to Mac"). Control from the Mac is a
-separate decision: [screen-control-decision.md](screen-control-decision.md).
+Status: **prototype, off by default on both sides.** The wire format is the draft `screen_draft1` in
+[protocol.md](protocol.md) ("Phone screen to Mac"). It is view only unless the phone allows the Mac to control
+it, a separate grant and key (`phone_control_draft1`, "The Mac controls the phone" below); the decisions are in
+[screen-control-decision.md](screen-control-decision.md).
 
 ## How it works
 
@@ -100,7 +101,7 @@ Capture 720x1600 from 1080x2400.
 
 ## Limits of the prototype
 
-- View only. No audio (Android 10 and later could capture it with the same consent; not built).
+- View only unless the phone allows the Mac to control it (below). No audio (Android 10 and later could capture it with the same consent; not built).
 - One phone stream at a time per phone; a Mac can show several phones.
 - The share stops when the phone's screen turns off rather than showing the lock screen.
 - On a still screen the emulator's encoder stops repeating frames after a few seconds, so the Mac
@@ -157,3 +158,67 @@ and reconnect nothing resumes on either end.
   and the focused-window rule with two displays.
 - A real phone's hardware decoder (latency, surface behaviour after rotation and backgrounding).
 - Real Wi-Fi and a busy screen (video, scrolling), and long sessions (memory, heat).
+
+## The Mac controls the phone (`phone_control_draft1`)
+
+Inside a phone screen window the Mac can tap, drag, scroll, pinch and type on the phone and press Back, Home
+and Recents (protocol in [protocol.md](protocol.md), "Mac controls the phone"; the contract in
+[screen-control-core.md](screen-control-core.md) with the phone as the host). The phone shares its whole
+display for a Mac with a control grant, because gestures land on the whole display; for any other Mac the
+share keeps Android's choice of one app or the whole screen.
+
+On the phone, control goes through Bridgey control, an accessibility service that is off until the person
+turns it on in Android's accessibility settings. It never reads window content. Gestures go out one part at
+a time: Android cancels a gesture in progress when another starts, so each continuation waits for the
+previous part's callback, starts exactly where it ended and carries every finger still down, and motion that
+arrives meanwhile is merged into the next part. A part lasts at most 50 ms and at most 64 inputs wait. A
+scroll is a drag of its own finger that goes down alone, then crosses the touch slop in a 32 ms part of its
+own, then moves the whole distance, and lifts after 150 ms without scrolling, still for its last 50 ms so
+the list does not fling. (A list starts dragging on the move that crosses the slop and scrolls only on the
+moves after it; the first build moved the slop and the distance in one 8 ms part, which Android delivered as
+a single move, and the list never scrolled.) Typing uses the accessibility input method on Android 13 and
+later.
+
+### Measured
+
+Live, 2026-11-26: a throwaway test instance of the debug Mac app (its own bundle ID, port and Bonjour type) on
+the personal Mac (M4) controlling the release-minified test build (`stress`, its own app ID) on the Android 16
+emulator (bridgey-api36) on the same Mac, through `adb forward`, so a loopback rather than Wi-Fi. Input came
+from the instance's control files, which call the same coordinator methods as the window; the mapping from
+mouse, trackpad and keys to those calls is covered by unit tests only.
+
+| Measure | Result |
+| --- | --- |
+| Control asked to `active`, Allow without asking | 12 ms (`asked` to `active` in the Mac's log) |
+| Mac sends an input to the phone accepting it | within the clock comparison's ±20 ms (median 0 ms over 40 taps); the stream's round trip on this loopback is 3 to 6 ms, median 4 ms |
+| Phone accepts an input to its gesture part starting | median 0 ms, p90 35 ms, max 50 ms (the tail is input waiting behind a 50 ms still part of a scroll) |
+| Phone accepts an input to its gesture part completing | median 4 ms, p90 52 ms, max 60 ms (88 parts, none cancelled) |
+| Capture to decoded on the Mac while controlling | 23 to 48 ms, median 37 ms (a mostly still screen at about 10 frames a second) |
+
+So a tap shows on the Mac roughly 2 ms (network) + 4 ms (injection) + the app's own drawing and up to one
+frame + 23 to 48 ms (capture to decoded) after it is sent. That is an estimate from the stages, not a
+measured input-to-picture time.
+
+Also checked live: the share dialog offers only "Share entire screen" for a Mac with a control grant ("Share
+one app: Not supported by the app") and keeps "Share one app" for a Mac without one; taps open apps and rows
+at the right place in portrait and in landscape (after rotation the phone moved to a new geometry
+generation, the Mac acknowledged it, and control went on); typing into a search field, Backspace; scrolling
+both ways; Back, Home and Recents; Ask each time (the question on the screen and as a notification, Allow
+starts control); raising the grant while controlled is refused; turning the grant off ends control on both
+ends (`disabled`); turning the service off ends it (`permission`) and the Mac's Control button turns off
+until the service is back; Stop on the phone's bar ends it (`local_stop`) and keeps the picture; Stop control
+on the Mac sends the contract's `stop`; a silent disconnect ends control after the contract's 6 seconds and
+the stream after its ack timeout, and nothing resumes after reconnecting.
+
+Found and fixed during the live check: the scroll start above; the phone's bar squeezed its Stop button to
+nothing on a long Mac name; Android 16 showed the Ask each time notification redacted ("Unlock to view")
+while the screen was shared, so it is now public (nothing in it is private) and the question is also drawn on
+the screen by the service; and a Mac kept showing control as active when the phone withdrew the key before
+its `ended` arrived, so the Mac now ends control when the key goes.
+
+### Still to check on real devices
+
+- A real phone's accessibility gestures and input method (OEM builds differ), with Allow restricted settings
+  on an APK installed from a file (Android 13 and later), and Android 8 to 12 without typing.
+- Mouse, trackpad (scroll momentum, pinch) and keyboard in the real window on a Mac, rather than control files.
+- The bar's position over apps' own top bars, real Wi-Fi, a busy screen and long sessions.

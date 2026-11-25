@@ -33,6 +33,8 @@ struct PhoneLinkState: Equatable {
     var remoteScreen = false
     /// The phone advertised `screen_control_draft1`: it shows this Mac's screen (Mac screen to phone).
     var remoteScreenControl = false
+    /// The phone advertised `phone_control_draft1`: this Mac may control it inside its screen stream.
+    var remotePhoneControl = false
     /// The phone advertised `sms_draft1`: Text messages is on there for this Mac.
     var remoteSms = false
     /// This session supplied a validated sms.status, including older Android peers without platform metadata.

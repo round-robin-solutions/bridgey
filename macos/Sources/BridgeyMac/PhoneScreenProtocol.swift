@@ -81,6 +81,8 @@ struct ScreenStart: Equatable {
     let height: Int
     let fps: Int
     let bitrate: Int
+    /// phone_control_draft1: the control object of a control-capable stream; nil (view only) when missing or malformed.
+    var control: PhoneControlOffer? = nil
 
     /// At most 1,024 bytes; codec `h264`; even sizes from 16 to 4,096; 1 to 60 fps; 100 kb/s to 50 Mb/s.
     static func decode(_ data: Data) -> ScreenStart? {
@@ -96,7 +98,8 @@ struct ScreenStart: Equatable {
             requestID = id
         }
         return ScreenStart(streamID: header.streamID, sequence: header.sequence, requestID: requestID, codec: codec,
-                           width: width, height: height, fps: fps, bitrate: bitrate)
+                           width: width, height: height, fps: fps, bitrate: bitrate,
+                           control: PhoneControlOffer.decode(object["control"], width: width, height: height))
     }
 
     /// The stream a start that failed validation names, so the Mac can answer `invalid`.

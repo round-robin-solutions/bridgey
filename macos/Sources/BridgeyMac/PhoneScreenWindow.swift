@@ -16,8 +16,24 @@ final class PhoneScreenWindowModel: ObservableObject {
     @Published var hasFrame = false
     /// Set when the stream ended; shown over the last frame until the window closes.
     @Published var endedMessage: String?
+    /// Controlling the phone (phone_control_draft1): the bar's state.
+    @Published var control = PhoneControlView()
+    /// The stream has the control bar.
+    let controllable: Bool
 
-    init(phoneName: String) { self.phoneName = phoneName }
+    init(phoneName: String, controllable: Bool = false) {
+        self.phoneName = phoneName
+        self.controllable = controllable
+    }
+
+    /// The header's line: control's note when it ended or was refused, else the stream's numbers.
+    var line: String {
+        if control.phase == .waiting {
+            return String(format: L10n.text("phonecontrol.waiting", fallback: "Allow control on %@"), phoneName)
+        }
+        if control.phase == .off, let note = control.note, let text = phoneControlNoteText(note, phone: phoneName) { return text }
+        return screenStatsLine(stats)
+    }
 }
 
 /// "48 ms · 2.1 Mb/s · 30 fps".
@@ -48,7 +64,7 @@ struct PhoneScreenHeader: View {
             .padding(.horizontal, 9)
             .frame(height: 22)
             .background(Capsule().fill(ended ? c.s3 : c.tg))
-            Text(ended ? (model.endedMessage ?? "") : screenStatsLine(model.stats))
+            Text(ended ? (model.endedMessage ?? "") : model.line)
                 .font(BrandFont.body(12).monospacedDigit())
                 .foregroundStyle(c.on2)
                 .lineLimit(1)
@@ -71,6 +87,9 @@ struct PhoneScreenHeader: View {
 struct PhoneScreenWindowContent<Video: View>: View {
     @ObservedObject var model: PhoneScreenWindowModel
     let stop: () -> Void
+    var begin: () -> Void = {}
+    var end: () -> Void = {}
+    var navigate: (ScreenControl.Navigation) -> Void = { _ in }
     @ViewBuilder let video: Video
 
     var body: some View {
@@ -93,13 +112,18 @@ struct PhoneScreenWindowContent<Video: View>: View {
                         .padding(24)
                 }
             }
+            if model.controllable {
+                PhoneControlBar(model: model, begin: begin, end: end, navigate: navigate)
+            }
         }
     }
 }
 
-/// The layer-backed view frames are drawn into.
+/// The layer-backed view frames are drawn into. While the phone is controlled it takes the mouse, trackpad and keys.
 final class ScreenVideoView: NSView {
     let displayLayer = AVSampleBufferDisplayLayer()
+    /// Phone control's input mapping; nil for a view-only stream.
+    var input: PhoneScreenInput?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -110,6 +134,68 @@ final class ScreenVideoView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var acceptsFirstResponder: Bool { input != nil }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { input?.active() == true }
+
+    /// The event's position with the origin at the top left.
+    private func point(_ event: NSEvent) -> CGPoint {
+        let local = convert(event.locationInWindow, from: nil)
+        return CGPoint(x: local.x, y: bounds.height - local.y)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let input, input.active() else { return super.mouseDown(with: event) }
+        window?.makeFirstResponder(self)
+        input.mouseDown(at: point(event))
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let input else { return super.mouseDragged(with: event) }
+        input.mouseDragged(at: point(event))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let input else { return super.mouseUp(with: event) }
+        input.mouseUp(at: point(event))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard let input, input.active() else { return super.rightMouseDown(with: event) }
+        input.rightMouseDown(at: point(event))
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let input, input.active() else { return super.scrollWheel(with: event) }
+        input.scroll(dx: Double(event.scrollingDeltaX), dy: Double(event.scrollingDeltaY), precise: event.hasPreciseScrollingDeltas, at: point(event))
+    }
+
+    override func magnify(with event: NSEvent) {
+        guard let input, input.active() else { return super.magnify(with: event) }
+        let phase: PhoneScreenInput.PinchPhase = event.phase.contains(.began) ? .began
+            : (event.phase.contains(.ended) || event.phase.contains(.cancelled)) ? .ended : .changed
+        input.magnify(Double(event.magnification), phase: phase, at: point(event))
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard let input, input.key(keyCode: event.keyCode, characters: event.characters, modifiers: event.modifierFlags) else {
+            return super.keyDown(with: event)
+        }
+    }
+
+    /// Command-V types the Mac's clipboard text on the phone.
+    @objc func paste(_ sender: Any?) {
+        guard let input, let text = NSPasteboard.general.string(forType: .string) else { return }
+        _ = input.paste(text)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let input, input.active(), window?.firstResponder === self, event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "v", let text = NSPasteboard.general.string(forType: .string) {
+            return input.paste(text)
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 private struct ScreenVideoRepresentable: NSViewRepresentable {
@@ -124,11 +210,19 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
     let videoView = ScreenVideoView(frame: .zero)
     private var aspect: CGFloat
     private var closingOnPurpose = false
+    private let input: PhoneScreenInput?
+    private var videoSize: (width: Int, height: Int)
     var onClose: () -> Void = {}
 
-    init(phoneName: String, width: Int, height: Int, reduceMotion: Bool) {
-        model = PhoneScreenWindowModel(phoneName: phoneName)
+    /// The header, plus the control bar for a control-capable stream.
+    private var chrome: CGFloat { PhoneScreenHeader.height + (model.controllable ? PhoneControlBar.height : 0) }
+
+    init(phoneName: String, width: Int, height: Int, reduceMotion: Bool, deviceID: String = "", controller: PhoneScreenControlling? = nil,
+         controllable: Bool = false) {
+        model = PhoneScreenWindowModel(phoneName: phoneName, controllable: controllable)
         aspect = CGFloat(max(width, 1)) / CGFloat(max(height, 1))
+        videoSize = (width, height)
+        input = controllable ? PhoneScreenInput() : nil
         let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = String(format: L10n.text("screen.window.title", fallback: "%@ screen"), phoneName)
         window.isReleasedWhenClosed = false
@@ -136,13 +230,29 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = .black
         super.init(window: window)
         let content = BrandRoot(reduceMotion: reduceMotion) { [model, videoView] in
-            PhoneScreenWindowContent(model: model, stop: { [weak self] in self?.close() }) {
+            PhoneScreenWindowContent(model: model, stop: { [weak self] in self?.close() },
+                                     begin: { [weak controller] in controller?.beginControl(deviceID) },
+                                     end: { [weak controller] in controller?.endControl(deviceID) },
+                                     navigate: { [weak controller] action in _ = controller?.controlInput(deviceID, .navigate(action)) }) {
                 ScreenVideoRepresentable(view: videoView)
             }
         }
         window.contentView = NSHostingView(rootView: content)
         window.delegate = self
-        window.setContentSize(Self.initialSize(aspect: aspect))
+        if let input {
+            input.send = { [weak controller] action in controller?.controlInput(deviceID, action) ?? false }
+            input.press = { [weak controller] key, shift in controller?.pressKey(deviceID, key, shift: shift) ?? false }
+            input.active = { [weak model] in model?.control.phase == .active }
+            input.layout = { [weak self] in
+                guard let self else { return (.zero, 0, 0) }
+                let control = self.model.control
+                let width = control.width > 0 ? control.width : self.videoSize.width
+                let height = control.height > 0 ? control.height : self.videoSize.height
+                return (self.videoView.bounds.size, width, height)
+            }
+            videoView.input = input
+        }
+        window.setContentSize(Self.initialSize(aspect: aspect, chrome: chrome))
         window.contentMinSize = NSSize(width: 220, height: 220)
         window.center()
     }
@@ -150,7 +260,7 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     /// About two thirds of the screen's height, the video's aspect ratio.
-    static func initialSize(aspect: CGFloat) -> NSSize {
+    static func initialSize(aspect: CGFloat, chrome: CGFloat = PhoneScreenHeader.height) -> NSSize {
         let visible = NSScreen.main?.visibleFrame.size ?? NSSize(width: 1440, height: 900)
         var videoHeight = (visible.height * 0.72).rounded()
         var videoWidth = (videoHeight * aspect).rounded()
@@ -158,7 +268,7 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
             videoWidth = (visible.width * 0.8).rounded()
             videoHeight = (videoWidth / aspect).rounded()
         }
-        return NSSize(width: videoWidth, height: videoHeight + PhoneScreenHeader.height)
+        return NSSize(width: videoWidth, height: videoHeight + chrome)
     }
 
     var sink: ScreenDisplaySink { ScreenDisplaySink(layer: videoView.displayLayer) }
@@ -169,17 +279,43 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
     }
 
+    /// The window as drawn, with `frame` as the picture, written as a PNG (test instances: no Screen Recording needed).
+    func snapshot(to url: URL, frame: CGImage?) {
+        let size = window?.contentView?.bounds.size ?? NSSize(width: 360, height: 800)
+        let dark = window?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let content = BrandRoot(reduceMotion: true) { [model] in
+            PhoneScreenWindowContent(model: model, stop: {}) {
+                if let frame { Image(decorative: frame, scale: 1).resizable().aspectRatio(contentMode: .fit) }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .environment(\.colorScheme, dark ? .dark : .light)
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = window?.backingScaleFactor ?? 2
+        guard let image = renderer.cgImage, let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+        try? data.write(to: url)
+    }
+
+    /// Phone control's state: the bar, and the view takes the keys while control is on.
+    func updateControl(_ control: PhoneControlView) {
+        let previous = model.control
+        model.control = control
+        if control.epoch != previous.epoch { input?.reset() }
+        if control.phase == .active, previous.phase != .active { window?.makeFirstResponder(videoView) }
+    }
+
     /// A new stream size (rotation): the window keeps its height and takes the new aspect ratio.
     func resize(width: Int, height: Int) {
         model.hasFrame = true
+        videoSize = (width, height)
         let next = CGFloat(max(width, 1)) / CGFloat(max(height, 1))
         guard abs(next - aspect) > 0.001, let window else { return }
         aspect = next
         let content = window.contentRect(forFrameRect: window.frame)
-        let videoHeight = content.height - PhoneScreenHeader.height
+        let videoHeight = content.height - chrome
         var size = NSSize(width: (videoHeight * aspect).rounded(), height: content.height)
         if let visible = window.screen?.visibleFrame, size.width > visible.width * 0.9 {
-            size = Self.initialSize(aspect: aspect)
+            size = Self.initialSize(aspect: aspect, chrome: chrome)
         }
         window.setContentSize(size)
     }
@@ -203,10 +339,10 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
         var size = content.size
         if abs(content.width - current.width) > abs(content.height - current.height) {
             size.width = max(content.width, 220)
-            size.height = (size.width / aspect).rounded() + PhoneScreenHeader.height
+            size.height = (size.width / aspect).rounded() + chrome
         } else {
-            let videoHeight = max(content.height - PhoneScreenHeader.height, 120)
-            size.height = videoHeight + PhoneScreenHeader.height
+            let videoHeight = max(content.height - chrome, 120)
+            size.height = videoHeight + chrome
             size.width = max((videoHeight * aspect).rounded(), 220)
         }
         return sender.frameRect(forContentRect: NSRect(origin: .zero, size: size)).size
@@ -225,10 +361,13 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
 final class PhoneScreenWindows: PhoneScreenPresenter {
     private var controllers: [String: PhoneScreenWindowController] = [:]
     var reduceMotion: () -> Bool = { false }
+    /// Where the windows' control actions go (PhoneScreen).
+    weak var controlling: PhoneScreenControlling?
 
-    func open(deviceID: String, phoneName: String, width: Int, height: Int, onClose: @escaping () -> Void) -> ScreenDisplaySink? {
+    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, onClose: @escaping () -> Void) -> ScreenDisplaySink? {
         controllers.removeValue(forKey: deviceID)?.end(message: nil)
-        let controller = PhoneScreenWindowController(phoneName: phoneName, width: width, height: height, reduceMotion: reduceMotion())
+        let controller = PhoneScreenWindowController(phoneName: phoneName, width: width, height: height, reduceMotion: reduceMotion(),
+                                                     deviceID: deviceID, controller: controlling, controllable: controllable)
         controller.onClose = { [weak self] in
             self?.controllers.removeValue(forKey: deviceID)
             onClose()
@@ -239,6 +378,11 @@ final class PhoneScreenWindows: PhoneScreenPresenter {
     }
 
     func update(deviceID: String, stats: ScreenStats) { controllers[deviceID]?.model.stats = stats }
+
+    func updateControl(deviceID: String, control: PhoneControlView) { controllers[deviceID]?.updateControl(control) }
+
+    /// The open window of a phone (the test instance renders it).
+    func controller(for deviceID: String) -> PhoneScreenWindowController? { controllers[deviceID] }
 
     func resize(deviceID: String, width: Int, height: Int) { controllers[deviceID]?.resize(width: width, height: height) }
 

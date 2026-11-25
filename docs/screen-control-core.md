@@ -163,8 +163,15 @@ These are pure synthetic tests, not evidence of native gesture/capture behavior.
 Done for the Mac as host and the phone as viewer and controller: grant storage,
 indicators and Stop on both ends, selected-display capture, H.264 encode and decode,
 absolute display mapping and input fencing (protocol.md, "Mac screen to phone";
-measurements in screen-sharing.md). Still required: the phone as host (Android gesture
-sequencing and full-display capture), Windows/Linux/iOS clients, live checks of the
-real ScreenCaptureKit and CGEvent paths and a phone's hardware decoder, cross-platform
-native acceptance, and measured latency/memory/battery budgets on real devices. No
-native support or speed claim follows from compiling the Rust contract.
+measurements in screen-sharing.md). Done for the phone as host and the Mac as viewer
+and controller (protocol.md, "Mac controls the phone", `phone_control_draft1`): a Kotlin
+port of `HostSession` (`android/.../display/ScreenControlHost.kt`, checked against the
+same vectors), full-display capture for control-capable shares, per-Mac grants on the
+phone, an accessibility service whose gestures go out one part at a time through
+callbacks with bounded parts and queues and fenced late completions, accessibility
+input method typing on Android 13 and later, and a Swift controller with coalesced
+motion and ordered transitions. Still required: Windows/Linux/iOS clients, live checks
+of the real ScreenCaptureKit and CGEvent paths, a phone's hardware decoder and a real
+phone's accessibility gestures, cross-platform native acceptance, and measured
+latency/memory/battery budgets on real devices. No native support or speed claim follows
+from compiling the Rust contract.

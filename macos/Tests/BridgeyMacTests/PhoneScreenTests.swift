@@ -106,14 +106,14 @@ final class PhoneScreenProtocolTests: XCTestCase {
 final class PhoneScreenTests: XCTestCase {
     private var now = Date(timeIntervalSince1970: 1_000_000)
     private var sent: [(device: String, kind: String, payload: [String: Any])] = []
-    private var presenter: FakePresenter!
+    private var presenter: PhoneScreenFakePresenter!
     private let streamID = "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60"
     private let key = Data(repeating: 7, count: 32)
 
     private func make(enabled: Bool = true) -> PhoneScreen {
         let screen = PhoneScreen(defaults: nil, clock: { [unowned self] in self.now })
         screen.send = { [unowned self] device, kind, payload in self.sent.append((device, kind, payload)); return true }
-        presenter = FakePresenter()
+        presenter = PhoneScreenFakePresenter()
         screen.presenter = presenter
         if enabled { screen.setEnabled(true) }
         return screen
@@ -273,18 +273,24 @@ final class PhoneScreenTests: XCTestCase {
 }
 
 @MainActor
-private final class FakePresenter: PhoneScreenPresenter {
+final class PhoneScreenFakePresenter: PhoneScreenPresenter {
     var opened: [String] = []
     var size: [Int] = []
     var fronted: [String] = []
     var closed: [(String, String?)] = []
     var stats: [ScreenStats] = []
 
-    func open(deviceID: String, phoneName: String, width: Int, height: Int, onClose: @escaping () -> Void) -> ScreenDisplaySink? {
+    var controllable: [Bool] = []
+    var controls: [PhoneControlView] = []
+
+    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, onClose: @escaping () -> Void) -> ScreenDisplaySink? {
         opened.append(deviceID)
         size = [width, height]
+        self.controllable.append(controllable)
         return nil
     }
+
+    func updateControl(deviceID: String, control: PhoneControlView) { controls.append(control) }
 
     func update(deviceID: String, stats: ScreenStats) { self.stats.append(stats) }
     func resize(deviceID: String, width: Int, height: Int) { size = [width, height] }
