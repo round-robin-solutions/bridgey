@@ -1071,7 +1071,8 @@ moment this device found the build to check again (a target with no known versio
 Status: **Draft, edition only, view only.** The Mac shows the phone's screen in a window. The phone
 captures with Android's MediaProjection after the person confirms in the system dialog, encodes H.264
 in hardware and streams it over the existing encrypted session. Control (touching the phone from the
-Mac) is not part of this draft; see [screen-control-decision.md](screen-control-decision.md). Why the
+Mac) is a separate key on top of this stream, [`phone_control_draft1`](#mac-controls-the-phone-phone_control_draft1);
+the decisions are in [screen-control-decision.md](screen-control-decision.md). Why the
 stream shares the session instead of using a second connection, how it adapts to the link and what it
 measured: [screen-sharing.md](screen-sharing.md).
 
@@ -1184,7 +1185,8 @@ contract in [screen-control-core.md](screen-control-core.md) (`bridgey-screen-co
 `rust/proto/src/screen_control.rs`); the decisions behind it are in
 [screen-control-decision.md](screen-control-decision.md). Old peers keep `screen_draft1` (the phone's
 screen on the Mac) and `remote_input_draft1` (the touchpad) exactly as they are; nothing below changes
-them. The phone as a screen source for the Mac is the next step and is not part of this draft yet.
+them. The other direction, the Mac controlling the phone, runs inside the phone's `screen_draft1` stream with its own key,
+[`phone_control_draft1`](#mac-controls-the-phone-phone_control_draft1).
 
 The *source* is the device whose screen is shown (the Mac today) and the *viewer* the device that shows
 it and may control it (the phone today).
@@ -1383,6 +1385,159 @@ whether it is controlling, and Stop. Leaving the phone's viewer stops the stream
 | A flood of frames or input | Frames follow the `screen_draft1` limits; input follows the contract's rate limits, and a numbered key or button over the limit ends control rather than sticking |
 | Typing outside what the viewer sees | Key and text input need the focused window on the shared display; no modifier other than Shift exists on the Mac |
 | Screen content kept | Neither side saves, records or forwards frames |
+
+### Mac controls the phone (`phone_control_draft1`)
+
+Status: **Draft, edition only.** Inside a running `screen_draft1` stream (the phone's screen on the Mac),
+the Mac may control the phone: taps, drags, scrolling, Back, Home, Recents and, on Android 13 and later,
+typing. It is the second native use of the shared contract in [screen-control-core.md](screen-control-core.md)
+(`bridgey-screen-control-draft1`): here the phone is the source and input host, and the Mac the viewer and
+controller. The decisions behind it are in [screen-control-decision.md](screen-control-decision.md). A peer
+without the key keeps the view-only stream exactly as above.
+
+**Negotiation and grants.** `features.update` gains the boolean key `phone_control_draft1`. The Mac sets it
+while Show phone screens is on: it is the controller and grants nothing. The phone sets it for a Mac only
+while Share screen with Macs is on for that Mac and the Mac has a phone control grant on the phone:
+
+| Grant on the phone | Meaning |
+| --- | --- |
+| Off | The default for every Mac, also after an update. The key is `false` for that Mac |
+| Ask each time | Every control request shows a prompt on the phone ("MacBook Air wants to control this phone", Allow and Don't allow). Nothing is injected until the person allows it |
+| Allow without asking | A persistent unattended grant, only for a Mac the person picked explicitly. Control starts without a prompt |
+
+Grants live in the phone's own private storage (a file outside Android backup), separate from pairing and
+from settings sync. They are never synced, never sent to another device and bound to the Mac's pinned
+identity key: a Mac that pairs again with a different key has no grant. Forgetting a Mac removes its grant.
+Pairing alone grants nothing, and seeing the screen never implies control. Agent devices and servers never
+get a grant, and the phone never advertises the key to them.
+
+No grant bypasses Android. Each share still needs Android's capture consent, and control needs Bridgey's
+accessibility service ("Bridgey control"), which the person turns on in Android's accessibility settings.
+The service can perform gestures and global actions and, on Android 13 and later, act as an accessibility
+input method. It never reads window content (`canRetrieveWindowContent` is off), never reads accessibility
+trees, never writes the clipboard and never uses ADB.
+
+Every message below goes only to a peer whose latest map shows both `screen_draft1` and `phone_control_draft1`.
+
+**A control-capable stream.** When the phone starts a share with a Mac that shows the key and has a grant
+(not Off), it asks Android for full-display capture (`MediaProjectionConfig.createConfigForDefaultDisplay()`
+on Android 14 and later; earlier versions always capture the whole display), because gestures land on the
+whole display and a single app's picture cannot be mapped onto it. Its `screen.start` then carries a
+`control` object. With no grant, or with a Mac that does not show the key, the share is view only, Android
+keeps its normal choice of one app or the whole screen, and `screen.start` has no `control`. A Mac that does
+not know the key ignores the field (unknown fields are ignored); a Mac that finds it malformed treats the
+stream as view only.
+
+| `control` field | Rule |
+| --- | --- |
+| `stream`, `transport` | contract counters, 1 to 2^53-1, issued by the phone for this stream and this session |
+| `geometry` | the contract's `Geometry`: `generation` (starts at 1), `source` (the Android display ID plus 1), `kind` `display`, `width` and `height` equal to the stream's size |
+| `capabilities` | the phone's contract capabilities (below) |
+| `allowed` | boolean: control may be asked for now (the accessibility service is on) |
+
+`screen.start` stays within its 1,024 bytes.
+
+**Stream messages.** Encrypted on the current session like the other `screen.*` stream messages, outside
+the shared `messageId` window. `screen.geometry` and `screen.control` carry the sender's stream `sequence`
+(the phone's continues from `screen.start` and its frames, the Mac's from `screen.started`) and are at most
+512 bytes. `screen.input` carries the contract's input packet with its own `seq`, at most 2,048 bytes.
+Malformed, out-of-sequence or undecryptable messages are dropped and counted, never answered.
+
+| Message | Direction | Fields (besides `version`, `streamId`, `sequence`) | Meaning |
+| --- | --- | --- | --- |
+| `screen.geometry` | phone to Mac | `geometry` | The display rotated or changed size: a new geometry generation. Frames of the new size start with a key frame carrying its SPS and PPS |
+| `screen.control` | either | Mac: `action`: `begin` (with `capabilities`, the Mac's contract capabilities) or `end`. Phone: `state`: `waiting`, `active`, `ended`, `refused` or `available`; with `active`: `session` (1 to 2^53-1) and `input` (the negotiated input capabilities); with `ended` or `refused`: `reason`; with `available`: `allowed` (boolean) | Control during a stream (below) |
+| `screen.input` | Mac to phone | the contract input packet | Input for the active control session |
+
+**Capabilities.** The phone sends `screenSource`, `fullDisplaySource`, `h264Encode`,
+`captureRequiresPrompt` and `inputHost` with `touch`, `pointer` and `navigation`, plus `keys` and `text` on
+Android 13 and later only. The Mac sends `screenViewer`, `h264Decode` and `inputController` with `pointer`,
+`touch`, `keys`, `text` and `navigation`. Control uses `Capabilities.negotiated_input` of the two, so on
+Android 8 to 12 the Mac offers no typing.
+
+**Control.** While a control-capable stream runs and the phone said control may be asked for (`allowed` in
+`screen.start` or a later `available`), the Mac sends `screen.control` `begin`. The phone checks the grant,
+the accessibility service, that the screen is unlocked and that the stream is control-capable. With Ask each
+time it answers `waiting` and shows its prompt, on the screen (drawn by the accessibility service) and as a
+notification, because Android may hide notification content while the screen is shared; it expires after 60 seconds; Don't allow or expiry answers
+`refused` `declined`. With Allow without asking, or once the person allows, it begins a contract session
+(`HostSession.begin`) bound to this stream, this session and the current geometry, and answers `active`.
+Either side ends control without ending the stream: the Mac with `end` (or a contract `stop` packet), the
+phone with `ended` and a reason. When the service is turned on or off during a stream, the phone sends
+`available` with `allowed`.
+
+| Control `reason` | Meaning |
+| --- | --- |
+| `user` | the Mac ended control |
+| `local_stop` | stopped on the phone (Stop on its indicator or notification) |
+| `declined` | the person said no on the phone, or the prompt expired |
+| `disabled` | the phone control grant for this Mac is Off |
+| `permission` | the accessibility service is off or went away |
+| `locked` | the phone is locked |
+| `focus` | typing was refused because another display is active, so the phone cannot tell where the text would go |
+| `timeout` | 6 seconds without valid input or a heartbeat |
+| `rate` | a transition over the rate limit, or more input than the phone can perform in order |
+| `invalid` | a sequence gap, an invalid transition, input on an old geometry while something was held, a Control, Alt or Meta key, or a malformed packet |
+| `source_changed` | the stream was replaced |
+| `failed` | anything else |
+
+An unknown reason reads as `failed`.
+
+`screen.input` follows the rules of `display.input` above with the roles swapped: `session` comes from
+`active`, `transport`, `stream` and the first geometry from the `control` object, `geometry` is the
+generation the Mac acknowledged, `seq` counts 1, 2, 3, ... within the control session, and `connection` is
+the same 16 bytes, `HMAC-SHA256(session key, UTF-8 "bridgey-screen-control-connection-v1" || 0x00 || UTF-8
+sessionId)[0..16]`. The first packet is `geometry_ack`; after `screen.geometry` the Mac drops every input it
+has not sent yet, forgets its gestures (the phone has already lifted its fingers) and acknowledges the new
+generation before sending more. Positions are fractions of the full captured display after the letterbox
+is removed. The Mac coalesces motion before assigning `seq`, never drops a numbered transition, keeps within
+120 motion, 20 discrete and 10 control packets a second, and sends `heartbeat` every 2 seconds while control
+is on. `stop` ends control and is never rate limited.
+
+**What each input does on the phone.** The phone maps a validated position onto its display in its current
+rotation by undoing Android's mirroring of the display into the stream. Android fits the display of `W` by `H`
+pixels into the stream of `width` by `height`, aspect kept and centred: when `width * H < height * W` the
+picture is `cw = width`, `ch = H * width / W` (integers), otherwise `cw = W * height / H`, `ch = height`, at
+`left = (width - cw) / 2`, `top = (height - ch) / 2`. The contract's pixel `(px, py)` becomes
+`((px + 0.5 - left) * W / cw, (py + 0.5 - top) * H / ch)`, clamped to the display, so a point never lands
+outside it. Scroll distances scale by `W / cw` and `H / ch`.
+
+| Input | On the phone |
+| --- | --- |
+| `touch` (contacts 0 to 9) | One finger per contact: `down` starts a stroke, `move` continues it, `up` lifts it |
+| `scroll` | A drag of one extra finger from the packet's position, moving by `dx`, `dy` (stream pixels the content moves, positive right and down, so the finger moves with the content). A new drag goes down alone, then crosses the touch slop in a part of its own, so a list starts dragging before the distance is moved and none of it is lost. It lifts after 150 ms without scrolling, still for the last 50 ms so the list does not fling, and starts again from the same position when it reaches an edge |
+| `button` `primary` and `pointer` | A finger while the button is held; `pointer` without a held button does nothing, and `secondary` and `middle` do nothing |
+| `navigate` | Android's Back, Home and Recents global actions |
+| `text` | Typed into the focused editor through the accessibility input method (Android 13 and later). Dropped when no editor has focus |
+| `key` | The named keys and Shift, sent to the focused editor (Android 13 and later). Control, Alt and Meta end control as `invalid` |
+
+Inputs run in packet order. Gestures go out one at a time: Android cancels a gesture in progress when a new
+one starts, so each continuation is dispatched only after the previous part completes, from exactly where it
+ended, and continues every finger that is still down. Motion that arrives while a part is in flight is
+merged into the next part. A part lasts at most 50 ms (far under Android's 60-second limit for one gesture), and at most 64
+inputs wait; more ends control as `rate`. Text and keys wait 100 ms after the last finger lifts, so focus can
+move to the field that was tapped. Stop on either end, a geometry change, a disconnect, a lock, losing the
+accessibility service or a grant change drops every pending input and lifts held fingers where they are
+(released keys go up too); a gesture callback that arrives after that is ignored, so a late completion can
+never start the next part of a stopped gesture.
+
+**Visible on both ends.** While the Mac controls the phone, the phone shows "MacBook Air is controlling this
+phone" with Stop in a small bar drawn over the top of the screen by the accessibility service (so it also
+appears in the Mac's picture), and its sharing notification says so too, with Stop control. Stop on the
+phone wins over everything queued. The Mac's window says it is controlling, with Back, Home, Recents and
+Stop control.
+
+**Security.**
+
+| Threat | Mitigations |
+| --- | --- |
+| A Mac controls the phone without the person knowing | Off by default per Mac. Ask each time asks on the phone for every control session; Allow without asking only for Macs picked explicitly. Control needs a share the person confirmed in Android's dialog, the accessibility service the person turned on, and an explicit `begin`. The bar and the notification name the Mac for the whole session, with Stop |
+| Control outlives the person's intent | Stop on the phone ends control at once; a lock ends the share; turning the grant to Off or the service off ends control; a reconnect never resumes it |
+| A grant outlives its Mac or travels | Grants are a private file outside backup, bound to the pinned key, never synced or sent, removed with the Mac; agents and servers never get one |
+| Input lands outside the picture the Mac sees | Control-capable shares capture the whole display; positions are fractions of the acknowledged geometry; a rotation blocks input until the new geometry is acknowledged; typing with another display active ends control |
+| Reading the phone | The service never reads window content or accessibility trees and never touches the clipboard; typing goes only into the focused editor |
+| Replayed, spliced or flooded input | The contract binds session, transport, the connection nonce, stream and geometry; its sequence rejects replays and gaps; rate limits and a bounded queue end control rather than drop a held transition |
+| A stuck finger | Every stop, rejection that stops, geometry change and disconnect lifts held fingers where they are; late callbacks are fenced |
 
 ### Text messages (`sms_draft1`)
 

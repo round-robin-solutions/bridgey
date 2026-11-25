@@ -1,0 +1,2161 @@
+{
+ "format": "bridgey.phone-control.v1",
+ "description": "The Mac controls the phone (phone_control_draft1). startControl: the control object of screen.start as the Mac decodes it (null: view only; the start itself stays valid). phoneStream: screen.geometry and screen.control from the phone, decoded by the Mac; write: the phone writes exactly this plaintext. macStream: screen.control from the Mac, decoded by the phone; write: the Mac writes it. capabilities: what each side sends; negotiated: the input both may use. phonePoint: a contract position on the phone's display; scrollDelta: stream pixels to display pixels.",
+ "startControl": [
+  {
+   "name": "control allowed now",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": {
+    "stream": 1,
+    "transport": 3,
+    "geometry": {
+     "generation": 1,
+     "source": 1,
+     "kind": "display",
+     "width": 720,
+     "height": 1600
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": true,
+     "captureRestoreSupported": false
+    },
+    "allowed": true
+   },
+   "write": true
+  },
+  {
+   "name": "service off",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": false
+    }
+   },
+   "expect": {
+    "stream": 1,
+    "transport": 3,
+    "geometry": {
+     "generation": 1,
+     "source": 1,
+     "kind": "display",
+     "width": 720,
+     "height": 1600
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": true,
+     "captureRestoreSupported": false
+    },
+    "allowed": false
+   },
+   "write": true
+  },
+  {
+   "name": "Android 12: no typing",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": false,
+       "text": false,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": {
+    "stream": 1,
+    "transport": 3,
+    "geometry": {
+     "generation": 1,
+     "source": 1,
+     "kind": "display",
+     "width": 720,
+     "height": 1600
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": true,
+      "keys": false,
+      "text": false,
+      "navigation": true
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": true,
+     "captureRestoreSupported": false
+    },
+    "allowed": true
+   },
+   "write": true
+  },
+  {
+   "name": "landscape",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 1600,
+    "height": 720,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 1600,
+      "height": 720
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": {
+    "stream": 1,
+    "transport": 3,
+    "geometry": {
+     "generation": 1,
+     "source": 1,
+     "kind": "display",
+     "width": 1600,
+     "height": 720
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": true,
+     "captureRestoreSupported": false
+    },
+    "allowed": true
+   }
+  },
+  {
+   "name": "unknown field ignored",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true,
+     "future": true
+    }
+   },
+   "expect": {
+    "stream": 1,
+    "transport": 3,
+    "geometry": {
+     "generation": 1,
+     "source": 1,
+     "kind": "display",
+     "width": 720,
+     "height": 1600
+    },
+    "capabilities": {
+     "v": 1,
+     "screenSource": true,
+     "screenViewer": false,
+     "fullDisplaySource": true,
+     "h264Encode": true,
+     "h264Decode": false,
+     "inputHost": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": true,
+     "captureRestoreSupported": false
+    },
+    "allowed": true
+   }
+  },
+  {
+   "name": "view only: no control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   },
+   "expect": null
+  },
+  {
+   "name": "view only: control null",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": null
+   },
+   "expect": null
+  },
+  {
+   "name": "not an object",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": true
+   },
+   "expect": null
+  },
+  {
+   "name": "stream 0",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 0,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "transport over 2^53-1",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 9007199254740992,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "transport a fraction",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 1.5,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "no geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "geometry generation 0",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 0,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "geometry of a window",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "window",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "geometry with an unknown field",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600,
+      "scale": 2
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "geometry not the stream size",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 1080,
+      "height": 2400
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "capabilities v2",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 2,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "no capabilities",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "allowed": true
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "allowed missing",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     }
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "allowed not a boolean",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 1,
+    "requestId": "7e6d5c4b-3a29-4817-8695-a4b3c2d1e0f9",
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "control": {
+     "stream": 1,
+     "transport": 3,
+     "geometry": {
+      "generation": 1,
+      "source": 1,
+      "kind": "display",
+      "width": 720,
+      "height": 1600
+     },
+     "capabilities": {
+      "v": 1,
+      "screenSource": true,
+      "screenViewer": false,
+      "fullDisplaySource": true,
+      "h264Encode": true,
+      "h264Decode": false,
+      "inputHost": {
+       "pointer": true,
+       "touch": true,
+       "keys": true,
+       "text": true,
+       "navigation": true
+      },
+      "inputController": {
+       "pointer": false,
+       "touch": false,
+       "keys": false,
+       "text": false,
+       "navigation": false
+      },
+      "captureRequiresPrompt": true,
+      "captureRestoreSupported": false
+     },
+     "allowed": 1
+    }
+   },
+   "expect": null
+  }
+ ],
+ "phoneStream": [
+  {
+   "name": "geometry after rotation",
+   "kind": "screen.geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 40,
+    "geometry": {
+     "generation": 2,
+     "source": 1,
+     "kind": "display",
+     "width": 1600,
+     "height": 720
+    }
+   },
+   "expect": {
+    "geometry": {
+     "generation": 2,
+     "source": 1,
+     "kind": "display",
+     "width": 1600,
+     "height": 720
+    }
+   },
+   "write": true
+  },
+  {
+   "name": "geometry odd width",
+   "kind": "screen.geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 41,
+    "geometry": {
+     "generation": 2,
+     "source": 1,
+     "kind": "display",
+     "width": 721,
+     "height": 1600
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "geometry missing",
+   "kind": "screen.geometry",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 41
+   },
+   "expect": null
+  },
+  {
+   "name": "waiting",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 5,
+    "state": "waiting"
+   },
+   "expect": {
+    "state": "waiting"
+   },
+   "write": true
+  },
+  {
+   "name": "active",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 6,
+    "state": "active",
+    "session": 1,
+    "input": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    }
+   },
+   "expect": {
+    "state": "active",
+    "session": 1,
+    "input": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    }
+   },
+   "write": true
+  },
+  {
+   "name": "active without session",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 6,
+    "state": "active",
+    "input": {
+     "pointer": false,
+     "touch": true,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "active with a non-boolean input flag",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 6,
+    "state": "active",
+    "session": 1,
+    "input": {
+     "touch": 1
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "ended local stop",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 7,
+    "state": "ended",
+    "reason": "local_stop"
+   },
+   "expect": {
+    "state": "ended",
+    "reason": "local_stop"
+   },
+   "write": true
+  },
+  {
+   "name": "refused declined",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 7,
+    "state": "refused",
+    "reason": "declined"
+   },
+   "expect": {
+    "state": "refused",
+    "reason": "declined"
+   },
+   "write": true
+  },
+  {
+   "name": "refused permission",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 7,
+    "state": "refused",
+    "reason": "permission"
+   },
+   "expect": {
+    "state": "refused",
+    "reason": "permission"
+   },
+   "write": true
+  },
+  {
+   "name": "ended with an unknown reason",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 7,
+    "state": "ended",
+    "reason": "sunspots"
+   },
+   "expect": {
+    "state": "ended",
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "ended without a reason",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 7,
+    "state": "ended"
+   },
+   "expect": {
+    "state": "ended",
+    "reason": "failed"
+   }
+  },
+  {
+   "name": "available",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 8,
+    "state": "available",
+    "allowed": true
+   },
+   "expect": {
+    "state": "available",
+    "allowed": true
+   },
+   "write": true
+  },
+  {
+   "name": "available without allowed",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 8,
+    "state": "available"
+   },
+   "expect": null
+  },
+  {
+   "name": "unknown state",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 8,
+    "state": "paused"
+   },
+   "expect": null
+  },
+  {
+   "name": "sequence 0",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 0,
+    "state": "waiting"
+   },
+   "expect": null
+  },
+  {
+   "name": "version 2",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 2,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 5,
+    "state": "waiting"
+   },
+   "expect": null
+  },
+  {
+   "name": "over 512 bytes",
+   "kind": "screen.control",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 5,
+    "state": "waiting",
+    "pad": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "expect": null
+  }
+ ],
+ "macStream": [
+  {
+   "name": "begin",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 3,
+    "action": "begin",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   },
+   "expect": {
+    "action": "begin",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   },
+   "write": true
+  },
+  {
+   "name": "begin with sparse capabilities",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 3,
+    "action": "begin",
+    "capabilities": {
+     "v": 1,
+     "screenViewer": true,
+     "h264Decode": true,
+     "inputController": {
+      "touch": true
+     },
+     "future": 1
+    }
+   },
+   "expect": {
+    "action": "begin",
+    "capabilities": {
+     "v": 1,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": false,
+      "touch": true,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   }
+  },
+  {
+   "name": "begin without capabilities",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 3,
+    "action": "begin"
+   },
+   "expect": null
+  },
+  {
+   "name": "begin with capabilities v2",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 3,
+    "action": "begin",
+    "capabilities": {
+     "v": 2,
+     "screenSource": false,
+     "screenViewer": true,
+     "fullDisplaySource": false,
+     "h264Encode": false,
+     "h264Decode": true,
+     "inputHost": {
+      "pointer": false,
+      "touch": false,
+      "keys": false,
+      "text": false,
+      "navigation": false
+     },
+     "inputController": {
+      "pointer": true,
+      "touch": true,
+      "keys": true,
+      "text": true,
+      "navigation": true
+     },
+     "captureRequiresPrompt": false,
+     "captureRestoreSupported": false
+    }
+   },
+   "expect": null
+  },
+  {
+   "name": "end",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 9,
+    "action": "end"
+   },
+   "expect": {
+    "action": "end"
+   },
+   "write": true
+  },
+  {
+   "name": "unknown action",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 3,
+    "action": "take_over"
+   },
+   "expect": null
+  },
+  {
+   "name": "no action",
+   "plaintext": {
+    "version": 1,
+    "streamId": "0d3c2b1a-5948-4776-a5b4-c3d2e1f00a1b",
+    "sequence": 3
+   },
+   "expect": null
+  },
+  {
+   "name": "stream ID not a UUID",
+   "plaintext": {
+    "version": 1,
+    "streamId": "phone",
+    "sequence": 3,
+    "action": "begin"
+   },
+   "expect": null
+  }
+ ],
+ "capabilities": [
+  {
+   "name": "phone, Android 8",
+   "side": "phone",
+   "sdk": 26,
+   "expect": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": false,
+     "text": false,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   }
+  },
+  {
+   "name": "phone, Android 12L",
+   "side": "phone",
+   "sdk": 32,
+   "expect": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": false,
+     "text": false,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   }
+  },
+  {
+   "name": "phone, Android 13",
+   "side": "phone",
+   "sdk": 33,
+   "expect": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   }
+  },
+  {
+   "name": "phone, Android 16",
+   "side": "phone",
+   "sdk": 36,
+   "expect": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   }
+  },
+  {
+   "name": "Mac",
+   "side": "mac",
+   "expect": {
+    "v": 1,
+    "screenSource": false,
+    "screenViewer": true,
+    "fullDisplaySource": false,
+    "h264Encode": false,
+    "h264Decode": true,
+    "inputHost": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "inputController": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "captureRequiresPrompt": false,
+    "captureRestoreSupported": false
+   }
+  }
+ ],
+ "negotiated": [
+  {
+   "name": "Android 16 and the Mac",
+   "host": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   },
+   "controller": {
+    "v": 1,
+    "screenSource": false,
+    "screenViewer": true,
+    "fullDisplaySource": false,
+    "h264Encode": false,
+    "h264Decode": true,
+    "inputHost": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "inputController": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "captureRequiresPrompt": false,
+    "captureRestoreSupported": false
+   },
+   "expect": {
+    "pointer": true,
+    "touch": true,
+    "keys": true,
+    "text": true,
+    "navigation": true
+   }
+  },
+  {
+   "name": "Android 12 and the Mac: no typing",
+   "host": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": false,
+     "text": false,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   },
+   "controller": {
+    "v": 1,
+    "screenSource": false,
+    "screenViewer": true,
+    "fullDisplaySource": false,
+    "h264Encode": false,
+    "h264Decode": true,
+    "inputHost": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "inputController": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "captureRequiresPrompt": false,
+    "captureRestoreSupported": false
+   },
+   "expect": {
+    "pointer": true,
+    "touch": true,
+    "keys": false,
+    "text": false,
+    "navigation": true
+   }
+  },
+  {
+   "name": "a viewer without touch or pointer",
+   "host": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": true,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   },
+   "controller": {
+    "v": 1,
+    "screenSource": false,
+    "screenViewer": true,
+    "fullDisplaySource": false,
+    "h264Encode": false,
+    "h264Decode": true,
+    "inputHost": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": true
+    },
+    "captureRequiresPrompt": false,
+    "captureRestoreSupported": false
+   },
+   "expect": {
+    "pointer": false,
+    "touch": false,
+    "keys": false,
+    "text": false,
+    "navigation": true
+   }
+  },
+  {
+   "name": "a host that is not a full-display source",
+   "host": {
+    "v": 1,
+    "screenSource": true,
+    "screenViewer": false,
+    "fullDisplaySource": false,
+    "h264Encode": true,
+    "h264Decode": false,
+    "inputHost": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "inputController": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "captureRequiresPrompt": true,
+    "captureRestoreSupported": false
+   },
+   "controller": {
+    "v": 1,
+    "screenSource": false,
+    "screenViewer": true,
+    "fullDisplaySource": false,
+    "h264Encode": false,
+    "h264Decode": true,
+    "inputHost": {
+     "pointer": false,
+     "touch": false,
+     "keys": false,
+     "text": false,
+     "navigation": false
+    },
+    "inputController": {
+     "pointer": true,
+     "touch": true,
+     "keys": true,
+     "text": true,
+     "navigation": true
+    },
+    "captureRequiresPrompt": false,
+    "captureRestoreSupported": false
+   },
+   "expect": null
+  }
+ ],
+ "phonePoint": [
+  {
+   "name": "portrait centre",
+   "geometry": [
+    720,
+    1600
+   ],
+   "display": [
+    1080,
+    2400
+   ],
+   "x": 0.5,
+   "y": 0.5,
+   "expect": {
+    "pixel": [
+     360,
+     800
+    ],
+    "point": [
+     540.75,
+     1200.75
+    ]
+   }
+  },
+  {
+   "name": "portrait top left",
+   "geometry": [
+    720,
+    1600
+   ],
+   "display": [
+    1080,
+    2400
+   ],
+   "x": 0,
+   "y": 0,
+   "expect": {
+    "pixel": [
+     0,
+     0
+    ],
+    "point": [
+     0.75,
+     0.75
+    ]
+   }
+  },
+  {
+   "name": "portrait bottom right",
+   "geometry": [
+    720,
+    1600
+   ],
+   "display": [
+    1080,
+    2400
+   ],
+   "x": 1,
+   "y": 1,
+   "expect": {
+    "pixel": [
+     719,
+     1599
+    ],
+    "point": [
+     1079.0,
+     2399.0
+    ]
+   }
+  },
+  {
+   "name": "landscape, a third across",
+   "geometry": [
+    1600,
+    720
+   ],
+   "display": [
+    2400,
+    1080
+   ],
+   "x": 0.3333333333333333,
+   "y": 0.75,
+   "expect": {
+    "pixel": [
+     533,
+     539
+    ],
+    "point": [
+     800.25,
+     809.25
+    ]
+   }
+  },
+  {
+   "name": "mirrored with bars top and bottom",
+   "geometry": [
+    736,
+    1600
+   ],
+   "display": [
+    1080,
+    2340
+   ],
+   "x": 0.25,
+   "y": 0.9,
+   "expect": {
+    "pixel": [
+     184,
+     1439
+    ],
+    "point": [
+     270.73369565217394,
+     2108.7892095357593
+    ]
+   }
+  },
+  {
+   "name": "on a bar: clamped to the display's edge",
+   "geometry": [
+    736,
+    1600
+   ],
+   "display": [
+    1080,
+    2340
+   ],
+   "x": 0.5,
+   "y": 0,
+   "expect": {
+    "pixel": [
+     368,
+     0
+    ],
+    "point": [
+     540.7336956521739,
+     0.0
+    ]
+   }
+  },
+  {
+   "name": "mirrored with bars left and right",
+   "geometry": [
+    1600,
+    736
+   ],
+   "display": [
+    2340,
+    1080
+   ],
+   "x": 0.0,
+   "y": 0.5,
+   "expect": {
+    "pixel": [
+     0,
+     368
+    ],
+    "point": [
+     0.0,
+     540.7336956521739
+    ]
+   }
+  },
+  {
+   "name": "outside",
+   "geometry": [
+    720,
+    1600
+   ],
+   "display": [
+    1080,
+    2400
+   ],
+   "x": 1.01,
+   "y": 0.5,
+   "expect": "reject"
+  },
+  {
+   "name": "negative",
+   "geometry": [
+    720,
+    1600
+   ],
+   "display": [
+    1080,
+    2400
+   ],
+   "x": 0.5,
+   "y": -0.001,
+   "expect": "reject"
+  }
+ ],
+ "scrollDelta": [
+  {
+   "name": "down a little",
+   "geometry": [
+    720,
+    1600
+   ],
+   "display": [
+    1080,
+    2400
+   ],
+   "dx": 0,
+   "dy": 40,
+   "expect": [
+    0.0,
+    60.0
+   ]
+  },
+  {
+   "name": "left, landscape",
+   "geometry": [
+    1600,
+    720
+   ],
+   "display": [
+    2400,
+    1080
+   ],
+   "dx": -100,
+   "dy": 0,
+   "expect": [
+    -150.0,
+    0.0
+   ]
+  },
+  {
+   "name": "mirrored with bars",
+   "geometry": [
+    736,
+    1600
+   ],
+   "display": [
+    1080,
+    2340
+   ],
+   "dx": 10,
+   "dy": -10,
+   "expect": [
+    14.673913043478262,
+    -14.680050188205772
+   ]
+  }
+ ]
+}

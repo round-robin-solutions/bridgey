@@ -106,6 +106,11 @@ the tables at the end of this page are generated from it with
   (`settingsPayload`: records kept, entries skipped one by one, the first-connect flags, invalid messages, unsupported
   schemas), pick the same winner between two records (`settingsMerge`), treat a snapshot record alike (`settingsSnapshot`),
   pick the same device to ask on a first connect (`settingsAsker`) and stamp a local edit alike (`settingsStamp`).
+- The Mac controls the phone (`phone_control_draft1`): [`protocol/test-vectors/phone-control-v1.json`](../protocol/test-vectors/phone-control-v1.json)
+  (written by `protocol/tools/phone_control_vectors.py`) pins the `control` object of `screen.start`, `screen.geometry` and both forms of
+  `screen.control`, each side's capabilities and their negotiation, and where a position lands on the phone's display. Android
+  (`PhoneControlVectorsTest`) and the Mac (`PhoneControlVectorsTests`) check it; the touch and navigate input packets are in the
+  shared contract's `screen-control-v1.json`, which Rust, Kotlin and Swift all check.
 - Resuming files (`files_resume_draft1`): [`protocol/test-vectors/files-resume-v1.json`](../protocol/test-vectors/files-resume-v1.json)
   pins the prefix hashes, both payloads, the receiver's and the sender's decisions, retention and the designed folder
   rules. `rust/client`, Android (`FileResumeVectorTest`) and the Mac (`FileResumeVectorTests`) check every vector, and
@@ -157,6 +162,7 @@ the tables at the end of this page are generated from it with
 | `updates_draft1` | edition-draft | no | false |
 | `screen_draft1` | edition-draft | no | false |
 | `screen_control_draft1` | edition-draft | no | false |
+| `phone_control_draft1` | edition-draft | no | false |
 | `files_fast_draft1` | edition-draft | no | false |
 | `files_resume_draft1` | edition-draft | no | false |
 | `sms_draft1` | edition-draft | no | false |
@@ -203,7 +209,7 @@ the tables at the end of this page are generated from it with
 
 ### Messages
 
-199 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
+202 kinds. Envelope fields ending in `?` are optional. "Replay" is `messageId` (the shared 256-entry window), `sequence` (a per-feature or per-session high-water mark) or none.
 
 #### `pairing.*`
 
@@ -1109,6 +1115,9 @@ accepted also when an update was already running. Progress follows as updates.st
 | `screen.ack` | edition-draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `screen.stats` | edition-draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `screen.stop` | edition-draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.geometry` | designed | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `screen.control` | designed | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | not yet |
+| `screen.input` | designed | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | not yet |
 
 `screen.request`
 
@@ -1136,6 +1145,7 @@ Phone screen on the Mac. One open request per phone, at most one every 3 seconds
 - `height`: integer, even, 16 to 4096
 - `fps`: integer, 1 to 60
 - `bitrate`: integer, bits a second, 100000 to 50000000
+- `control`: optional object, only to a Mac showing phone_control_draft1 when the phone has a control grant for it (a full-display share): stream and transport (contract counters 1 to 2^53-1), geometry (the contract Geometry, source = Android display ID + 1, width and height equal to the stream size), capabilities (the phone's contract Capabilities), allowed (boolean, control may be asked for now). A Mac without the key ignores it; a malformed one makes the stream view only
 
 Answered by `screen.started`, `screen.stop`.
 
@@ -1188,6 +1198,36 @@ Once a second while streaming; shown in the Mac window.
 - `reason`: user | closed | ended | screen_off | disabled | invalid | timeout | failed; an unknown reason reads as failed
 
 Either side ends the stream. A Mac refusing a start sends it with the start's streamId and its own sequence 1.
+
+`screen.geometry`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer, the phone's stream sequence
+- `geometry`: object, the contract Geometry {generation 1 to 2^53-1 and higher than the last, source 1 to 2^53-1 and unchanged, kind display, width and height even, 16 to 32768, the new stream size}
+
+Only in a control-capable stream (screen.start had control). The display rotated or resized: held fingers are lifted, input is refused until the Mac acknowledges the new generation with geometry_ack. Needs screen_draft1 too.
+
+`screen.control`
+
+- `version`: integer, 1
+- `streamId`: string
+- `sequence`: integer, the sender's stream sequence
+- `action`: Mac: begin | end
+- `capabilities`: object, with begin: the Mac's contract Capabilities (v 1; missing flags false, unknown flags ignored, another v rejected)
+- `state`: phone: waiting | active | ended | refused | available
+- `session`: integer, 1 to 2^53-1, with active
+- `input`: object {pointer, touch, keys, text, navigation}, the negotiated input, with active
+- `reason`: string, with ended or refused: user | local_stop | declined | disabled | permission | locked | focus | timeout | rate | invalid | source_changed | failed; an unknown reason reads as failed
+- `allowed`: boolean, with available: control may be asked for now (the accessibility service is on)
+
+Control during a control-capable stream; ending control leaves the stream running. waiting: Ask each time shows its prompt on the phone (60 seconds). Needs screen_draft1 too.
+
+`screen.input`
+
+- `(contract)`: the input packet of bridgey-screen-control-draft1 (rust/proto/test-vectors/screen-control-v1.json): v 1, session (from active), transport and stream (from the control object of screen.start), connection (16 bytes, HMAC-SHA256 of the session key over "bridgey-screen-control-connection-v1" 0x00 sessionId, first 16), geometry, seq, input {op: geometry_ack | pointer | button | scroll | key | text | navigate | touch | heartbeat | stop}
+
+Not in the messageId window: the contract seq is the replay guard, checked by the phone's HostSession with its own authority. Unknown fields or operations are rejected. Needs screen_draft1 too.
 
 #### `display.*`
 
