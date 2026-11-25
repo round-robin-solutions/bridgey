@@ -25,12 +25,16 @@ if [ "${1:-}" = control ]; then
   CTL="/tmp/$BID-control"
   verb=$1
   shift
-  # A command file, written whole, once the app has read the one before (it reads them five times a second).
+  # A command file, written whole, once the app has read the one before (it reads them five times a second). It
+  # returns once the app has taken it, so a cancel cannot land on the next scenario's first file.
   command_file() {
     i=0
     while [ -e "$CTL/$1" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
     printf '%s' "$2" > "$CTL/.$1.tmp"
     mv "$CTL/.$1.tmp" "$CTL/$1"
+    i=0
+    while [ -e "$CTL/$1" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i + 1)); done
+    [ ! -e "$CTL/$1" ] || { echo '{"ok":false,"error":"the app did not take the command in 5 s"}'; exit 0; }
   }
   case $verb in
     pair-prepare)
