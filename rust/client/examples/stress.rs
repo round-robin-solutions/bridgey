@@ -900,8 +900,9 @@ fn pair(run: &mut Run, sc: &mut Scenario) -> Step {
 
 /// A whole file from this end to the app, checked there.
 fn send_whole(run: &mut Run, sc: &mut Scenario, size: u64) -> Step {
+    // The app refuses a file without room for it and 64 MiB more.
     let free = run.app.verb("status")?.get("free").and_then(Value::as_i64).unwrap_or(-1);
-    if free >= 0 && (free as u64) < size + 256 * MIB {
+    if free >= 0 && (free as u64) < size + 96 * MIB {
         sc.rounds.push(json!({"size": size, "skipped": format!("the app has {} MiB free", mb(free as u64))}));
         sc.check(false, format!("send {}: skipped, the app has only {} MiB free", size_label(size), mb(free as u64)));
         return Ok(());
@@ -932,8 +933,9 @@ fn send_whole(run: &mut Run, sc: &mut Scenario, size: u64) -> Step {
 
 /// A whole file from the app to this end, checked here.
 fn recv_whole(run: &mut Run, sc: &mut Scenario, size: u64) -> Step {
+    // The app writes the file it sends first.
     let free = run.app.verb("status")?.get("free").and_then(Value::as_i64).unwrap_or(-1);
-    if free >= 0 && (free as u64) < size + 256 * MIB {
+    if free >= 0 && (free as u64) < size + 32 * MIB {
         sc.rounds.push(json!({"size": size, "skipped": format!("the app has {} MiB free", mb(free as u64))}));
         sc.check(false, format!("recv {}: skipped, the app has only {} MiB free", size_label(size), mb(free as u64)));
         return Ok(());
