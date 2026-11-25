@@ -69,8 +69,8 @@ scripts/rr/stress-android.sh --apk android/app/build/outputs/apk/stress/app-stre
 ```
 
 adb installs and removes the stress build, forwards `tcp:42496` to its port 42458, starts it, force-stops it for the
-restart scenarios, sends its control broadcasts and reads its log. Another Bridgey on the device listens on the same
-port, so it is force-stopped for the run (its data is untouched). The emulator itself is never wiped or reconfigured.
+restart scenarios, sends its control broadcasts and reads its log. Other Bridgey builds on the device listen on the same
+port, so they are force-stopped for the run (their data is untouched). The emulator itself is never wiped or reconfigured.
 
 Without a device, the harness can check itself against the session client:
 

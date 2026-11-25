@@ -1177,10 +1177,11 @@ fn interrupt(run: &mut Run, sc: &mut Scenario, from_app: bool, how: Cut) -> Step
                 run.proxy.limit(size / 5);
             }
             // A kill needs a 64 MiB checkpoint behind it to have anything to resume from.
+            let kill_floor = (0.3f64).max(80.0 * MIB as f64 / size as f64).min(0.7);
             let at = match (attempt, how) {
-                (1, Cut::KillApp) => run.rng.between(0.3, 0.75),
+                (1, Cut::KillApp) => run.rng.between(kill_floor, 0.75_f64.max(kill_floor + 0.05)),
                 (1, _) => run.rng.between(0.1, 0.75),
-                (_, Cut::KillApp) => run.rng.between(0.2, 0.35),
+                (_, Cut::KillApp) => run.rng.between(kill_floor, kill_floor + 0.05),
                 _ => run.rng.between(0.05, 0.3),
             };
             let cut = (size as f64 * at) as u64;

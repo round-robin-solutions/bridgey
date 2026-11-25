@@ -10,7 +10,7 @@
 # Without --apk it builds one (./gradlew :app:assembleStress). It never boots, wipes or reconfigures the emulator:
 # whoever runs it brings one up (and holds its lock). adb is used to install and remove the stress build, forward
 # its port, start it, stop it, send its control broadcasts and read its log. Another Bridgey on the device holds the
-# same port, so it is stopped (force-stop; its data is untouched) for the run.
+# same port, so every other Bridgey build there is stopped (force-stop; its data is untouched) for the run.
 # `stress-android.sh control <verb> ...` is the app control the peer calls; it reads the STRESS_* variables set below.
 set -eu
 
@@ -141,11 +141,12 @@ fi
 
 echo "== installing $APP_ID on $SERIAL"
 "$ADB" install -r -g "$APK" </dev/null >/dev/null
-# Another Bridgey listens on the same port inside the device: stopped for the run, its data untouched.
-if "$ADB" shell pm path "$REAL_ID" </dev/null 2>/dev/null | grep -q package:; then
-  "$ADB" shell am force-stop "$REAL_ID" </dev/null
-  echo "stopped $REAL_ID for the run (force-stop only)"
-fi
+# Any other Bridgey build listens on the same port inside the device: stopped for the run, its data untouched.
+for other in $("$ADB" shell pm list packages "$REAL_ID" </dev/null | tr -d '\r' | sed -n 's/^package://p'); do
+  [ "$other" = "$APP_ID" ] && continue
+  "$ADB" shell am force-stop "$other" </dev/null
+  echo "stopped $other for the run (force-stop only)"
+done
 "$ADB" forward "tcp:$FORWARD" tcp:42458 </dev/null >/dev/null
 "$ADB" logcat -c </dev/null || true
 export STRESS_APP_ID="$APP_ID" STRESS_ADB="$ADB"
