@@ -13,8 +13,10 @@ measure before moving working code across the FFI). Existing `screen_draft1` and
 
 Android, macOS, Windows, Linux and iOS/iPadOS clients use this same contract when
 their native adapters are implemented. The requested experience includes both
-screen/control directions and persistent host-local grants for selected trusted
-devices. A Bridgey grant never bypasses operating-system consent. Remote typing
+screen/control directions and persistent host-local grants; since 26 Nov a device
+without a choice of its own follows the host's Unattended access switch (never a
+server or agent; [decision](screen-control-decision.md)). A Bridgey grant never
+bypasses operating-system consent. Remote typing
 on Android requires API 33+; older Android retains basic app and gesture support.
 
 ## Wire schema

@@ -1,9 +1,55 @@
 # Screen sharing and control: implementation plan
 
-Status: planned, not shipped. User decisions on 2026-11-07: both directions,
-persistent unattended grants for explicitly selected trusted devices, and native
-Android/macOS/Windows/Linux/iOS clients as core targets. The
-[five-platform architecture](platform-architecture.md) defines the shared core.
+Status: Mac screen to phone and phone control from the Mac shipped in 1.0 Beta 5 and 6;
+unattended access (below) follows them. User decisions on 2026-11-07: both
+directions and native Android/macOS/Windows/Linux/iOS clients as core targets. The 7 Nov
+rule "persistent unattended grants for explicitly selected trusted devices" is replaced by
+the 26 Nov decision below. The [five-platform architecture](platform-architecture.md)
+defines the shared core.
+
+## Unattended access (decision, 2026-11-26)
+
+Rahul, 26 November 2026: a person's own devices may view and control each other's
+screens without a confirmation prompt each time.
+
+- **One switch, Unattended access, on by default,** on each device that can be viewed or
+  controlled: Settings > Remote control on the Mac (This Mac's screen) and on Android
+  (with Let Macs control this phone). Windows has no screen source yet; the switch comes
+  with its screen work in Windows M3. iOS cannot be viewed or controlled unattended, so it
+  offers nothing.
+- **Per-device overrides.** Each paired device's grant can still be Off, Ask each time or
+  Allow without asking. A device with no choice of its own shows Default and follows the
+  switch: on is Allow without asking, off is Off (the default before this decision).
+  Choices made before this change stay as they were. Builds before it did not store Off
+  (Off removed the entry), so a device someone had set to Off reads as Default.
+- **Never servers or agents.** The `bridgey agent` CLI, devices paired as agents or
+  servers, and devices paired over the tailnet until trusted get Off whatever the switch
+  or a stored choice says.
+- **Who is connected stays visible on the device being viewed or controlled,** always,
+  with Stop: the Mac's pill and stop shortcut; on Android the sharing notification, and for
+  an unattended share Bridgey control's bar ("MacBook Air is viewing this phone").
+- **Android has no unattended video.** MediaProjection needs the person's approval for
+  every capture. For a Mac on Allow without asking, the phone skips Bridgey's own
+  question and, with nobody to approve video, sends Bridgey control's accessibility
+  screenshots (`takeScreenshot`, Android 11 and later) at about 3 frames a second, in the
+  same H.264 stream, marked `mode: screenshots` in `screen.start`; the Mac's window says
+  it is a slower mode. The sharing notification offers Use video, which asks Android for
+  consent and replaces the share with video. Below Android 11, without Bridgey control, or
+  with the phone locked, the request waits for someone at the phone as before, and the
+  Mac hears why (`needs` in `screen.status`); the phone's Settings say what is missing.
+- **Grants and the switch stay local.** They live in the host's private grant file
+  (bound to each device's pinned key, never synced, never sent, outside backups); the
+  switch is in the same file, never in settings sync. A grant file that cannot be read
+  turns the switch off until the next save.
+- **Kept from the 1.0 security review:** no grant can be raised while the device is being
+  controlled, and that includes turning the switch on and setting a device back to Default
+  when that would raise it; lowering always works. On the Mac, the Ask each time prompt's
+  Allow still ignores events Bridgey injected for another device.
+- **Seeing still does not imply control.** On the Mac, control also needs Remote control
+  allowed for that phone plus macOS Accessibility; on Android it needs Bridgey control on.
+  The capability switches (Share screen with Macs on the phone, Show phone screens and
+  See Mac screens on the viewers) are unchanged; unattended access removes prompts, it
+  does not turn features on.
 
 ## Existing behavior
 
@@ -31,9 +77,10 @@ Windows, Linux and iOS native apps are not implemented in this repository yet.
 ## Grants and session ownership
 
 A per-device host-local grant permits unattended Bridgey session requests from
-that pinned identity. Pairing alone does not grant screen/control access. Keep
-screen viewing and input control separately permissioned, revocable, and off
-until chosen. Server/agent identities do not inherit device control.
+that pinned identity; since 26 November a device with no choice of its own
+follows the host's Unattended access switch (above). Keep screen viewing and
+input control separately permissioned and revocable. Server/agent identities
+never get device control.
 
 An unattended Bridgey grant does not bypass OS consent. Android still requires
 MediaProjection approval for a new capture session; Accessibility activation is

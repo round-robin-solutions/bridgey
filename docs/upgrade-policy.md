@@ -163,6 +163,8 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | Phone files caches | `~/Library/Caches/in.roundrobin.bridgey/PhoneFiles/` (thumbnails named by SHA-256, `listings/`, `originals/`) and `SendOptimized/` (optimised copies by content hash) | Rebuildable caches, no fixture | 0.8.0-rr.1 (5894544, 7a81a0c) | names pinned in `MigrationFiles2Tests` |
 | Clipboard cache | `.../in.roundrobin.bridgey/ClipboardCache/<offerId>/<index>/<name>`, `.handed-out`, `outgoing/` | Folders and files only, no index file | Beta 5 (e19c4bf) | built in the test |
 | Code model | `.../in.roundrobin.bridgey/Models/installed.json`, `download.json`, `bridgey-otp-v<N>.gguf(.part)` | `installed.json`: `{version, name, size, sha256, fileName, installedAt}`; `download.json`: `{manifest, userPaused}`; ISO 8601 dates | Beta 13 (d2c9129) | `models/` |
+| Screen grants (which phones may see this Mac) | `.../in.roundrobin.bridgey/screen-grants-v1.json` (0600, folder 0700, no backup, never synced) | `{version: 1, grants: {id: {mode (ask, always), key (hex SHA-256 of the identity key)}}}`, sorted keys; Off was stored by removing the entry | 1.0 Beta 5 (2b43d450) | `screen-grants/` |
+| | | Adds `unattended` (Unattended access, a Boolean; missing reads as on) and `off` entries (an explicit Off); a device without an entry, or with one for another key, is Default. A file that cannot be read turns the switch off and grants nothing | Unattended access (26 Nov) | `screen-grants/` |
 
 ### Android
 
@@ -197,6 +199,8 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 | Mac actions lists | SharedPreferences `bridgey.mac_actions`, keys `catalog.<Mac id>` | The Mac's last `actions.catalog` as JSON `{version: 1, actions: [{id, title?, blocked?}], volume?}`; a list that does not parse or has another version is dropped on its own, and so is an entry with an id this build does not know | Merged after 0.8.0-rr.1-beta.1 (8c62f61) | `shared_prefs/automation/bridgey.mac_actions.xml` |
 | Widgets | SharedPreferences `bridgey.widgets`, keys `widget.<appWidgetId>` | The Mac id a widget shows; no key follows the Mac selected in Bridgey | Merged after 0.8.0-rr.1-beta.1 (b166756) | `shared_prefs/automation/bridgey.widgets.xml` |
 | Camera photos | `cacheDir/camera/` | JPEGs waiting to be sent to the Mac that asked; removed after an hour | Merged after 0.8.0-rr.1-beta.1 (08b2a15) | Rebuildable cache, name pinned in `StorageNamesTest` |
+| Phone control grants (which Macs may control this phone) | `noBackupFilesDir/phone-control-grants.json` (owner only, never synced) | `{version: 1, devices: {id: {mode (ask, always), key (64 hex, SHA-256 of the identity key)}}}`; Off was stored by removing the entry | 1.0 Beta 6 (b12651c7) | `phone-control/phone-control-grants.1.0.0-beta.6.json` |
+| | | Adds `unattended` (Unattended access, a Boolean; missing reads as on, any other type as off) and `off` entries (an explicit Off); a Mac without an entry, or with one for another key, is Default. An entry that does not decode is dropped on its own; a file that cannot be read, or has another version, turns the switch off and grants nothing | Unattended access (26 Nov) | `phone-control/phone-control-grants.malformed.json` |
 | Other preferences | `bridgey.places` (Beta 10, 552f197), `bridgey.remote` (Beta 9, 24a55f7), `bridgey.screenshot` (Beta 11, 3ba3f65), `bridgey_codes` (Beta 13, 9e23012) | Owned by the Files, remote control, screenshot and codes features | As listed | None yet (deferred) |
 
 ## Known gaps (to close before 1.0)
