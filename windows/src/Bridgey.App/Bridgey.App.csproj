@@ -45,5 +45,9 @@
     <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
     <!-- bridgey_core.dll for the architecture being built; scripts/rr/build-windows.ps1 passes BridgeyNativeDir. -->
     <None Include="$(BridgeyNativeDir)\bridgey_core.dll" Condition="'$(BridgeyNativeDir)' != ''" Link="bridgey_core.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <!-- Browser extensions (docs/browser-extensions.md): the native messaging helper (rust/browser-host, built next to
+         bridgey_core.dll by build-windows.ps1) and the extension IDs it and the host manifests allow. -->
+    <None Include="$(BridgeyNativeDir)\bridgey-browser-host.exe" Condition="'$(BridgeyNativeDir)' != '' And Exists('$(BridgeyNativeDir)\bridgey-browser-host.exe')" Link="bridgey-browser-host.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(RepoRoot)\extensions\browser\native-host.json" Link="native-host.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 </Project>

@@ -89,6 +89,10 @@ public partial class App : Application, ITrayHost
         };
         settingsModel.SendToMenuChanged += SendTo.Apply;
         SendTo.Apply(settings.SendToMenu);
+        // Browser extensions (docs/browser-extensions.md): the manifests, registry keys and pipe, applied again at
+        // start so a moved app folder still works.
+        settingsModel.BrowserSupportChanged += on => settingsModel.BrowserSupportStatus = BrowserHost.Apply(on, Model.HandleBrowserRequest, queue);
+        settingsModel.BrowserSupportStatus = BrowserHost.Apply(settings.BrowserSupport, Model.HandleBrowserRequest, queue);
         PowerWatch.Start((level, charging) => queue.TryEnqueue(() =>
         {
             try { client.SetBattery(level, charging); }
