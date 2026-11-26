@@ -70,7 +70,7 @@ private struct AccessibilityRow: View {
     var body: some View {
         SettingsRow(title: L10n.text("remote.accessibility", fallback: "Accessibility access"),
                     subtitle: trusted
-                        ? L10n.text("remote.accessibility.on", fallback: "Allowed. macOS requires it for any app that moves the pointer or types; Bridgey uses it only during a session you can see.")
+                        ? L10n.text("remote.accessibility.on", fallback: "macOS requires it for any app that moves the pointer or types; Bridgey uses it only during a session you can see.")
                         : L10n.text("remote.accessibility.off", fallback: "Needed to move the pointer and type. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Accessibility."),
                     subtitleIsWarning: !trusted) {
             if trusted {
@@ -206,7 +206,7 @@ enum PhoneScreenSettings {
     static var cardTitle: String { L10n.text("screen.settings.card", fallback: "Phone screen") }
     static var switchTitle: String { L10n.text("screen.settings.switch", fallback: "Show phone screens") }
     static var switchDetail: String {
-        L10n.text("screen.settings.switch.detail", fallback: "See your phone\u{2019}s screen in a window on this Mac. The phone asks you each time.")
+        L10n.text("screen.settings.switch.detail", fallback: "See your phone\u{2019}s screen in a window on this Mac.")
     }
     static var footnote: String {
         L10n.text("screen.settings.note", fallback: "In the menu bar panel, choose File > Show Screen, or start sharing on the phone. If the phone allows this Mac, Control in the window taps, scrolls and types on it. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.")
@@ -345,7 +345,7 @@ private struct ScreenRecordingRow: View {
     var body: some View {
         SettingsRow(title: MacScreenSettings.recordingTitle,
                     subtitle: allowed
-                        ? L10n.text("display.settings.recording.on", fallback: "Allowed. Bridgey captures the screen only while a phone you allow is watching.")
+                        ? L10n.text("display.settings.recording.on", fallback: "Bridgey captures the screen only while a phone you allow is watching.")
                         : L10n.text("display.settings.recording.off", fallback: "Needed to share this screen. Turn on Bridgey in Privacy & Security > Screen & System Audio Recording."),
                     subtitleIsWarning: !allowed) {
             if allowed {

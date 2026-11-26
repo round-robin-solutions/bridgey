@@ -356,7 +356,7 @@ enum SetupQuestions {
         SetupQuestion(
             id: "screen", section: .macControl, feature: "screen",
             title: L10n.setup("setup.q.screen.title", fallback: "See your phone\u{2019}s screen on this Mac?"),
-            context: L10n.setup("setup.q.screen.context", fallback: "View only, in a window. Your phone asks you every time and shows a notification while it shares."),
+            context: L10n.setup("setup.q.screen.context", fallback: "View only, in a window. Your phone shows a notification while it shares."),
             summary: L10n.setup("setup.q.screen.summary", fallback: "Phone screen on this Mac"),
             answers: [
                 SetupAnswer(key: SetupAnswerKey.yes, label: L10n.setup("setup.a.screen.yes", fallback: "Yes, when I ask for it"),

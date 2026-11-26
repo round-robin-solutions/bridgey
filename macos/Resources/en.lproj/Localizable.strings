@@ -318,7 +318,7 @@
 "remote.accessibility" = "Accessibility access";
 "remote.accessibility.allowed" = "Allowed";
 "remote.accessibility.off" = "Needed to move the pointer and type. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Accessibility.";
-"remote.accessibility.on" = "Allowed. macOS requires it for any app that moves the pointer or types; Bridgey uses it only during a session you can see.";
+"remote.accessibility.on" = "macOS requires it for any app that moves the pointer or types; Bridgey uses it only during a session you can see.";
 "remote.accessibility.open" = "Open System Settings";
 "remote.active.detail" = "%@, since %@";
 "remote.count.button" = "Clicks: %d";
@@ -1442,7 +1442,7 @@
 "quick.file.screen" = "Show Screen of %@";
 "screen.settings.card" = "Phone screen";
 "screen.settings.switch" = "Show phone screens";
-"screen.settings.switch.detail" = "See your phone’s screen in a window on this Mac. The phone asks you each time.";
+"screen.settings.switch.detail" = "See your phone’s screen in a window on this Mac.";
 "screen.settings.note" = "In the menu bar panel, choose File > Show Screen, or start sharing on the phone. If the phone allows this Mac, Control in the window taps, scrolls and types on it. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.";
 "screen.status.notConnected" = "%@ is not connected";
 "screen.status.asked" = "Asking %@ to share its screen";
@@ -1926,7 +1926,7 @@
 "display.settings.note" = "Seeing and controlling are separate: a phone controls this screen only if it may also use Remote control. While a phone watches, the pill at the top of the screen names it, with Stop.";
 "display.settings.display" = "Screen to share";
 "display.settings.recording" = "Screen Recording access";
-"display.settings.recording.on" = "Allowed. Bridgey captures the screen only while a phone you allow is watching.";
+"display.settings.recording.on" = "Bridgey captures the screen only while a phone you allow is watching.";
 "display.settings.recording.off" = "Needed to share this screen. Turn on Bridgey in Privacy & Security > Screen & System Audio Recording.";
 "display.grant.title" = "See this Mac’s screen";
 "display.grant.off" = "Off";

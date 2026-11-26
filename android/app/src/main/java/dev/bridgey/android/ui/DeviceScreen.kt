@@ -589,30 +589,6 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
     },
 )
 
-@Composable
-private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): String = when (feature) {
-    BridgeyFeature.CLIPBOARD -> stringResource(R.string.feature_clipboard_detail)
-    BridgeyFeature.FILES -> stringResource(R.string.feature_files_detail)
-    BridgeyFeature.NOTIFICATIONS -> if (state.notificationAppsEnabled > 0) {
-        androidx.compose.ui.res.pluralStringResource(R.plurals.feature_notifications_detail, state.notificationAppsEnabled, state.notificationAppsEnabled, state.ring.name)
-    } else {
-        stringResource(R.string.feature_notifications_detail_none)
-    }
-    BridgeyFeature.CALLS -> stringResource(R.string.feature_calls_detail, state.ring.name)
-    BridgeyFeature.MEDIA -> stringResource(R.string.feature_media_detail, state.ring.name)
-    BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING -> stringResource(R.string.feature_find_ping_detail, state.ring.name)
-    BridgeyFeature.LINKS -> stringResource(R.string.feature_links_detail)
-    BridgeyFeature.BATTERY -> stringResource(R.string.feature_battery_detail, state.ring.name)
-    BridgeyFeature.REMOTE_INPUT -> stringResource(R.string.feature_remote_input_detail, state.ring.name)
-    BridgeyFeature.MAC_ACTIONS -> stringResource(R.string.feature_mac_actions_detail, state.ring.name)
-    BridgeyFeature.CAMERA -> stringResource(R.string.feature_camera_detail, state.ring.name)
-    BridgeyFeature.SCREEN -> stringResource(R.string.feature_screen_detail, state.ring.name)
-    BridgeyFeature.SMS -> stringResource(R.string.feature_sms_device_detail, state.ring.name)
-    BridgeyFeature.CALL_QUIET -> stringResource(R.string.call_quiet_device_detail, state.ring.name)
-    BridgeyFeature.DIALER -> stringResource(R.string.dialer_device_detail, state.ring.name)
-    BridgeyFeature.SCREEN_CONTROL -> stringResource(R.string.feature_screen_control_detail, state.ring.name)
-}
-
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */
 @Composable
 private fun DeviceComposer(state: DeviceState, actions: DeviceActions) {
