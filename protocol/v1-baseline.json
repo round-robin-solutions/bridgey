@@ -1,0 +1,5398 @@
+{
+ "description": "Bridgey Protocol v1 freeze baseline (docs/protocol-v1.md): every v1 core, extension and deprecated entry of protocol/messages.json and a hash of each vector case that pins one, as recorded by protocol/tools/v1_freeze.py --write-baseline. Proposal: report only while frozen is false.",
+ "frozen": false,
+ "contractVersion": 1,
+ "amendments": [],
+ "transport": {
+  "framing": "UTF-8 JSON object per line, terminated by LF; a CR before LF is ignored",
+  "maxFrameBytes": 65536,
+  "maxJsonDepth": 32,
+  "onMalformedFrame": "close the session before dispatch (oversized frame, invalid UTF-8, not a JSON object, missing or wrong-typed envelope field)",
+  "onUnknownKind": "ignore the message and keep the session",
+  "replayWindow": "per session, the last 256 accepted messageId values, oldest evicted first",
+  "port": 42458,
+  "bonjour": "_bridgey._tcp",
+  "binaryFrames": {
+   "feature": "files_fast_draft1",
+   "when": "only on a protocol 2 session (envelope tags on): read once the session is authenticated; sent only to a peer whose latest features.update shows files_fast_draft1 true",
+   "header": "1 byte marker 0xB1, 1 byte kind, 4 bytes body length (big-endian, 1 to 1048677); the marker cannot start a JSON frame or UTF-8 text",
+   "body": "1 byte ID length L (1 to 64), L bytes ID (printable ASCII: the transfer ID, or the speed test ID), 8 bytes sequence (big-endian, 0 to 2^53-1), 12 bytes AES-GCM nonce, ciphertext and 16-byte tag; plaintext 1 to 1048576 bytes. The AES-GCM key is HMAC-SHA-256(session key, bridgey-fast-frame-key-v2)",
+   "associatedData": "length-prefixed like the protocol 2 envelope tag input: bridgey-fast-frame-v2, the sending device's ID, the kind (decimal), the ID, the sequence (decimal). The AES-GCM tag stands in for the envelope tag",
+   "kinds": {
+    "1": "files.chunk: the same chunk as the JSON files.chunk, up to 1 MiB; the receiver acknowledges each with files.chunk.ack",
+    "2": "speed.data: speed test bytes, acknowledged with speed.ack and dropped"
+   },
+   "onUnknownKind": "once its tag verifies (the kind is in the associated data), skip the frame and keep the session; a failed tag is dropped and counted",
+   "onBadLength": "close the session (the stream can no longer be split)",
+   "onMalformedOrUndecryptable": "drop and count with the frames dropped for a bad envelope tag; 16 close the connection",
+   "replay": "not in the messageId window: per kind and ID the sequence must rise (the 256 most recently used IDs are remembered); file chunks must also follow on without gaps"
+  }
+ },
+ "envelope": {
+  "kind": {
+   "type": "string",
+   "required": true,
+   "minBytes": 1,
+   "maxBytes": 64
+  },
+  "sessionId": {
+   "type": "string",
+   "required": true,
+   "maxBytes": 128,
+   "note": "empty only in pairing.cancel sent before the session ID is known"
+  },
+  "messageId": {
+   "type": "string",
+   "required": false,
+   "note": "UUID; required by every encrypted message that uses the replay window. An empty optional string counts as absent"
+  },
+  "deviceId": {
+   "type": "string",
+   "required": false
+  },
+  "deviceName": {
+   "type": "string",
+   "required": false
+  },
+  "publicKey": {
+   "type": "string",
+   "required": false,
+   "note": "base64 X9.63 P-256 ephemeral key"
+  },
+  "identityKey": {
+   "type": "string",
+   "required": false,
+   "note": "base64 P-256 long-term signing key"
+  },
+  "proof": {
+   "type": "string",
+   "required": false
+  },
+  "signature": {
+   "type": "string",
+   "required": false
+  },
+  "nonce": {
+   "type": "string",
+   "required": false,
+   "note": "base64 12-byte AES-GCM nonce"
+  },
+  "ciphertext": {
+   "type": "string",
+   "required": false,
+   "note": "base64 AES-GCM ciphertext plus 16-byte tag"
+  },
+  "transferId": {
+   "type": "string",
+   "required": false
+  },
+  "sequence": {
+   "type": "integer",
+   "required": false,
+   "min": -9007199254740991,
+   "max": 9007199254740991,
+   "note": "an integral JSON number; each kind checks its own range"
+  },
+  "targetDeviceId": {
+   "type": "string",
+   "required": false,
+   "status": "edition-extension"
+  },
+  "commitment": {
+   "type": "string",
+   "required": false,
+   "status": "edition-extension",
+   "note": "protocol 2: base64 SHA-256 commitment to the first-pairing offer's ephemeral key, opened by pairing.reveal"
+  },
+  "protocolVersion": {
+   "type": "integer",
+   "required": false,
+   "status": "edition-extension",
+   "note": "in pairing.offer and pairing.answer: the highest protocol the sender speaks; absent means 1"
+  },
+  "reason": {
+   "type": "string",
+   "required": false,
+   "maxBytes": 32,
+   "status": "edition-extension",
+   "note": "in pairing.cancel: mismatch, cancelled, timeout, busy, rate_limited, not_armed, needs_protocol_2 or not_trusted; older peers send none"
+  },
+  "tag": {
+   "type": "string",
+   "required": false,
+   "status": "edition-extension",
+   "note": "protocol 2: base64 HMAC-SHA-256 over the sender's device ID and every other envelope field, on every frame after pairing when both ends sent protocolVersion 2"
+  }
+ },
+ "features": {
+  "clipboard": {
+   "v1": "core",
+   "shape": {
+    "key": "clipboard",
+    "requiredInMap": true,
+    "missingMeans": "close (invalid feature state)"
+   }
+  },
+  "files": {
+   "v1": "core",
+   "shape": {
+    "key": "files",
+    "requiredInMap": true,
+    "missingMeans": "close (invalid feature state)"
+   }
+  },
+  "notifications": {
+   "v1": "core",
+   "shape": {
+    "key": "notifications",
+    "requiredInMap": true,
+    "missingMeans": "close (invalid feature state)"
+   }
+  },
+  "battery": {
+   "v1": "core",
+   "shape": {
+    "key": "battery",
+    "requiredInMap": true,
+    "missingMeans": "close (invalid feature state)"
+   }
+  },
+  "find_device": {
+   "v1": "core",
+   "shape": {
+    "key": "find_device",
+    "requiredInMap": true,
+    "missingMeans": "close (invalid feature state)"
+   }
+  },
+  "ping": {
+   "v1": "extension",
+   "shape": {
+    "key": "ping",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "links": {
+   "v1": "extension",
+   "shape": {
+    "key": "links",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "media": {
+   "v1": "extension",
+   "shape": {
+    "key": "media",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "calls": {
+   "v1": "extension",
+   "shape": {
+    "key": "calls",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "clipboard_files_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "clipboard_files_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "remote_input_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "remote_input_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "sms_codes_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "sms_codes_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "email_codes_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "email_codes_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Codes from email (docs/codes-from-email.md): the phone sets it while notifications and its Also read codes in email switch are on for that Mac; the Mac while notifications for that phone, Codes from messages and Also read codes in email are on. Needs sms_codes_draft1 too. Gates the emailApp and preview fields of notifications.post, and redacted on mail notifications"
+   }
+  },
+  "folders_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "folders_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "places_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "places_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false"
+   }
+  },
+  "files_browse_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "files_browse_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the device serves browsing (places.files, media.*, places.download) and accepts uploads; Macs advertise it false"
+   }
+  },
+  "folders_receive_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "folders_receive_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the device accepts folders.offer from its peer; phones check it before sending a folder to a Mac"
+   }
+  },
+  "mac_actions_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "mac_actions_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the Mac sets it when Mac actions is on and granted to that phone (off by default), the phone when its Mac actions switch is on for that Mac; gates actions.*. Both apps keep it as a switch, but a non-boolean value reads false like every draft key"
+   }
+  },
+  "links_open_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "links_open_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the Mac understands quick.request links action open (Open on Mac); set while Web links is on for that phone. Phones advertise nothing"
+   }
+  },
+  "focus_sync_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "focus_sync_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the device understands focus.state; advertised while either Focus direction (share, follow) is on"
+   }
+  },
+  "camera_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "camera_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the phone takes photos for that Mac (its switch, on by default); the Mac sets it while Files is on for that phone; gates camera.*. The photo comes back over files.v1 with cameraRequestId"
+   }
+  },
+  "updates_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "updates_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the device sends updates.status and understands updates.start (Update all); edition builds that have the feature always advertise it, and the status field remoteStart says whether this device lets others start its update; the optional status fields auto and busy and the start field auto (Update all devices automatically) are ignored by builds without them"
+   }
+  },
+  "files_fast_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "files_fast_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "fast transfers: the device reads binary frames (transport.binaryFrames) and paces chunks on a byte window. Both apps always advertise it when they support it (a capability, not a setting). Between two peers that show it, every files.chunk is a binary frame of up to 1 MiB (senders use 256 KiB), every chunk is acknowledged with files.chunk.ack, and senders keep their unacknowledged bytes within a delay-based window of 512 KiB to 32 MiB. Gates speed.*"
+   }
+  },
+  "sms_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "sms_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Text messages: SMS conversations on the Mac. The phone sets it while its Text messages switch is on for that Mac, the Mac while its Text messages setting is on; both off by default. Gates sms.* and the smsReply and smsThreadId fields of notifications.post"
+   }
+  },
+  "settings_sync_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "settings_sync_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "the device syncs settings and feature switches with that peer: its global switch (on by default) and its switch for that peer are both on; gates settings.*"
+   }
+  },
+  "connect_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "connect_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Connect anywhere (docs/connect-anywhere.md): the device runs the edition's QUIC tunnel and routes and understands connect.*; advertised to every peer while Connect away from home is on and the core library loaded. Tunnel sessions sign bridgey-auth-v2 (protocol.md)"
+   }
+  },
+  "agent_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "agent_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Agent devices (docs/protocol.md, agent devices): the agent sets it always; the phone sets it for each agent device. Gates agent.*. An agent's map lists what it can do; the phone's map to an agent lists what Rahul granted, and the phone never pushes its own clipboard, notifications, files, texts or settings to an agent"
+   }
+  },
+  "notify_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "notify_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Agent grant Send you notifications: the phone sets it for an agent while the grant is on (its window not over); gates notify.post"
+   }
+  },
+  "ask_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "ask_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Agent grant Ask you questions: the phone sets it for an agent while the grant is on; gates ask.*"
+   }
+  },
+  "clipboard_request_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "clipboard_request_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Agent grant Ask for your clipboard: the phone sets it for an agent while the grant is on; gates clipboard.request (every request needs a tap)"
+   }
+  },
+  "agent_codes_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "agent_codes_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Agent grant Read codes: the phone sets it for an agent while the grant is on; gates codes.query (codes the Macs found, brokered by the phone)"
+   }
+  },
+  "agents_mirror_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "agents_mirror_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Phone and Mac: both set it for each other when they support the agents mirror; gates agents.state, agents.grant_set, codes.found and codes.read"
+   }
+  },
+  "codes_detect_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "codes_detect_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Agent grant Detect codes (docs/mesh-and-codes.md): an agent sets it while it can run the code model; the phone sets it for an agent while the grant is on. Gates codes.candidate and codes.detected"
+   }
+  },
+  "agent_notifications_draft1": {
+   "v1": "extension",
+   "shape": {
+    "key": "agent_notifications_draft1",
+    "requiredInMap": false,
+    "missingMeans": "false",
+    "note": "Read-only active phone notification snapshots, only for an independently granted agent; ordinary notification broadcasts remain blocked"
+   }
+  }
+ },
+ "messages": {
+  "pairing.offer": {
+   "v1": "core",
+   "shape": {
+    "kind": "pairing.offer",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "deviceId",
+     "deviceName",
+     "publicKey?",
+     "targetDeviceId?",
+     "commitment?",
+     "protocolVersion?"
+    ],
+    "notes": "Sent by the side that dials. targetDeviceId (edition extension) names the trusted peer a reconnect is for; any other receiver closes quietly. Protocol 2: a first pairing sends commitment instead of publicKey, and reveals the key in pairing.reveal after the answer."
+   }
+  },
+  "pairing.answer": {
+   "v1": "core",
+   "shape": {
+    "kind": "pairing.answer",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "deviceId",
+     "deviceName",
+     "publicKey",
+     "protocolVersion?"
+    ]
+   }
+  },
+  "pairing.reveal": {
+   "v1": "core",
+   "shape": {
+    "kind": "pairing.reveal",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "publicKey"
+    ],
+    "notes": "Protocol 2 first pairing: the initiator's ephemeral key after the answer. The responder checks it against the offer's commitment and fails the pairing on a mismatch."
+   }
+  },
+  "pairing.confirm": {
+   "v1": "core",
+   "shape": {
+    "kind": "pairing.confirm",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "deviceId",
+     "identityKey",
+     "proof",
+     "signature"
+    ],
+    "notes": "proof is an HMAC under the pairing key; signature is P-256 over the session transcript."
+   }
+  },
+  "pairing.cancel": {
+   "v1": "core",
+   "shape": {
+    "kind": "pairing.cancel",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "reason?",
+     "tag?"
+    ],
+    "notes": "Ends only the session it arrives on. reason (edition extension) says why, for the other screen. Tagged when the sender has an envelope key; after authentication only a tagged cancel is taken."
+   }
+  },
+  "heartbeat.ping": {
+   "v1": "core",
+   "shape": {
+    "kind": "heartbeat.ping",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ],
+    "reply": [
+     "heartbeat.pong"
+    ]
+   }
+  },
+  "heartbeat.pong": {
+   "v1": "core",
+   "shape": {
+    "kind": "heartbeat.pong",
+    "direction": "either",
+    "feature": null,
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ],
+    "notes": "messageId echoes the ping's. Connection health (both apps) times the round trip from it; health puts nothing new on the wire and has no feature key."
+   }
+  },
+  "features.update": {
+   "v1": "core",
+   "shape": {
+    "kind": "features.update",
+    "direction": "either",
+    "feature": null,
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "features": "object of feature key to boolean; see features"
+    },
+    "notes": "Sent after pairing and whenever local policy changes. A feature is available only when both peers report true."
+   }
+  },
+  "clipboard.update": {
+   "v1": "core",
+   "shape": {
+    "kind": "clipboard.update",
+    "direction": "either",
+    "feature": "clipboard",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "(raw)": "UTF-8 text, not JSON, 1 to 32,768 bytes"
+    },
+    "reply": [
+     "clipboard.ack",
+     "clipboard.rejected"
+    ]
+   }
+  },
+  "clipboard.rich": {
+   "v1": "core",
+   "shape": {
+    "kind": "clipboard.rich",
+    "direction": "either",
+    "feature": "clipboard",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "text": "string, required, not empty",
+     "html": "string, optional"
+    },
+    "reply": [
+     "clipboard.ack",
+     "clipboard.rejected"
+    ],
+    "notes": "text plus html at most 32 KiB."
+   }
+  },
+  "clipboard.ack": {
+   "v1": "core",
+   "shape": {
+    "kind": "clipboard.ack",
+    "direction": "either",
+    "feature": "clipboard",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ],
+    "notes": "messageId is the acknowledged message's ID."
+   }
+  },
+  "clipboard.rejected": {
+   "v1": "core",
+   "shape": {
+    "kind": "clipboard.rejected",
+    "direction": "either",
+    "feature": "clipboard",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ],
+    "notes": "Clipboard is off locally; followed by features.update."
+   }
+  },
+  "clipboard.offer": {
+   "v1": "extension",
+   "shape": {
+    "kind": "clipboard.offer",
+    "direction": "either",
+    "feature": "clipboard_files_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 40960,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "offerId": "string, UUID",
+     "createdAt": "integer, Unix ms, >= 0",
+     "sensitive": "boolean, optional",
+     "items": "array of 1 to 100 {index, kind: text|html|image|file, mime (1 to 255 chars), name? (files, 1 to 255 chars), size (0 to 10 GiB), sha256? (base64 of 32 bytes), inline? (base64, all inline items at most 16 KiB decoded)}"
+    },
+    "reply": [
+     "clipboard.ack",
+     "clipboard.rejected"
+    ]
+   }
+  },
+  "clipboard.fetch": {
+   "v1": "extension",
+   "shape": {
+    "kind": "clipboard.fetch",
+    "direction": "either",
+    "feature": "clipboard_files_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "offerId": "string, UUID",
+     "index": "integer, item index",
+     "transferId": "string, UUID chosen by the receiver"
+    },
+    "reply": [
+     "files.offer",
+     "clipboard.error"
+    ]
+   }
+  },
+  "clipboard.error": {
+   "v1": "extension",
+   "shape": {
+    "kind": "clipboard.error",
+    "direction": "either",
+    "feature": "clipboard_files_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "offerId": "string",
+     "index": "integer",
+     "transferId": "string",
+     "code": "expired | changed | too_large | unavailable | disabled | busy"
+    }
+   }
+  },
+  "files.offer": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.offer",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "transferId": "string, UUID",
+     "name": "string, display name, last path component only",
+     "mimeType": "string",
+     "size": "integer, bytes >= 0",
+     "sha256": "string, base64 (optional for clipboard purpose)",
+     "purpose": "edition extension: \"clipboard\" with offerId and index",
+     "folderTransferId": "edition extension (folders_draft1)",
+     "entry": "edition extension: manifest index",
+     "path": "edition extension: manifest path",
+     "cameraRequestId": "edition extension (camera_draft1): string, UUID of the Mac's open camera.request that this photo answers; older Macs ignore it and simply receive a file"
+    },
+    "reply": [
+     "files.accept",
+     "files.rejected",
+     "files.resume"
+    ]
+   }
+  },
+  "files.accept": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.accept",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ]
+   }
+  },
+  "files.rejected": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.rejected",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ],
+    "notes": "Files is off locally; sent without decrypting the offer, followed by features.update."
+   }
+  },
+  "files.chunk": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.chunk",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": true,
+    "outer": [
+     "sessionId",
+     "transferId",
+     "sequence",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "(raw)": "file bytes, at most 24 KiB per chunk, sequence from 0 without gaps"
+    },
+    "notes": "Between peers that both advertise files_fast_draft1 every chunk is a binary frame of kind 1 instead (transport.binaryFrames): up to 1 MiB, no envelope, the transfer ID and sequence bound into the AES-GCM tag."
+   }
+  },
+  "files.chunk.ack": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.chunk.ack",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId",
+     "sequence"
+    ],
+    "notes": "Cumulative. The Mac keeps at most 64 chunks unacknowledged. With files_fast_draft1 the receiver acknowledges every binary chunk in every direction, and the sender keeps its unacknowledged bytes within a window that shrinks when the acknowledgements' round trip grows 40 ms over its minimum."
+   }
+  },
+  "files.complete": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.complete",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "transferId": "string",
+     "sha256": "string, base64 SHA-256 of all bytes"
+    },
+    "reply": [
+     "files.complete.ack"
+    ]
+   }
+  },
+  "files.complete.ack": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.complete.ack",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ]
+   }
+  },
+  "files.cancel": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.cancel",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ],
+    "reply": [
+     "files.cancel.ack"
+    ],
+    "notes": "Idempotent."
+   }
+  },
+  "files.cancel.ack": {
+   "v1": "core",
+   "shape": {
+    "kind": "files.cancel.ack",
+    "direction": "either",
+    "feature": "files",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ]
+   }
+  },
+  "notifications.post": {
+   "v1": "core",
+   "shape": {
+    "kind": "notifications.post",
+    "direction": "phone-to-mac",
+    "feature": "notifications",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "packageName": "string, at most 256",
+     "applicationName": "string, at most 128",
+     "notificationId": "string, opaque, at most 512",
+     "title": "string, at most 1,024",
+     "text": "string, at most 8,192",
+     "timestamp": "integer, Unix ms",
+     "applicationIcon": "string, optional base64 PNG, at most 28 KiB encoded",
+     "callType": "optional: incoming | ongoing | screening | unknown",
+     "actions": "array of at most 4 {actionToken (at most 64), title (at most 64), allowsReply}",
+     "smsDefaultApp": "boolean, edition extension (sms_codes_draft1)",
+     "redacted": "boolean, edition extension, only with smsDefaultApp true or (email_codes_draft1) emailApp true",
+     "emailApp": "boolean, edition extension (email_codes_draft1), only to a Mac that shows the key: the notification came from a supported mail app (Gmail, Outlook, Proton Mail, Spark) and is not a group summary",
+     "preview": "string, optional, edition extension (email_codes_draft1), only with emailApp true: the expanded text (subject and body start), at most 600 UTF-16 units, cut only at whitespace; sent only when it looks like it holds a code. Never logged",
+     "smsReply": "boolean, edition extension (sms_draft1), only to a Mac that shows the key: the phone answers this notification by sms.send with notificationId",
+     "smsThreadId": "integer, optional, edition extension (sms_draft1): the conversation the message belongs to, when the phone found it"
+    },
+    "notes": "Content is sensitive and never logged. Smart routing chooses one alert recipient on the phone; compatible other Macs receive quiet history. Legacy peers receive content only if chosen, since they cannot honor quiet. Alert ownership sticks per logical message; a new message event may choose the current Mac. Calls and non-message updates stay pinned until removal; call/media state uses its independent all-device protocol."
+   }
+  },
+  "notifications.remove": {
+   "v1": "core",
+   "shape": {
+    "kind": "notifications.remove",
+    "direction": "phone-to-mac",
+    "feature": "notifications",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "notificationId": "string, at most 512",
+     "callEnded": "boolean, optional, edition extension"
+    }
+   }
+  },
+  "notifications.dismiss": {
+   "v1": "core",
+   "shape": {
+    "kind": "notifications.dismiss",
+    "direction": "mac-to-phone",
+    "feature": "notifications",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "notificationId": "string, at most 512"
+    }
+   }
+  },
+  "notifications.action": {
+   "v1": "core",
+   "shape": {
+    "kind": "notifications.action",
+    "direction": "mac-to-phone",
+    "feature": "notifications",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "notificationId": "string, at most 512",
+     "actionToken": "string, at most 64",
+     "replyText": "string, optional, at most 4,096"
+    },
+    "notes": "Android runs only tokens it retained for the still active notification."
+   }
+  },
+  "codes.status": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.status",
+    "direction": "phone-to-mac",
+    "feature": "sms_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "status": "allowed | hidden | not_linked"
+    }
+   }
+  },
+  "codes.link_request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.link_request",
+    "direction": "mac-to-phone",
+    "feature": "sms_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1"
+    }
+   }
+  },
+  "codes.advertise": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.advertise",
+    "direction": "phone-to-mac",
+    "feature": "sms_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "serviceUuid": "string, random UUID per attempt"
+    },
+    "reply": [
+     "codes.advertise_result"
+    ]
+   }
+  },
+  "codes.advertise_result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.advertise_result",
+    "direction": "mac-to-phone",
+    "feature": "sms_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "serviceUuid": "string",
+     "ok": "boolean",
+     "reason": "when not ok: bluetooth_off | unauthorized | unsupported | failed"
+    }
+   }
+  },
+  "codes.advertise_stop": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.advertise_stop",
+    "direction": "phone-to-mac",
+    "feature": "sms_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "serviceUuid": "string",
+     "linked": "boolean"
+    }
+   }
+  },
+  "quick.request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "quick.request",
+    "direction": "either",
+    "feature": "links | media",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "feature": "links | media",
+     "action": "string (links: offer, or open to a Mac that advertises links_open_draft1; media: toggle | pause | next | previous | seek | volume)",
+     "value": "string (links: http(s) URL, at most 4,096 bytes; seek 0 to 604800; volume 0 to 100)",
+     "sequence": "integer, 1 to 2^53-1, per feature high-water mark"
+    },
+    "reply": [
+     "quick.result"
+    ],
+    "notes": "Edition extension (links_open_draft1): Send to device sends links action open. The Mac opens the link at once only when its own Open links from other devices right away setting is on (on when unset, explicit off preserved), at most one explicit link per phone every 3 seconds; otherwise it replaces the parked link in the menu bar."
+   }
+  },
+  "quick.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "quick.result",
+    "direction": "either",
+    "feature": "links | media",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "feature": "string, echoes the request",
+     "accepted": "boolean",
+     "opened": "edition extension (links_open_draft1): boolean, true when the Mac opened the link right away; older phones ignore it",
+     "reason": "optional string: rate_limited | browser_failed | links_disabled; explains a declined link"
+    }
+   }
+  },
+  "media.state": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.state",
+    "direction": "mac-to-phone",
+    "feature": "media",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "player": "string, the player's name, at most 64 chars",
+     "title": "string, at most 256 chars",
+     "artist": "string, at most 256 chars",
+     "playing": "boolean",
+     "position": "integer, 0 to 604800",
+     "duration": "integer, 0 to 604800",
+     "volume": "integer, 0 to 100",
+     "detail": "string, bounded",
+     "controls": "optional array of toggle | pause | next | previous | seek | volume (absent: all)",
+     "artwork": "string, optional base64 JPEG, at most 16 KiB, at most 128x128"
+    }
+   }
+  },
+  "battery.update": {
+   "v1": "core",
+   "shape": {
+    "kind": "battery.update",
+    "direction": "either",
+    "feature": "battery",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "level": "integer, 0 to 100",
+     "isCharging": "boolean"
+    }
+   }
+  },
+  "find.start": {
+   "v1": "core",
+   "shape": {
+    "kind": "find.start",
+    "direction": "either",
+    "feature": "find_device",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "alertId": "string, opaque"
+    },
+    "reply": [
+     "find.started",
+     "find.stopped"
+    ]
+   }
+  },
+  "find.stop": {
+   "v1": "core",
+   "shape": {
+    "kind": "find.stop",
+    "direction": "either",
+    "feature": "find_device",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "alertId": "string, opaque"
+    },
+    "reply": [
+     "find.stopped"
+    ]
+   }
+  },
+  "find.started": {
+   "v1": "core",
+   "shape": {
+    "kind": "find.started",
+    "direction": "either",
+    "feature": "find_device",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "alertId": "string, opaque"
+    }
+   }
+  },
+  "find.stopped": {
+   "v1": "core",
+   "shape": {
+    "kind": "find.stopped",
+    "direction": "either",
+    "feature": "find_device",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "alertId": "string, opaque"
+    }
+   }
+  },
+  "ping.request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ping.request",
+    "direction": "either",
+    "feature": "ping",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1"
+    },
+    "reply": [
+     "ping.ack"
+    ]
+   }
+  },
+  "ping.ack": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ping.ack",
+    "direction": "either",
+    "feature": "ping",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ],
+    "notes": "messageId is the request's ID. Senders time out after five seconds."
+   }
+  },
+  "calls.request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "calls.request",
+    "direction": "mac-to-phone",
+    "feature": "calls",
+    "encrypted": true,
+    "replay": "messageId",
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "number": "string, 3 to 15 digits with optional leading +; spaces, parentheses, dots and hyphens are removed"
+    },
+    "reply": [
+     "calls.started",
+     "calls.confirmation_required",
+     "calls.rejected"
+    ],
+    "notes": "At most one request every three seconds."
+   }
+  },
+  "calls.started": {
+   "v1": "extension",
+   "shape": {
+    "kind": "calls.started",
+    "direction": "phone-to-mac",
+    "feature": "calls",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ]
+   }
+  },
+  "calls.confirmation_required": {
+   "v1": "extension",
+   "shape": {
+    "kind": "calls.confirmation_required",
+    "direction": "phone-to-mac",
+    "feature": "calls",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ]
+   }
+  },
+  "calls.rejected": {
+   "v1": "extension",
+   "shape": {
+    "kind": "calls.rejected",
+    "direction": "phone-to-mac",
+    "feature": "calls",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "messageId"
+    ]
+   }
+  },
+  "input.session.start": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.session.start",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string, UUID, used once",
+     "sequence": "integer, 1 to 2^53-1",
+     "mode": "touchpad | presentation"
+    },
+    "reply": [
+     "input.session.started",
+     "input.session.stop"
+    ],
+    "notes": "A phone that receives it answers input.session.stop, reason unsupported."
+   }
+  },
+  "input.session.started": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.session.started",
+    "direction": "host-to-controller",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "heartbeatSeconds": "integer, 2",
+     "idleSeconds": "integer, 6",
+     "limits": "{motion: 120, discrete: 20, text: 256}"
+    }
+   }
+  },
+  "input.session.heartbeat": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.session.heartbeat",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer"
+    }
+   }
+  },
+  "input.session.stop": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.session.stop",
+    "direction": "either",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "reason": "user | left_screen | screen_off | local_stop | timeout | disabled | permission_required | busy | invalid | unsupported"
+    }
+   }
+  },
+  "input.pointer": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.pointer",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "dx": "integer, -512 to 512",
+     "dy": "integer, -512 to 512, not both 0"
+    }
+   }
+  },
+  "input.button": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.button",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "button": "left | right | middle",
+     "action": "down | up"
+    }
+   }
+  },
+  "input.scroll": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.scroll",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "dx": "integer",
+     "dy": "integer, not both 0",
+     "unit": "pixel (-1,000 to 1,000) | line (-10 to 10)"
+    }
+   }
+  },
+  "input.drag": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.drag",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "phase": "start | move | end",
+     "dx": "integer with move, pointer bounds",
+     "dy": "integer with move, pointer bounds"
+    }
+   }
+  },
+  "input.text": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.text",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "text": "string, 1 to 256 scalars, at most 1,024 UTF-8 bytes, no Cc characters; never logged"
+    }
+   }
+  },
+  "input.key": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.key",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "key": "left | right | up | down | return | escape | tab | space | backspace | page_up | page_down | home | end | f5 | previous_app",
+     "modifiers": "optional: [] or [\"shift\"] (not with previous_app)"
+    }
+   }
+  },
+  "input.present": {
+   "v1": "extension",
+   "shape": {
+    "kind": "input.present",
+    "direction": "controller-to-host",
+    "feature": "remote_input_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "inputSessionId": "string",
+     "sequence": "integer",
+     "action": "next | previous | start | end | black | laser_on | laser_move | laser_off",
+     "x": "integer 0 to 10,000 with laser_on and laser_move",
+     "y": "integer 0 to 10,000 with laser_on and laser_move"
+    }
+   }
+  },
+  "actions.catalog": {
+   "v1": "extension",
+   "shape": {
+    "kind": "actions.catalog",
+    "direction": "mac-to-phone",
+    "feature": "mac_actions_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "actions": "array of at most 64 {id, title, blocked?}. id: lock | sleep | screensaver | volume_up | volume_down | volume_mute | volume_set | app:<bundle id, [A-Za-z0-9.-], 1 to 155> | shortcut:<lowercase UUID>. title: 1 to 64 characters, no control characters, required for app: and shortcut: (phones show their own titles for the fixed ids). blocked: only permission_required (Lock without Accessibility)",
+     "volume": "optional {level: integer 0 to 100, muted: boolean}, while volume is allowed and the output has a settable volume"
+    },
+    "notes": "What this phone may run now; it replaces the previous list. Sent after each features.update that shows the key on both sides, and whenever the list, a switch, the grant or a permission changes. The phone drops single entries with an unknown id, a missing or bad title or a repeated id, and the whole catalog for a wrong version or more than 64 entries."
+   }
+  },
+  "actions.run": {
+   "v1": "extension",
+   "shape": {
+    "kind": "actions.run",
+    "direction": "phone-to-mac",
+    "feature": "mac_actions_draft1",
+    "encrypted": true,
+    "replay": "sequence",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "action": "string, an id from the latest catalog",
+     "sequence": "integer, 1 to 2^53-1, per session high-water mark, checked after the messageId window",
+     "value": "integer 0 to 100, with volume_set only"
+    },
+    "reply": [
+     "actions.result"
+    ],
+    "notes": "Only an identifier from the Mac's own list goes on the wire: no command, argument, Shortcut name or text. A run that fails the version, requestId or sequence check is dropped; anything else gets exactly one actions.result. Rate limits per phone: volume 10 at once then 5 a second, other actions 3 at once then one every 2 seconds. The phone waits 10 seconds for the result (70 for a Shortcut), then reports it not confirmed."
+   }
+  },
+  "actions.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "actions.result",
+    "direction": "mac-to-phone",
+    "feature": "mac_actions_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the run",
+     "action": "string, echoes the run",
+     "status": "done | refused",
+     "reason": "with refused: not_allowed | invalid | rate_limited | busy | permission_required | unavailable | failed; phones read anything else as failed",
+     "volume": "optional {level, muted}: the volume after a volume action"
+    },
+    "notes": "The Mac keeps a private audit log of every run and refusal (owner-only, 30 days, at most 500 entries, never the value)."
+   }
+  },
+  "focus.state": {
+   "v1": "extension",
+   "shape": {
+    "kind": "focus.state",
+    "direction": "either",
+    "feature": "focus_sync_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "active": "boolean: the phone's Do Not Disturb (any interruption filter but all), or the Mac's Focus"
+    },
+    "notes": "Sent only while the sender's share switch is on and the peer's latest map shows the key: once after each features.update that shows it on both sides, then on every change. Applied only while the receiver's follow switch is on; a follower does not report the change it just made for 10 seconds, so two followers cannot loop."
+   }
+  },
+  "camera.request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "camera.request",
+    "direction": "mac-to-phone",
+    "feature": "camera_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 512,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "mode": "photo"
+    },
+    "reply": [
+     "camera.status"
+    ],
+    "notes": "One open request per Mac, at most one every 3 seconds; it expires after 2 minutes. The phone opens the camera only when unlocked and after a tap. A malformed request is dropped without an answer."
+   }
+  },
+  "camera.status": {
+   "v1": "extension",
+   "shape": {
+    "kind": "camera.status",
+    "direction": "phone-to-mac",
+    "feature": "camera_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 512,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "status": "opened | locked | permission_required | cancelled | busy | disabled | sending | failed; the Mac drops an unknown status"
+    },
+    "notes": "The photo itself arrives as a files.offer carrying cameraRequestId."
+   }
+  },
+  "updates.status": {
+   "v1": "extension",
+   "shape": {
+    "kind": "updates.status",
+    "direction": "either",
+    "feature": "updates_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "platform": "android | macos",
+     "edition": "string, 1 to 32 UTF-8 bytes, rr for this edition",
+     "app": "string, installed version name, 1 to 64 UTF-8 bytes",
+     "build": "integer, installed build number, 1 to 2^53-1",
+     "channel": "stable | beta | nightly",
+     "state": "current | checking | available | downloading | ready | installing | needs_user | failed | manual",
+     "target": "string, optional, the version on offer, 1 to 64 UTF-8 bytes (available, downloading, ready, installing, needs_user; failed when known)",
+     "targetBuild": "integer, optional, with target, 1 to 2^53-1",
+     "progress": "integer, optional, 0 to 100, with downloading",
+     "reason": "optional: with needs_user confirm | permission; with failed check | download | safety | installer | cancelled | not_applied | other; unknown reads as other",
+     "remoteStart": "boolean: Let paired devices start updates on this device is on and the updater can run",
+     "checkedAt": "integer, Unix ms of the last successful check, 0 for never",
+     "auto": "boolean, optional, default false: Update all devices automatically is on there and its updater can run",
+     "busy": "string, optional: what the person is doing there, so automatic updates wait: call | screen_share | remote_control | transfer | phone_files | setup; unknown reads as other (still busy)"
+    },
+    "notes": "Sent once after each features.update that shows the key on both sides, then on every change of a field other than progress, and while downloading at most once a second. A receiver drops a status with an unknown state, platform or channel, an auto that is not a boolean or a busy that is not a string. auto is written only when true, busy only when set."
+   }
+  },
+  "updates.start": {
+   "v1": "extension",
+   "shape": {
+    "kind": "updates.start",
+    "direction": "either",
+    "feature": "updates_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 512,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "retry": "boolean, optional, default false: the person tapped Retry for this device",
+     "auto": "boolean, optional, default false: started automatically (nobody tapped Update all); the receiver names the device that started it"
+    },
+    "reply": [
+     "updates.result"
+    ],
+    "notes": "Update yourself now from your own channel. It names no version, URL, file or channel: the receiver checks its own feed and installs only a newer build through its own checks (Android SHA-256 and signer, Mac Sparkle EdDSA), so it can never downgrade. Accepted only from a paired device whose map shows the key, while the receiver's Let paired devices start updates switch is on; at most one start every 30 seconds and five an hour per device. A start with a wrong version or a requestId that is not a UUID is dropped; anything else gets exactly one updates.result. Without retry, a device whose last attempt did not apply refuses not_applied. With auto, a device whose person is busy (a call, a screen share, remote control, a transfer, a Phone files download, setup or pairing) refuses busy."
+   }
+  },
+  "updates.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "updates.result",
+    "direction": "either",
+    "feature": "updates_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 512,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the start",
+     "status": "accepted | refused",
+     "reason": "with refused: disabled | rate_limited | manual | not_applied | busy (its updater cannot start now, or an automatic start found its person busy); senders read anything else as other"
+    },
+    "notes": "accepted also when an update was already running. Progress follows as updates.status."
+   }
+  },
+  "sms.status": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.status",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "read": "boolean, READ_SMS allowed",
+     "send": "boolean, SEND_SMS allowed",
+     "contacts": "boolean, READ_CONTACTS allowed",
+     "sims": "array of at most 4 {subId (integer), slot (0 to 3), label (at most 64)}; empty when the phone cannot list them; an invalid entry is dropped",
+     "cursor": "{sms, mms}: integers, the newest _id in each SMS provider table"
+    },
+    "notes": "Sent after each features.update that shows the key on both sides, and when a permission or the SIM list changes."
+   }
+  },
+  "sms.changed": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.changed",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "cursor": "{sms, mms}: integers, the newest _id in each SMS provider table"
+    },
+    "notes": "The SMS provider changed (a ContentObserver, only while a Mac shows the key), at most one every 2 seconds. The Mac asks sms.sync when the cursor is ahead of its own and refreshes an open conversation."
+   }
+  },
+  "sms.threads": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.threads",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "before": "integer, optional, Unix ms, exclusive (absent: the newest)",
+     "limit": "integer, 1 to 50"
+    },
+    "reply": [
+     "sms.threads_page"
+    ]
+   }
+  },
+  "sms.threads_page": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.threads_page",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 40960,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "threads": "array, newest first, of {threadId, participants (1 to 10 {address (at most 64), name (optional, at most 128)}), snippet (at most 160), date (Unix ms), unread (integer), subId (optional)}",
+     "more": "boolean",
+     "error": "optional: disabled | permission (threads is then empty)"
+    },
+    "notes": "The phone stops adding entries before the plaintext limit and sets more."
+   }
+  },
+  "sms.messages": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.messages",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "threadId": "integer, at least 1",
+     "before": "optional {date (Unix ms), id}, exclusive, ordered by date then id (absent: the newest)",
+     "limit": "integer, 1 to 100"
+    },
+    "reply": [
+     "sms.messages_page"
+    ]
+   }
+  },
+  "sms.messages_page": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.messages_page",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 40960,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "threadId": "integer",
+     "messages": "array, newest first, of {id (s<n> or m<n>, at most 24), threadId, direction: in | out, status: received | pending | sent | delivered | failed (an unknown status reads as received or sent), date (Unix ms), address (at most 64; the other side, empty for an outgoing MMS), body (at most 4,000 UTF-16 units), truncated (optional boolean), subId (optional integer), read (optional boolean, default true), parts (optional, at most 8 images {partId (p<n>), mimeType image/*, size?})}; an invalid message is dropped",
+     "more": "boolean",
+     "error": "optional: disabled | permission | not_found"
+    }
+   }
+  },
+  "sms.sync": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.sync",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "since": "{sms, mms}: integers, the newest _id in each SMS provider table, from the Mac's cache",
+     "limit": "integer, 1 to 200"
+    },
+    "reply": [
+     "sms.sync_page"
+    ]
+   }
+  },
+  "sms.sync_page": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.sync_page",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 40960,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "messages": "array of messages newer than since (any order; the Mac sorts), as in sms.messages_page",
+     "cursor": "{sms, mms}: integers, the newest _id in each SMS provider table: where the next sms.sync starts",
+     "more": "boolean",
+     "reset": "boolean: since is ahead of the phone or over 1,000 messages behind; the Mac drops its cache and loads the threads again",
+     "error": "optional: disabled | permission"
+    },
+    "notes": "Each table is read in _id order, so the cursor never skips a message."
+   }
+  },
+  "sms.send": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.send",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "body": "string, 1 to 2,000 UTF-16 units, not only spaces",
+     "threadId": "integer, one of threadId, address and notificationId",
+     "address": "string, a phone number: + and 2 to 20 digits once spaces, dashes, dots and brackets are removed",
+     "notificationId": "string, at most 512: answers an SMS notification that carried smsReply",
+     "subId": "integer, optional: the SIM to send from (default: the thread's last SIM, else the phone's default)"
+    },
+    "reply": [
+     "sms.send_status"
+    ],
+    "notes": "One recipient only: a conversation with several people is refused (group). Emergency numbers are refused (invalid). At most one per second and 30 in 10 minutes per Mac. Bridgey never becomes the default SMS app; Android writes the sent message to the SMS provider. A reply to a notification goes through the messaging app's own reply when it has one, unless the phone's Send replies as SMS is on."
+   }
+  },
+  "sms.send_status": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.send_status",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "status": "sending | sent | delivered | failed | refused; the Mac drops an unknown status",
+     "reason": "with failed or refused: disabled | permission | invalid | group | no_sim | rate_limited | not_found | radio_off | no_service | failed (an unknown or missing reason reads as failed)",
+     "via": "optional: sms (SmsManager) | app (the messaging app's reply)"
+    },
+    "notes": "Several per request: sending, then sent or failed, then delivered when the network reports it."
+   }
+  },
+  "sms.attachment": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.attachment",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "partId": "string, p<n>"
+    },
+    "reply": [
+     "sms.attachment_data"
+    ],
+    "notes": "Read-only MMS images. At most 4 open requests per Mac."
+   }
+  },
+  "sms.attachment_data": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.attachment_data",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 40960,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "partId": "string",
+     "mimeType": "image/jpeg",
+     "width": "integer",
+     "height": "integer",
+     "data": "string, base64 JPEG of at most 28,672 bytes, scaled down on the phone",
+     "error": "optional: not_found | unsupported | permission (no image fields)"
+    },
+    "notes": "The Mac keeps images in memory only."
+   }
+  },
+  "sms.contacts": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.contacts",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "query": "string, 1 to 64 UTF-16 units"
+    },
+    "reply": [
+     "sms.contacts_result"
+    ]
+   }
+  },
+  "sms.contacts_result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.contacts_result",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 16384,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "contacts": "array of at most 20 {name (at most 128), address (at most 64), label (optional, at most 32)}",
+     "error": "optional: permission (contacts is then empty)"
+    }
+   }
+  },
+  "sms.mark_read": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.mark_read",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "threadIds": "array of 1 to 50 integers, each at least 1 (repeats count once)"
+    },
+    "reply": [
+     "sms.mark_read_result"
+    ],
+    "notes": "Read on the Mac: the phone runs the messaging app's own Mark as read (Notification.Action SEMANTIC_ACTION_MARK_AS_READ) on each notification it still shows for those conversations. Bridgey never writes to the SMS provider; a conversation without a notification stays unread on the phone."
+   }
+  },
+  "sms.mark_read_result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.mark_read_result",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 4096,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "results": "array of at most 50 {threadId (integer), result: marked | not_shown | no_action | failed (an unknown result reads as failed)}; an invalid entry is dropped",
+     "error": "optional: disabled (results is then empty)"
+    }
+   }
+  },
+  "sms.blocked_numbers": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.blocked_numbers",
+    "direction": "mac-to-phone",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "address": "string, optional, the number to block as in sms.send (shown to the person, never written by Bridgey)"
+    },
+    "reply": [
+     "sms.blocked_numbers_result"
+    ],
+    "notes": "Opens Android's own Blocked numbers screen (TelecomManager.createManageBlockedNumbersIntent): at once when Bridgey is in front, otherwise through a Bridgey notification the person taps. Only the default dialer or SMS app may write the blocked list, so the person adds the number there."
+   }
+  },
+  "sms.blocked_numbers_result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "sms.blocked_numbers_result",
+    "direction": "phone-to-mac",
+    "feature": "sms_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "result": "opened | notified | unavailable (an unknown result reads as unavailable)"
+    }
+   }
+  },
+  "connect.setup": {
+   "v1": "extension",
+   "shape": {
+    "kind": "connect.setup",
+    "direction": "either",
+    "feature": "connect_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "contribution": "string, base64 of 32 random bytes",
+     "rotate": "optional boolean (Reset away-from-home identity); missing means false"
+    },
+    "reply": [
+     "connect.setup",
+     "connect.setup.ack"
+    ],
+    "notes": "Creates the pair secret: each side sends its contribution once per exchange (a side that receives one first answers with its own), then pairSecret = HKDF-SHA256(cLow || cHigh, salt bridgey-pair-secret-v1, info idLow 0x00 idHigh, 32). Started by the lower device ID when its pair check differs from the peer's connect.addresses. A malformed payload is dropped and the session stays."
+   }
+  },
+  "connect.setup.ack": {
+   "v1": "extension",
+   "shape": {
+    "kind": "connect.setup.ack",
+    "direction": "either",
+    "feature": "connect_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 64,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1"
+    },
+    "notes": "Informational: the sender holds the new pair secret."
+   }
+  },
+  "connect.addresses": {
+   "v1": "extension",
+   "shape": {
+    "kind": "connect.addresses",
+    "direction": "either",
+    "feature": "connect_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 2048,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "port": "integer 1 to 65535, the sender's UDP port",
+     "addrs": "array of at most 16 {a: IP address string, kind: lan | vpn | public6, vpn?: tailscale | other}; entries with an unknown kind or an unusable address are skipped",
+     "pairCheck": "optional string, base64url of HMAC-SHA256(pairSecret, bridgey-pair-check-v1)[0..8]; absent without a pair secret"
+    },
+    "notes": "Sent after every features.update that shows the key on both sides and whenever the sender's addresses change. The receiver keeps at most 16 per peer (30 days) and dials them over QUIC when the peer is away. The pair check never reveals the secret."
+   }
+  },
+  "speed.start": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.start",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "testId": "string, UUID",
+     "seconds": "integer, 2 to 15, how long each side sends",
+     "link": "object: platform (string, 1 to 16 bytes), network (wifi | ethernet | hotspot | other), optional band (2.4 | 5 | 6), linkMbps (1 to 100000), standard (4 to 7), widthMhz (20 to 320), lockHeld and screenOn (booleans, phones)"
+    },
+    "reply": [
+     "speed.ready"
+    ],
+    "notes": "Speed test from the side that runs it. One test at a time per device; the other side answers within 5 seconds. Then ten speed.ping, then this side sends speed.data for `seconds`, then speed.turn, then the other side sends for `seconds` and answers speed.done."
+   }
+  },
+  "speed.ready": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.ready",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "testId": "string, UUID",
+     "status": "ready | busy | disabled",
+     "link": "object, as in speed.start, with ready"
+    }
+   }
+  },
+  "speed.ping": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.ping",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId",
+     "sequence"
+    ],
+    "reply": [
+     "speed.pong"
+    ],
+    "notes": "transferId is the test ID, sequence 1 to 10. Answered at once with speed.pong carrying the same fields; the round trip shown is their median."
+   }
+  },
+  "speed.pong": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.pong",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId",
+     "sequence"
+    ]
+   }
+  },
+  "speed.ack": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.ack",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId",
+     "sequence"
+    ],
+    "notes": "Acknowledges the speed.data binary frame with that test ID and sequence (cumulative). The sender paces on these exactly as on files.chunk.ack."
+   }
+  },
+  "speed.turn": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.turn",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "testId": "string, UUID",
+     "bytesPerSecond": "integer, 0 to 10^12, what the side that started measured from its acknowledgements after the first second"
+    },
+    "notes": "The side that started has finished sending: the other side sends now."
+   }
+  },
+  "speed.done": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.done",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "testId": "string, UUID",
+     "bytesPerSecond": "integer, 0 to 10^12, what this side measured"
+    },
+    "reply": [
+     "speed.result"
+    ]
+   }
+  },
+  "speed.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.result",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "testId": "string, UUID",
+     "forwardBytesPerSecond": "optional integer, from the side that started to the other",
+     "backBytesPerSecond": "optional integer, the other way",
+     "roundTripMs": "optional number, 0 to 60000, median idle round trip",
+     "loadedRoundTripMs": "optional number, 0 to 60000, round trip of the acknowledgements while sending"
+    },
+    "notes": "So both apps can show the whole result."
+   }
+  },
+  "speed.cancel": {
+   "v1": "extension",
+   "shape": {
+    "kind": "speed.cancel",
+    "direction": "either",
+    "feature": "files_fast_draft1",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ],
+    "notes": "Either side stops the test (transferId is the test ID): Stop, a stall of 5 seconds, or a failure."
+   }
+  },
+  "places.list": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.list",
+    "direction": "mac-to-phone",
+    "feature": "places_draft1 | files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "purpose": "optional \"browse\" (files_browse_draft1): every place whatever the destination mode, plus writable, media and documents in the answer"
+    },
+    "reply": [
+     "places.listed",
+     "places.error"
+    ]
+   }
+  },
+  "places.listed": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.listed",
+    "direction": "phone-to-mac",
+    "feature": "places_draft1 | files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string",
+     "mode": "sender_picks | receiver_asks | fixed",
+     "places": "array of at most 17 {placeId, label (64), available, freeBytes}",
+     "fixedLabel": "string",
+     "defaultFreeBytes": "integer or null, free bytes where a send would land by default (every answer)",
+     "writable": "boolean, purpose browse only: \"Allow other devices to change files here\"",
+     "media": "purpose browse only: full | partial | none (photo and video access)",
+     "documents": "boolean, purpose browse only: at least one place is indexed for recent documents"
+    }
+   }
+  },
+  "places.browse": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.browse",
+    "direction": "mac-to-phone",
+    "feature": "places_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string",
+     "placeId": "string",
+     "path": "string, portable path",
+     "cursor": "string or null"
+    },
+    "reply": [
+     "places.children",
+     "places.error"
+    ]
+   }
+  },
+  "places.children": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.children",
+    "direction": "phone-to-mac",
+    "feature": "places_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string",
+     "placeId": "string",
+     "path": "string",
+     "folders": "array of folder names, at most 500 per page",
+     "fileCount": "integer",
+     "folderCount": "integer",
+     "nextCursor": "string or null"
+    }
+   }
+  },
+  "places.create_folder": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.create_folder",
+    "direction": "mac-to-phone",
+    "feature": "places_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string",
+     "placeId": "string",
+     "path": "string",
+     "name": "string, portable name"
+    },
+    "reply": [
+     "places.folder_created",
+     "places.error"
+    ]
+   }
+  },
+  "places.folder_created": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.folder_created",
+    "direction": "phone-to-mac",
+    "feature": "places_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string",
+     "placeId": "string",
+     "path": "string",
+     "name": "string"
+    }
+   }
+  },
+  "places.error": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.error",
+    "direction": "phone-to-mac",
+    "feature": "places_draft1 | files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string",
+     "code": "error code, see docs/protocol.md (browse adds read_only)"
+    },
+    "notes": "Also the failure answer to every browse request (places.files, media.*, places.download). Browse requests from a Mac whose files_browse_draft1 the phone did not advertise answer unsupported; over a lane budget, busy."
+   }
+  },
+  "places.files": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.files",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "placeId": "string, default or a granted place",
+     "path": "string, existing path",
+     "cursor": "string or null, opaque, from the previous page",
+     "sort": "name (default) | modified | size | kind",
+     "descending": "boolean"
+    },
+    "reply": [
+     "places.files_page",
+     "places.error"
+    ],
+    "notes": "Browse lane: 4 in flight and 40 per 10 s, else busy; answered within 8 s. Served in every folder destination mode. Errors not_found, place_unavailable, policy."
+   }
+  },
+  "places.files_page": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.files_page",
+    "direction": "phone-to-mac",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "placeId": "string",
+     "path": "string",
+     "entries": "array of at most 200 {name (one existing component, 1 to 255 bytes), dir (boolean), size (integer, null for folders), modified (Unix ms or null), mimeType (null for folders), thumb (boolean)}",
+     "folderCount": "integer",
+     "fileCount": "integer",
+     "nextCursor": "string or null",
+     "writable": "boolean"
+    },
+    "notes": "Folders first, then files, each in sort order (names case-insensitive, then exact). Hidden items and part files are neither listed nor counted."
+   }
+  },
+  "places.download": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.download",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "items": "array of 1 to 100 refs ({placeId, path, name} or {mediaId}); a folder brings its subtree, hidden and system files skipped and counted"
+    },
+    "reply": [
+     "places.download_started",
+     "places.error"
+    ],
+    "notes": "Browse lane. The phone then sends folders.offer with into: true and downloadRequestId; the Mac accepts a download offer only when it asked for it. Errors not_found, place_unavailable, limit_exceeded, busy, policy."
+   }
+  },
+  "places.download_started": {
+   "v1": "extension",
+   "shape": {
+    "kind": "places.download_started",
+    "direction": "phone-to-mac",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "folderTransferId": "string, UUID of the folders.offer that follows",
+     "rootName": "string, portable name",
+     "fileCount": "integer",
+     "folderCount": "integer",
+     "totalSize": "integer, bytes"
+    }
+   }
+  },
+  "media.list": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.list",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "kind": "media (photos and videos, newest first) | files (recent documents in indexed places) | recent (both)",
+     "cursor": "string or null, opaque",
+     "limit": "integer, 1 to 200, default 100"
+    },
+    "reply": [
+     "media.page",
+     "places.error"
+    ],
+    "notes": "Browse lane."
+   }
+  },
+  "media.page": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.page",
+    "direction": "phone-to-mac",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "kind": "string, echoes the request",
+     "items": "array of {ref, name, size, modified (Unix ms), mimeType, width, height, durationMs (null when unknown), thumb (boolean), location (display path, at most 128 characters), taken (Unix ms the gallery sorts by: date taken, else added; optional, for day headers)}",
+     "nextCursor": "string or null",
+     "access": "full | partial | none (photo and video access; none returns no media items)",
+     "indexing": "boolean, the document index is refreshing"
+    },
+    "notes": "Askers cache by device ID, ref, modified and size: the same four always mean the same bytes."
+   }
+  },
+  "media.thumbnails": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.thumbnails",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "items": "array of 1 to 64 {key (1 to 64 of [A-Za-z0-9_-], chosen by the asker), ref}",
+     "size": "integer, longest edge 64 to 512, default 256",
+     "replaces": "string, optional, requestId of an earlier media request it cancels"
+    },
+    "reply": [
+     "media.thumbnails_batch",
+     "places.error"
+    ],
+    "notes": "Media lane: 4 active and 60 per 10 s, else busy. Answers are low priority: sent only while no file chunk, acknowledgement or control message waits."
+   }
+  },
+  "media.thumbnails_batch": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.thumbnails_batch",
+    "direction": "phone-to-mac",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 45056,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "thumbs": "array of {key, mimeType (image/webp from Android 11, else image/jpeg), width, height, tint (#rrggbb average colour), data (base64, at most 24 KiB decoded)}",
+     "missing": "array of keys without a thumbnail",
+     "done": "boolean, true on the last batch"
+    },
+    "notes": "In the order they are ready (made in the order asked, visible items first); askers match thumbnails by key. As many as fit in each batch. 45,056 bytes of plaintext keep the frame under the 65,536-byte limit after AES-GCM and base64."
+   }
+  },
+  "media.preview": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.preview",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "ref": "ref",
+     "size": "integer, longest edge 512 to 2048",
+     "replaces": "string, optional"
+    },
+    "reply": [
+     "media.preview_part",
+     "places.error"
+    ],
+    "notes": "Media lane. Videos answer with the poster frame. Errors not_found, unsupported."
+   }
+  },
+  "media.preview_part": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.preview_part",
+    "direction": "phone-to-mac",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 45056,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "index": "integer, from 0",
+     "count": "integer, parts in all",
+     "mimeType": "string",
+     "width": "integer",
+     "height": "integer",
+     "tint": "string, #rrggbb",
+     "data": "string, base64, at most 32 KiB decoded per part"
+    },
+    "notes": "Consecutive parts; the whole preview is at most 1 MiB."
+   }
+  },
+  "media.range": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.range",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "ref": "ref to a file, not a folder",
+     "offset": "integer, >= 0",
+     "length": "integer, 1 to 4 MiB",
+     "replaces": "string, optional"
+    },
+    "reply": [
+     "media.range_part",
+     "places.error"
+    ],
+    "notes": "Media lane. Ranges are previews (hover prefetch, streamed playback) and carry no hash; a saved copy always goes through places.download."
+   }
+  },
+  "media.range_part": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.range_part",
+    "direction": "phone-to-mac",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 45056,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, echoes the request",
+     "offset": "integer, of this part",
+     "fileSize": "integer, the whole file",
+     "modified": "integer, Unix ms, the whole file",
+     "data": "string, base64, at most 32 KiB decoded",
+     "last": "boolean, end of the range or of the file"
+    }
+   }
+  },
+  "media.cancel": {
+   "v1": "extension",
+   "shape": {
+    "kind": "media.cancel",
+    "direction": "mac-to-phone",
+    "feature": "files_browse_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, the media request to cancel"
+    },
+    "notes": "Not answered. Parts already on the wire may still arrive and are dropped by the asker."
+   }
+  },
+  "folders.offer": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.offer",
+    "direction": "sender-to-receiver",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string, UUID",
+     "rootName": "string, portable name",
+     "fileCount": "integer, at most 10,000",
+     "folderCount": "integer, at most 2,000",
+     "totalSize": "integer, at most 1 TiB",
+     "pageCount": "integer, 0 to 128",
+     "manifestSha256": "string",
+     "destination": "optional {placeId, path}",
+     "resume": "boolean",
+     "skipped": "optional object of counters",
+     "into": "boolean, optional, default false (files_browse_draft1): entries land directly in the destination, top-level clashes saved as copies, nothing merged, replaced or asked",
+     "downloadRequestId": "string, UUID, optional (files_browse_draft1): the offer answers that places.download of the receiver"
+    },
+    "notes": "The Mac checks folders_draft1 before sending to a phone, the phone folders_receive_draft1 before sending to a Mac (no destination: a Mac serves no places). Uploads are into with destination; a phone rejects them read_only while it does not allow changes, policy while browsing is off."
+   }
+  },
+  "folders.manifest": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.manifest",
+    "direction": "sender-to-receiver",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "page": "integer",
+     "entries": "array of at most 256 {type: dir | file, path, size?, sha256?, modified?}"
+    }
+   }
+  },
+  "folders.waiting": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.waiting",
+    "direction": "receiver-to-sender",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "reason": "destination | conflict",
+     "timeoutSeconds": "integer"
+    }
+   }
+  },
+  "folders.conflict": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.conflict",
+    "direction": "receiver-to-sender",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "existing": "string",
+     "clashingFiles": "integer",
+     "clashingFolders": "integer",
+     "newFolderName": "string",
+     "choices": "array of merge | replace | new_folder | cancel",
+     "timeoutSeconds": "integer"
+    },
+    "reply": [
+     "folders.resolve"
+    ]
+   }
+  },
+  "folders.resolve": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.resolve",
+    "direction": "sender-to-receiver",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "choice": "merge | replace | new_folder | cancel"
+    }
+   }
+  },
+  "folders.accept": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.accept",
+    "direction": "receiver-to-sender",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "rootName": "string",
+     "destinationLabel": "string",
+     "choice": "none | merge | replace | new_folder",
+     "completedBitmap": "string, base64, bit i set when entry i is done",
+     "freeBytes": "integer or null, free bytes at the chosen destination (files_browse_draft1)"
+    }
+   }
+  },
+  "folders.rejected": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.rejected",
+    "direction": "receiver-to-sender",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce?",
+     "ciphertext?"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "code": "error code",
+     "entry": "integer, optional",
+     "neededBytes": "integer, optional",
+     "freeBytes": "integer, optional"
+    },
+    "notes": "With Files off the receiver sends it outer only, without decrypting the offer."
+   }
+  },
+  "folders.entry_failed": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.entry_failed",
+    "direction": "receiver-to-sender",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "entry": "integer",
+     "transferId": "string",
+     "code": "error code"
+    }
+   }
+  },
+  "folders.complete": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.complete",
+    "direction": "sender-to-receiver",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "sentFiles": "integer",
+     "failedCount": "integer",
+     "failed": "array of at most 500 {entry, code}"
+    },
+    "reply": [
+     "folders.result"
+    ]
+   }
+  },
+  "folders.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.result",
+    "direction": "receiver-to-sender",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 32768,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "status": "complete | incomplete",
+     "savedFiles": "integer",
+     "savedBytes": "integer",
+     "createdFolders": "integer",
+     "renamedFiles": "integer",
+     "replacedFiles": "integer",
+     "failedCount": "integer",
+     "failed": "array of at most 500 {entry, code}"
+    }
+   }
+  },
+  "folders.cancel": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.cancel",
+    "direction": "either",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "transferId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "folderTransferId": "string",
+     "reason": "user | timeout | policy | error",
+     "code": "optional error code"
+    },
+    "reply": [
+     "folders.cancel.ack"
+    ]
+   }
+  },
+  "folders.cancel.ack": {
+   "v1": "extension",
+   "shape": {
+    "kind": "folders.cancel.ack",
+    "direction": "either",
+    "feature": "folders_draft1 | folders_receive_draft1",
+    "encrypted": false,
+    "outer": [
+     "sessionId",
+     "transferId"
+    ]
+   }
+  },
+  "settings.snapshot": {
+   "v1": "extension",
+   "shape": {
+    "kind": "settings.snapshot",
+    "direction": "either",
+    "feature": "settings_sync_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 16384,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "schema": "integer, 1",
+     "maxSchema": "integer",
+     "records": "object of key to {value, changedAt, version, changedBy}, at most 32; every schema 1 key the sender syncs",
+     "waiting": "optional array of at most 32 keys that are on but wait for a permission on the sender",
+     "first": "optional bool: the sender has no first-connect answer for the receiver",
+     "new": "optional bool: the sender has no answer for any device"
+    },
+    "notes": "Sent by each side when settings_sync_draft1 becomes true on both for the session, including right after connecting. A snapshot never overwrites a chosen value: a setting the receiver never chose (version 0) takes the sender's chosen record; two different chosen values stay and show as Different on <device> with Apply to all. Schema 1 has 24 keys (docs/folders-and-settings-sync.md 8.4); unknown and per-device keys and invalid records are skipped one by one. A payload that fails decryption closes the session; one that fails validation is answered settings.error invalid_message.",
+    "reply": [
+     "settings.ack"
+    ]
+   }
+  },
+  "settings.update": {
+   "v1": "extension",
+   "shape": {
+    "kind": "settings.update",
+    "direction": "either",
+    "feature": "settings_sync_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 16384,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "schema": "integer, 1",
+     "records": "object of key to record, at most 32",
+     "waiting": "optional array of at most 32 keys",
+     "answered": "optional bool: the asker's person answered the first-connect question"
+    },
+    "notes": "Local edits and Apply to all (debounced 500 ms), relayed records from other peers, records that won (kept) and were not yet sent to this peer, and waiting list changes (records may be empty). A record that wins by the merge rule is applied.",
+    "reply": [
+     "settings.ack"
+    ]
+   }
+  },
+  "settings.ack": {
+   "v1": "extension",
+   "shape": {
+    "kind": "settings.ack",
+    "direction": "either",
+    "feature": "settings_sync_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "schema": "integer",
+     "ackOf": "string, messageId",
+     "applied": "array of keys",
+     "kept": "array of keys"
+    },
+    "notes": "kept lists keys where the receiver's own record won; it sends those records in settings.update unless it already sent them to this peer."
+   }
+  },
+  "settings.error": {
+   "v1": "extension",
+   "shape": {
+    "kind": "settings.error",
+    "direction": "either",
+    "feature": "settings_sync_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "schema": "integer",
+     "code": "unsupported_schema | invalid_message | rate_limited",
+     "maxSchema": "integer"
+    },
+    "notes": "rate_limited: more than 20 settings.* messages from this peer in 10 seconds; the extra messages were dropped. Sent at most once per window."
+   }
+  },
+  "agent.hello": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agent.hello",
+    "direction": "agent-to-phone",
+    "feature": "agent_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "platform": "string, cli",
+     "app": "string, at most 64 characters",
+     "os": "string, at most 64 characters"
+    },
+    "notes": "Once per session after features.update; the phone shows app and os on the device page."
+   }
+  },
+  "agent.grants": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agent.grants",
+    "direction": "phone-to-agent",
+    "feature": "agent_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "grants": "array of {key, state (on | off | waiting), window? (1h | today | 7d | forever), grantedAt?, expiresAt?, scope?}; keys files, clipboard, clipboard_request, notify, ask, ring, battery, codes, notifications"
+    },
+    "notes": "Sent after features.update and on every change, including a window that ended. Read-only on the agent."
+   }
+  },
+  "agent.grant_request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agent.grant_request",
+    "direction": "agent-to-phone",
+    "feature": "agent_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "keys": "array of 1 to 10 grant names",
+     "note": "optional string, at most 120 characters"
+    },
+    "reply": [
+     "agent.request_result"
+    ],
+    "notes": "The phone posts a notification that opens the device's permissions and marks the grants waiting for 24 hours or until Rahul decides. 3 an hour."
+   }
+  },
+  "agent.request_result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agent.request_result",
+    "direction": "phone-to-agent",
+    "feature": "agent_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "ref": "string, the request's messageId",
+     "requestKind": "string, the request's kind",
+     "status": "ok | not_granted | rate_limited | invalid | busy | unknown | unsupported",
+     "retryAfterMs": "optional integer, with rate_limited",
+     "grant": "optional string, with not_granted"
+    },
+    "notes": "Answers agent.grant_request, and refuses any agent request (notify.post, ask.request, clipboard.update, clipboard.rich, clipboard.request, find.start, ping.request, files.offer, codes.query)."
+   }
+  },
+  "notify.post": {
+   "v1": "extension",
+   "shape": {
+    "kind": "notify.post",
+    "direction": "agent-to-phone",
+    "feature": "notify_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 4096,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "notifyId": "string, UUID",
+     "title": "string, 1 to 120 characters",
+     "body": "optional string, at most 1,000 characters",
+     "priority": "normal | high",
+     "tag": "optional string, at most 64: replaces this device's earlier notification with that tag",
+     "from": "optional string, at most 64, shown as says it is from"
+    },
+    "reply": [
+     "notify.result",
+     "agent.request_result"
+    ],
+    "notes": "Posted as plain text in the Agent messages channel. 30 an hour, burst 5; high priority 10 an hour."
+   }
+  },
+  "notify.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "notify.result",
+    "direction": "phone-to-agent",
+    "feature": "notify_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "notifyId": "string, UUID",
+     "status": "posted"
+    }
+   }
+  },
+  "ask.request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.request",
+    "direction": "agent-to-phone",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 4096,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID (UUIDv7 from the agent; a retry never posts twice)",
+     "title": "string, 1 to 120 characters",
+     "body": "optional string, at most 1,000 characters",
+     "options": "array of 0 to 3 {id ([a-z0-9_-]{1,32}), label (1 to 20 characters)}; at most 2 with allowText; at least one option or allowText",
+     "allowText": "boolean",
+     "textHint": "optional string, at most 40 characters",
+     "requireUnlock": "boolean",
+     "expiresAt": "integer, Unix ms, at most 24 hours ahead",
+     "from": "optional string, at most 64 characters"
+    },
+    "reply": [
+     "ask.posted",
+     "agent.request_result"
+    ],
+    "notes": "A high-importance notification in Agent questions. 20 an hour, 3 pending per agent, 10 on the phone."
+   }
+  },
+  "ask.posted": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.posted",
+    "direction": "phone-to-agent",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID"
+    }
+   }
+  },
+  "ask.answer": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.answer",
+    "direction": "phone-to-agent",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 4096,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID",
+     "option": "optional string, an option id",
+     "text": "optional string, at most 1,000 characters",
+     "answeredAt": "integer, Unix ms"
+    },
+    "notes": "Kept for 24 hours and sent again at the start of each session until the ask ends."
+   }
+  },
+  "ask.dismissed": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.dismissed",
+    "direction": "phone-to-agent",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID"
+    }
+   }
+  },
+  "ask.expired": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.expired",
+    "direction": "phone-to-agent",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID"
+    }
+   }
+  },
+  "ask.cancel": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.cancel",
+    "direction": "agent-to-phone",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID"
+    },
+    "reply": [
+     "ask.cancelled"
+    ]
+   }
+  },
+  "ask.cancelled": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.cancelled",
+    "direction": "phone-to-agent",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID"
+    }
+   }
+  },
+  "ask.status": {
+   "v1": "extension",
+   "shape": {
+    "kind": "ask.status",
+    "direction": "agent-to-phone",
+    "feature": "ask_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "askId": "string, UUID"
+    },
+    "reply": [
+     "ask.posted",
+     "ask.answer",
+     "ask.dismissed",
+     "ask.expired",
+     "ask.cancelled",
+     "agent.request_result"
+    ]
+   }
+  },
+  "clipboard.request": {
+   "v1": "extension",
+   "shape": {
+    "kind": "clipboard.request",
+    "direction": "agent-to-phone",
+    "feature": "clipboard_request_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "expiresAt": "integer, Unix ms, at most 10 minutes ahead"
+    },
+    "reply": [
+     "clipboard.response",
+     "agent.request_result"
+    ],
+    "notes": "The phone asks with Send and Deny; Send opens Bridgey for a moment, because Android reads the clipboard only in the foreground. 10 an hour, 1 pending."
+   }
+  },
+  "clipboard.response": {
+   "v1": "extension",
+   "shape": {
+    "kind": "clipboard.response",
+    "direction": "phone-to-agent",
+    "feature": "clipboard_request_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 40960,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "status": "sent | declined | expired",
+     "text": "optional string, with sent",
+     "html": "optional string, with sent; text and html together at most 32 KiB"
+    }
+   }
+  },
+  "agent.notifications.query": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agent.notifications.query",
+    "direction": "agent-to-phone",
+    "feature": "agent_notifications_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "queryId": "string, UUID",
+     "limit": "optional integer, 1 to 20; default 20"
+    },
+    "reply": [
+     "agent.notifications.result",
+     "agent.request_result"
+    ],
+    "notes": "One bounded active snapshot, never a subscription, reply or dismiss action. Phone grant and authenticated session checked at delivery. No notification content in audit records."
+   }
+  },
+  "agent.notifications.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agent.notifications.result",
+    "direction": "phone-to-agent",
+    "feature": "agent_notifications_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 24576,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "queryId": "string, UUID",
+     "status": "ok | unavailable",
+     "notifications": "array of at most the requested limit: {id (128), packageName (256), applicationName (128), title (512), text (2048), postedAt (Unix ms)}; unavailable always empty",
+     "truncated": "boolean; more eligible items or the size budget was reached"
+    }
+   }
+  },
+  "codes.query": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.query",
+    "direction": "agent-to-phone",
+    "feature": "agent_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "queryId": "string, UUID",
+     "service": "optional string, at most 64, matched case-insensitively",
+     "sinceMs": "integer, 0 to 3,600,000",
+     "newerThan": "optional integer, Unix ms",
+     "waitMs": "integer, 0 to 600,000",
+     "latestOnly": "boolean"
+    },
+    "reply": [
+     "codes.result",
+     "agent.request_result"
+    ],
+    "notes": "Each answered query is one codes.read audit entry on the phone and on the Mac. At most 2 held queries per agent."
+   }
+  },
+  "codes.result": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.result",
+    "direction": "phone-to-agent",
+    "feature": "agent_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 8192,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "queryId": "string, UUID",
+     "codes": "array of at most 20 {code, service, source (sms | email), app, postedAt, latest, replaced, via}, newest first",
+     "readers": "integer, devices reading codes for this phone right now: Macs, and agents with Detect codes on",
+     "timedOut": "boolean"
+    }
+   }
+  },
+  "codes.cancel": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.cancel",
+    "direction": "agent-to-phone",
+    "feature": "agent_codes_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 256,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "queryId": "string, UUID"
+    }
+   }
+  },
+  "codes.candidate": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.candidate",
+    "direction": "phone-to-agent",
+    "feature": "codes_detect_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 4096,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "candidateId": "string, UUID",
+     "source": "sms (email is designed, not sent in phase 1)",
+     "app": "messages | gmail | outlook | proton | spark",
+     "sender": "string, at most 64 (the notification title, else the app's name)",
+     "text": "string, 1 to 600 UTF-16 units: the message with digit boxes joined, which passed the gate",
+     "postedAt": "integer, Unix ms"
+    },
+    "reply": [
+     "codes.detected"
+    ],
+    "notes": "Sent to one connected agent with Detect codes on, only while an agent has Read codes on and no Mac reads codes for this phone. One codes.detect audit entry on the phone and one on the agent; the text is never logged or stored."
+   }
+  },
+  "codes.detected": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.detected",
+    "direction": "agent-to-phone",
+    "feature": "codes_detect_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 512,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "candidateId": "string, UUID (the candidate's)",
+     "outcome": "found | none | failed",
+     "code": "string, 4 to 12 letters or digits, with found only",
+     "reason": "optional string, at most 32, with failed only"
+    },
+    "notes": "Taken once per candidate, from the device it was sent to, within 30 seconds. The phone runs the guard on the code against the candidate text and sets the service itself, then keeps it like a Mac's codes.found."
+   }
+  },
+  "codes.found": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.found",
+    "direction": "mac-to-phone",
+    "feature": "agents_mirror_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "foundId": "string, UUID",
+     "code": "string, 4 to 12 characters",
+     "service": "string, at most 64",
+     "serviceKey": "string, 1 to 64 (the sender, lowercased, when the Mac knows no service)",
+     "source": "sms | email",
+     "app": "messages | gmail | outlook | proton | spark",
+     "notificationId": "string, at most 512",
+     "postedAt": "integer, Unix ms"
+    },
+    "notes": "Only while the phone's latest agents.state lists an agent with Codes on. The phone keeps codes in memory for 15 minutes (at most 50), folded by serviceKey and code."
+   }
+  },
+  "codes.read": {
+   "v1": "extension",
+   "shape": {
+    "kind": "codes.read",
+    "direction": "phone-to-mac",
+    "feature": "agents_mirror_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 1024,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "deviceId": "string, the agent",
+     "deviceName": "string",
+     "service": "string",
+     "source": "sms | email",
+     "app": "string",
+     "at": "integer, Unix ms",
+     "count": "integer"
+    },
+    "notes": "Never the code."
+   }
+  },
+  "agents.state": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agents.state",
+    "direction": "phone-to-mac",
+    "feature": "agents_mirror_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 45056,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "agents": "array of {deviceId, name, platform, app, os, pairedAt, lastSeenAt?, online, route?, grants (as in agent.grants), activity (newest 50 audit entries {at, action, outcome, detail?})}"
+    },
+    "notes": "After features.update with the key on both sides and on every change, at most once a second."
+   }
+  },
+  "agents.grant_set": {
+   "v1": "extension",
+   "shape": {
+    "kind": "agents.grant_set",
+    "direction": "mac-to-phone",
+    "feature": "agents_mirror_draft1",
+    "encrypted": true,
+    "replay": "messageId",
+    "maxPlaintextBytes": 512,
+    "outer": [
+     "sessionId",
+     "messageId",
+     "nonce",
+     "ciphertext"
+    ],
+    "payload": {
+     "version": "integer, 1",
+     "requestId": "string, UUID",
+     "deviceId": "string, the agent",
+     "key": "string, a grant name",
+     "on": "boolean",
+     "window": "1h | today | 7d | forever, with on"
+    },
+    "reply": [
+     "agents.state"
+    ],
+    "notes": "Applied as if switched on the phone, recorded as changed on that Mac."
+   }
+  }
+ },
+ "vectors": {
+  "protocol/test-vectors/crypto-v1.properties": {
+   "": {
+    "version": "6b86b273ff34fce1",
+    "sessionId": "18b9cfb7342a76f5",
+    "privateKeyA": "4556c169647307a3",
+    "publicKeyA": "911c40e0b042a092",
+    "privateKeyB": "ddbea25e80e504db",
+    "publicKeyB": "bd318d54baa4953c",
+    "expectedKey": "32814f646bc4292b",
+    "expectedCode": "b64c0daed0b68a96",
+    "deviceId": "1eaaa5824c076abb",
+    "identityKey": "88c85b3cb1edd21a",
+    "expectedConfirmationProof": "e7f986c37d87fbb2",
+    "aesNonce": "9f7fbd86086b04e0",
+    "aesCiphertext": "bf7a920335f2476b",
+    "aesPlaintext": "ca71a364400494f7",
+    "expectedCommitmentA": "1456d12abb997dbc",
+    "expectedSasCodeV2": "9a658508212b6531",
+    "expectedEnvelopeKey": "90fde73d5918c21d",
+    "envelopeMessageId": "f9fc44a2a084dbc5",
+    "envelopeSequence": "7902699be42c8a8e",
+    "expectedEnvelopeTag": "1384132edcaf33f4"
+   }
+  },
+  "protocol/test-vectors/protocol-v1.json": {
+   "sessionId": {
+    "": "d8abab08847acfec"
+   },
+   "frames": {
+    "pairing.cancel": "7df5b0ac31c19193",
+    "pairing.cancel before the session ID is known": "2b06b1d2b7b45ce0",
+    "empty sessionId outside pairing.cancel": "31026cd6fc059958",
+    "pairing.offer with every field": "7e26591c72ff1769",
+    "pairing.confirm": "53e22902f3444549",
+    "files.chunk": "29c72dab08e9f5b4",
+    "unknown kind decodes (dispatch ignores it)": "e3df479b9691ca8b",
+    "unknown fields are ignored": "35f731aae43dc923",
+    "empty optional string counts as absent": "c152da6332fac549",
+    "null optional counts as absent": "d721c07b069783f7",
+    "kind missing": "a081282c3c129855",
+    "sessionId missing": "3e2b622f763d2f37",
+    "kind is a number": "f3ee6ab59b645e10",
+    "kind is empty": "4ddfacc0c9fb6d3d",
+    "kind of 64 bytes": "9641f95ada212904",
+    "kind of 65 bytes": "b2ca1eed14c17ab3",
+    "sessionId of 128 bytes": "b2e3f3c1165ac5e3",
+    "sessionId of 129 bytes": "643b13dd3c01165b",
+    "multi-byte kind counts bytes": "149bd84b22de182f",
+    "multi-byte kind over 64 bytes": "62700e78f2f5bcb8",
+    "messageId is a number": "243113ddb682ffab",
+    "protocol 2 first-pairing offer": "a52401e2f609adbb",
+    "pairing.reveal": "d0979b1f30284e44",
+    "tagged frame": "50add9ef8df801ca",
+    "protocolVersion is a string": "7e8cac4606c9550f",
+    "protocolVersion is a fraction": "0bcc609df9453f2c",
+    "tag is a number": "7673c9bf4e4ae269",
+    "commitment is an array": "2cda5056493ff2ba",
+    "pairing.cancel with a reason": "35088e0d4b15240b",
+    "reason of 32 bytes": "3b38b75e494767be",
+    "reason of 33 bytes": "23827835aaa76a2f",
+    "reason is a number": "f1c6d6de8efd5376",
+    "deviceName is an object": "71044d3051033abb",
+    "sequence is a string": "df088e3a942bf342",
+    "sequence is a fraction": "ef764f103f433b32",
+    "sequence is a boolean": "5803d246433b9d0e",
+    "sequence written as 1.0": "0bf563eba5ede1ab",
+    "sequence written as 1e2": "ac1e4fa28c8d1d5e",
+    "sequence 2^53-1": "cad17964f4a060ac",
+    "sequence 2^53": "b92e14182b4cd570",
+    "negative sequence decodes (each kind checks its range)": "34ff3c223e71aa61",
+    "top level array": "5f592f0274865cd9",
+    "top level string": "d837d88345a97708",
+    "empty line": "ad86ee7b967eec6a",
+    "whitespace only": "9cb60ed03a780f5c",
+    "trailing garbage": "67b2f95856c6d7a6",
+    "two objects on one line": "050fc1d6801d7ef2",
+    "trailing whitespace": "a1a39ad3614d2f7a",
+    "single quotes": "29a1ed4888cea2b7",
+    "unquoted names": "84094412caa204eb",
+    "comment": "da751c5d93766a78",
+    "trailing comma": "7472e63ad0da184b",
+    "truncated": "2466e7068b6c439d",
+    "leading zero number": "fedda0241ecba001",
+    "escaped unicode": "f121ea80d5644c94",
+    "lone surrogate escape": "8e04658c83da28e1",
+    "depth 32": "7d4f04089eec6105",
+    "depth 33": "6ff2f0662c2dab82",
+    "depth 3000 does not overflow the stack": "f2b10a9f49d07adc",
+    "invalid UTF-8": "d347988c57786b2e",
+    "frame of exactly 65,536 bytes": "529b915ce0cf83ad",
+    "frame of 65,537 bytes": "21cd8fee4c27dfae",
+    "CRLF line ending": "358de6b80b32d1bd",
+    "frame of 65,536 bytes with CRLF": "3e66a44a41f294b0",
+    "heartbeat.ping": "26881104def627e1",
+    "heartbeat.pong": "88b1b4ad4f9a8f80",
+    "clipboard.rejected": "e5b92f102ab43ca2",
+    "files.rejected": "d930ae4e3408fa92",
+    "files.cancel": "7241f1b96eb86a12",
+    "files.cancel.ack": "1184fac5143994c5",
+    "find.stop": "94a3182ad2217e25",
+    "ping.request": "d7d81f5f76b6ad52",
+    "calls.request": "2fc0e47fc7d3a79f",
+    "calls.started": "19dc886dce0d7301",
+    "calls.confirmation_required": "3857568aa8d55334",
+    "calls.rejected": "6f6c8ffb0686c71f",
+    "speed.ping": "fe67ce3eeeb7abe3",
+    "speed.pong": "2162d40d6706a102",
+    "speed.ack": "1087c148c8557af9",
+    "speed.cancel": "ebfc6a5d88e90df0",
+    "folders.cancel.ack": "4841e1972915316d"
+   },
+   "featuresUpdate": {
+    "edition Mac": "9550db0822f34856",
+    "edition phone serving Files 2.0 browsing": "900355d2b2888b90",
+    "smart notification routing and coarse activity": "793031c3770a9b7d",
+    "smart routing draft keys are strict booleans": "094e9a8f92427022",
+    "v0.9 Mac with Mac actions granted, links open, Focus and camera": "7dee52a8d3948cb7",
+    "v0.9 phone (Mac actions and camera on, Focus off, no links open)": "c9bee2cd130cbc87",
+    "automation keys that are not booleans count as false": "6dd2f88677877e35",
+    "Update all: an edition phone with updates_draft1": "76da21709e1a46eb",
+    "updates_draft1 that is not a boolean counts as false": "8518cfde664cb929",
+    "fast transfers: a phone and a Mac with files_fast_draft1": "5625295d16dadd91",
+    "files_fast_draft1 that is not a boolean counts as false": "f4df0a141707aa22",
+    "v0.9 phone and Mac with screen sharing on": "24a5333138ceadd7",
+    "screen_draft1 that is not a boolean counts as false": "6eed3fc85ca0f99c",
+    "Mac and phone with Text messages on": "cd298f7e75f5c00f",
+    "sms_draft1 that is not a boolean counts as false": "c61a1791c9127d82",
+    "call quieting key is negotiated": "8912c6695d8690d0",
+    "call quieting key rejects nonboolean": "9be43694404348c5",
+    "Mac and phone with the Calls window on": "019685e97c72d012",
+    "dialer_draft1 that is not a boolean counts as false": "6ba72d619ac4dd3d",
+    "v0.10 device with settings sync on": "3751428aa3c513fa",
+    "settings sync key that is not a boolean counts as false": "c5c05fb2c4e954f5",
+    "v0.10 device with Update all, screen sharing, Text messages and settings sync": "3d2126208e381ff9",
+    "Connect anywhere on": "830c4aba0c5d3d87",
+    "Connect anywhere key that is not a boolean counts as false": "37c3b969b2ad009c",
+    "Mac and phone with codes from email on": "220dfa159d53da8c",
+    "email_codes_draft1 that is not a boolean counts as false": "48c5b1ed36991f95",
+    "phone and Mac with the agents mirror": "d6b1f64ffa954ab9",
+    "an agent that can detect codes": "75e0d8b3eeaa888c",
+    "codes_detect_draft1 that is not a boolean counts as false": "c9062a534f3be23b",
+    "agents_mirror_draft1 that is not a boolean counts as false": "e651d6287e5def7e",
+    "first-slice Mac (folders_draft1 only, no Files 2.0 keys)": "987a1c85e56965a9",
+    "upstream 0.5 peer (original keys only)": "b434a282326dca20",
+    "unknown keys are ignored, even non-boolean": "d23b17d53fe09dfd",
+    "draft key that is not a boolean counts as false": "c49a64a766fe3bf3",
+    "missing original key closes": "43a32ed4c2931a2e",
+    "non-boolean known key closes": "00e89fc417efbc01",
+    "null known key closes": "12de74437f056309",
+    "features is not an object": "c17831994bcc0af8",
+    "no features": "b6e4071546f4bb9c",
+    "unknown version keeps the previous state": "94e355d271c4215e",
+    "missing version keeps the previous state": "1203afc48b681061",
+    "not JSON closes": "c5eafc047dd5d6df",
+    "lenient JSON closes": "ef565ecc28886981"
+   },
+   "batteryUpdate": {
+    "charging": "bbbbdd856cffcfdf",
+    "empty": "194d2bed7cbda2cb",
+    "full": "2c6a9528c816cbdb",
+    "extra fields": "80fef8eba7c6a0b3",
+    "level 101": "1a7d025ea74419d5",
+    "level -1": "bbb8a1db13e88574",
+    "level as a string": "9834994ec8f872c4",
+    "level as a fraction": "16a375bb731b7086",
+    "isCharging as a number": "06b52d0f95d32596",
+    "isCharging missing": "1eab6352f5d4e03a",
+    "level missing": "a611a1e3a76287ff",
+    "not an object": "61cf9e28895fad4e"
+   },
+   "clipboardRich": {
+    "text and html": "5a57e9edb50529cd",
+    "unicode": "f4a88d03004e6b5d",
+    "exactly 32 KiB together": "21ca5290b4b78d95",
+    "over 32 KiB together": "aaa413d5ac294a5c",
+    "empty text": "e3efa37f7882a85c",
+    "blank html": "67934a848f0cd7d2",
+    "html missing": "8c99cc20405c0a4c",
+    "version 2": "85328fc315808faa",
+    "version as a string": "dbf6761dc8c8338d",
+    "text as a number": "1d04085f41a9499f",
+    "not JSON": "be56bc72fc355cf5"
+   },
+   "callsRequest": {
+    "international with spaces and brackets": "4efe3e5e8a9af8fc",
+    "digits only": "8550fe89bca92a1f",
+    "dots and hyphens": "da81b94f6752862a",
+    "shortest, 3 digits": "9ea0370f331a7744",
+    "longest, 15 digits": "ffb48c69f0beab4d",
+    "16 digits": "0111cabb830301cd",
+    "2 digits": "a6136a1f11a97819",
+    "USSD code": "c560b71de9ccb545",
+    "letters": "15979b63d315c011",
+    "plus not first": "e8927d7a525cb627",
+    "two plus signs": "f9fe7c7bffa5aeb2",
+    "non-ASCII digits": "83e9883db2d9a60d",
+    "empty": "62ac5b8c4b9a276a",
+    "spaces only": "1bffa3f0c89898b4",
+    "unknown fields are ignored": "8148d57fc1d669a5",
+    "number missing": "b4340e306d4707f0"
+   },
+   "clipboardOffer": {
+    "image and file": "42358d57a4b9a5c6",
+    "text with html, sensitive": "d9170dd1390b90c5",
+    "inline item": "7d169c0eef50152c",
+    "file name keeps only the last component": "0e622fb5cd4b5ce9",
+    "inline that does not match its hash": "7c628e9b702e7f73",
+    "inline without a hash": "dbd653bcfed626cc",
+    "mixed text and file": "19c5188d99c77a8e",
+    "html without text": "616e62db58310faf",
+    "unknown item kind": "a396cf2ad880c4de",
+    "index out of order": "6dc58c1aab08aee8",
+    "no items": "e107b5963b55cbc8",
+    "101 items": "726cd675e7d1a50d",
+    "100 items": "276646ba095d694c",
+    "size over 10 GiB": "f08cd1df063a3d45",
+    "negative size": "6740681e320d7b32",
+    "negative createdAt": "3b639e7bb706db39",
+    "offerId not a UUID": "9afd882374225423",
+    "file without a name": "e3da89d69baaa097",
+    "mime without a slash": "a9f1c53db6764e17",
+    "short hash": "587979bd656acd31",
+    "version 2": "0c444b490e588fb6",
+    "over 40,960 bytes": "1de1e2d38ef8b174"
+   },
+   "remoteInput": {
+    "start touchpad": "0d9141f3bedf0a3a",
+    "heartbeat": "fe0fa238f20ad87a",
+    "stop by the user": "e5a8536baea7e199",
+    "pointer": "c2b4604d4115c9ae",
+    "pointer at the limit": "3b542e82c53528de",
+    "pointer over the limit": "74c6f60c89775817",
+    "pointer that does not move": "cfaadb62cd063456",
+    "left button down": "007d39262d1d98de",
+    "pixel scroll": "2418cf45808c64dc",
+    "line scroll over the limit": "710ea878ae3bff95",
+    "drag start": "adf7c05612092401",
+    "drag move": "15a87d4d76d60b65",
+    "drag end": "1db3349fee16725f",
+    "text": "6436d14b1faa7cce",
+    "text of 256 scalars": "587429bb054daeb3",
+    "text of 257 scalars": "e2b4ea572ee90671",
+    "text with a control character": "ddc15c838434ba3d",
+    "empty text": "68e5bd3cc72e0a0a",
+    "key with shift": "8ac4ae43816f8c59",
+    "previous app": "74416080a5ed4eba",
+    "previous app with shift": "ccc6050e597c5d7f",
+    "laser on": "7403a2d84c023bb1",
+    "laser outside the screen": "b537979d693076d9",
+    "next slide": "3b6969ccbd4d8589",
+    "command modifier": "d75fd5cfb78c3b03",
+    "unknown key": "c4e25f2832128e5e",
+    "unknown button": "589eec7e61251a2f",
+    "sequence 0": "ac21ab9b9eff878d",
+    "session ID not a UUID": "ef87328b8dd624dd",
+    "version 2": "41d135242965e72e"
+   },
+   "browseRef": {
+    "media ID": "d43215d6bcf66283",
+    "media ID 0": "3470b605642c098d",
+    "largest media ID (2^63-1)": "0cd6b1dc48da0eff",
+    "media ID over 2^63-1": "0fa90c3c01efd04a",
+    "media ID of 21 digits": "766ff75beb96103f",
+    "media ID empty": "81a183305244f367",
+    "media ID negative": "3cae0e4ca8a94530",
+    "media ID with letters": "0071de6e387de4ec",
+    "media ID with non-ASCII digits": "7e7265f053ebf925",
+    "media ID as a number": "eb5eacf0a5984fdc",
+    "media ID and a place together": "3d37894d8a7026ae",
+    "unknown fields are ignored": "21bdc5a50bc9ea26",
+    "default place, top level": "9112683699024f5e",
+    "granted place, nested path": "b3f0240334d3a63b",
+    "unicode name": "694f0e5729b10a63",
+    "hidden name parses": "c235a57f13373dab",
+    "name of 255 bytes": "edd287c8544eabfa",
+    "name of 256 bytes": "7b3f44adaa623fbc",
+    "place ID of 21 characters": "72a849e3c592058d",
+    "place ID with a slash": "64e746361ec9d7ee",
+    "name missing": "ad4111d82b0f24d4",
+    "path missing": "eba65f77a3fcfaf0",
+    "empty name": "4135fa5c30f439d4",
+    "name with a slash": "e23ea729ce0c5480",
+    "name ..": "468d7fdcb7354e8e",
+    "name with a control character": "597e46339b3edf18",
+    "name with DEL": "1259dc348d9d1f41",
+    "path with ..": "b30bcc38e76de738",
+    "path with an empty component": "e7b39dfce8163c88",
+    "absolute path": "dd588bc218d73573",
+    "path of 32 components": "670b9b6fc075919a",
+    "path of 33 components": "a46184a21728e9da",
+    "path of 1,025 bytes": "c771325326d90b8e",
+    "path as a number": "1338ee110787fd08",
+    "not an object": "a1c91d42baaff441"
+   },
+   "focusState": {
+    "active": "945ee4b272b69442",
+    "not active": "bd15b32264c9e9ea",
+    "unknown fields are ignored": "79f415eb7a5a8114",
+    "version written as 1.0": "c304853316e52f13",
+    "exactly 256 bytes": "a21d915a94f0d159",
+    "257 bytes": "6d416265a91cd928",
+    "active as a number": "9823e017eb327a5d",
+    "active as a string": "632ce1a378a6e7c3",
+    "active missing": "60499b069cfd66b6",
+    "version 2": "29e6c67c6726bde1",
+    "version as a boolean": "e43be2549e52f664",
+    "version missing": "f3e66ab1410508c7",
+    "not an object": "91d497565b5cf993",
+    "lenient JSON": "89d2d5053e4b6ec7"
+   },
+   "actionsCatalog": {
+    "every kind of entry, Lock needs Accessibility": "6bf663f66b1f2c32",
+    "Lock allowed with Accessibility, nothing else": "6eef3bc676d9b7ad",
+    "empty list": "7c4b35bc57370289",
+    "unknown identifiers are dropped": "99dbf66a493b5e49",
+    "apps and Shortcuts need a title": "aba9a33c6b604692",
+    "title of 64 characters": "2266f42f900935fc",
+    "title of 65 characters is dropped": "4210c0ff181e1ccc",
+    "title with a control character is dropped": "88852e8f347c13a7",
+    "unicode title": "479cebbc8a0661e8",
+    "a repeated identifier keeps the first": "d2b2f6122e8a2b6a",
+    "entries that are not objects are dropped": "57c0afd6a8fd78b8",
+    "blocked other than permission_required is ignored": "2ebc1db8c3f49afe",
+    "volume level 101 is dropped": "06f2f188e6cc7b15",
+    "volume level as a string is dropped": "8ef96bb49aab6a95",
+    "volume muted as a number is dropped": "85c1bb0a89cb0180",
+    "volume level written as 40.0": "e57dc1b2dd8a0a1f",
+    "64 entries": "13e2df0db7e4415f",
+    "65 entries": "2ca451efe5261c92",
+    "version 2": "e21d8d789d04470a",
+    "version missing": "db06fc21222a0213",
+    "actions missing": "2a3157f5dc3b41bd",
+    "actions not an array": "6d42df4f121575a8",
+    "over 8 KiB": "9844e512c0e68f83",
+    "exactly 8 KiB": "fc82c593ec14a275",
+    "lenient JSON": "23a5a03b2de26671"
+   },
+   "actionsRun": {
+    "lock": "7e148a6d3fbf992a",
+    "set the volume": "0273ca88986fb719",
+    "open an app": "5751bf5ae7f555e0",
+    "run a Shortcut": "72ef1d574466c74b",
+    "largest sequence": "66f365e92c6f38af",
+    "unknown fields are ignored": "73b2592cac70c949",
+    "unknown action decodes (answered not_allowed)": "b2c8ce25e22d54bb",
+    "action missing decodes (answered not_allowed)": "08744b232deffef5",
+    "value as a string (answered invalid)": "16e65f4be7bf9511",
+    "value as a fraction (answered invalid)": "017e702a12036856",
+    "value as a boolean (answered invalid)": "86fb5939b0582b6a",
+    "value written as 30.0": "27d578ffea391c22",
+    "null value counts as absent": "e29ed79650536048",
+    "sequence written as 1.0": "325ddf8992f943ce",
+    "sequence 0": "1130e510fa08f7fb",
+    "sequence 2^53": "471ac382638d2280",
+    "sequence as a string": "21a28defd056f4ba",
+    "sequence missing": "bf48bbc057c02346",
+    "requestId not a UUID": "4b8c70c8b915f4ee",
+    "requestId missing": "b118dc631cef7f15",
+    "version 2": "4634a1a38cc8c00d",
+    "version as a boolean": "1341b05758a9cc3d",
+    "over 1 KiB": "a38fdcb499cd9bb5",
+    "lenient JSON": "8ecf8887667e12f6"
+   },
+   "actionsResult": {
+    "done": "5c757bdd3d22544e",
+    "done with the new volume": "ce952feaf4bf2ec1",
+    "refused not_allowed": "fa68cccabd587334",
+    "refused invalid": "cdaf54941bbde124",
+    "refused rate_limited": "ca34849fb6a11ccd",
+    "refused busy": "cc0901fc0e134140",
+    "refused permission_required": "e427f8fe4deba39f",
+    "refused unavailable": "ec49867255a4c345",
+    "refused failed": "178aef426b8b7bfa",
+    "an unknown reason reads as failed": "e8fb120d8dea90e1",
+    "a missing reason reads as failed": "da97a21f1c483b50",
+    "a reason on done is ignored": "2ee76f81b3b643b8",
+    "a bad volume is dropped": "b3998e17371fa4e7",
+    "unknown status": "554d99e121c9f098",
+    "status missing": "48cad63a9cbc6fe8",
+    "requestId missing": "7a59a8a11e161a6c",
+    "action missing": "833d19bdee3a4746",
+    "version 2": "da2cf531bc4e2ecf",
+    "over 1 KiB": "2fb72bf87c8d3c60",
+    "lenient JSON": "bbe1229897e86b8f"
+   },
+   "cameraRequest": {
+    "one photo": "68b8ec7b2d2317c7",
+    "an uppercase request ID is read lowercased": "ddde1cb1a420c490",
+    "unknown fields are ignored": "1754d3b9aef9b511",
+    "mode video": "453e93793548a444",
+    "mode missing": "054e2ff8e8c7f0f7",
+    "requestId not a UUID": "aaedab9dd42e0b2a",
+    "requestId without dashes": "8ec3c7d5415df422",
+    "requestId as a number": "a6dc22d002bd1f95",
+    "version 2": "6a598c263e43bc7b",
+    "over 512 bytes": "65eabcf942ecfc25",
+    "lenient JSON": "ff336d3e3ea37a28"
+   },
+   "cameraStatus": {
+    "opened": "45bb70c268075a0d",
+    "locked": "53989363eadf8898",
+    "permission_required": "4070b907e12e79a2",
+    "cancelled": "7af814490c089cc6",
+    "busy": "b40d4cf52f0fbf28",
+    "disabled": "a2a9a841b4e2b41e",
+    "sending": "25305e2d68a26683",
+    "failed": "b1db1bd13b957ce7",
+    "unknown status": "3e76b687523d89d2",
+    "status missing": "a20c13a20427c1e6",
+    "requestId as a number": "6b42a5ba494cc9bc",
+    "version 2": "06bddb8a92697ccd",
+    "over 512 bytes": "7f95251e3114cba5",
+    "lenient JSON": "399c1cc3daf56cc2"
+   },
+   "updatesStatus": {
+    "up to date": "151a30c35a7e24a7",
+    "checking, never checked before": "6fb18e689c1a9822",
+    "available": "a571df1dc3c90565",
+    "downloading at 42%": "0f17df9fc35f704f",
+    "ready on a Mac": "915b588ea411bb11",
+    "installing": "10d44f57631dac22",
+    "needs the person to confirm": "d623b51cf0929c84",
+    "needs Install unknown apps": "a13346c190364fff",
+    "did not apply": "c4bbab99063b1bed",
+    "failed check without a target": "90c1eda43217b9d9",
+    "manual, remote start off": "a24307fe8775197d",
+    "an unknown reason reads as other": "ec45606124e7a3bd",
+    "automatic updates on": "67f34c143b516524",
+    "busy: call": "2748f76447a4166d",
+    "busy: screen_share": "21df8d731aea4e94",
+    "busy: remote_control": "f23f83cb07776ff6",
+    "busy: transfer": "7fb2cf26bbcc0cf8",
+    "busy: phone_files": "fd90e6b25cfab8c9",
+    "busy: setup": "f88f0f3eb75cbf55",
+    "auto false written out": "25d453ebeb750583",
+    "an unknown busy reads as other (still busy)": "331611f9bd0ab735",
+    "busy null counts as absent": "0d6512017ed33178",
+    "auto as a string": "74c2cef12c18e33b",
+    "auto as a number": "77b1eb045ca5376c",
+    "busy as a boolean": "1e6676a4c8be0b70",
+    "busy as a number": "ed32f000484a3e34",
+    "unknown fields are ignored": "9cd206a55bdb6bf8",
+    "version written as 1.0": "0b9f43e29e7bb743",
+    "null optionals count as absent": "3824f695cd48b415",
+    "app of 64 bytes": "3303b90c88474bea",
+    "app of 65 bytes": "22712fae1f7dfc4e",
+    "app empty": "5474c37079e8ee06",
+    "edition of 33 bytes": "fe42f244f1fb49d5",
+    "multi-byte edition counts bytes": "b6c3b1c34353f141",
+    "build 0": "2c7c48df674acce0",
+    "build 2^53-1": "3ae3ce3a0a0582a8",
+    "build 2^53": "7b8df23790796e00",
+    "build as a string": "0b96af4ab21538e6",
+    "progress 101": "256d60644bf9bd79",
+    "progress -1": "a6d3dfedc46d16c1",
+    "targetBuild 0": "a5f69753d8d8a68f",
+    "target of 65 bytes": "e369662d68b96277",
+    "target as a number": "5a3051455240df26",
+    "reason as a number": "192f2e639294f6d2",
+    "unknown state": "1f0928d22457dd5c",
+    "unknown platform": "f7c044118b136452",
+    "unknown channel": "027653d7f3a62086",
+    "remoteStart missing": "1a3be894170451e7",
+    "remoteStart as a string": "890828bce353c472",
+    "checkedAt missing": "39b7a47b726d2c20",
+    "checkedAt negative": "530d810c9dd06890",
+    "version 2": "ce7528719a2ce85c",
+    "exactly 1,024 bytes": "75ffa6f26d9e8c9e",
+    "1,025 bytes": "214cc7269dae76f3",
+    "not an object": "bfa52abe058bbf06",
+    "lenient JSON": "c0bcb165fc302371"
+   },
+   "updatesStart": {
+    "update now": "8e10c2290fddf7bc",
+    "retry after Retry was tapped": "249e24e08973f94b",
+    "retry false written out": "395f1f3026954960",
+    "an uppercase request ID is read lowercased": "0ba3e190c7af3909",
+    "unknown fields are ignored (a version or URL is never read)": "4be56a973a7c1a22",
+    "started automatically": "4d52aeff34d4877b",
+    "auto false written out": "73dea1e9df3e185e",
+    "auto null counts as absent": "e6e88d59c28f97e5",
+    "auto as a string": "bd82f419849d4755",
+    "retry as a string": "90f54d3a66744b70",
+    "requestId not a UUID": "91f2beac5a9f08d2",
+    "requestId missing": "fc909a3a42e042bc",
+    "version 2": "cf5859203dffc823",
+    "over 512 bytes": "d44bc94d2282ef43",
+    "lenient JSON": "4fdcfc3b3267a6de"
+   },
+   "updatesResult": {
+    "accepted": "7ddec13410432e4e",
+    "refused disabled": "f42065ad086f8460",
+    "refused rate_limited": "bd338dd86cea5b28",
+    "refused manual": "87711718a08151db",
+    "refused not_applied": "0429af2a53611e43",
+    "refused busy": "ee907e37f6f128c8",
+    "an unknown reason reads as other": "54be9287fb15c5f2",
+    "refused without a reason reads as other": "8fcf682f7396c16f",
+    "a reason with accepted is ignored": "c7a9b636eec1b9cb",
+    "unknown status": "dbb4ae841d901835",
+    "requestId not a UUID": "6f3e83f2a7ca4504",
+    "version 2": "b79fd73733b5c8de",
+    "over 512 bytes": "9e040e85a829a06a"
+   },
+   "smsRequest": {
+    "threads, newest": "c70daf21f394b81d",
+    "threads, older page": "9c3a377075bed5d2",
+    "threads, null before is absent": "cf4ca8772b95d79b",
+    "threads, limit 0": "e9939973bf7a3168",
+    "threads, limit 51": "e88364b1fed92a4b",
+    "threads, negative before": "c9b7db9caef86408",
+    "threads, limit written as 30.0": "61b2f9290c5df030",
+    "messages, newest": "8da811c12457f5e5",
+    "messages, older page": "daff76e3738c2ddc",
+    "messages, before id not a message id": "8bb52b309b0b1511",
+    "messages, before without date": "30de8403d411df8e",
+    "messages, threadId 0": "20fd93c98074498c",
+    "messages, threadId missing": "d7b7de72f8d1c894",
+    "messages, limit 101": "73ea6a603834eeff",
+    "sync": "03e05519f23dbc6a",
+    "sync from zero": "ed5c2d698f0180ff",
+    "sync, since missing": "afd003761f58e561",
+    "sync, mms missing": "f7bcb2794190fa43",
+    "sync, negative cursor": "5377b402e09df1ab",
+    "sync, limit 201": "3d1e42e22fdcd7db",
+    "attachment": "cbb331535adc69e6",
+    "attachment, not a part id": "5f8564331c442bde",
+    "attachment, part id of 21 characters": "46a6b06d0ae910a5",
+    "contacts": "08a47875c86915f0",
+    "contacts, unicode": "0c8421a2b63bb1f4",
+    "contacts, only spaces": "2d16ac426a4946cd",
+    "contacts, 65 characters": "0b05d90831f93b4b",
+    "requestId not a UUID": "9b7d5914a492addb",
+    "version 2": "5d853858d6c8c2ad",
+    "version missing": "746c5f658b4c9d07",
+    "unknown fields are ignored": "3a91ea74e94c8aa7",
+    "over 1 KiB": "2a2afe59fe3b2256",
+    "exactly 1 KiB": "e4fea44b3c989aef",
+    "lenient JSON": "7015287a7c6b0d9b",
+    "mark read, one conversation": "a3a6f73dacbb0f53",
+    "mark read, several, repeats count once": "e6253d8e66580ed0",
+    "mark read, 50 conversations": "1d20fa0b24d32176",
+    "mark read, 51 conversations": "0235baa3f89940ea",
+    "mark read, none": "372d3d2a0b10f097",
+    "mark read, threadId 0": "f04a13b60babd675",
+    "mark read, threadId as a string": "d7af753487886907",
+    "mark read, threadIds not an array": "581382aae9d1f332",
+    "mark read, threadIds missing": "14be0cd5ab375056",
+    "blocked numbers": "1296a077f71f60cd",
+    "blocked numbers with the number": "b49e3b632252adc7",
+    "blocked numbers, null number is absent": "504c31c5b964d721",
+    "blocked numbers, a sender name is not a number": "9691afeb10e63ba6",
+    "blocked numbers, number as a number": "54c904119ef7db83"
+   },
+   "smsSend": {
+    "to a conversation": "6b783ebe1fcde695",
+    "to a conversation from a chosen SIM": "f6be8ee339e9f43d",
+    "to a new number": "0819725c132eab1d",
+    "number with brackets and dots": "88510ca4b3f1900b",
+    "a reply to a notification": "41a8e4eec33613d6",
+    "body keeps its spaces and lines": "142b38614cf96890",
+    "body of 2,000 units": "eaf5d990ad7630ed",
+    "body of 2,001 units": "6fe880725cfb9a2e",
+    "emoji count as two units": "e82417d450420a39",
+    "1,001 emoji": "e7fe27b81d53aa40",
+    "empty body": "38f3f867e1b94a4e",
+    "body of spaces": "d62bd709590b53e3",
+    "no target": "8985cf130305a47d",
+    "two targets": "7b275e5217040857",
+    "null targets count as absent": "70b95b25d2e18f60",
+    "letters in the number": "ceaefe2419087ee2",
+    "plus in the middle": "18a4719de43c0881",
+    "one digit": "65b0ad4cadab48de",
+    "21 digits": "5aafa78ce6920c2a",
+    "threadId 0": "a4e3baa362fbf160",
+    "empty notificationId": "4a4525d05ebbef92",
+    "notificationId of 513": "87444c7987c848d1",
+    "subId as a string": "e7188bb19cd3682c",
+    "negative subId": "81e9c4b7691d9b2a",
+    "null subId is absent": "8764eab7b82b73dc",
+    "requestId not a UUID": "4bd812e428aeaef1",
+    "version 2": "b48317db3f345f7f",
+    "over 8 KiB": "a560bd85456b2b31",
+    "lenient JSON": "7242f34df17766c6"
+   },
+   "smsStatus": {
+    "dual SIM, everything allowed": "4ead15ba27765fec",
+    "nothing allowed yet, no SIM list": "6d2282a82635037e",
+    "sims missing reads as none": "f244175e00016022",
+    "more than 4 SIM entries": "44b57325a72376f6",
+    "invalid SIM entries are dropped": "1bb7ae7908dd9754",
+    "unicode SIM label": "74c2932fd6483694",
+    "read as a number": "61f5aa00d229d751",
+    "cursor missing": "25563585217aa1cd",
+    "negative cursor": "2de12d7efac7a56b",
+    "version 2": "2ac7b093752d3f13",
+    "over 2 KiB": "ccf7344a5c3db38f",
+    "lenient JSON": "6a583873ac0ffb83"
+   },
+   "smsMessage": {
+    "received SMS": "aa778076c99e3bbf",
+    "unread, on SIM 2": "9def650080c9b841",
+    "sent and delivered": "a6e2b993647a2878",
+    "outgoing pending": "9b4dfd3a7a9bbb93",
+    "outgoing sent": "602ceea741c6b455",
+    "outgoing failed": "619a57602c6b4d13",
+    "unknown status, incoming, reads as received": "aba191bc66ee416a",
+    "unknown status, outgoing, reads as sent": "3a477edf1273c593",
+    "status missing reads as the direction's default": "3477a7d31ec90a89",
+    "MMS with an image": "2e127ed09e5f7dbb",
+    "outgoing MMS has no address": "b4eab79010f34006",
+    "parts that are not images or not valid are dropped": "c98f7bc594ccefb7",
+    "only the first 8 images": "bee86db960e2bec5",
+    "cut body": "32f106d61b48aeda",
+    "body of 4,001 units": "58ec3e895e649bc3",
+    "negative subId reads as none": "b43ca7342fa850c2",
+    "read not a boolean reads as read": "c9243fadf531af26",
+    "truncated not a boolean reads as false": "97be7cc21dc49769",
+    "unknown fields are ignored": "3fa9728fb1d144b5",
+    "id of another kind": "2f577c469fbcef53",
+    "id of 21 characters": "d10aa0a170d7d3c3",
+    "threadId 0": "15926bd6d92d2e04",
+    "direction both": "32381147904bd935",
+    "date missing": "ced8e0a6f26345be",
+    "date as a string": "0501d9b4895aeb22",
+    "address missing": "fa438c84625e34d4",
+    "address of 65": "895a35f2f28b3283",
+    "body as a number": "ace9f0251a04e91a",
+    "not an object": "f80cb0d9bbcaf214"
+   },
+   "smsSendStatus": {
+    "sending": "85993275585b7c5e",
+    "sent through the messaging app": "8480b22dc6d3f86a",
+    "delivered": "00f13ab784ea31c9",
+    "refused disabled": "1dfff86d28decd8c",
+    "refused permission": "14528c951369b376",
+    "refused invalid": "0d989e58757b1d08",
+    "refused group": "a1093dc37ab189f7",
+    "refused no_sim": "8e24c58b09516f9a",
+    "refused rate_limited": "29724273a2b07317",
+    "refused not_found": "0faacf20bf362235",
+    "failed radio_off": "36f7b5ad36bcea00",
+    "failed no_service": "b77cb646bebf0835",
+    "failed failed": "f836a4b3947704d3",
+    "an unknown reason reads as failed": "200e40ec69304b12",
+    "a missing reason reads as failed": "bc6ad16c9f22997e",
+    "a reason on sent is ignored": "b8c6c86922a67aad",
+    "an unknown via is ignored": "4c49472e1eebc2f0",
+    "unknown status": "ee93946739c837db",
+    "status missing": "8cf2adba6afdf29d",
+    "requestId not a UUID": "13276b6c88a942a9",
+    "version 2": "453c86e6e2e95c99",
+    "over 1 KiB": "f3d9958f328b869a",
+    "lenient JSON": "39de9293297f0d72"
+   },
+   "smsMarkReadResult": {
+    "every result": "6e386f718b886170",
+    "disabled on the phone": "c3620ba5fca38fab",
+    "results missing reads as none": "364bd05278fa4a6a",
+    "an unknown result reads as failed": "6bf656c0e0107fda",
+    "invalid entries are dropped": "3dd459dc4b4940fe",
+    "an unknown error is ignored": "e720f3b09ddef1c8",
+    "results not an array": "4cb5177455b154a8",
+    "more than 50 entries": "f0218bd599962828",
+    "requestId not a UUID": "982d196e71413e7a",
+    "version 2": "6affcb849b6dde4a",
+    "over 4 KiB": "193236a93a88850b",
+    "lenient JSON": "b909bac244b5a321"
+   },
+   "smsBlockedNumbersResult": {
+    "opened": "e644bcbc3920af86",
+    "notified": "b4b1d13a1d70e00a",
+    "unavailable": "a100b5443f77f286",
+    "an unknown result reads as unavailable": "65c6672e46e8879e",
+    "result missing": "cc050ddefc017458",
+    "requestId not a UUID": "3cde19fb2bff9ea0",
+    "version 2": "5ff8506e45063bf8",
+    "over 1 KiB": "c4c8f4b4280168a3"
+   },
+   "settingsPayload": {
+    "snapshot with every schema 1 key": "1ad1c17564bd276d",
+    "update with one record": "e411e6150f85e7ca",
+    "update with no records (a waiting list change)": "3218648b8b8c9561",
+    "never-chosen value": "cf92300a95d52327",
+    "files.folder_destination sender_picks": "5d3548aea7a80907",
+    "files.folder_destination receiver_asks": "cb71491ce8ce216f",
+    "files.folder_destination fixed": "5c95fe79985b8d12",
+    "files.folder_conflict ask": "264493297fdf3d3d",
+    "files.folder_conflict merge": "01529c3f70bfad26",
+    "files.folder_conflict replace": "ffcd41b8e4df2aaf",
+    "files.folder_conflict new_folder": "bbeefe4e719e17a3",
+    "activity.previews off": "aeaacdd156270043",
+    "display.reduce_motion off": "cc5681ac29974b4e",
+    "feature.clipboard off": "1d99280fd4141aa9",
+    "feature.files off": "66bcb2800454feb6",
+    "feature.notifications off": "2dd6fb23a1fc0689",
+    "feature.battery off": "e6d97455fa728a34",
+    "feature.find_device off": "1ce801bbfc8d9efd",
+    "feature.ping off": "b7eaeb2e723ae508",
+    "feature.links off": "6e666bdf198ffaec",
+    "feature.media off": "78637bebb3078ac9",
+    "feature.calls off": "147d2bf2e2b08ee5",
+    "feature.remote_input off": "ea22f82bfe17e92b",
+    "feature.mac_actions off": "ceb873efb22bb4dc",
+    "feature.camera off": "e76b670c7a5708be",
+    "clipboard.automatic off": "7edd42f47e91f3c4",
+    "clipboard.files off": "e293ee95fe13825c",
+    "focus.share off": "b34904f9a3764a79",
+    "focus.follow off": "9d5f936d4edf2ec3",
+    "codes.enabled off": "10ca026afdd14853",
+    "feature.screen off": "af1c5d2883d9816f",
+    "feature.sms off": "ce2f70a587122009",
+    "updates.auto_all off": "f0801bdcfbba89e4",
+    "connect.away off": "96b22bfad6066513",
+    "files.folder_include_hidden off": "1b6b4e575a62a1e0",
+    "files.folder_include_system off": "2f98b5faf94f9375",
+    "codes.email off": "ecf9abc64431ef15",
+    "unknown key is skipped, the rest applies": "76b6015a89ce9883",
+    "per-device and local-only keys are never synced": "de01d3a02c529370",
+    "bare feature keys are not settings keys": "b7a5e01795dc8a1e",
+    "bool key with a string value": "10c97312931229e7",
+    "bool key with a number value": "2a372bfa97e30cba",
+    "string key with a bool value": "49c6ad8e6d2c4bbd",
+    "string value not allowed": "ac56e593e278ae2a",
+    "value null": "f6907efd448f5a02",
+    "value missing": "ffe10757d69ee06e",
+    "changedAt negative": "ca17f6d3dd2d10a4",
+    "changedAt 2^53-1": "018b435a24d15823",
+    "changedAt 2^53": "49b57058a35a5477",
+    "changedAt as a string": "195c2e5067939e0c",
+    "changedAt written as 9.0": "ef267be28e6df94f",
+    "changedAt a fraction": "ffd9c721000bdd36",
+    "version negative": "a5a5c2cdbb0065f4",
+    "version missing": "4c1947b303a2a72b",
+    "changedBy as a number": "df1f601a1b65a681",
+    "changedBy missing": "41ae7682224d123f",
+    "changedBy of 128 bytes": "164be092ebf0c348",
+    "changedBy of 129 bytes": "d3995399f562a4b4",
+    "record not an object": "17d7cb903ac4d6fe",
+    "unknown fields are ignored": "3e08dfdcb1c8bda1",
+    "waiting: unknown keys and non-strings are dropped, repeats once, schema order": "9a99b05a0d0df62b",
+    "waiting that is not an array counts as empty": "1e44ea99940b5179",
+    "first connect of a new device": "1b17aa9dc9e8337a",
+    "first connect of a device that synced before": "bd06433c37c5ff32",
+    "the person answered": "86ba39aa49685001",
+    "first, new and answered that are not booleans count as false": "4d2b62ec3117e3ab",
+    "32 records (4 unknown)": "f836e94532e60a3b",
+    "33 records": "f5283fca81711f60",
+    "waiting of 33 entries": "ee591061c5d249d0",
+    "schema 2": "74d979fff3ea3d5a",
+    "schema 0": "05703ccc62dbfe23",
+    "schema written as 1.0": "d20b35112c290c4b",
+    "schema as a string": "46c5a799389bd76e",
+    "schema missing": "d6712bb200b93bd1",
+    "records missing": "395259302f717b19",
+    "records as an array": "57c40fe684a42fb2",
+    "not an object": "5a6fec304fc4c11f",
+    "lenient JSON": "efff1e1e77b66485",
+    "exactly 16,384 bytes": "ac1dd40803c24449",
+    "16,385 bytes": "7e21daddbbe5e527"
+   },
+   "settingsMerge": {
+    "later changedAt wins": "7383fcbbd19a8ce3",
+    "earlier changedAt loses even with a higher version": "61255b70440db455",
+    "same changedAt: higher version wins": "701a2e8d6fd60e6f",
+    "same changedAt and version: larger changedBy wins": "10fc46005f6bb2a4",
+    "changedBy compares bytes, not case": "2f3fa826d39588d6",
+    "changedBy compares UTF-8 bytes (U+1F600 sorts after U+FFFD)": "6770a636224f14d7",
+    "all three equal is the same record": "d0160c0d067ca493",
+    "any edit beats a never-chosen value": "8204dee9143c9763",
+    "two never-chosen values are equal": "389d6b88978e3e32",
+    "upgrade stamps resolve by device ID": "24672ae5ab3530ce"
+   },
+   "settingsSnapshot": {
+    "never chosen here, chosen there: adopt": "3aeca89daf5e95e7",
+    "upgrade stamp there counts as chosen": "3c0c2c9f1e0d8559",
+    "both chose different values: different, even when the peer's is later": "1622fa034d142ee5",
+    "both chose different values: different, when ours is later": "e3f3aa999b0662f4",
+    "both chose the same value: same": "8ea9906958454292",
+    "never chosen there: same (the peer adopts ours)": "6cd6b071a5078374",
+    "never chosen on either side: same": "1746b1fec930e942",
+    "the same record: same": "3d4f7f4c1eab875e"
+   },
+   "settingsAsker": {
+    "new phone meets a Mac that synced before": "3cd94f9b3b217607",
+    "the Mac's side of the same": "630de8bddd9c297b",
+    "new Mac meets a phone that synced before": "061978343d036003",
+    "the phone's side of the same": "fb1d2f459acbfb66",
+    "both new: the phone asks": "498b6dc12732d3b7",
+    "both new: the Mac waits": "3238f825ce1d9c9a",
+    "neither new: nobody asks": "46b33133867d2b1b",
+    "this side already answered": "0e0935b6d15352dc",
+    "the other side already answered": "eacc66ff78f7e3f3"
+   },
+   "settingsStamp": {
+    "clock ahead of the record": "91ade3c667475f46",
+    "clock behind the record still moves forward": "01eb6ecba7fbaa91",
+    "first edit of a never-chosen value": "f616d2303771b24e",
+    "changedAt at 2^53-1 stays there; the version decides": "c17b29b260e48133",
+    "same changedAt as now still moves forward": "72913c5ee91fc1bb",
+    "Apply to all from a chosen value": "25e76bc0d58be91e"
+   },
+   "connectSetup": {
+    "first exchange": "7c050b18d5163c65",
+    "rotate": "6e17f61a019f7466",
+    "rotate missing means false": "08e5c8505fc043fd",
+    "unknown fields are ignored": "0376fba299bffe5d",
+    "31 bytes": "9c2f10d88514667c",
+    "33 bytes": "798633e9791a9bd9",
+    "not base64": "6ad33184165514a3",
+    "contribution missing": "39e3f6d004c646b0",
+    "rotate as a string": "ae68685aac421487",
+    "version 2": "a74f8fb3270b5286",
+    "over 256 bytes": "ce981b0fe738cfeb",
+    "lenient JSON": "ba057822ade5b2e3"
+   },
+   "connectAddresses": {
+    "home Mac with Tailscale": "480f039283e5b54f",
+    "no pair secret yet": "e313390e004d111c",
+    "unusable entries are skipped": "317a1a9b6b6ed596",
+    "unknown vpn names read as none": "699d343fcbf8d85a",
+    "17 entries": "39a0f4d8a85d7822",
+    "port 0": "b4efe3722aa5c46a",
+    "port 65536": "4e9a4a6228dcec07",
+    "addrs missing": "95962665b6b86bee",
+    "pairCheck as a number": "a6f3494c61b54393",
+    "pairCheck of the wrong length": "d7fa3862c6009620",
+    "version 2": "90e9cdcdcc2c629f",
+    "over 2048 bytes": "e6cf1e07273350a4"
+   }
+  },
+  "protocol/test-vectors/session-client-v1.json": {
+   "": {
+    "clipboardText": "65f8b0416fe3adca",
+    "code": "76c60e24636b44f9",
+    "frames/0": "aa3844d077ff6e5b",
+    "frames/1": "368db0bcb445b28a",
+    "frames/2": "e2c398f194ac843f",
+    "frames/3": "644c0ccd79cdfcdf",
+    "frames/4": "0687f4757aa6612d",
+    "frames/5": "ffd4a45465132a5c",
+    "frames/6": "56565cb8a1468927",
+    "frames/7": "6345b7477af747dd",
+    "frames/8": "db630b7a6a5ff014",
+    "prk": "0c449f8ee81dd157",
+    "sessionKey": "9735958f2028b455",
+    "transcript": "c25c8838fdb78635",
+    "version": "6b86b273ff34fce1"
+   }
+  },
+  "protocol/test-vectors/session-client-files-v1.json": {
+   "": {
+    "battery": "b4f437145f02730b",
+    "files/fast.txt": "89abe65e219f28a3",
+    "files/json.txt": "086e1eae14162234",
+    "frames/0": "0137fde3792ff898",
+    "frames/1": "0d2e3ee7a9a65a3f",
+    "frames/2": "ce447a32c5de050d",
+    "frames/3": "f5b864b0c5b737ad",
+    "frames/4": "e1070df39d1b0db5",
+    "frames/5": "c6979572e994fc2b",
+    "frames/6": "62ec983be13802cd",
+    "frames/7": "f95afcdfa85fbb8d",
+    "frames/8": "f3c27b03aa8cb84b",
+    "frames/9": "c4e79665da478a7d",
+    "frames/10": "b32ad4b00563de35",
+    "frames/11": "acddd60bc759d382",
+    "frames/12": "7f9eace7b43a6ab3",
+    "frames/13": "95dfef213af2bef9",
+    "frames/14": "6a4e59e907784758",
+    "frames/15": "69f0cc606aff1223",
+    "frames/16": "91f6b7adee7845c5",
+    "frames/17": "cdb0fb429dfe59fa",
+    "frames/18": "fb925c95569d199c",
+    "frames/19": "2933df35ae3c3b79",
+    "frames/20": "10167afcb9a0c0ec",
+    "frames/21": "48e1424f0f5fa6ad",
+    "frames/22": "d9fa21563655e0e8",
+    "frames/23": "8495c68aec116a18",
+    "frames/24": "824fa432c8ca34bd",
+    "frames/25": "c3bb86a8ecec0089",
+    "frames/26": "79cb29e874c6dc59",
+    "frames/27": "be0e4ab018b18506",
+    "frames/28": "140be4244ac8c7a9",
+    "frames/29": "4497e86f31cac8b6",
+    "frames/30": "d1b268e7463ab3e3",
+    "frames/31": "69b6853e106fb2df",
+    "prk": "908fa4f74f417750",
+    "sessionKey": "5bba818cc1dad71f",
+    "transcript": "c25c8838fdb78635",
+    "version": "6b86b273ff34fce1"
+   }
+  },
+  "protocol/test-vectors/session-client-notifications-v1.json": {
+   "": {
+    "frames/0": "b5538ec2288039cc",
+    "frames/1": "37068dcf16890363",
+    "frames/2": "9e12581f997e284f",
+    "frames/3": "345366a14119f1c4",
+    "frames/4": "0db7e2edf6c4e44f",
+    "frames/5": "b6de27e8537d891c",
+    "frames/6": "50a98ec1e758bf5d",
+    "frames/7": "1048a9921d4f3064",
+    "frames/8": "7fac3852e61081e9",
+    "frames/9": "30140b84987bb6a6",
+    "frames/10": "64e66f54835ea8f9",
+    "frames/11": "ed954db1665b2490",
+    "frames/12": "6b64268ec798d8f5",
+    "frames/13": "7646b83e1915c107",
+    "frames/14": "cb3907f7ee0e93b6",
+    "frames/15": "51c296f9464faa82",
+    "frames/16": "e21582575d19e2b1",
+    "frames/17": "deea3e7de33656ee",
+    "frames/18": "c5a74cdf9942f60c",
+    "prk": "48c32bf40e1b99dd",
+    "replyText": "f12d8793da8a8877",
+    "replyToken": "0c9a43a9f1c376b1",
+    "serviceUuid": "594082c8ab05ee76",
+    "sessionKey": "d2d4effef64b5bfd",
+    "transcript": "c25c8838fdb78635",
+    "version": "6b86b273ff34fce1"
+   }
+  },
+  "protocol/test-vectors/session-client-quick-v1.json": {
+   "": {
+    "frames/0": "07e71e5ccd6e1d39",
+    "frames/1": "80e5c893eebea2e5",
+    "frames/2": "80a046ee2be569e2",
+    "frames/3": "e8a23c302ca65774",
+    "frames/4": "ec3454f36038ae2f",
+    "frames/5": "b45fd853ef55ad8a",
+    "frames/6": "f961a774bafc64c9",
+    "frames/7": "49260040c783e94e",
+    "frames/8": "99d1a6a6c83f058d",
+    "frames/9": "0e607662c42a067d",
+    "frames/10": "503581ce274fd9e8",
+    "frames/11": "4d269833b50d3ecf",
+    "frames/12": "0253be6ddcd46376",
+    "frames/13": "77739aa37d5225a4",
+    "frames/14": "5002ce741b9abe76",
+    "frames/15": "4a99fa77637f555b",
+    "linkToPhone": "f11467913f60786f",
+    "prk": "8d1dcede52a4a796",
+    "sessionKey": "03515f1053644d52",
+    "transcript": "c25c8838fdb78635",
+    "version": "6b86b273ff34fce1"
+   }
+  },
+  "protocol/test-vectors/files-fast-v1.json": {
+   "": {
+    "keyBase64": "905f28def18eaac0",
+    "frameKey": "0874f8061322f04d",
+    "senderDeviceId": "415833c72421e81e",
+    "receiverDeviceId": "54089ff2e8ffe5de",
+    "fastFrame/a file chunk": "69d34c08a70e6772",
+    "fastFrame/a later chunk": "7c249f96a7df083e",
+    "fastFrame/speed test bytes": "c638d71b9e42d2f6",
+    "fastFrame/the largest sequence": "0f6bff589e226cbb",
+    "fastFrame/an uppercase transfer ID stays as sent": "5b8395f5cc9d168b",
+    "fastFrame/a one-byte ID": "34c7349f72002ad3",
+    "fastFrame/a 64-byte ID": "5a677feb0a72cfa4",
+    "fastFrame/a 4 KiB chunk": "297740fed4564f73",
+    "fastFrame/an unknown kind is skipped": "b8d34f035745bdb7",
+    "fastFrame/an unknown kind with a bad tag is dropped and counted": "903cf86058e32ad4",
+    "fastFrame/an unknown kind sealed as another kind": "c827d9577db0e7ee",
+    "fastFrame/a tampered ciphertext": "21d7a1f4dbcfaf63",
+    "fastFrame/a moved sequence (not what the tag covers)": "bf6b08741f7689f1",
+    "fastFrame/another kind's tag": "cf32b2a590e1e3dd",
+    "fastFrame/the wrong key": "3b61a4eef522f64d",
+    "fastFrame/reflected: sealed by the receiving device itself": "b7f93ef797537916",
+    "fastFrame/a sequence of 2^53": "dc151e818d3062bf",
+    "fastFrame/an empty ID": "e439999bb393a8b5",
+    "fastFrame/a 65-byte ID": "5ddc50c8b9c724b7",
+    "fastFrame/an ID with a space": "41fe238226f3af2a",
+    "fastFrame/an ID with a control byte": "e73ef9393011247e",
+    "fastFrame/no ciphertext, only the tag": "5bb880dd3968608f",
+    "fastFrame/a body cut short": "618a60a7a89aad6c",
+    "fastFrame/ciphertext for 1 MiB plus one byte": "ea426325d3f1833e",
+    "fastFrame/a declared length over the limit": "4e598e1221d4703a",
+    "fastFrame/a declared length of zero": "d95f73a969caa7c1",
+    "speedPayload/start from a Mac": "4a1fe3bc2b89b8fa",
+    "speedPayload/start with an uppercase test ID reads lowercased": "8804f3870a635f1b",
+    "speedPayload/start at 15 seconds": "dcdc5bf8aeed4f10",
+    "speedPayload/start with unknown link fields and an unknown band": "ff120d58c7302b61",
+    "speedPayload/start at 16 seconds": "032a0598826b7402",
+    "speedPayload/start at 1 second": "f3272591ed4d1634",
+    "speedPayload/start without a link": "783a3bbbe20c0ff2",
+    "speedPayload/start with an unknown network": "dcf35041d7f6e8a4",
+    "speedPayload/start with a test ID that is not a UUID": "307825d7df3cf0f5",
+    "speedPayload/start version 2": "0c3baa0e47e1f600",
+    "speedPayload/start over 1 KiB": "0bd783cbbfcc7405",
+    "speedPayload/ready": "0d39468f3b6cfb36",
+    "speedPayload/busy, without a link": "a709f81de04e2369",
+    "speedPayload/disabled": "d9a53a0f6a7c87cd",
+    "speedPayload/an unknown status": "78c0c13691914db8",
+    "speedPayload/turn": "0b763d1e8bf2bd5c",
+    "speedPayload/turn at zero": "f29674b7bd23ee25",
+    "speedPayload/turn with a negative rate": "72d36626ef5a3d91",
+    "speedPayload/turn with a fractional rate": "d2a068d3ccb22974",
+    "speedPayload/turn over 10^12": "85c48bd28c717114",
+    "speedPayload/done": "9519252fd8df11d0",
+    "speedPayload/done without a rate": "9a1f87e7704109c1",
+    "speedPayload/result": "8efd46b02817e40f",
+    "speedPayload/result with only one direction": "abe325065209288e",
+    "speedPayload/result with out-of-range round trips reads them as absent": "736b6f2247e8d3b7",
+    "speedPayload/result where a round trip is a boolean reads it as absent": "8c35e065c173b487",
+    "speedVerdict/same router, Wi-Fi 6 80 MHz both, as expected": "7f917cd749a84b73",
+    "speedVerdict/same router, 160 MHz both (what the work Mac and a OnePlus 11 can reach)": "325abfaf262d500d",
+    "speedVerdict/same router, 160 MHz Mac, slow phone on 2.4 GHz": "68cd511e716ee130",
+    "speedVerdict/same router, rates unknown": "763490c630a6c18c",
+    "speedVerdict/same router, slow with the screen off": "c72876f082c1183d",
+    "speedVerdict/Mac on Ethernet": "ec29d710eef52a77",
+    "speedVerdict/Mac on the phone's hotspot": "2d2b217065801e46",
+    "speedVerdict/hotspot, Mac rate unknown": "302f5ac3b3710ecb",
+    "speedVerdict/loopback (the emulator)": "7df7d328c0277bcc",
+    "speedVerdict/loopback (the emulator), slow: no estimate, so no verdict or advice": "0700d9d744451b84",
+    "speedVerdict/phone on Wi-Fi, Mac on another network (a VPN)": "ed8da1040ef33c0a"
+   }
+  },
+  "protocol/test-vectors/folders-v1.json": {
+   "": {
+    "portableNames/0": "aa28e4a6322bbd9d",
+    "portableNames/1": "ce93c106b48a7491",
+    "portableNames/2": "152b23a6016efbd1",
+    "portableNames/3": "ff9128dbf741f234",
+    "portableNames/4": "2abc21606138f722",
+    "portableNames/5": "c901296dc8032645",
+    "portableNames/6": "71b721b76c2ebc67",
+    "portableNames/7": "86fdd2aac0c5ba8c",
+    "portableNames/8": "889026c87a356dd4",
+    "portableNames/9": "03c2f015b16a88fd",
+    "portableNames/10": "dd2dd7abf3d3ae7b",
+    "portableNames/11": "ae57131e1c285204",
+    "portableNames/12": "d933b38174ea4b88",
+    "portableNames/13": "27191ba4cd8008c6",
+    "portableNames/14": "68f34583f56b4a66",
+    "portableNames/15": "bc20b7ea0106b8aa",
+    "portableNames/16": "4f5cdec507328558",
+    "portableNames/17": "e6bb113356ea7db8",
+    "portableNames/18": "35db1cf1a54ea129",
+    "portableNames/19": "67b9d34fcb2b8525",
+    "portableNames/20": "f89c981f10ebe501",
+    "portableNames/21": "fc2a1befffdb3d4d",
+    "portableNames/22": "8e97b996d2350d1f",
+    "notPortable/0": "e3b0c44298fc1c14",
+    "notPortable/1": "cdb4ee2aea69cc6a",
+    "notPortable/2": "5ec1f7e700f37c3d",
+    "notPortable/3": "6783a31eabf68ccc",
+    "notPortable/4": "a3dbc4b644a9a2c5",
+    "notPortable/5": "7f3cbdd58ac559ed",
+    "notPortable/6": "44c12a4e432eba3f",
+    "notPortable/7": "006f90be94274f51",
+    "notPortable/8": "0e45e9b41741d254",
+    "notPortable/9": "bf12767b0f2a56b2",
+    "notPortable/10": "c14cddc033f64b9d",
+    "notPortable/11": "b322c24e34342a5f",
+    "manifestPaths": "c97c1bb3bf943979",
+    "existingPaths": "b2a609bf2f95c26b",
+    "caseClashes/0": "b49330ebcb7bf90a",
+    "caseClashes/1": "d8d800dfd8326214",
+    "caseClashes/2": "f072c40b959bc380",
+    "caseClashes/3": "5d3b32c92b535a96",
+    "conflictNames/0": "9e9262c1e198582c",
+    "conflictNames/1": "27804bfec1007259",
+    "conflictNames/2": "af50553673832c0b",
+    "conflictNames/3": "b92835072bb7dd83",
+    "conflictNames/4": "77d3302aa45db81e",
+    "conflictNames/5": "36c7e86791f9adab",
+    "conflictNames/6": "5fa2ecafdb22fba9",
+    "conflictNames/7": "817f76338f9b9dd9",
+    "systemFiles": "48faafda1da09d4e",
+    "manifestDigest": "b8a0ff9bd514ff4c",
+    "bitmap": "8ce13aaaf488ca76",
+    "messages": "62e0179b40c91df9"
+   }
+  },
+  "protocol/test-vectors/agent-v1.json": {
+   "": {
+    "invite": "e45a60055613a88c",
+    "agentGrants/every grant": "5a1254cae9eae147",
+    "agentGrants/unknown grant keys and fields are skipped": "58b87d28962f00fa",
+    "agentGrants/unknown state reads as off": "aca87881af8d75d7",
+    "agentGrants/version 2 is ignored": "b3d0ed00313d9e0a",
+    "agentGrants/grants not an array": "c6e647e707ea335b",
+    "notifyPost/full": "d998e8852f6f5dd5",
+    "notifyPost/minimal": "1c5fe1c615804842",
+    "notifyPost/control and bidi characters are removed": "06f911bdd528a0d7",
+    "notifyPost/empty title": "55146c0a59253258",
+    "notifyPost/title of 121 characters": "288be02b315b2e30",
+    "notifyPost/body of 1,001 characters": "1b7aafba6a35b7a1",
+    "notifyPost/unknown priority": "f24f8e03590b8dc1",
+    "notifyPost/notifyId not a UUID": "41386ec7d175d3ee",
+    "askRequest/two options": "8d39e0907ff5a7c4",
+    "askRequest/text only": "b2340c7160151e51",
+    "askRequest/no option and no text": "6043e72dc73ae946",
+    "askRequest/three options with text": "a9c34ce71be12ebc",
+    "askRequest/four options": "f367b12b2ae73a08",
+    "askRequest/option id with a capital": "5c20cc0c2bc9afc5",
+    "askRequest/duplicate option ids": "de9fc496493cb135",
+    "askRequest/label of 21 characters": "358a884c5ea8dc12",
+    "askRequest/expiry over 24 hours ahead": "5955dda3ba7b3bcc",
+    "askRequest/expiry in the past": "9bf559f7637b3300",
+    "askAnswer/option": "d0ffd2aab72f43b9",
+    "askAnswer/text": "dd02fc752018f3e3",
+    "askAnswer/neither": "cc6c53fd9621e647",
+    "askAnswer/text of 1,001 characters": "f99c0b7bd11355b8",
+    "clipboardResponse/sent": "3b1051fdd88678c9",
+    "clipboardResponse/declined": "764e156c230868ae",
+    "clipboardResponse/sent without text": "a87cf85fe0fada18",
+    "clipboardResponse/over 32 KiB": "692eff88924c07f3",
+    "codesQuery/wait for HDFC": "3f2dc5aa624b5723",
+    "codesQuery/everything recent": "acf7cf08e5f81083",
+    "codesQuery/since over an hour": "fa937caf7b8501c3",
+    "codesQuery/wait over 10 minutes": "2ec2abf0b36e882f",
+    "codesResult/two codes": "98347ce1289b21b9",
+    "codesResult/timed out": "cc6376fed70e4946",
+    "codesResult/unknown source": "afd034b02601fac4",
+    "codesFound/sms": "193e737260c7fc82",
+    "codesFound/prefixed code from Gmail": "528cf31453ea671c",
+    "codesFound/code of 3 characters": "1c288243806ec6a2",
+    "codesFound/code of 13 characters": "a5a30c3e45129fa7",
+    "codesFound/unknown app": "e700c98e6accabd1",
+    "codesCandidate/a text message": "8e95123fbd074e12",
+    "codesCandidate/600 UTF-16 units of Hindi": "bcf9813f23ab5036",
+    "codesCandidate/text of 601 UTF-16 units": "a15308c9bdca5457",
+    "codesCandidate/empty text": "f42e31e76f3babc6",
+    "codesCandidate/sender of 65 characters": "0891ef7b258062d6",
+    "codesCandidate/mail app with sms": "6174d24effa13b73",
+    "codesCandidate/candidateId not a UUID": "1f8e4ce6f36e6ac2",
+    "codesCandidate/version 2": "a078542fa5bfad35",
+    "codesDetected/found": "e0499c8d28450064",
+    "codesDetected/none": "24681f7556c7856d",
+    "codesDetected/failed with a reason": "5d104fd41d832439",
+    "codesDetected/found without a code": "2b1ce86d4c7d9241",
+    "codesDetected/code with a space": "bad295dd29512177",
+    "codesDetected/code of 13 characters": "7fbb6d3bce6c3890",
+    "codesDetected/none with a code": "a8d1e2cee1005ace",
+    "codesDetected/unknown outcome": "653adf601c7b1bf6",
+    "agentsGrantSet/on for today": "fed15b8a778df9c3",
+    "agentsGrantSet/off": "44ef3de2a3d80f14",
+    "agentsGrantSet/on without a window": "9cd6c056f6730a72",
+    "agentsGrantSet/notification reads can be granted separately": "2f5070cbaca338d9"
+   }
+  },
+  "protocol/test-vectors/agents-mirror-v1.json": {
+   "": {
+    "now": "0498d327478f14d3",
+    "agentsState/two agents, unknown grant, state, action and field skipped": "6c0af7609cd38ecb",
+    "agentsState/only Codes off": "0a210859d622f9e2",
+    "agentsState/Codes on but its window ended": "eb7174f461625f72",
+    "agentsState/no agents": "83bc465ac019801d",
+    "agentsState/an agent without grants is skipped": "d0aaf2b1767c429b",
+    "agentsState/version 2": "168e485233ea17bb",
+    "agentsState/agents not an array": "e168e0f73818b101",
+    "codesRead/one read": "aba50e4587563b0d",
+    "codesRead/no code even if one is sent": "49b447736d6b7d35",
+    "codesRead/unknown source": "554ab90078a6ebae",
+    "codesRead/count 0": "40547f6b5ffdba1c"
+   }
+  },
+  "protocol/test-vectors/connect-v1.json": {
+   "pair": {
+    "": "869ff06279574a20"
+   },
+   "sealed": {
+    "": "81c5a2c474cf74ee"
+   },
+   "transcript": {
+    "": "c54fd31ee5f76727"
+   }
+  }
+ }
+}
