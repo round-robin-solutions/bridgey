@@ -24,8 +24,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.toSize
 import dev.bridgey.android.ui.motion.LocalMotion
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import kotlinx.coroutines.delay
@@ -53,7 +55,7 @@ class SettingsSearchHost {
     /** The page has scrolled the row into place: the highlight may play (its token). */
     internal var arrived by mutableLongStateOf(0L)
 
-    /** Where the target's row is, in root coordinates, once drawn. */
+    /** Where the target's row is, in root coordinates, once drawn (unclipped: it may be below the visible part). */
     internal var rowBounds: Rect? = null
 
     /**
@@ -135,7 +137,7 @@ fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Bo
         host.finish(target.token)
     }
     Modifier
-        .onGloballyPositioned { host.rowBounds = it.boundsInRoot() }
+        .onGloballyPositioned { host.rowBounds = it.unclippedBounds() }
         .drawBehind {
             val a = alpha.value
             if (a > 0f) {
@@ -195,5 +197,12 @@ fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.com
         }
         host.arrived = target.token
     }
-    Modifier.onGloballyPositioned { viewport[0] = it.boundsInRoot() }
+    Modifier.onGloballyPositioned { viewport[0] = it.unclippedBounds() }
 }
+
+/**
+ * Where a layout is in root coordinates, whether or not it is visible. boundsInRoot clips to the parents, so a row
+ * inside a list item that is only partly on screen (Privacy's Logging group) measured as an empty rectangle at the
+ * origin and the page never scrolled to it.
+ */
+private fun LayoutCoordinates.unclippedBounds(): Rect = Rect(positionInRoot(), size.toSize())
