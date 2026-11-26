@@ -205,8 +205,12 @@ final class PhoneScreenTests: XCTestCase {
         XCTAssertTrue(sent.isEmpty, "no stream ID: nothing to answer")
     }
 
-    func testTheLastSixteenEndedStreamsAreRemembered() {
+    func testTheLastEndedStreamsAreRemembered() {
+        // Security review 1.0: 1,024 in the app (it was 16); the rule is the same with a smaller memory.
+        XCTAssertEqual(PhoneScreen.rememberedStreams, 1_024)
         let screen = make()
+        XCTAssertEqual(screen.rememberedStreams, 1_024)
+        screen.rememberedStreams = 16
         var ids: [String] = []
         for _ in 0..<17 {
             let id = UUID().uuidString.lowercased()

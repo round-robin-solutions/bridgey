@@ -48,8 +48,11 @@ final class PhoneScreen: ObservableObject {
     static let lifetime: TimeInterval = 120
     static let spacing: TimeInterval = 3
     static let streamTimeout: TimeInterval = 6
-    /// Ended streams stay refused (a recorded stream replayed later in the same connection is not shown as live).
+    /// Ended streams stay refused (a recorded stream replayed later in the same connection is not shown as live;
+    /// security review 1.0, it was 16).
     static let rememberedStreams = 1_024
+    /// [rememberedStreams]; tests use a smaller one.
+    var rememberedStreams = PhoneScreen.rememberedStreams
     static let defaultsKey = "settings.screen.show"
 
     struct Request: Equatable {
@@ -492,7 +495,7 @@ final class PhoneScreen: ObservableObject {
     private func remember(_ streamID: String) {
         endedStreamIDs.removeAll { $0 == streamID }
         endedStreamIDs.append(streamID)
-        if endedStreamIDs.count > Self.rememberedStreams { endedStreamIDs.removeFirst(endedStreamIDs.count - Self.rememberedStreams) }
+        if endedStreamIDs.count > rememberedStreams { endedStreamIDs.removeFirst(endedStreamIDs.count - rememberedStreams) }
     }
 
     private func ensureTicker() {
