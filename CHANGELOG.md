@@ -2,6 +2,11 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 10 (1.0.0-beta.10), 26 November 2026
+
+- Your own devices can now see and control each other's screens without asking. Unattended access is on by default in Settings > Remote control, and you can set any device to Off, Ask each time or Allow without asking. Servers and agents never get it. The device being viewed always shows who is connected, with Stop.
+- A Mac can view your phone without Android's prompt, at about 3 frames a second; tap Use video in the notification for full video. The phone needs Share screen with Macs and Bridgey control turned on.
+
 ## 1.0 Beta 9 (1.0.0-beta.9), 26 November 2026
 
 - A device controlling your Mac can no longer click Allow on the screen sharing prompt or raise its own access in Settings.
