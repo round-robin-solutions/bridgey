@@ -20,19 +20,32 @@ final class PhoneScreenWindowModel: ObservableObject {
     @Published var control = PhoneControlView()
     /// The stream has the control bar.
     let controllable: Bool
+    /// The phone sends screenshots, about 3 a second, because nobody approved video there.
+    let stillFrames: Bool
 
-    init(phoneName: String, controllable: Bool = false) {
+    init(phoneName: String, controllable: Bool = false, stillFrames: Bool = false) {
         self.phoneName = phoneName
         self.controllable = controllable
+        self.stillFrames = stillFrames
     }
 
-    /// The header's line: control's note when it ended or was refused, else the stream's numbers.
+    /// The header's line: control's note when it ended or was refused, else the stream's numbers, after "Slower mode"
+    /// while the phone sends screenshots.
     var line: String {
         if control.phase == .waiting {
             return String(format: L10n.text("phonecontrol.waiting", fallback: "Allow control on %@"), phoneName)
         }
         if control.phase == .off, let note = control.note, let text = phoneControlNoteText(note, phone: phoneName) { return text }
-        return screenStatsLine(stats)
+        guard stillFrames else { return screenStatsLine(stats) }
+        return PhoneScreenStillFrames.title + " \u{00B7} " + screenStatsLine(stats)
+    }
+}
+
+/// What the window says while the phone sends screenshots instead of video.
+enum PhoneScreenStillFrames {
+    static var title: String { L10n.text("screen.window.stillFrames", fallback: "Slower mode") }
+    static var help: String {
+        L10n.text("screen.window.stillFrames.help", fallback: "Nobody approved video on the phone, so it sends screenshots, about 3 a second.")
     }
 }
 
@@ -69,6 +82,7 @@ struct PhoneScreenHeader: View {
                 .foregroundStyle(c.on2)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .help(model.stillFrames && !ended ? PhoneScreenStillFrames.help : "")
             Spacer(minLength: 8)
             Button(L10n.text("action.stop", fallback: "Stop"), action: stop)
                 .buttonStyle(PillButtonStyle(kind: .danger, height: 26))
@@ -218,8 +232,8 @@ final class PhoneScreenWindowController: NSWindowController, NSWindowDelegate {
     private var chrome: CGFloat { PhoneScreenHeader.height + (model.controllable ? PhoneControlBar.height : 0) }
 
     init(phoneName: String, width: Int, height: Int, reduceMotion: Bool, deviceID: String = "", controller: PhoneScreenControlling? = nil,
-         controllable: Bool = false) {
-        model = PhoneScreenWindowModel(phoneName: phoneName, controllable: controllable)
+         controllable: Bool = false, stillFrames: Bool = false) {
+        model = PhoneScreenWindowModel(phoneName: phoneName, controllable: controllable, stillFrames: stillFrames)
         aspect = CGFloat(max(width, 1)) / CGFloat(max(height, 1))
         videoSize = (width, height)
         input = controllable ? PhoneScreenInput() : nil
@@ -364,10 +378,12 @@ final class PhoneScreenWindows: PhoneScreenPresenter {
     /// Where the windows' control actions go (PhoneScreen).
     weak var controlling: PhoneScreenControlling?
 
-    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, onClose: @escaping () -> Void) -> ScreenDisplaySink? {
+    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, stillFrames: Bool,
+              onClose: @escaping () -> Void) -> ScreenDisplaySink? {
         controllers.removeValue(forKey: deviceID)?.end(message: nil)
         let controller = PhoneScreenWindowController(phoneName: phoneName, width: width, height: height, reduceMotion: reduceMotion(),
-                                                     deviceID: deviceID, controller: controlling, controllable: controllable)
+                                                     deviceID: deviceID, controller: controlling, controllable: controllable,
+                                                     stillFrames: stillFrames)
         controller.onClose = { [weak self] in
             self?.controllers.removeValue(forKey: deviceID)
             onClose()

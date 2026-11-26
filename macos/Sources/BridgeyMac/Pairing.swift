@@ -5518,7 +5518,8 @@ final class PairingCoordinator: ObservableObject {
               let nonce = message.nonce, let ciphertext = message.ciphertext,
               let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
               let decoded = decodeScreenStatus(data) else { return }
-        phoneScreen.received(status: decoded.status, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName)
+        phoneScreen.received(status: decoded.status, requestID: decoded.requestID, from: current.remoteDeviceID, phoneName: current.peerName,
+                             needs: decoded.needs)
     }
 
     /// screen.start: outside the message ID window (the stream's own sequence guards it). A payload that
@@ -8013,6 +8014,8 @@ extension PairingCoordinator {
             return self.screenPeer(current)
         }
         macScreen.identityKey = { [weak self] id in self?.trustRegistry.identityKey(for: id) }
+        // Servers, agents and devices paired over the tailnet until trusted: never any screen access (unattended access too).
+        macScreen.isRestricted = { [weak self] id in self?.settings.isAgent(id) == true }
         macScreen.peerAdvertises = { [weak self] id in self?.registry.state(for: id)?.remoteScreenControl == true }
         macScreen.controlGrant = { [weak self] id in self?.settings.isEnabled(.remoteInput, for: id) == true }
         macScreen.touchpadController = { [weak self] in self?.remoteInput.active?.deviceID }
@@ -8070,12 +8073,16 @@ extension PairingCoordinator {
     /// Test instance control files for the screen (TestControl above).
     fileprivate func screenTestCommands(_ take: (String) -> String?) {
         if let value = take("screen-grant") {
+            // "<id prefix or all> off|ask|always|default"; default: the device follows Unattended access again.
             let parts = value.split(separator: " ").map(String.init)
-            if parts.count == 2, let mode = MacScreenGrantMode(rawValue: parts[1]) {
+            if parts.count == 2, parts[1] == "default" || MacScreenGrantMode(rawValue: parts[1]) != nil {
                 for device in trustRegistry.devices where parts[0] == "all" || device.id.hasPrefix(parts[0]) {
-                    macScreen.setGrant(mode, for: device.id)
+                    macScreen.setGrant(MacScreenGrantMode(rawValue: parts[1]), for: device.id)
                 }
             }
+        }
+        if let value = take("screen-unattended"), value == "on" || value == "off" {
+            macScreen.setUnattended(value == "on")
         }
         if let value = take("remote-grant") {
             let parts = value.split(separator: " ").map(String.init)

@@ -28,6 +28,8 @@ final class MacScreenScreenshots: XCTestCase {
         model.deviceFeatures = [phoneID: [.remoteInput: true]]
         model.accessibilityTrusted = true
         model.screenGrants = [phoneID: .always, tabletID: .ask]
+        // The phone follows Unattended access (Default); the tablet has its own choice.
+        model.screenGrantChoices = [tabletID: .ask]
         model.screenDisplays = [ScreenDisplayChoice(id: 1, name: "Built-in Retina Display"), ScreenDisplayChoice(id: 2, name: "Studio Display")]
         model.screenDisplayID = 1
         model.screenRecordingAllowed = false

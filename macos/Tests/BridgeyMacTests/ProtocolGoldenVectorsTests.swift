@@ -273,7 +273,11 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
 
     func testScreenStatus() throws {
         try each("screenStatus") { vector in
-            let result: Any = decodeScreenStatus(plaintext(vector)).map { ["requestId": $0.requestID, "status": $0.status.rawValue] } ?? "reject"
+            let result: Any = decodeScreenStatus(plaintext(vector)).map { decoded -> [String: Any] in
+                var fields: [String: Any] = ["requestId": decoded.requestID, "status": decoded.status.rawValue]
+                if let needs = decoded.needs { fields["needs"] = needs.rawValue }
+                return fields
+            } ?? "reject"
             return Self.same(result, vector["expect"])
         }
     }
@@ -289,8 +293,11 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
             switch vector["kind"] as? String {
             case "screen.start":
                 result = ScreenStart.decode(data).map { start -> [String: Any] in
-                    ["streamId": start.streamID, "sequence": start.sequence, "requestId": start.requestID ?? NSNull(), "codec": start.codec,
-                     "width": start.width, "height": start.height, "fps": start.fps, "bitrate": start.bitrate]
+                    var fields: [String: Any] = ["streamId": start.streamID, "sequence": start.sequence, "requestId": start.requestID ?? NSNull(),
+                                                 "codec": start.codec, "width": start.width, "height": start.height, "fps": start.fps,
+                                                 "bitrate": start.bitrate]
+                    if start.stillFrames { fields["mode"] = "screenshots" }
+                    return fields
                 } ?? "reject"
             case "screen.stats":
                 result = ScreenStats.decode(data).map { stats -> [String: Any] in

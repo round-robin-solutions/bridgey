@@ -10,7 +10,7 @@ private final class FixtureAddressBookStore: AddressBookStore {
 }
 
 /// Smaller stores from older releases: the reconnect address book (Beta 8), sender folder journals
-/// (Beta 10), the code model records (Beta 13) and the clipboard cache layout (Beta 5).
+/// (Beta 10), the code model records (Beta 13), the clipboard cache layout (Beta 5) and the screen grants (1.0 Beta 5).
 final class MigrationStoresTests: XCTestCase {
     private typealias F = MigrationFixtures
     private var directory: URL!
@@ -191,5 +191,43 @@ final class MigrationStoresTests: XCTestCase {
         XCTAssertEqual(cache.cachedFile(offerID: offerID, index: 0)?.lastPathComponent, "photo.png")
         XCTAssertTrue(cache.isHandedOut(offerID: offerID, index: 0))
         XCTAssertNil(cache.cachedFile(offerID: offerID, index: 1), "a partial file is never pasted")
+    }
+
+    // MARK: Screen grants (screen-grants-v1.json, 1.0 Beta 5)
+
+    private func screenGrants(_ fixture: String) throws -> MacScreenGrants {
+        try FileManager.default.copyItem(at: F.url("screen-grants/\(fixture)"), to: directory.appendingPathComponent(MacScreenGrants.fileName))
+        return MacScreenGrants(directory: directory)
+    }
+
+    /// Written before unattended access: only Ask each time and Allow without asking were stored, Off was no entry.
+    /// Both choices are kept, Unattended access reads as on, and a device without an entry follows it.
+    func testScreenGrantsFrom1_0Beta5Load() throws {
+        let grants = try screenGrants("screen-grants.1.0.0-beta.5.json")
+        XCTAssertTrue(grants.unattended)
+        XCTAssertEqual(grants.explicitMode(for: F.phoneA, identityKey: F.keyA), .always)
+        XCTAssertEqual(grants.explicitMode(for: F.phoneB, identityKey: F.keyB), .ask)
+        XCTAssertNil(grants.explicitMode(for: F.phoneC, identityKey: F.keyC))
+        XCTAssertEqual(grants.mode(for: F.phoneC, identityKey: F.keyC), .always)
+        XCTAssertNil(grants.explicitMode(for: F.phoneA, identityKey: F.keyB), "a choice stays bound to its key")
+
+        // A write in this build keeps both choices and adds the switch.
+        grants.set(.off, for: F.phoneC, identityKey: F.keyC)
+        let reloaded = MacScreenGrants(directory: directory)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneA, identityKey: F.keyA), .always)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneB, identityKey: F.keyB), .ask)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneC, identityKey: F.keyC), .off)
+        let written = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: reloaded.fileURL)) as? [String: Any])
+        XCTAssertEqual(written["version"] as? Int, 1)
+        XCTAssertEqual(written["unattended"] as? Bool, true)
+    }
+
+    func testABadScreenGrantIsDroppedOnItsOwn() throws {
+        let grants = try screenGrants("screen-grants.bad-entries.json")
+        XCTAssertTrue(grants.unattended)
+        XCTAssertEqual(grants.explicitMode(for: F.phoneA, identityKey: F.keyA), .ask, "the good entry is kept")
+        XCTAssertNil(grants.explicitMode(for: F.phoneB, identityKey: F.keyB), "a mode this build does not know")
+        XCTAssertNil(grants.explicitMode(for: F.phoneC, identityKey: F.keyC), "a key that is not a digest")
+        XCTAssertNil(grants.explicitMode(for: F.phoneD, identityKey: F.keyA), "an entry that is not an object")
     }
 }

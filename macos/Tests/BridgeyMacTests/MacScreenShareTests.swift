@@ -150,6 +150,8 @@ final class MacScreenShareTests: XCTestCase {
     private var touchpad: String?
     private var focused: CGRect?
     private var grantsChanged = 0
+    private var captureRequests = 0
+    private var restricted: Set<String> = []
     private var peerAdvertising = true
     private let phone = "phone-1"
     private let identity = Data(repeating: 3, count: 65).base64EncodedString()
@@ -164,7 +166,11 @@ final class MacScreenShareTests: XCTestCase {
         if let directory { try? FileManager.default.removeItem(at: directory) }
     }
 
-    private func make(displays custom: MacDisplayProviding? = nil) {
+    /// `unattended`: Unattended access as stored before the share starts. Off for the tests of explicit choices, so a
+    /// phone without one reads Off as before 26 Nov; the switch has its own tests below.
+    private func make(displays custom: MacDisplayProviding? = nil, unattended: Bool = false) {
+        let grants = MacScreenGrants(directory: directory)
+        if !unattended { XCTAssertTrue(grants.setUnattended(false)) }
         let synthetic = custom == nil ? SyntheticDisplays() : nil
         syntheticDisplays = synthetic
         displays = custom ?? synthetic
@@ -181,8 +187,9 @@ final class MacScreenShareTests: XCTestCase {
                 let encoder = FakeEncoder()
                 self.encoders.append(encoder)
                 return encoder
-            }, injector: injector, indicator: indicator, consent: consent, grants: MacScreenGrants(directory: directory),
-            captureAllowed: { [unowned self] in self.capture }, requestCapture: {}, accessibility: { [unowned self] in self.accessibility },
+            }, injector: injector, indicator: indicator, consent: consent, grants: grants,
+            captureAllowed: { [unowned self] in self.capture }, requestCapture: { [unowned self] in self.captureRequests += 1 },
+            accessibility: { [unowned self] in self.accessibility },
             focusedWindow: { [unowned self] in self.focused }, clock: { [unowned self] in self.now }, monotonicMs: { [unowned self] in self.monotonic },
             defaults: nil, schedulesTimer: false)
         share = MacScreenShare(environment: environment)
@@ -196,6 +203,7 @@ final class MacScreenShareTests: XCTestCase {
             id == self.phone ? MacScreenPeer(name: "Pixel 9", identityKey: self.identity, transport: 4, connection: self.connection) : nil
         }
         share.identityKey = { [unowned self] id in id == self.phone ? self.identity : "b3RoZXI=" }
+        share.isRestricted = { [unowned self] id in self.restricted.contains(id) }
         share.peerAdvertises = { [unowned self] _ in self.peerAdvertising }
         share.controlGrant = { [unowned self] _ in self.controlGranted }
         share.touchpadController = { [unowned self] in self.touchpad }
@@ -253,12 +261,16 @@ final class MacScreenShareTests: XCTestCase {
 
     // MARK: Grants
 
-    func testGrantsAreOffByDefaultBoundToTheKeyAndPrivate() throws {
+    func testGrantsAreBoundToTheKeyAndPrivate() throws {
         let grants = MacScreenGrants(directory: directory)
+        XCTAssertTrue(grants.unattended, "Unattended access is on by default")
+        XCTAssertEqual(grants.mode(for: phone, identityKey: identity), .always)
+        XCTAssertTrue(grants.setUnattended(false))
         XCTAssertEqual(grants.mode(for: phone, identityKey: identity), .off)
         XCTAssertTrue(grants.set(.ask, for: phone, identityKey: identity))
         XCTAssertEqual(grants.mode(for: phone, identityKey: identity), .ask)
-        XCTAssertEqual(grants.mode(for: phone, identityKey: "b3RoZXI="), .off, "a new pinned key needs a new grant")
+        XCTAssertEqual(grants.mode(for: phone, identityKey: "b3RoZXI="), .off, "a new pinned key has no choice of its own")
+        XCTAssertNil(grants.explicitMode(for: phone, identityKey: "b3RoZXI="))
         XCTAssertEqual(grants.mode(for: phone, identityKey: nil), .off)
         grants.set(.always, for: phone, identityKey: identity)
         let reloaded = MacScreenGrants(directory: directory)
@@ -270,6 +282,7 @@ final class MacScreenShareTests: XCTestCase {
         reloaded.set(.ask, for: phone, identityKey: identity)
         reloaded.remove(phone)
         XCTAssertEqual(MacScreenGrants(directory: directory).mode(for: phone, identityKey: identity), .off)
+        XCTAssertFalse(try String(contentsOf: reloaded.fileURL, encoding: .utf8).contains(identity), "the identity key itself is never stored")
         // Never part of settings sync.
         XCTAssertFalse(SyncKey.allCases.map(\.rawValue).contains { $0.contains("screenShare") || $0.contains("screen_control") || $0.contains("grant") })
     }
@@ -283,6 +296,153 @@ final class MacScreenShareTests: XCTestCase {
         XCTAssertEqual(grantsChanged, 1)
         share.forget(phone)
         XCTAssertFalse(share.advertised(to: phone))
+    }
+
+    // MARK: Unattended access (26 Nov)
+
+    /// Every combination of the switch, the device's own choice, a server or agent and the pinned key.
+    func testGrantResolutionTable() {
+        typealias G = MacScreenGrants
+        for unattended in [true, false] {
+            for explicit in [nil, MacScreenGrantMode.off, .ask, .always] {
+                XCTAssertEqual(G.resolve(explicit: explicit, unattended: unattended, restricted: true, keyKnown: true), .off,
+                               "a server or agent never gets anything (\(unattended), \(String(describing: explicit)))")
+                XCTAssertEqual(G.resolve(explicit: explicit, unattended: unattended, restricted: false, keyKnown: false), .off,
+                               "no pinned key, no access")
+                let expected: MacScreenGrantMode = explicit ?? (unattended ? .always : .off)
+                XCTAssertEqual(G.resolve(explicit: explicit, unattended: unattended, restricted: false, keyKnown: true), expected,
+                               "an explicit choice wins; Default follows the switch")
+            }
+        }
+    }
+
+    func testExplicitChoicesSurviveTheSwitchAndAReload() {
+        let grants = MacScreenGrants(directory: directory)
+        let other = Data(repeating: 9, count: 65).base64EncodedString()
+        grants.set(.off, for: phone, identityKey: identity)
+        grants.set(.ask, for: "phone-2", identityKey: other)
+        XCTAssertEqual(grants.mode(for: phone, identityKey: identity), .off, "an explicit Off is kept, not removed")
+        XCTAssertEqual(grants.mode(for: "phone-3", identityKey: other), .always, "Default follows the switch")
+        grants.setUnattended(false)
+        grants.setUnattended(true)
+        let reloaded = MacScreenGrants(directory: directory)
+        XCTAssertTrue(reloaded.unattended)
+        XCTAssertEqual(reloaded.explicitMode(for: phone, identityKey: identity), .off)
+        XCTAssertEqual(reloaded.explicitMode(for: "phone-2", identityKey: other), .ask)
+        XCTAssertNil(reloaded.explicitMode(for: "phone-3", identityKey: other))
+        reloaded.setUnattended(false)
+        XCTAssertEqual(MacScreenGrants(directory: directory).mode(for: "phone-3", identityKey: other), .off)
+        XCTAssertEqual(MacScreenGrants(directory: directory).mode(for: "phone-2", identityKey: other), .ask)
+        reloaded.set(nil, for: "phone-2", identityKey: other)
+        XCTAssertNil(MacScreenGrants(directory: directory).explicitMode(for: "phone-2", identityKey: other), "Default removes the choice")
+        // A device that pairs again with another key follows the switch, like a newly paired device.
+        reloaded.setUnattended(true)
+        XCTAssertEqual(reloaded.mode(for: phone, identityKey: other), .always)
+    }
+
+    func testAMissingFileIsTheDefaultsAndAnUnreadableOneGrantsNothing() throws {
+        XCTAssertTrue(MacScreenGrants(directory: directory).unattended, "no file yet: on")
+        let grants = MacScreenGrants(directory: directory)
+        grants.set(.always, for: phone, identityKey: identity)
+        try FileManager.default.removeItem(at: grants.fileURL)
+        try Data("{not json".utf8).write(to: grants.fileURL)
+        let damaged = MacScreenGrants(directory: directory)
+        XCTAssertFalse(damaged.unattended, "an unreadable file fails closed")
+        XCTAssertEqual(damaged.mode(for: phone, identityKey: identity), .off)
+        try FileManager.default.removeItem(at: grants.fileURL)
+        try Data(#"{"grants":{},"unattended":true,"version":2}"#.utf8).write(to: grants.fileURL)
+        XCTAssertFalse(MacScreenGrants(directory: directory).unattended, "another version fails closed too")
+        // The next save writes a good file again.
+        XCTAssertTrue(damaged.setUnattended(true))
+        XCTAssertTrue(MacScreenGrants(directory: directory).unattended)
+    }
+
+    func testTheSwitchLetsADeviceWithoutAChoiceInAndOff() {
+        make(unattended: true)
+        XCTAssertTrue(share.unattended)
+        XCTAssertNil(share.explicitGrant(for: phone))
+        XCTAssertEqual(share.grantMode(for: phone), .always)
+        share.receiveRequest(requestData(), from: phone, deviceName: "Pixel 9")
+        XCTAssertNil(consent.asked, "no prompt")
+        XCTAssertNotNil(share.stream)
+        XCTAssertEqual(indicator.shown?.name, "Pixel 9", "the pill and Stop still show")
+        viewer(DisplayKinds.started, [:])
+        XCTAssertTrue(share.setUnattended(false))
+        XCTAssertNil(share.stream, "a device on Default loses access with the switch")
+        XCTAssertEqual(link.last(DisplayKinds.stop)?["reason"] as? String, "disabled")
+        XCTAssertFalse(share.advertised(to: phone))
+        XCTAssertGreaterThanOrEqual(grantsChanged, 1)
+    }
+
+    func testAnExplicitChoiceWinsOverTheSwitch() {
+        make(unattended: true)
+        XCTAssertTrue(share.setGrant(.ask, for: phone))
+        share.receiveRequest(requestData(), from: phone, deviceName: "Pixel 9")
+        XCTAssertEqual(consent.asked, "Pixel 9", "Ask each time still asks with the switch on")
+        consent.answer?(false)
+        XCTAssertTrue(share.setGrant(.off, for: phone))
+        XCTAssertFalse(share.advertised(to: phone))
+        XCTAssertTrue(share.setUnattended(false))
+        XCTAssertTrue(share.setGrant(.always, for: phone))
+        XCTAssertEqual(share.grantMode(for: phone), .always, "Allow without asking stays with the switch off")
+    }
+
+    func testServersAndAgentsNeverGetAccess() {
+        make(unattended: true)
+        XCTAssertTrue(share.setGrant(.always, for: phone))
+        restricted = [phone]
+        XCTAssertEqual(share.grantMode(for: phone), .off, "not even with a stored Allow without asking")
+        XCTAssertFalse(share.advertised(to: phone))
+        share.receiveRequest(requestData(), from: phone, deviceName: "contabo-europe")
+        XCTAssertEqual(lastStatus(), "disabled")
+        XCTAssertNil(share.stream)
+        XCTAssertFalse(share.setGrant(.ask, for: phone))
+        XCTAssertFalse(share.setGrant(.always, for: phone))
+        XCTAssertTrue(share.setGrant(.off, for: phone), "Off can always be chosen")
+        XCTAssertTrue(share.setGrant(nil, for: phone))
+        XCTAssertEqual(share.grantMode(for: phone), .off)
+    }
+
+    /// Security review 1.0, with the switch: while anything controls this Mac nothing may give a device more.
+    func testNothingRaisesAccessWhileThisMacIsControlled() throws {
+        make(unattended: false)
+        XCTAssertTrue(share.setGrant(.off, for: phone))
+        touchpad = phone
+        XCTAssertFalse(share.setUnattended(true), "turning the switch on is refused")
+        XCTAssertFalse(share.unattended)
+        XCTAssertFalse(share.setGrant(.ask, for: phone))
+        touchpad = nil
+        XCTAssertTrue(share.setUnattended(true))
+        touchpad = phone
+        XCTAssertFalse(share.setGrant(nil, for: phone), "back to Default would raise Off to Allow without asking")
+        XCTAssertEqual(share.explicitGrant(for: phone), .off)
+        XCTAssertTrue(share.setUnattended(false), "turning the switch off always works")
+        XCTAssertTrue(share.setGrant(nil, for: phone), "Default with the switch off gives nothing more")
+        XCTAssertEqual(share.grantMode(for: phone), .off)
+        touchpad = nil
+        XCTAssertTrue(share.setUnattended(true))
+        XCTAssertEqual(share.grantMode(for: phone), .always)
+        // Screen control counts too.
+        _ = try controlling()
+        XCTAssertFalse(share.allowPossible)
+        XCTAssertTrue(share.setUnattended(false), "turning the switch off works while controlled")
+        XCTAssertFalse(share.setUnattended(true))
+        XCTAssertFalse(share.setGrant(.ask, for: "phone-2"), "raising another device is refused too")
+        XCTAssertNil(share.explicitGrant(for: "phone-2"))
+        XCTAssertTrue(share.setGrant(.ask, for: phone), "lowering works while controlled")
+    }
+
+    func testTurningTheSwitchOnAsksForScreenRecordingOnlyWhenMissing() {
+        make(unattended: false)
+        capture = true
+        XCTAssertTrue(share.setUnattended(true))
+        XCTAssertEqual(captureRequests, 0)
+        XCTAssertTrue(share.setUnattended(false))
+        capture = false
+        XCTAssertTrue(share.setUnattended(true))
+        XCTAssertEqual(captureRequests, 1)
+        XCTAssertTrue(share.setUnattended(true), "no change, no prompt")
+        XCTAssertEqual(captureRequests, 1)
     }
 
     // MARK: Requests

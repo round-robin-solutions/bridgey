@@ -1452,6 +1452,9 @@
 "screen.status.busy" = "%@ уже показывает экран другому Mac";
 "screen.status.disabled" = "На %@ выключен показ экрана для Mac";
 "screen.status.failed" = "%@ не смог показать экран";
+"screen.status.needsAccessibility" = "Ждём кого-нибудь у %@. Чтобы смотреть без подтверждения, включите там «Управление Bridgey».";
+"screen.status.needsAndroid11" = "Ждём кого-нибудь у %@. Смотреть без подтверждения можно на Android 11 и новее.";
+"screen.status.needsUnlock" = "Разблокируйте %@, чтобы увидеть экран.";
 "screen.ended.phone" = "Показ остановлен на %@";
 "screen.ended.screenOff" = "%@ заблокировал экран";
 "screen.ended.timeout" = "Экран %@ пропал";
@@ -1465,6 +1468,8 @@
 "screen.window.waiting" = "Ждём первый кадр…";
 "screen.window.stats" = "%1$@ мс · %2$@ Мбит/с · %3$@ к/с";
 "screen.window.stop.help" = "Перестать показывать экран телефона";
+"screen.window.stillFrames" = "Медленный режим";
+"screen.window.stillFrames.help" = "На телефоне никто не разрешил видео, поэтому он присылает снимки экрана, около 3 в секунду.";
 /* Text messages (sms_draft1) */
 "sms.action.archive" = "Архивировать";
 "sms.action.archive.help" = "Архивировать: скрыть до нового сообщения";
@@ -1927,6 +1932,9 @@
 "display.grant.off" = "Выкл.";
 "display.grant.ask" = "Спрашивать каждый раз";
 "display.grant.always" = "Разрешать без вопроса";
+"display.grant.default" = "По умолчанию";
+"display.unattended.title" = "Неконтролируемый доступ";
+"display.unattended.detail" = "Устройства с вариантом «По умолчанию» видят экран этого Mac без вопроса. Серверам и агентам это недоступно.";
 "display.grant.phoneOff" = "Включите «Видеть экраны Mac» в Bridgey на %@";
 "display.grant.recordingOff" = "Нужен доступ к записи экрана, ниже";
 "display.log.phone" = "Остановлено на телефоне";

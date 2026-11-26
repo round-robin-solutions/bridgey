@@ -265,8 +265,9 @@ enum PhoneScreenSettings {
     }
 }
 
-/// Settings > Remote control > This Mac's screen (screen_control_draft1): which phones may see this Mac, which
-/// display, and Screen Recording. Off for every phone until chosen here or on its device page.
+/// Settings > Remote control > This Mac's screen (screen_control_draft1): Unattended access (on by default), each
+/// device's choice (Default follows the switch), which display, and Screen Recording. Servers and agents are not listed:
+/// they never get access.
 enum MacScreenSettings {
     /// Search scope of the card, so its phone rows are told apart from the remote control ones.
     static let scope = "display-share"
@@ -277,6 +278,19 @@ enum MacScreenSettings {
     static var displayTitle: String { L10n.text("display.settings.display", fallback: "Screen to share") }
     static var recordingTitle: String { L10n.text("display.settings.recording", fallback: "Screen Recording access") }
     static var grantTitle: String { L10n.text("display.grant.title", fallback: "See this Mac\u{2019}s screen") }
+    static var unattendedTitle: String { L10n.text("display.unattended.title", fallback: "Unattended access") }
+    static var unattendedDetail: String {
+        L10n.text("display.unattended.detail", fallback: "Paired devices set to Default can see this Mac without asking. Servers and agents never can.")
+    }
+    static var defaultTitle: String { L10n.text("display.grant.default", fallback: "Default") }
+
+    /// The menu's value: Default for a device without a choice of its own, else its choice.
+    static func choiceTitle(_ choice: MacScreenGrantMode?) -> String { choice.map(modeTitle) ?? defaultTitle }
+
+    /// The devices the card lists: every paired device but servers and agents.
+    static func devices(_ model: SettingsModel) -> [TrustedDeviceInfo] {
+        model.trustedDevices.filter { !model.restrictedDevices.contains($0.id) }
+    }
 
     static func modeTitle(_ mode: MacScreenGrantMode) -> String {
         switch mode {
@@ -323,15 +337,18 @@ private struct MacScreenSettingsCard: View {
             }
             .settingsSearchSkip()
         }
+        let devices = MacScreenSettings.devices(model)
         SettingsCard(title: MacScreenSettings.cardTitle, footnote: MacScreenSettings.footnote) {
-            if model.trustedDevices.isEmpty {
-                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"), divider: false) { EmptyView() }
+            SettingsToggle(title: MacScreenSettings.unattendedTitle, subtitle: MacScreenSettings.unattendedDetail, divider: false,
+                           isOn: model.screenUnattended, set: actions.setScreenUnattended)
+            if devices.isEmpty {
+                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet")) { EmptyView() }
                     .settingsSearchSkip()
             }
-            ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
-                MacScreenGrantRow(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
+            ForEach(devices, id: \.id) { device in
+                MacScreenGrantRow(device: device, model: model, actions: actions, title: device.name)
             }
-            SettingsRow(title: MacScreenSettings.displayTitle, divider: !model.trustedDevices.isEmpty) {
+            SettingsRow(title: MacScreenSettings.displayTitle) {
                 ChoiceButton(value: model.screenDisplays.first { $0.id == model.screenDisplayID }?.name
                                  ?? L10n.text("display.name.fallback", fallback: "Display")) {
                     model.screenDisplays.map { display in
@@ -345,7 +362,8 @@ private struct MacScreenSettingsCard: View {
     }
 }
 
-/// One phone's choice: Off, Ask each time or Allow without asking. On Settings > Devices > phone and in the card.
+/// One device's choice: Default (it follows Unattended access), Off, Ask each time or Allow without asking. On
+/// Settings > Devices > device and in the card.
 struct MacScreenGrantRow: View {
     let device: TrustedDeviceInfo
     let model: SettingsModel
@@ -354,13 +372,14 @@ struct MacScreenGrantRow: View {
     var divider = true
 
     var body: some View {
-        let mode = model.screenGrants[device.id] ?? .off
+        let choice = model.screenGrantChoices[device.id]
         let warning = MacScreenSettings.note(device: device, model: model)
         SettingsRow(title: title ?? MacScreenSettings.grantTitle, subtitle: warning, subtitleIsWarning: warning != nil, divider: divider) {
-            ChoiceButton(value: MacScreenSettings.modeTitle(mode)) {
-                MacScreenGrantMode.allCases.map { choice in
-                    PopUpMenuItem(title: MacScreenSettings.modeTitle(choice), checked: choice == mode) { actions.setScreenGrant(device.id, choice) }
-                }
+            ChoiceButton(value: MacScreenSettings.choiceTitle(choice)) {
+                [PopUpMenuItem(title: MacScreenSettings.defaultTitle, checked: choice == nil) { actions.setScreenGrant(device.id, nil) }]
+                    + MacScreenGrantMode.allCases.map { mode in
+                        PopUpMenuItem(title: MacScreenSettings.modeTitle(mode), checked: choice == mode) { actions.setScreenGrant(device.id, mode) }
+                    }
             }
         }
     }

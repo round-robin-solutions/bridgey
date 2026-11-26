@@ -13,8 +13,10 @@ import Foundation
 @MainActor
 protocol PhoneScreenPresenter: AnyObject {
     /// Opens the window for a new stream and returns where frames are shown. `controllable`: the phone may be controlled
-    /// from it (phone_control_draft1), so it has the control bar.
-    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, onClose: @escaping () -> Void) -> ScreenDisplaySink?
+    /// from it (phone_control_draft1), so it has the control bar. `stillFrames`: the phone sends screenshots, about 3 a
+    /// second, because nobody approved video there; the header says it is a slower mode.
+    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, stillFrames: Bool,
+              onClose: @escaping () -> Void) -> ScreenDisplaySink?
     func update(deviceID: String, stats: ScreenStats)
     func resize(deviceID: String, width: Int, height: Int)
     func bringToFront(deviceID: String)
@@ -173,11 +175,12 @@ final class PhoneScreen: ObservableObject {
         return id
     }
 
-    /// `screen.status` from a phone, for its open request only.
-    func received(status wire: ScreenStatus, requestID: String, from deviceID: String, phoneName: String) {
+    /// `screen.status` from a phone, for its open request only. `needs`: why a phone that allows this Mac without asking
+    /// still waits for someone there.
+    func received(status wire: ScreenStatus, requestID: String, from deviceID: String, phoneName: String, needs: ScreenNeeds? = nil) {
         tick()
         guard let request = pending[deviceID], request.id == requestID else { return }
-        status = screenStatusText(wire, phone: phoneName)
+        status = needs.map { screenNeedsText($0, phone: phoneName) } ?? screenStatusText(wire, phone: phoneName)
         if wire != .waiting { pending.removeValue(forKey: deviceID) }
     }
 
@@ -238,7 +241,7 @@ final class PhoneScreen: ObservableObject {
         }
         status = nil
         if let sink = presenter?.open(deviceID: deviceID, phoneName: phoneName, width: start.width, height: start.height,
-                                      controllable: offer != nil,
+                                      controllable: offer != nil, stillFrames: start.stillFrames,
                                       onClose: { [weak self, weak stream] in
                                           guard let self, let stream, self.streams[deviceID] === stream else { return }
                                           self.stop(stream, reason: .closed, message: nil)
@@ -247,7 +250,7 @@ final class PhoneScreen: ObservableObject {
         }
         if offer != nil { presenter?.updateControl(deviceID: deviceID, control: stream.control) }
         _ = send(deviceID, "screen.started", screenStartedPayload(streamID: start.streamID, sequence: stream.nextSequence()))
-        BridgeyLog.screen.notice("screen started stream=\(String(start.streamID.prefix(8)), privacy: .public) size=\(start.width, privacy: .public)x\(start.height, privacy: .public) fps=\(start.fps, privacy: .public) bitrate=\(start.bitrate, privacy: .public) requested=\(start.requestID != nil, privacy: .public)")
+        BridgeyLog.screen.notice("screen started stream=\(String(start.streamID.prefix(8)), privacy: .public) size=\(start.width, privacy: .public)x\(start.height, privacy: .public) fps=\(start.fps, privacy: .public) bitrate=\(start.bitrate, privacy: .public) requested=\(start.requestID != nil, privacy: .public) screenshots=\(start.stillFrames, privacy: .public)")
         ensureTicker()
     }
 
@@ -521,6 +524,18 @@ func screenStatusText(_ status: ScreenStatus, phone: String) -> String {
     case .busy: String(format: L10n.text("screen.status.busy", fallback: "%@ is sharing its screen with another Mac"), phone)
     case .disabled: String(format: L10n.text("screen.status.disabled", fallback: "Share screen with Macs is off on %@"), phone)
     case .failed: String(format: L10n.text("screen.status.failed", fallback: "%@ could not share its screen"), phone)
+    }
+}
+
+/// The panel line while a phone that allows this Mac without asking cannot share on its own.
+func screenNeedsText(_ needs: ScreenNeeds, phone: String) -> String {
+    switch needs {
+    case .accessibility:
+        String(format: L10n.text("screen.status.needsAccessibility", fallback: "Waiting for someone on %@. To see it unattended, turn on Bridgey control there."), phone)
+    case .android11:
+        String(format: L10n.text("screen.status.needsAndroid11", fallback: "Waiting for someone on %@. Seeing it unattended needs Android 11 or later."), phone)
+    case .unlock:
+        String(format: L10n.text("screen.status.needsUnlock", fallback: "Unlock %@ to see its screen."), phone)
     }
 }
 

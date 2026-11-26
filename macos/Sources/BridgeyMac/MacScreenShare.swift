@@ -6,9 +6,10 @@ import os
 
 /*
  * Mac screen to phone, draft `screen_control_draft1` (docs/protocol.md, "Mac screen to phone"): this Mac as the
- * source. Off for every phone until chosen in Settings (Ask each time or Allow without asking, MacScreenGrants).
- * A request asks the person on this Mac unless the phone has an unattended grant; the stream then runs on the
- * phone's session, paced by its acks (MacScreenStreamSender). Control is a separate permission (the existing
+ * source. Unattended access (on by default) lets a paired device with no choice of its own see this screen without
+ * asking; each device can be set to Off, Ask each time or Allow without asking instead, and servers and agents never
+ * get anything (MacScreenGrants). A request asks the person on this Mac only with Ask each time; the stream then runs
+ * on the phone's session, paced by its acks (MacScreenStreamSender). Control is a separate permission (the existing
  * Remote control grant plus Accessibility) and goes through the shared contract's HostSession: every input packet
  * is checked against a fresh local authority, every release is applied before anything is injected, and positions
  * map onto the selected display only. The pill names the viewer for the whole stream, with Stop.
@@ -71,7 +72,7 @@ struct MacScreenEnvironment {
     var grants: MacScreenGrants
     /// Screen Recording, never prompting (CGPreflightScreenCaptureAccess).
     var captureAllowed: () -> Bool
-    /// macOS asks for Screen Recording; only from Settings, when a phone's choice changes from Off.
+    /// macOS asks for Screen Recording; only from Settings, when a phone's choice (or Unattended access) changes from Off.
     var requestCapture: () -> Void
     /// Accessibility, never prompting.
     var accessibility: () -> Bool
@@ -110,6 +111,8 @@ final class MacScreenShare: ObservableObject {
     var link: (_ deviceID: String) -> MacScreenLink? = { _ in nil }
     var peer: (_ deviceID: String) -> MacScreenPeer? = { _ in nil }
     var identityKey: (_ deviceID: String) -> String? = { _ in nil }
+    /// A server or agent paired with this Mac (or a device paired over the tailnet until trusted): never any screen access.
+    var isRestricted: (_ deviceID: String) -> Bool = { _ in false }
     /// The phone's own map shows screen_control_draft1.
     var peerAdvertises: (_ deviceID: String) -> Bool = { _ in false }
     /// Remote control on here and allowed for that phone (control is a separate permission).
@@ -198,25 +201,53 @@ final class MacScreenShare: ObservableObject {
 
     // MARK: Grants and advertising
 
+    /// What the device gets now: its own choice, else Unattended access; never anything for a server or agent.
     func grantMode(for deviceID: String) -> MacScreenGrantMode {
-        grants.mode(for: deviceID, identityKey: identityKey(deviceID))
+        let key = identityKey(deviceID)
+        return MacScreenGrants.resolve(explicit: grants.explicitMode(for: deviceID, identityKey: key), unattended: grants.unattended,
+                                       restricted: isRestricted(deviceID), keyKnown: key != nil)
     }
+
+    /// The device's own choice; nil when it follows Unattended access (Default in Settings).
+    func explicitGrant(for deviceID: String) -> MacScreenGrantMode? {
+        grants.explicitMode(for: deviceID, identityKey: identityKey(deviceID))
+    }
+
+    /// Settings > Remote control > This Mac's screen > Unattended access.
+    var unattended: Bool { grants.unattended }
 
     /// screen_control_draft1 in this Mac's features.update to that phone.
     func advertised(to deviceID: String) -> Bool { grantMode(for: deviceID) != .off }
 
-    /// Settings: a phone's choice. Turning it on asks macOS for Screen Recording if it is missing (the only place a
-    /// prompt may come from).
-    /// Raising a grant is refused while anything controls this Mac (a phone could otherwise open Settings and allow
-    /// itself, security review 1.0); lowering always works.
+    /// Settings: a device's choice, or nil for Default (it follows Unattended access). A change that gives the device
+    /// more than it has now asks macOS for Screen Recording if it is missing (the only place a prompt may come from).
+    /// Raising is refused while anything controls this Mac (a phone could otherwise open Settings and allow itself,
+    /// security review 1.0), also when going back to Default raises it; lowering always works. A server or agent can be
+    /// set to Off, never higher.
     @discardableResult
-    func setGrant(_ mode: MacScreenGrantMode, for deviceID: String) -> Bool {
+    func setGrant(_ mode: MacScreenGrantMode?, for deviceID: String) -> Bool {
         guard let key = identityKey(deviceID) else { return false }
         let before = grantMode(for: deviceID)
-        if mode.rank > before.rank && !allowPossible { return false }
-        grants.set(mode, for: deviceID, identityKey: key)
+        let after = MacScreenGrants.resolve(explicit: mode, unattended: grants.unattended, restricted: isRestricted(deviceID), keyKnown: true)
+        if isRestricted(deviceID), let mode, mode != .off { return false }
+        if after.rank > before.rank && !allowPossible { return false }
+        guard grants.set(mode, for: deviceID, identityKey: key) else { return false }
         grantsVersion += 1
-        if before == .off, mode != .off, !environment.captureAllowed() { environment.requestCapture() }
+        if before == .off, after != .off, !environment.captureAllowed() { environment.requestCapture() }
+        onGrantsChange()
+        policyChanged()
+        return true
+    }
+
+    /// Settings: Unattended access. Turning it on is refused while anything controls this Mac (it raises every device
+    /// on Default); turning it off always works and ends a stream to a device on Default.
+    @discardableResult
+    func setUnattended(_ on: Bool) -> Bool {
+        guard on != grants.unattended else { return true }
+        if on && !allowPossible { return false }
+        guard grants.setUnattended(on) else { return false }
+        grantsVersion += 1
+        if on, !environment.captureAllowed() { environment.requestCapture() }
         onGrantsChange()
         policyChanged()
         return true
@@ -793,7 +824,7 @@ final class MacScreenShare: ObservableObject {
 
     /// The `screen` part of a test instance's status.json.
     func testStatus(injector: RecordingScreenInjector?) -> [String: Any] {
-        var status: [String: Any] = ["asking": asking ?? NSNull()]
+        var status: [String: Any] = ["asking": asking ?? NSNull(), "unattended": grants.unattended]
         guard let current = stream else {
             status["state"] = asking == nil ? "idle" : "asking"
             status["injected"] = injector?.count ?? 0
