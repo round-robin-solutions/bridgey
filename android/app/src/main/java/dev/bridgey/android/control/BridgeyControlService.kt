@@ -38,9 +38,11 @@ import dev.bridgey.android.display.ControlNavigation
  * Off until the person turns it on in Android's accessibility settings. It performs gestures and Back, Home and Recents,
  * and from Android 13 types into the focused editor as an accessibility input method. It never reads window content
  * (canRetrieveWindowContent is off), ignores every accessibility event, never touches the clipboard and does nothing
- * unless a Mac controls the phone through PhoneControlHub. While one does, it shows the indicator with Stop.
+ * unless a Mac controls the phone through PhoneControlHub. While one does, it shows the indicator with Stop. From Android
+ * 11 it also takes screenshots, only for a share with a Mac allowed without asking when nobody approved Android's video
+ * prompt (unattended access, ScreenShareHub); the sharing notification with Stop shows for as long as that runs.
  */
-class BridgeyControlService : AccessibilityService(), ControlService {
+class BridgeyControlService : AccessibilityService(), ControlService, dev.bridgey.android.screen.ScreenshotTaker {
     private val main = Handler(Looper.getMainLooper())
 
     /** The last dispatched stroke of each finger that is still down, so the next part continues it. */
@@ -48,6 +50,11 @@ class BridgeyControlService : AccessibilityService(), ControlService {
     private val strokeLock = Any()
     private var indicator: View? = null
     private var prompt: View? = null
+
+    /** Main thread only: the bar shows control while a Mac controls the phone, else the screenshot share's viewer. */
+    private var controlBar: Pair<String, () -> Unit>? = null
+    private class Viewing(val macName: String, val onStop: () -> Unit, val drawn: (Boolean) -> Unit)
+    private var viewingBar: Viewing? = null
 
     @Volatile private var inputMethodReady = false
 
@@ -75,6 +82,10 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         current = null
         synchronized(strokeLock) { strokes.clear() }
         main.post {
+            controlBar = null
+            // A screenshot share hears that its bar is gone, and ends.
+            viewingBar?.drawn?.invoke(false)
+            viewingBar = null
             removeIndicator()
             removePrompt()
         }
@@ -140,6 +151,39 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         }
     }
 
+    // MARK: ScreenshotTaker
+
+    override fun screenshot(executor: java.util.concurrent.Executor, done: (dev.bridgey.android.screen.ScreenShot) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            executor.execute { done(dev.bridgey.android.screen.ScreenShot.Failed(dev.bridgey.android.screen.ShotError.NO_ACCESS)) }
+            return
+        }
+        takeDisplayScreenshot(executor, done)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun takeDisplayScreenshot(executor: java.util.concurrent.Executor, done: (dev.bridgey.android.screen.ScreenShot) -> Unit) {
+        takeScreenshot(android.view.Display.DEFAULT_DISPLAY, executor, object : TakeScreenshotCallback {
+            override fun onSuccess(screenshot: ScreenshotResult) {
+                val buffer = screenshot.hardwareBuffer
+                val bitmap = runCatching { android.graphics.Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace) }.getOrNull()
+                if (bitmap == null) {
+                    buffer.close()
+                    done(dev.bridgey.android.screen.ScreenShot.Failed(dev.bridgey.android.screen.ShotError.OTHER))
+                    return
+                }
+                done(dev.bridgey.android.screen.ScreenShot.Frame(bitmap) {
+                    bitmap.recycle()
+                    buffer.close()
+                })
+            }
+
+            override fun onFailure(errorCode: Int) {
+                done(dev.bridgey.android.screen.ScreenShot.Failed(screenshotError(errorCode)))
+            }
+        })
+    }
+
     override fun navigate(action: ControlNavigation): Boolean = performGlobalAction(
         when (action) {
             ControlNavigation.BACK -> GLOBAL_ACTION_BACK
@@ -180,13 +224,53 @@ class BridgeyControlService : AccessibilityService(), ControlService {
 
     override fun showIndicator(macName: String, onStop: () -> Unit) {
         main.post {
-            removeIndicator()
-            runCatching { addIndicator(macName, onStop) }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "CONTROL indicator", it) }
+            controlBar = macName to onStop
+            drawIndicator()
         }
     }
 
     override fun hideIndicator() {
-        main.post { removeIndicator() }
+        main.post {
+            controlBar = null
+            drawIndicator()
+        }
+    }
+
+    override fun showViewing(macName: String, onStop: () -> Unit, drawn: (Boolean) -> Unit) {
+        main.post {
+            viewingBar = Viewing(macName, onStop, drawn)
+            drawIndicator()
+        }
+    }
+
+    override fun hideViewing() {
+        main.post {
+            viewingBar = null
+            drawIndicator()
+        }
+    }
+
+    /**
+     * Control's bar wins; with no control, a screenshot share's bar (small, at the bottom, clear of app and system bars at
+     * the top); else none. A screenshot share hears whether its Mac is named on the screen.
+     */
+    private fun drawIndicator() {
+        removeIndicator()
+        val control = controlBar
+        val viewing = viewingBar
+        val drawn = when {
+            control != null -> runCatching {
+                addIndicator(getString(R.string.control_indicator_text, control.first), getString(R.string.control_stop_description, control.first), control.second)
+            }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "CONTROL indicator", it) }.isSuccess && indicator != null
+            viewing != null -> runCatching {
+                addIndicator(
+                    getString(R.string.screen_indicator_viewing, viewing.macName), getString(R.string.screen_indicator_stop_description, viewing.macName),
+                    viewing.onStop, compact = true,
+                )
+            }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "SCREEN viewing bar", it) }.isSuccess && indicator != null
+            else -> return
+        }
+        viewing?.drawn?.invoke(drawn)
     }
 
     override fun showPrompt(macName: String, answer: (Boolean) -> Unit) {
@@ -203,11 +287,12 @@ class BridgeyControlService : AccessibilityService(), ControlService {
     // MARK: The indicator
 
     /**
-     * "MacBook Air is controlling this phone" with Stop, over the top of the screen. An accessibility overlay needs no
-     * other permission, and it shows in the Mac's picture too. Only the bar takes touches; the rest of the screen does not.
+     * "MacBook Air is controlling this phone" (or "is viewing this phone" for a screenshot share) with Stop, over the top
+     * of the screen. An accessibility overlay needs no other permission, and it shows in the Mac's picture too. Only the
+     * bar takes touches; the rest of the screen does not.
      */
     @SuppressLint("SetTextI18n")
-    private fun addIndicator(macName: String, onStop: () -> Unit) {
+    private fun addIndicator(message: String, stopDescription: String, onStop: () -> Unit, compact: Boolean = false) {
         val manager = getSystemService(WindowManager::class.java) ?: return
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
@@ -217,10 +302,11 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         val outline = if (dark) 0xFF2A303F.toInt() else 0xFFDDE3EB.toInt()
         val good = if (dark) 0xFF5EF2B2.toInt() else 0xFF006C49.toInt()
         val danger = if (dark) 0xFFFFB4A8.toInt() else 0xFFB3261E.toInt()
+        val fontSp = if (compact) 12f else 13f
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(6), dp(6), dp(6))
+            if (compact) setPadding(dp(12), dp(4), dp(4), dp(4)) else setPadding(dp(14), dp(6), dp(6), dp(6))
             background = GradientDrawable().apply {
                 cornerRadius = dp(22).toFloat()
                 setColor(surface)
@@ -231,49 +317,61 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         val dot = View(this).apply {
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(good) }
         }
-        bar.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) })
+        bar.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(if (compact) 8 else 10) })
+        val width = minOf(resources.displayMetrics.widthPixels - dp(32), dp(420))
         val label = TextView(this).apply {
-            text = getString(R.string.control_indicator_text, macName)
+            this.text = message
             setTextColor(onSurface)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSp)
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
+            // The small bar is as wide as its words; a long Mac name is cut so Stop keeps its full width.
+            if (compact) maxWidth = width - dp(120)
         }
         // The name takes what is left; Stop always keeps its full width.
-        bar.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(10) })
+        bar.addView(
+            label,
+            (if (compact) LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            else LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)).apply { marginEnd = dp(if (compact) 8 else 10) },
+        )
         val stop = TextView(this).apply {
-            text = getString(R.string.control_stop)
+            this.text = getString(R.string.control_stop)
             setTextColor(danger)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, fontSp)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             isSingleLine = true
-            setPadding(dp(14), dp(6), dp(14), dp(6))
-            minHeight = dp(32)
+            if (compact) setPadding(dp(12), dp(4), dp(12), dp(4)) else setPadding(dp(14), dp(6), dp(14), dp(6))
+            minHeight = dp(if (compact) 28 else 32)
             background = GradientDrawable().apply {
                 cornerRadius = dp(16).toFloat()
                 setColor(danger and 0x00FFFFFF or 0x26000000)
             }
             isClickable = true
             isFocusable = true
-            contentDescription = getString(R.string.control_stop_description, macName)
+            contentDescription = stopDescription
             setOnClickListener { onStop() }
         }
         bar.addView(stop, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
-        val statusBar = resources.getIdentifier("status_bar_height", "dimen", "android").takeIf { it != 0 }
-            ?.let(resources::getDimensionPixelSize) ?: dp(24)
-        val width = minOf(resources.displayMetrics.widthPixels - dp(32), dp(420))
+        fun systemBar(name: String) = resources.getIdentifier(name, "dimen", "android").takeIf { it != 0 }?.let(resources::getDimensionPixelSize)
         val params = WindowManager.LayoutParams(
-            width,
+            if (compact) WindowManager.LayoutParams.WRAP_CONTENT else width,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = statusBar + dp(8)
-            title = "Bridgey control"
+            if (compact) {
+                // A screenshot share's bar sits above the navigation bar, clear of app bars, Back and quick settings.
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                y = (systemBar("navigation_bar_height") ?: dp(48)) + dp(12)
+                title = "Bridgey viewing"
+            } else {
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                y = (systemBar("status_bar_height") ?: dp(24)) + dp(8)
+                title = "Bridgey control"
+            }
         }
         manager.addView(bar, params)
         indicator = bar
@@ -391,6 +489,14 @@ class BridgeyControlService : AccessibilityService(), ControlService {
 
         /** Android's accessibility settings, where the person turns Bridgey control on or off. */
         fun settingsIntent(): Intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /** AccessibilityService's screenshot error codes, as the share's pacer reads them. */
+        fun screenshotError(code: Int): dev.bridgey.android.screen.ShotError = when (code) {
+            AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> dev.bridgey.android.screen.ShotError.TOO_SOON
+            AccessibilityService.ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS -> dev.bridgey.android.screen.ShotError.NO_ACCESS
+            AccessibilityService.ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY -> dev.bridgey.android.screen.ShotError.INVALID_DISPLAY
+            else -> dev.bridgey.android.screen.ShotError.OTHER
+        }
 
         fun keyCode(key: ControlKey): Int? = when (key) {
             ControlKey.ENTER -> KeyEvent.KEYCODE_ENTER

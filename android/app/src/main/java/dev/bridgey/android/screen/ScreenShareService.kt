@@ -83,9 +83,9 @@ class ScreenShareService : Service() {
         } else null
         if (taken == null) {
             requestId?.let { app.pairing.sendScreenStatus(deviceId, it, ScreenStatus.FAILED) }
-            app.screenShare.streamEnded = {}
-            app.screenShare.stop(ScreenStopReason.FAILED)
             finish()
+            // A screenshot share that Use video meant to replace goes on (its notification comes back); otherwise the start ends.
+            app.screenShare.projectionFailed()
             return START_NOT_STICKY
         }
         val created = app.screenShare.begin(deviceId, macName, requestId, control)
@@ -109,7 +109,7 @@ class ScreenShareService : Service() {
         }
         androidx.core.content.ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         screenOffRegistered = true
-        val newCapture = ScreenCapture(this, taken, created, handler) { reason -> created.stop(reason) }
+        val newCapture = ScreenCapture(this, ProjectionFrameSource(taken), created, handler) { reason -> created.stop(reason) }
         capture = newCapture
         handler.post { newCapture.start() }
         ticker = Executors.newSingleThreadScheduledExecutor { runnable -> Thread(runnable, "bridgey-screen-ticker") }.also {

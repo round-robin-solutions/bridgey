@@ -160,9 +160,13 @@ data class DisplayPoint(val x: Double, val y: Double)
 /** Where Android mirrors a display of [displayWidth] by [displayHeight] inside the stream: aspect kept, centred, as AOSP does. */
 data class MirrorRect(val left: Int, val top: Int, val width: Int, val height: Int)
 
-fun mirrorRect(geometry: Geometry, displayWidth: Int, displayHeight: Int): MirrorRect {
-    val w = geometry.width.toLong()
-    val h = geometry.height.toLong()
+fun mirrorRect(geometry: Geometry, displayWidth: Int, displayHeight: Int): MirrorRect =
+    mirrorRect(geometry.width.toInt(), geometry.height.toInt(), displayWidth, displayHeight)
+
+/** The same fit for a stream of [width] by [height]: screenshot shares draw each screenshot there (ScreenshotFrameSource). */
+fun mirrorRect(width: Int, height: Int, displayWidth: Int, displayHeight: Int): MirrorRect {
+    val w = width.toLong()
+    val h = height.toLong()
     val (cw, ch) = if (w * displayHeight < h * displayWidth) w to displayHeight * w / displayWidth else displayWidth * h / displayHeight to h
     return MirrorRect(((w - cw) / 2).toInt(), ((h - ch) / 2).toInt(), cw.toInt(), ch.toInt())
 }

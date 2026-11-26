@@ -27,6 +27,16 @@ enum ScreenStatus: String, Equatable, CaseIterable {
     case waiting, declined, busy, disabled, failed
 }
 
+/// `screen.status` `waiting` with `needs`: the phone allows this Mac without asking, but cannot share on its own yet.
+enum ScreenNeeds: String, Equatable, CaseIterable {
+    /// Bridgey control (the phone's accessibility service) is off.
+    case accessibility
+    /// The phone is older than Android 11, which unattended screenshots need.
+    case android11 = "android_11"
+    /// The phone is locked.
+    case unlock
+}
+
 /// Why a stream ended. `disconnected` is local only (the session closed) and never sent.
 enum ScreenStopReason: String, Equatable, CaseIterable {
     case user, closed, ended, screenOff = "screen_off", disabled, invalid, timeout, failed
@@ -62,12 +72,14 @@ private func streamHeader(_ object: [String: Any]) -> (streamID: String, sequenc
 /// The `screen.request` plaintext.
 func screenRequestPayload(_ requestID: String) -> [String: Any] { ["version": 1, "requestId": requestID] }
 
-/// A `screen.status` plaintext: at most 512 bytes, a UUID `requestId` and a known `status`.
-func decodeScreenStatus(_ data: Data) -> (requestID: String, status: ScreenStatus)? {
+/// A `screen.status` plaintext: at most 512 bytes, a UUID `requestId` and a known `status`. `needs` is read only with
+/// `waiting`; an unknown value or another type is ignored.
+func decodeScreenStatus(_ data: Data) -> (requestID: String, status: ScreenStatus, needs: ScreenNeeds?)? {
     guard let object = screenObject(data, limit: ScreenLimits.messageBytes),
           let requestID = screenUUID(object["requestId"]),
           let wire = object["status"] as? String, let status = ScreenStatus(rawValue: wire) else { return nil }
-    return (requestID, status)
+    let needs = status == .waiting ? (object["needs"] as? String).flatMap(ScreenNeeds.init(rawValue:)) : nil
+    return (requestID, status, needs)
 }
 
 // MARK: Stream messages
@@ -83,6 +95,9 @@ struct ScreenStart: Equatable {
     let bitrate: Int
     /// phone_control_draft1: the control object of a control-capable stream; nil (view only) when missing or malformed.
     var control: PhoneControlOffer? = nil
+    /// `mode` `screenshots`: nobody approved video on the phone, so it sends accessibility screenshots, about 3 a second.
+    /// Absent or any other value: video.
+    var stillFrames = false
 
     /// At most 1,024 bytes; codec `h264`; even sizes from 16 to 4,096; 1 to 60 fps; 100 kb/s to 50 Mb/s.
     static func decode(_ data: Data) -> ScreenStart? {
@@ -99,7 +114,8 @@ struct ScreenStart: Equatable {
         }
         return ScreenStart(streamID: header.streamID, sequence: header.sequence, requestID: requestID, codec: codec,
                            width: width, height: height, fps: fps, bitrate: bitrate,
-                           control: PhoneControlOffer.decode(object["control"], width: width, height: height))
+                           control: PhoneControlOffer.decode(object["control"], width: width, height: height),
+                           stillFrames: object["mode"] as? String == "screenshots")
     }
 
     /// The stream a start that failed validation names, so the Mac can answer `invalid`.

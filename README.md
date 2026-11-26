@@ -324,7 +324,8 @@ These are open items, not promises for the next Beta:
 **Next focused work:**
 
 - [ ] Complete phone-to-computer and computer-to-phone screen sharing with input control on
-      the shared Rust rules; persistent unattended grants apply only to selected trusted devices
+      the shared Rust rules; unattended access for your own devices (one switch, on by default,
+      never for servers or agents; [decision](docs/screen-control-decision.md))
 
 Small follow-up candidates to review after this: copy a device's pairing details
 and search longer device pickers. These are proposals, not implemented features.

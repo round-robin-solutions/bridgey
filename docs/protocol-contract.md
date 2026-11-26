@@ -1166,6 +1166,7 @@ Phone screen on the Mac. One open request per phone, at most one every 3 seconds
 - `version`: integer, 1
 - `requestId`: string, echoes the request
 - `status`: waiting | declined | busy | disabled | failed; the Mac drops an unknown status
+- `needs`: optional string, with waiting: accessibility | android_11 | unlock, why a Mac allowed without asking still waits for someone on the phone (Bridgey control is off, the phone is older than Android 11, or it is locked); the Mac ignores it with another status or an unknown value
 
 `screen.start`
 
@@ -1179,6 +1180,7 @@ Phone screen on the Mac. One open request per phone, at most one every 3 seconds
 - `fps`: integer, 1 to 60
 - `bitrate`: integer, bits a second, 100000 to 50000000
 - `control`: optional object, only to a Mac showing phone_control_draft1 when the phone has a control grant for it (a full-display share): stream and transport (contract counters 1 to 2^53-1), geometry (the contract Geometry, source = Android display ID + 1, width and height equal to the stream size), capabilities (the phone's contract Capabilities), allowed (boolean, control may be asked for now). A Mac without the key ignores it; a malformed one makes the stream view only
+- `mode`: optional string, screenshots: nobody approved video on the phone, so the frames come from Android accessibility screenshots, about 3 a second (same H.264 frames, pacing and acks); absent means video, and the Mac reads any other value as video
 
 Answered by `screen.started`, `screen.stop`.
 

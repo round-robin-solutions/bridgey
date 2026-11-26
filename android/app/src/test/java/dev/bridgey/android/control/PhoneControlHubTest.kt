@@ -32,6 +32,7 @@ private class FakeEnvironment(val service: FakeControlService = FakeControlServi
     var dismissed = 0
     val controllingLog = mutableListOf<String?>()
     val grantsChanged = mutableListOf<String>()
+    var unattendedChanges = 0
 
     override fun identityKey(deviceId: String) = key
     override fun isAgent(deviceId: String) = agent
@@ -46,6 +47,7 @@ private class FakeEnvironment(val service: FakeControlService = FakeControlServi
     override fun dismissPrompt() { dismissed++ }
     override fun controlling(macName: String?) { controllingLog += macName }
     override fun grantsChanged(deviceId: String) { grantsChanged += deviceId }
+    override fun unattendedChanged() { unattendedChanges++ }
 }
 
 private class FakeControlService(val sink: FakeSink = FakeSink()) : ControlService, GestureSink by sink {
@@ -143,6 +145,7 @@ class PhoneControlHubTest {
     }
 
     @Test fun advertisedOnlyWithAGrantAndSharingAndNeverToAgents() {
+        assertTrue(hub.setUnattended(false))
         assertFalse(hub.advertised("mac-1"))
         hub.setGrant("mac-1", PhoneControlGrantMode.ASK)
         assertTrue(hub.advertised("mac-1"))
@@ -161,6 +164,7 @@ class PhoneControlHubTest {
     }
 
     @Test fun controlIsRefusedWithoutAGrantTheServiceOrAnUnlockedPhone() {
+        hub.setUnattended(false)
         stream()
         begin()
         assertEquals("refused:disabled", link.states().last())
@@ -378,6 +382,76 @@ class PhoneControlHubTest {
         assertEquals("active", link.states().last())
         timers.advance(1_500)
         assertEquals("ended:timeout", link.states().last())
+    }
+
+    // MARK: Unattended access
+
+    @Test fun aMacOnDefaultFollowsUnattendedAccessAndStartsWithoutAsking() {
+        assertTrue(hub.unattended)
+        assertNull(hub.choice("mac-1"))
+        assertEquals(PhoneControlGrantMode.ALWAYS, hub.mode("mac-1"))
+        assertTrue(hub.advertised("mac-1"))
+        assertTrue(hub.unattendedView("mac-1"))
+        stream()
+        begin()
+        assertEquals("active", link.states().last())
+        assertTrue(environment.prompts.isEmpty())
+        assertEquals("the indicator still names the Mac, with Stop", "MacBook Air", environment.service.indicator)
+    }
+
+    @Test fun turningUnattendedAccessOffEndsControlByAMacOnDefault() {
+        stream()
+        begin()
+        assertEquals("active", link.states().last())
+        assertTrue("lowering always works", hub.setUnattended(false))
+        assertEquals("ended:disabled", link.states().last())
+        assertEquals(PhoneControlGrantMode.OFF, hub.mode("mac-1"))
+        assertFalse(hub.advertised("mac-1"))
+        assertEquals(1, environment.unattendedChanges)
+    }
+
+    @Test fun aMacsOwnChoiceStaysWhateverTheSwitchSays() {
+        assertTrue(hub.setGrant("mac-1", PhoneControlGrantMode.ASK))
+        hub.setUnattended(false)
+        assertEquals(PhoneControlGrantMode.ASK, hub.mode("mac-1"))
+        hub.setUnattended(true)
+        assertEquals(PhoneControlGrantMode.ASK, hub.mode("mac-1"))
+        assertTrue(hub.setGrant("mac-1", PhoneControlGrantMode.OFF))
+        assertEquals("an explicit Off is not overridden", PhoneControlGrantMode.OFF, hub.mode("mac-1"))
+        assertFalse(hub.unattendedView("mac-1"))
+        assertTrue(hub.setGrant("mac-1", null))
+        assertEquals(PhoneControlGrantMode.ALWAYS, hub.mode("mac-1"))
+    }
+
+    @Test fun agentsNeverGetUnattendedAccess() {
+        environment.agent = true
+        assertTrue(hub.unattended)
+        assertEquals(PhoneControlGrantMode.OFF, hub.mode("mac-1"))
+        assertFalse(hub.advertised("mac-1"))
+        assertFalse(hub.unattendedView("mac-1"))
+        assertFalse(hub.setGrant("mac-1", PhoneControlGrantMode.ALWAYS))
+    }
+
+    @Test fun nothingRaisesAccessWhileAMacControlsThePhone() {
+        hub.setUnattended(false)
+        active(PhoneControlGrantMode.ASK)
+        assertFalse("its own grant", hub.setGrant("mac-1", PhoneControlGrantMode.ALWAYS))
+        assertFalse("the switch", hub.setUnattended(true))
+        assertFalse(hub.unattended)
+        assertEquals("active", link.states().last())
+        // Lowering works: Default with the switch off is Off for this Mac, so control ends.
+        assertTrue(hub.setGrant("mac-1", null))
+        assertEquals("ended:disabled", link.states().last())
+        assertTrue("once nothing controls the phone, the switch can go on again", hub.setUnattended(true))
+    }
+
+    @Test fun defaultThatWouldRaiseIsRefusedWhileControlled() {
+        active(PhoneControlGrantMode.ASK)
+        assertTrue(hub.unattended)
+        assertFalse("Default is Allow without asking with the switch on: a raise", hub.setGrant("mac-1", null))
+        assertEquals(PhoneControlGrantMode.ASK, hub.choice("mac-1"))
+        assertTrue("turning the switch off is never refused", hub.setUnattended(false))
+        assertEquals("active", link.states().last())
     }
 
     @Test fun theMacHearsWhenTheServiceComesOn() {

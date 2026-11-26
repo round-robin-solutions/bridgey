@@ -15,7 +15,8 @@ it, a separate grant and key (`phone_control_draft1`, "The Mac controls the phon
    or the person starts it on the phone (the Mac's device page, or the Share screen Quick Settings
    tile).
 3. Android's own dialog asks for consent. Android 14 and later ask every time, and the result can be
-   used once, so Bridgey asks for a fresh one for every share and never keeps it.
+   used once, so Bridgey asks for a fresh one for every share and never keeps it. A Mac allowed without
+   asking gets screenshots instead when nobody approves (below, "Unattended access").
 4. The phone starts a foreground service of type `mediaProjection` (after consent, before it takes
    the projection, as Android 14 requires), registers the projection callback, creates one virtual
    display into the hardware H.264 encoder and sends `screen.start`. The Mac opens a window, answers
@@ -107,6 +108,44 @@ Capture 720x1600 from 1080x2400.
 - On a still screen the emulator's encoder stops repeating frames after a few seconds, so the Mac
   shows the last frame and the stream stays alive on `screen.stats`; to check on a real phone.
 - Secure windows (banking apps, password fields with FLAG_SECURE) are black, by Android's design.
+
+## Unattended access: screenshots when nobody approves video
+
+Decided 26 November ([screen-control-decision.md](screen-control-decision.md)). A Mac allowed without
+asking on the phone (its own choice, or Default while Unattended access is on) is not asked about in
+Bridgey. Android still asks for consent before every MediaProjection capture, and nobody may be at the
+phone, so the share falls back to Bridgey control's accessibility screenshots:
+
+- **When.** The phone is unlocked with its screen on, it runs Android 11 or later, and Bridgey control is
+  connected. Otherwise the request waits for someone at the phone exactly as before, and `screen.status`
+  `waiting` tells the Mac why (`needs`: `unlock`, `android_11` or `accessibility`), which the Mac shows in
+  its panel. The phone's Settings > Remote control says what is missing too.
+- **Frames.** `ScreenshotFrameSource` asks for one screenshot at a time, at most one every 340 ms (Android
+  refuses two within 333 ms), so about 3 a second, and draws each onto the encoder's input surface with
+  Android's mirroring fit (aspect kept, centred). The encoder, pacing, acks, stats and phone control are the
+  ones video uses; `screen.start` says `mode` `screenshots` and `fps` 3, the bit rate starts at 1.5 Mb/s
+  and never goes above 3 Mb/s, and the encoder does not repeat frames. A refusal for asking too soon backs
+  off 60 ms at a time; five other failures in a row, losing the capability or the display end the share as
+  `failed`; a screenshot with no answer in 1 second counts as a failure, so one lost callback freezes the
+  picture for about a second at most.
+- **On the phone.** The sharing notification says it is sending screenshots and offers Use video (Android's
+  consent, then a video stream that replaces this one; if video cannot start, the screenshots go on), and
+  Bridgey control's small bar above the navigation bar says "MacBook Air is viewing this phone" with Stop,
+  which needs no notification permission. Nothing is captured until the bar is on the screen, and the share
+  ends if it cannot be shown. When the Mac takes control the control bar at the top says so instead.
+  Locking the phone or turning its screen off ends the share; a request that waited for the unlock starts
+  once the phone is unlocked (on Android's "user present", which comes before the keyguard stops reading
+  locked, and otherwise by looking again every half second while the screen is on at the lock screen). Lowering access (the Mac to Ask each time or Off, the switch off for a Mac on
+  Default, Share screen with Macs off, the device an agent) ends it at once. There is no foreground service
+  of its own: Bridgey's connection service and the bound accessibility service keep the app alive.
+- **On the Mac.** The window's header says "Slower mode" before its numbers.
+- **Checked live (26 Nov, Android 16 emulator, a throwaway Mac test instance):** an update keeps Bridgey control
+  on with the new capability, screenshots start with no dialog at about 2.9 a second (342 ms median gap), Stop,
+  the screen turning off, `needs` `unlock` and `accessibility`, Use video, control during a share, and the
+  switch off asking as before. Evidence in Round Robin's output folder (`bridgey/screen/unattended-pr68`).
+- **Not checked yet:** a real phone (OEM screenshot behaviour, secure windows, rotation), Android 11 and
+  12, and how a busy screen at 3 frames a second compresses. Covered by unit tests: which requests go
+  unattended, the pacing and back-off, the mirroring fit and the `screen.start` and `screen.status` fields.
 
 ## Mac screen on the phone (`screen_control_draft1`)
 

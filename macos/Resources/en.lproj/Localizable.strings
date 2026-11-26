@@ -1452,6 +1452,9 @@
 "screen.status.busy" = "%@ is sharing its screen with another Mac";
 "screen.status.disabled" = "Share screen with Macs is off on %@";
 "screen.status.failed" = "%@ could not share its screen";
+"screen.status.needsAccessibility" = "Waiting for someone on %@. To see it unattended, turn on Bridgey control there.";
+"screen.status.needsAndroid11" = "Waiting for someone on %@. Seeing it unattended needs Android 11 or later.";
+"screen.status.needsUnlock" = "Unlock %@ to see its screen.";
 "screen.ended.phone" = "Sharing stopped on %@";
 "screen.ended.screenOff" = "%@ locked its screen";
 "screen.ended.timeout" = "Lost the screen of %@";
@@ -1465,6 +1468,8 @@
 "screen.window.waiting" = "Waiting for the first frame…";
 "screen.window.stats" = "%1$@ ms · %2$@ Mb/s · %3$@ fps";
 "screen.window.stop.help" = "Stop showing the phone’s screen";
+"screen.window.stillFrames" = "Slower mode";
+"screen.window.stillFrames.help" = "Nobody approved video on the phone, so it sends screenshots, about 3 a second.";
 /* Text messages (sms_draft1) */
 "sms.action.archive" = "Archive";
 "sms.action.archive.help" = "Archive: hide it until a new message arrives";
@@ -1922,11 +1927,15 @@
 "display.settings.display" = "Screen to share";
 "display.settings.recording" = "Screen Recording access";
 "display.settings.recording.on" = "Allowed. Bridgey captures the screen only while a phone you allow is watching.";
-"display.settings.recording.off" = "Needed to share this screen. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Screen & System Audio Recording.";
+"display.settings.recording.off" = "Needed to share this screen. Turn on Bridgey in Privacy & Security > Screen & System Audio Recording.";
 "display.grant.title" = "See this Mac’s screen";
 "display.grant.off" = "Off";
 "display.grant.ask" = "Ask each time";
 "display.grant.always" = "Allow without asking";
+"display.grant.default" = "Default";
+"display.grant.defaultValue" = "Default (%@)";
+"display.unattended.title" = "Unattended access";
+"display.unattended.detail" = "Paired devices set to Default can see this Mac without asking. Servers and agents never can.";
 "display.grant.phoneOff" = "Turn on See Mac screens in Bridgey on %@";
 "display.grant.recordingOff" = "Needs Screen Recording access, below";
 "display.log.phone" = "Stopped on the phone";

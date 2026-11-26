@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Bridgey control (docs/protocol.md "Mac controls the phone"): gestures and global actions, and from Android 13 an
-     accessibility input method for typing into the focused editor. No events are read and no window content is
+<!-- Bridgey control (docs/protocol.md "Mac controls the phone"): gestures and global actions, from Android 13 an
+     accessibility input method for typing into the focused editor, and from Android 11 screenshots for a share with a Mac
+     allowed without asking when nobody approved video (unattended access). No events are read and no window content is
      retrieved; canRetrieveWindowContent stays false. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagInputMethodEditor"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="false"
+    android:canTakeScreenshot="true"
+    tools:targetApi="30"
     android:description="@string/control_service_description"
     android:isAccessibilityTool="false"
     android:notificationTimeout="0" />

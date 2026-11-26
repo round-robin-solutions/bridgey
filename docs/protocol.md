@@ -1105,13 +1105,41 @@ A receiver whose own switch is off answers `screen.request` with `screen.status`
 | Message | Direction | Fields | Meaning |
 | --- | --- | --- | --- |
 | `screen.request` | Mac to phone | `requestId` (UUID) | "Phone screen" on the Mac. One open request per phone, at most one every 3 seconds; it expires after 2 minutes |
-| `screen.status` | phone to Mac | `requestId`, `status` | `waiting` (the phone shows "MacBook Air wants to see your screen", with the Mac's name, and waits for the person to tap and confirm), `declined` (the person said no in Android's dialog), `busy` (the phone already shares with another Mac), `disabled`, `failed` |
+| `screen.status` | phone to Mac | `requestId`, `status`; optional `needs` with `waiting` | `waiting` (the phone shows "MacBook Air wants to see your screen", with the Mac's name, and waits for the person to tap and confirm), `declined` (the person said no in Android's dialog), `busy` (the phone already shares with another Mac), `disabled`, `failed`. `needs` (unattended access, below): `accessibility`, `android_11` or `unlock`, why a Mac allowed without asking still waits for someone on the phone. The Mac ignores `needs` with another status and ignores a value it does not know |
 
 Android does not let an app start capture, or open an activity, from the background, and asks for
-consent before every capture (each time on Android 14 and later). So a request always ends with the
+consent before every capture (each time on Android 14 and later). So a request ends with the
 person tapping on the phone; the stream itself then starts with `screen.start` carrying the
 `requestId`. The phone can also start sharing on its own (its device screen or the Quick Settings
 tile), with no `requestId`; the Mac then opens the window if its switch is on.
+
+**Unattended access** ([decision](screen-control-decision.md), 26 Nov). A Mac whose phone control
+grant on the phone is Allow without asking (its own choice, or Default while the phone's Unattended
+access switch is on) gets no Bridgey question. With the phone unlocked and its screen on, on Android
+11 and later, with Bridgey control (the accessibility service below) connected, the phone answers no
+`screen.status` and starts at once a share of accessibility screenshots: `screen.start` with the
+`requestId` and `mode` `screenshots`, `fps` 3, a start bit rate of 1.5 Mb/s (never above 3 Mb/s), and the
+whole display (control-capable as below). Nothing is captured until Bridgey control's bar "MacBook Air is
+viewing this phone", with Stop, is on the screen; if it cannot be shown, the Mac hears `failed`, and if it
+goes later the share ends. Each screenshot (`AccessibilityService.takeScreenshot`, at most one every
+340 ms, one at a time) is drawn onto the hardware encoder's surface where Android would mirror the
+display, so frames, pacing, acks and control are exactly as for video. Android refuses screenshots
+asked for within 333 ms of each other; the phone backs off by 60 ms each time (up to one more
+interval), gives up after five other failures in a row or when the capability or the display goes,
+and treats a screenshot unanswered after 1 second as a failure. The sharing notification says it
+sends screenshots and offers Use video: Android's consent dialog, then a new video stream (no
+`requestId`) that replaces this one; if video cannot start, the screenshots go on. Without Android 11,
+Bridgey control or an unlocked screen, the request is asked as above and `waiting` carries `needs`
+(`android_11`, `accessibility` or `unlock`) so the Mac can say what the phone needs. With `unlock`, the
+open request starts its screenshot share by itself once the phone is unlocked, if the Mac is still
+allowed then, so the Mac waits rather than asking again: Android's "user present" counts as unlocked even
+while the keyguard still reads locked for a moment, and while the screen is on at the lock screen the
+phone looks again every half second until the request expires. A Mac on Ask each time or Off is asked as above.
+Lowering access ends a screenshot share at once with `screen.stop` `disabled`: the Mac set to Ask each
+time or Off, Unattended access turned off for a Mac on Default, Share screen with Macs turned off, or the
+device found to be an agent. A video share the person approved stays. Share screen with Macs turned on
+by settings sync from a Mac (Show phone screens) never allows unattended viewing: shares are asked on
+the phone until it is turned on there, and it cannot be turned on while a Mac controls the phone.
 
 **Stream messages.** Encrypted on the current session like remote input: the JSON ones have outer
 `kind`, `sessionId`, a unique `messageId`, `nonce` and `ciphertext`; `screen.frame` has only `kind`,
@@ -1127,7 +1155,7 @@ and never close the transport session. JSON plaintext is UTF-8, `version: 1`, at
 
 | Message | Direction | Fields (besides `version`, `streamId`, `sequence`) | Meaning |
 | --- | --- | --- | --- |
-| `screen.start` | phone to Mac | optional `requestId`; `codec`: `h264`; `width`, `height` (even integers, 16 to 4,096); `fps` (1 to 60); `bitrate` (bits a second, 100,000 to 50,000,000) | a new stream. Its first frame is a key frame |
+| `screen.start` | phone to Mac | optional `requestId`; `codec`: `h264`; `width`, `height` (even integers, 16 to 4,096); `fps` (1 to 60); `bitrate` (bits a second, 100,000 to 50,000,000); optional `mode`: `screenshots` (unattended access: accessibility screenshots, about 3 a second; absent means video, and any other value reads as video) | a new stream. Its first frame is a key frame |
 | `screen.started` | Mac to phone | none | the window is open; frames may follow. The phone gives up after 5 seconds without it |
 | `screen.frame` | phone to Mac | binary, below | one part of one encoded frame |
 | `screen.ack` | Mac to phone | `frame` (1 to 2^32-1), `decodeMs` (0 to 60,000); optional `keyframe`: `true` | the newest frame the Mac has received completely and decoded (or dropped while waiting for a key frame, with `decodeMs` 0), and how long decoding took. `keyframe` asks for a key frame after a frame was lost or failed to decode (at most one a second) |
@@ -1186,7 +1214,7 @@ its minimum (at most every 500 ms), and up by 15 percent after 2 seconds without
 
 | Threat | Mitigations |
 | --- | --- |
-| The Mac watches the phone without the person knowing | Both switches are off by default. Every stream needs the person's confirmation in Android's own dialog on the phone, every time. While it runs, the phone shows a persistent "Your screen is being shared with MacBook Air" notification (the Mac's name) with Stop, and Android 15 and later add the status bar indicator. The phone stops when its screen turns off |
+| The Mac watches the phone without the person knowing | Both switches are off by default. Every video stream needs the person's confirmation in Android's own dialog on the phone, every time; only a Mac allowed without asking gets screenshots without it (unattended access), and never an agent or server. While a share runs, the phone shows a persistent "Your screen is being shared with MacBook Air" notification (the Mac's name) with Stop, and Android 15 and later add the status bar indicator to video; an unattended share also shows Bridgey control's bar "MacBook Air is viewing this phone" with Stop, which needs no notification permission. The phone stops when its screen turns off |
 | Sensitive content on screen | Android 15 and later hide one-time codes and other sensitive notification content during capture; secure windows (banking apps, passwords, FLAG_SECURE) appear black. The Mac never saves, records or forwards frames; nothing is written to disk |
 | Another device on the network watches or injects frames | Frames are AES-GCM encrypted with the session key of the authenticated, pinned peer. The per-stream sequence and the stream ID in each header reject replays and splicing between streams; the session key rejects them across sessions |
 | A flood of frames or huge frames | Parts are at most 32 KiB, frames at most 64 parts, and the Mac keeps one unfinished frame. Frames go only to a Mac whose switch is on; the Mac stops a stream with no traffic for 6 seconds |
@@ -1212,14 +1240,21 @@ it, per paired device, only while that device has a screen grant on the source:
 
 | Grant on the source | Meaning |
 | --- | --- |
-| Off | The default for every device, also after an update. The key is `false` for that device |
+| Default | No choice made for this device: it follows the source's Unattended access switch (on by default since 26 Nov), Allow without asking while it is on, Off while it is off |
+| Off | The key is `false` for that device |
 | Ask each time | Every request shows a prompt on the source ("Pixel 9 wants to see this screen", Allow and Don't allow). Nothing starts until the person at the source allows it |
-| Allow without asking | A persistent unattended grant, only for a device the person picked explicitly. Requests start without a prompt |
+| Allow without asking | A persistent unattended grant. Requests start without a prompt |
 
-Grants live in the source's own private storage (on the Mac a `0600` file in its support folder, next
-to the pairing file), separate from pairing and from settings sync. They are never synced, never sent to
-another device and bound to the device's pinned identity key: a device that pairs again with a different
-key has no grant. Forgetting a device removes its grant. Pairing alone grants nothing.
+Servers and agents (the `bridgey` command, devices paired over the tailnet until trusted) always read
+as Off, whatever the switch or a stored choice says. Raising a grant is refused while anything controls
+the source, and so is turning Unattended access on or setting a device back to Default when that raises
+it ([decision](screen-control-decision.md)).
+
+Grants and the Unattended access switch live in the source's own private storage (on the Mac a `0600`
+file in its support folder, next to the pairing file), separate from pairing and from settings sync.
+They are never synced, never sent to another device and bound to the device's pinned identity key: a
+device that pairs again with a different key has no choice of its own and reads as Default. Forgetting
+a device removes its grant. A grant file that cannot be read turns the switch off and grants nothing.
 
 Viewing and control are separate permissions. Viewing needs the screen grant above. Control additionally
 needs the source's existing remote control permission for that device (on the Mac: Remote control on,
@@ -1390,7 +1425,7 @@ whether it is controlling, and Stop. Leaving the phone's viewer stops the stream
 
 | Threat | Mitigations |
 | --- | --- |
-| A paired phone watches the Mac without the person knowing | Off by default per device. Ask each time shows a prompt for every stream; Allow without asking only for devices picked explicitly. The indicator names the viewer for the whole stream, with Stop on the Mac and the stop shortcut. Locking the Mac ends it |
+| A paired phone watches the Mac without the person knowing | Unattended access (on by default) lets the person's own paired devices watch without a prompt; it can be turned off, and each device can be set to Off or Ask each time. Servers and agents never get it. The indicator names the viewer for the whole stream, with Stop on the Mac and the stop shortcut. Locking the Mac ends it |
 | The phone answers the Mac's own prompt with remote control | While any remote control session runs, the prompt's Allow does nothing; the person stops remote control first |
 | A grant outlives its device or travels | Grants are local files bound to the pinned key, never synced or sent, removed with the device |
 | Control without consent | Control needs its own permission, the operating system's permission, a running stream and an explicit `begin`; it ends on Stop, lock, permission or grant changes |
@@ -1415,21 +1450,25 @@ while Share screen with Macs is on for that Mac and the Mac has a phone control 
 
 | Grant on the phone | Meaning |
 | --- | --- |
-| Off | The default for every Mac, also after an update. The key is `false` for that Mac |
+| Default | No choice made for this Mac: it follows the phone's Unattended access switch (on by default since 26 Nov), Allow without asking while it is on, Off while it is off |
+| Off | The key is `false` for that Mac |
 | Ask each time | Every control request shows a prompt on the phone ("MacBook Air wants to control this phone", Allow and Don't allow). Nothing is injected until the person allows it |
-| Allow without asking | A persistent unattended grant, only for a Mac the person picked explicitly. Control starts without a prompt |
+| Allow without asking | A persistent unattended grant. Control starts without a prompt, and a request to see the screen skips Bridgey's question (unattended access, "Phone screen to Mac" above) |
 
-Grants live in the phone's own private storage (a file outside Android backup), separate from pairing and
-from settings sync. They are never synced, never sent to another device and bound to the Mac's pinned
-identity key: a Mac that pairs again with a different key has no grant. Forgetting a Mac removes its grant.
-Pairing alone grants nothing, and seeing the screen never implies control. Agent devices and servers never
-get a grant, and the phone never advertises the key to them.
+Grants and the Unattended access switch live in the phone's own private storage (a file outside Android
+backup), separate from pairing and from settings sync. They are never synced, never sent to another device
+and bound to the Mac's pinned identity key: a Mac that pairs again with a different key has no choice of its
+own and reads as Default. Forgetting a Mac removes its grant. A grant file that cannot be read turns the
+switch off and grants nothing. Seeing the screen never implies control. Agent devices and servers never get a
+grant, whatever the switch says, and the phone never advertises the key to them. Raising a grant, turning
+the switch on, or setting a Mac back to Default when that raises it is refused while a Mac controls the phone.
 
-No grant bypasses Android. Each share still needs Android's capture consent, and control needs Bridgey's
-accessibility service ("Bridgey control"), which the person turns on in Android's accessibility settings.
-The service can perform gestures and global actions and, on Android 13 and later, act as an accessibility
-input method. It never reads window content (`canRetrieveWindowContent` is off), never reads accessibility
-trees, never writes the clipboard and never uses ADB.
+No grant bypasses Android. Each video share still needs Android's capture consent, and control needs
+Bridgey's accessibility service ("Bridgey control"), which the person turns on in Android's accessibility
+settings. The service can perform gestures and global actions, on Android 13 and later act as an
+accessibility input method, and on Android 11 and later take screenshots, used only for an unattended share
+with a Mac allowed without asking. It never reads window content (`canRetrieveWindowContent` is off), never
+reads accessibility trees, never writes the clipboard and never uses ADB.
 
 Every message below goes only to a peer whose latest map shows both `screen_draft1` and `phone_control_draft1`.
 
@@ -1545,11 +1584,11 @@ Stop control.
 
 | Threat | Mitigations |
 | --- | --- |
-| A Mac controls the phone without the person knowing | Off by default per Mac. Ask each time asks on the phone for every control session; Allow without asking only for Macs picked explicitly. Control needs a share the person confirmed in Android's dialog, the accessibility service the person turned on, and an explicit `begin`. The bar and the notification name the Mac for the whole session, with Stop |
+| A Mac controls the phone without the person knowing | Unattended access (on by default) lets the person's own Macs control it without a prompt; it can be turned off, and each Mac can be set to Off or Ask each time, which asks on the phone for every control session. Agents and servers never get it. Control needs a share (one the person confirmed in Android's dialog, or an unattended screenshot share for a Mac allowed without asking), the accessibility service the person turned on, and an explicit `begin`. The bar and the notification name the Mac for the whole session, with Stop |
 | Control outlives the person's intent | Stop on the phone ends control at once; a lock ends the share; turning the grant to Off or the service off ends control; a reconnect never resumes it |
 | A grant outlives its Mac or travels | Grants are a private file outside backup, bound to the pinned key, never synced or sent, removed with the Mac; agents and servers never get one |
 | Input lands outside the picture the Mac sees | Control-capable shares capture the whole display; positions are fractions of the acknowledged geometry; a rotation blocks input until the new geometry is acknowledged; typing with another display active ends control |
-| Reading the phone | The service never reads window content or accessibility trees and never touches the clipboard; typing goes only into the focused editor |
+| Reading the phone | The service never reads window content or accessibility trees and never touches the clipboard; typing goes only into the focused editor. Its screenshots are pixels for an unattended share only, sent like video frames and never kept |
 | Replayed, spliced or flooded input | The contract binds session, transport, the connection nonce, stream and geometry; its sequence rejects replays and gaps; rate limits and a bounded queue end control rather than drop a held transition |
 | A stuck finger | Every stop, rejection that stops, geometry change and disconnect lifts held fingers where they are; late callbacks are fenced |
 

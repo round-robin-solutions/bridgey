@@ -68,7 +68,10 @@ enum class SyncKey(val key: String, val token: String, val default: Any, val val
     FOCUS_SHARE("focus.share", "focus_share", false, feature = true),
     FOCUS_FOLLOW("focus.follow", "focus_follow", false, feature = true),
     CODES("codes.enabled", "codes", false, feature = true),
-    /** Share screen with Macs here; Show phone screens on the Mac. Each share is still asked on the phone. */
+    /**
+     * Share screen with Macs here; Show phone screens on the Mac. A synced "on" never allows unattended viewing: shares
+     * are still asked on the phone until the switch is turned on here (BridgeySettings.screenOnBySync).
+     */
     SCREEN("feature.screen", "screen", false, feature = true),
     SMS("feature.sms", "sms", false, feature = true),
     /** Update all devices automatically. It follows the release channel until chosen; a synced value is a choice. */

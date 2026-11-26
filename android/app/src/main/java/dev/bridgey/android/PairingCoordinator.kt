@@ -2596,8 +2596,11 @@ class PairingCoordinator(
 
     /** What the screen share hub hears from the sessions. */
     interface ScreenListener {
-        /** A request was accepted (answered `waiting`); ask the person. */
-        fun requested(request: dev.bridgey.android.screen.ScreenRequest)
+        /**
+         * A request was accepted: ask the person (the Mac hears `waiting`, with `needs` when it is allowed without asking
+         * but cannot be shown unattended), or start an unattended share (screen.start follows, no status).
+         */
+        fun requested(request: dev.bridgey.android.screen.ScreenRequest): dev.bridgey.android.screen.ScreenAnswer
 
         /** A request ended without an answer from the person (expired, Mac gone, feature off). */
         fun requestEnded(request: dev.bridgey.android.screen.ScreenRequest)
@@ -2637,12 +2640,14 @@ class PairingCoordinator(
             is dev.bridgey.android.screen.ScreenRequestDecision.Accept -> {
                 val request = decision.request
                 diagnostics.record("remote", "screen_request", device = deviceId)
-                sendScreenStatus(deviceId, request.requestId, dev.bridgey.android.screen.ScreenStatus.WAITING)
                 scope.launch {
                     delay(dev.bridgey.android.screen.ScreenLimits.REQUEST_LIFETIME_MILLIS)
                     if (screenRequests.finish(deviceId, request.requestId)) screenListener?.requestEnded(request)
                 }
-                listener?.requested(request)
+                val answer = listener?.requested(request) ?: dev.bridgey.android.screen.ScreenAnswer.Waiting()
+                if (answer is dev.bridgey.android.screen.ScreenAnswer.Waiting) {
+                    sendScreenStatus(deviceId, request.requestId, dev.bridgey.android.screen.ScreenStatus.WAITING, answer.needs)
+                }
             }
         }
     }
@@ -2672,6 +2677,9 @@ class PairingCoordinator(
         scope.launch { sendFeatureState(current) }
     }
 
+    /** features.update to every connected device again (Unattended access changed). */
+    fun refreshFeatureStateForAll() = registry.connectedIds().forEach(::refreshFeatureState)
+
     /** Both ends show phone_control_draft1 (and screen_draft1) for [deviceId]. */
     fun phoneControlAvailable(deviceId: String): Boolean =
         !isAgent(deviceId) && isFeatureAvailable(BridgeyFeature.SCREEN, deviceId) && registry.state(deviceId)?.remotePhoneControl == true &&
@@ -2691,10 +2699,15 @@ class PairingCoordinator(
     }
 
     /** screen.status to the Mac that asked. */
-    fun sendScreenStatus(deviceId: String, requestId: String, status: dev.bridgey.android.screen.ScreenStatus): Boolean {
+    fun sendScreenStatus(
+        deviceId: String,
+        requestId: String,
+        status: dev.bridgey.android.screen.ScreenStatus,
+        needs: dev.bridgey.android.screen.ScreenNeeds? = null,
+    ): Boolean {
         val current = registry.session(deviceId) ?: return false
         if (current.pairingKey == null) return false
-        val data = dev.bridgey.android.screen.screenStatusPayload(requestId, status).toString().toByteArray(Charsets.UTF_8)
+        val data = dev.bridgey.android.screen.screenStatusPayload(requestId, status, needs).toString().toByteArray(Charsets.UTF_8)
         scope.launch { sendEncrypted(current, dev.bridgey.android.screen.ScreenKinds.STATUS, data) }
         return true
     }
@@ -5895,6 +5908,10 @@ class PairingCoordinator(
                 agents.sessionStarted(deviceId, current.agentSessionToken)
             }
             if (connectAvailable(deviceId)) sendConnectAddresses(current)
+            // An agent never sees or controls this phone: a request, a share or control with it ends now.
+            screenRequests.ended(deviceId)?.let { screenListener?.requestEnded(it) }
+            screenListener?.policy(deviceId, localOn = false, remoteOn = registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.SCREEN) == true)
+            phoneControlPolicy()
             return
         }
         if (drafts[DEVICE_PRESENCE_FEATURE_KEY] != true) {

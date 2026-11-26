@@ -32,8 +32,8 @@ v0.10 is still stabilisation, before the v1.0 protocol freeze and wider device a
 | macOS activity stream | none | The same private, local history on the Mac (see below) |
 | Remote control | planned for 0.7 | Phone as touchpad, keyboard and presentation remote for the Mac, through the draft `remote_input_draft1` (see below) |
 | Phone screen on the Mac | planned for 0.9 | View-only prototype: the Mac shows the phone's screen in a window, H.264 from MediaProjection to VideoToolbox over the session, off by default on both sides (draft `screen_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
-| Mac controls the phone | none | Off by default for every Mac: on the phone, each Mac gets Ask each time or Allow without asking, and Android's accessibility service (Bridgey control) must be on. Taps, drags, scrolling, Back, Home, Recents and, on Android 13 and later, typing, from the phone screen window (draft `phone_control_draft1`, see below) |
-| Mac screen on the phone | none | Off by default for every phone: on the Mac, each phone gets Ask each time or Allow without asking. The phone shows the chosen Mac display and, when that phone also has remote control, taps and types on it; H.264 from ScreenCaptureKit and VideoToolbox over the session (draft `screen_control_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
+| Mac controls the phone | none | Unattended access, on by default on the phone: your Macs control it without asking, never agents or servers; each Mac can be Default, Off, Ask each time or Allow without asking, and Android's accessibility service (Bridgey control) must be on. Taps, drags, scrolling, Back, Home, Recents and, on Android 13 and later, typing, from the phone screen window (draft `phone_control_draft1`, see below) |
+| Mac screen on the phone | none | Unattended access, on by default on the Mac: your phones see it without asking, never servers; each phone can be Default, Off, Ask each time or Allow without asking. The phone shows the chosen Mac display and, when that phone also has remote control, taps and types on it; H.264 from ScreenCaptureKit and VideoToolbox over the session (draft `screen_control_draft1`, see below and [screen-sharing.md](screen-sharing.md)) |
 | Files 2.0 | planned for 0.8 | Folders both ways; Mac "Phone files" window (photos and videos, recent documents, granted folders) with instant thumbnails, Quick Look, drag out and in; Android attach sheet; Mac send sheet, Tray, menu-bar drops and send optimisation; Finder metadata and transfer history (drafts `folders_draft1`, `places_draft1`, `files_browse_draft1`, `folders_receive_draft1`; see [files-browse.md](files-browse.md)) |
 | Connect away from home | none (LAN only) | On by default, one switch to turn it off (Settings > Devices > Connect away from home): paired devices reach each other off the home network, directly or through a Round Robin relay that sees only ciphertext. It keeps a connection to `connect.roundrobin.in` and uses a relay only when the same Wi-Fi is not available (draft `connect_draft1`, see [Connect anywhere](connect-anywhere.md)) |
 | Settings sync | none | On by default, one switch to turn it off (and one per device): feature switches and shared preferences stay the same on paired devices; a phone with two Macs carries changes between them. Permissions, per-device grants, pairing and folders never sync; a device that differs shows "Different on <device>" with Apply to all, and every change from another device is in the activity stream (draft `settings_sync_draft1`, see [folders-and-settings-sync.md](folders-and-settings-sync.md) 8.4) |
@@ -222,11 +222,16 @@ Recents, through the draft `phone_control_draft1` (protocol and security review 
 measurements in [screen-sharing.md](screen-sharing.md)). It uses the shared contract in
 [screen-control-core.md](screen-control-core.md) with the phone as the input host.
 
-- **Android:** Settings > Remote control > Let Macs control this phone. Each Mac is Off until you choose
-  Ask each time or Allow without asking; raising a Mac's choice is refused while a Mac controls the phone.
-  Android needs Bridgey control, an accessibility service, turned on in its accessibility settings (on
-  Android 13 and later, an APK installed from a file first needs Allow restricted settings in App info).
-  It never reads the screen. A share with a Mac that may control the phone captures the whole display.
+- **Android:** Settings > Remote control > Unattended access (on by default) and Let Macs control this
+  phone. A Mac on Default follows the switch (Allow without asking while it is on); each Mac can instead be
+  Off, Ask each time or Allow without asking. Raising a Mac's choice or turning the switch on is refused
+  while a Mac controls the phone. Agents and servers never get access. A Mac allowed without asking sees
+  the phone without Bridgey's question; with nobody to approve video it gets accessibility screenshots,
+  about 3 a second (Android 11 and later, [screen-sharing.md](screen-sharing.md)), with Use video in the
+  notification. Android needs Bridgey control, an accessibility service, turned on in its accessibility
+  settings (on Android 13 and later, an APK installed from a file first needs Allow restricted settings in
+  App info). It never reads window content. A share with a Mac that may control the phone captures the
+  whole display.
   Ask each time shows "MacBook Air wants to control this phone" with Allow and Don't allow. While a Mac
   controls the phone, a bar at the top says "MacBook Air is controlling this phone" with Stop, and the
   sharing notification has Stop control. Typing needs Android 13 or later. Not in the Play build.
@@ -242,12 +247,14 @@ The phone can show a Mac's screen, and control it when the Mac allows that, thro
 [screen-sharing.md](screen-sharing.md)). It uses the shared screen and control contract in
 [screen-control-core.md](screen-control-core.md).
 
-- **Mac:** Settings > Remote control > This Mac's screen. Each phone is Off until you choose Ask each
-  time or Allow without asking (also on Settings > Devices > the phone). Screen to share picks the
-  display. macOS asks for Screen Recording the first time you allow a phone, never because a phone
-  asked. While a phone watches, the pill at the top of the screen says "Pixel 9 is viewing this
+- **Mac:** Settings > Remote control > This Mac's screen. Unattended access is on by default: a phone on
+  Default sees this Mac without asking; each phone can instead be Off, Ask each time or Allow without
+  asking (also on Settings > Devices > the phone). Servers and agents are not listed and never get access. Screen to share picks the
+  display. macOS asks for Screen Recording when you allow a phone or turn Unattended access on in Settings,
+  never because a phone asked; until then a phone hears that Screen Recording is needed. While a phone watches, the pill at the top of the screen says "Pixel 9 is viewing this
   screen" (or "viewing and controlling") with Stop; Control-Option-Escape stops it too. Locking the
-  Mac stops it. Grants stay on this Mac: they never sync and a phone that pairs again needs a new one.
+  Mac stops it. Grants and the switch stay on this Mac: they never sync, and a phone that pairs again
+  starts on Default.
 - **Android:** Settings > Remote control > See Mac screens, then See screen on the Mac's device page.
   Control appears under the picture when the Mac allows remote control for this phone: a tap clicks
   where it lands, two fingers scroll or right-click, touch and hold drags, and Keyboard types. Stop,

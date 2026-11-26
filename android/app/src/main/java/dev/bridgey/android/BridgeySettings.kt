@@ -246,15 +246,44 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(deviceName = name)
     }
 
+    /**
+     * A switch turned on or off here. Share screen with Macs cannot be turned on while a Mac controls this phone: with
+     * Unattended access it would let a Mac on Default see the phone without asking (raisingBlocked).
+     */
     fun setGlobal(feature: BridgeyFeature, enabled: Boolean) {
+        if (!applyGlobal(feature, enabled)) return
+        if (feature == BridgeyFeature.SCREEN) preferences.edit().remove(KEY_SCREEN_ON_BY_SYNC).apply()
+    }
+
+    /**
+     * The same switch, set by settings sync from another device. Share screen with Macs turned on this way never allows
+     * unattended viewing ([screenOnBySync]): a Mac's Show phone screens is not this phone's consent.
+     */
+    fun setGlobalFromSync(feature: BridgeyFeature, enabled: Boolean) {
+        val wasOn = mutableState.value.globalFeatures[feature] == true
+        if (!applyGlobal(feature, enabled)) return
+        if (feature != BridgeyFeature.SCREEN) return
+        when {
+            !enabled -> preferences.edit().remove(KEY_SCREEN_ON_BY_SYNC).apply()
+            !wasOn -> preferences.edit().putBoolean(KEY_SCREEN_ON_BY_SYNC, true).apply()
+        }
+    }
+
+    /** Share screen with Macs is on because another device turned it on, not this phone's own choice. */
+    val screenOnBySync: Boolean get() = preferences.getBoolean(KEY_SCREEN_ON_BY_SYNC, false)
+
+    private fun applyGlobal(feature: BridgeyFeature, enabled: Boolean): Boolean {
+        if (enabled && feature == BridgeyFeature.SCREEN && mutableState.value.globalFeatures[feature] != true && raisingBlocked()) return false
         val effective = enabled && BuildGates.featureBuilt(feature)
         preferences.edit().putBoolean("global.${feature.key}", effective).apply()
         mutableState.value = mutableState.value.copy(
             globalFeatures = mutableState.value.globalFeatures + (feature to effective),
         )
+        return true
     }
 
     fun setForDevice(deviceId: String, feature: BridgeyFeature, enabled: Boolean) {
+        if (enabled && feature == BridgeyFeature.SCREEN && mutableState.value.deviceFeatures[deviceId]?.get(feature) != true && raisingBlocked()) return
         preferences.edit().putBoolean("device.$deviceId.${feature.key}", enabled).apply()
         val current = mutableState.value.deviceFeatures[deviceId].orEmpty() + (feature to enabled)
         mutableState.value = mutableState.value.copy(
@@ -646,6 +675,7 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         internal const val KEY_FOCUS_SHARE = "focus.share"
         internal const val KEY_FOCUS_FOLLOW = "focus.follow"
         private const val KEY_UPDATES_REMOTE_START = "updates.remote_start"
+        internal const val KEY_SCREEN_ON_BY_SYNC = "screen.on_by_sync"
         private const val KEY_UPDATES_AUTO_ALL = "updates.auto_all"
         private const val KEY_SMS_REPLY_AS_SMS = "sms.reply_as_sms"
         private const val KEY_DIALER_ASK_FIRST = "dialer.ask_first"

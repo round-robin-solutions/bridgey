@@ -17,15 +17,55 @@ import android.view.Surface
 import dev.bridgey.android.BridgeyLogging
 import dev.bridgey.android.LogCategory
 
+/** Where a share's pictures come from: they are drawn onto the encoder's input surface. Called on the capture thread. */
+interface ScreenFrameSource {
+    /** Frames a second the encoder is told to expect. */
+    val fps: Int
+
+    /** The encoder repeats the last frame after 100 ms without a new one, so a still screen sharpens (video only). */
+    val repeatsFrames: Boolean
+
+    /** Pictures start going to [surface], [width] by [height]. */
+    fun attach(surface: Surface, width: Int, height: Int, densityDpi: Int, handler: Handler)
+
+    /** The encoder restarted at a new size: pictures go to the new [surface] from now on. */
+    fun retarget(surface: Surface, width: Int, height: Int, densityDpi: Int)
+
+    fun release()
+}
+
+/** MediaProjection: one VirtualDisplay mirroring the screen, created once and resized onto each new surface. */
+class ProjectionFrameSource(private val projection: MediaProjection) : ScreenFrameSource {
+    override val fps: Int = ScreenRates.FPS
+    override val repeatsFrames: Boolean = true
+    private var display: VirtualDisplay? = null
+
+    override fun attach(surface: Surface, width: Int, height: Int, densityDpi: Int, handler: Handler) {
+        display = projection.createVirtualDisplay(
+            "Bridgey screen", width, height, densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, surface, null, handler,
+        )
+    }
+
+    override fun retarget(surface: Surface, width: Int, height: Int, densityDpi: Int) {
+        display?.resize(width, height, densityDpi)
+        display?.surface = surface
+    }
+
+    override fun release() {
+        runCatching { display?.release() }
+        display = null
+    }
+}
+
 /**
- * MediaProjection into a hardware H.264 encoder, feeding [stream]. Kept thin: sizes, pacing and the wire
- * live in plain classes that are tested on the JVM. The VirtualDisplay is created once; a new size (a
- * rotation, or the shared app's window changing on Android 14+) restarts only the encoder and resizes the
- * display onto its new surface. [handler] runs on the service's capture thread.
+ * A share's capture into a hardware H.264 encoder, feeding [stream]: MediaProjection ([ProjectionFrameSource]) or, with
+ * nobody to approve video, accessibility screenshots ([ScreenshotFrameSource]). Kept thin: sizes, pacing and the wire
+ * live in plain classes that are tested on the JVM. A new size (a rotation, or the shared app's window changing on
+ * Android 14+) restarts only the encoder and moves the source onto its new surface. [handler] runs on the capture thread.
  */
 class ScreenCapture(
     private val context: Context,
-    private val projection: MediaProjection,
+    private val source: ScreenFrameSource,
     private val stream: ScreenStream,
     private val handler: Handler,
     private val onFailure: (ScreenStopReason) -> Unit,
@@ -33,7 +73,7 @@ class ScreenCapture(
     private val lock = Any()
     private var codec: MediaCodec? = null
     private var surface: Surface? = null
-    private var display: VirtualDisplay? = null
+    private var attached = false
     private var drain: Thread? = null
     @Volatile private var released = false
     private var size: Pair<Int, Int>? = null
@@ -58,11 +98,8 @@ class ScreenCapture(
             codec = created.first
             surface = created.second
             size = target
-            val metrics = context.resources.displayMetrics
-            display = projection.createVirtualDisplay(
-                "Bridgey screen", target.first, target.second, metrics.densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, created.second, null, handler,
-            )
+            this.source.attach(created.second, target.first, target.second, context.resources.displayMetrics.densityDpi, handler)
+            attached = true
             startDrain(created.first)
         }
         context.getSystemService(DisplayManager::class.java)?.registerDisplayListener(displayListener, handler)
@@ -119,8 +156,7 @@ class ScreenCapture(
             codec = created.first
             surface = created.second
             size = target
-            display?.resize(target.first, target.second, context.resources.displayMetrics.densityDpi)
-            display?.surface = created.second
+            source.retarget(created.second, target.first, target.second, context.resources.displayMetrics.densityDpi)
             oldSurface?.release()
             stream.encoderRestarted()
             startDrain(created.first)
@@ -149,8 +185,8 @@ class ScreenCapture(
             context.getSystemService(DisplayManager::class.java)?.unregisterDisplayListener(displayListener)
             drain?.interrupt()
             drain = null
-            runCatching { display?.release() }
-            display = null
+            if (attached) source.release()
+            attached = false
             runCatching { codec?.stop() }
             runCatching { codec?.release() }
             codec = null
@@ -235,7 +271,7 @@ class ScreenCapture(
     private fun encoderFormat(target: Pair<Int, Int>, vbr: Boolean, optional: Boolean): MediaFormat =
         plainFormat(target).apply {
             if (vbr) setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
-            setFloat("max-fps-to-encoder", ScreenRates.FPS.toFloat())
+            setFloat("max-fps-to-encoder", source.fps.toFloat())
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
             if (optional) {
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
@@ -247,10 +283,10 @@ class ScreenCapture(
         MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, target.first, target.second).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, stream.currentBitrate.toInt())
-            setInteger(MediaFormat.KEY_FRAME_RATE, ScreenRates.FPS)
+            setInteger(MediaFormat.KEY_FRAME_RATE, source.fps)
             // Key frames come on demand (a new Mac window, a drop); the regular interval is only a safety net.
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 10)
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
+            if (source.repeatsFrames) setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
         }
 
     /** Drains [codec] on its own thread: codec config is kept and put before every key frame. */

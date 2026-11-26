@@ -202,8 +202,12 @@ struct SettingsModel {
     var cameraCopyToClipboard = false
     /// Remote control > Show phone screens (screen_draft1). Off by default.
     var phoneScreenEnabled = false
-    /// Remote control > This Mac's screen (screen_control_draft1): each phone's choice, Off when missing.
+    /// Remote control > This Mac's screen (screen_control_draft1): what each device gets now, Off when missing.
     var screenGrants: [String: MacScreenGrantMode] = [:]
+    /// Each device's own choice; a missing device is on Default (it follows Unattended access).
+    var screenGrantChoices: [String: MacScreenGrantMode] = [:]
+    /// Unattended access: devices on Default see this Mac without asking. On by default.
+    var screenUnattended = true
     var screenDisplays: [ScreenDisplayChoice] = []
     var screenDisplayID: UInt32?
     var screenRecordingAllowed = false
@@ -366,8 +370,9 @@ struct SettingsActions {
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
     var setPhoneScreen: (Bool) -> Void = { _ in }
-    /// Remote control > This Mac's screen.
-    var setScreenGrant: (String, MacScreenGrantMode) -> Void = { _, _ in }
+    /// Remote control > This Mac's screen: a device's choice, nil for Default; and Unattended access.
+    var setScreenGrant: (String, MacScreenGrantMode?) -> Void = { _, _ in }
+    var setScreenUnattended: (Bool) -> Void = { _ in }
     var setScreenDisplay: (UInt32) -> Void = { _ in }
     var openScreenRecordingSettings: () -> Void = {}
     var stopScreenShare: () -> Void = {}
@@ -1415,7 +1420,10 @@ struct DeviceCard: View {
             }
             // Granted on its own, off by default; see Settings > Remote control.
             RemoteControlGrantToggle(device: device, model: model, actions: actions)
-            MacScreenGrantRow(device: device, model: model, actions: actions)
+            // Never for a server or agent: nothing to choose.
+            if !model.restrictedDevices.contains(device.id) {
+                MacScreenGrantRow(device: device, model: model, actions: actions)
+            }
             // The same for Mac actions; see Settings > Media and actions.
             MacActionsGrantToggle(device: device, model: model, actions: actions)
             CallMediaGrantToggle(device: device, model: model, actions: actions)
@@ -2194,6 +2202,10 @@ struct LiveSettingsView: View {
         model.phoneScreenEnabled = phoneScreen.enabled
         _ = macScreen.grantsVersion
         model.screenGrants = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.map { ($0.id, macScreen.grantMode(for: $0.id)) })
+        model.screenGrantChoices = Dictionary(uniqueKeysWithValues: pairing.trustedDevices.compactMap { device in
+            macScreen.explicitGrant(for: device.id).map { (device.id, $0) }
+        })
+        model.screenUnattended = macScreen.unattended
         model.screenDisplays = macScreen.displayList.map { ScreenDisplayChoice(id: $0.id, name: $0.name) }
         model.screenDisplayID = macScreen.selectedDisplay?.id
         model.screenRecordingAllowed = macScreen.environment.captureAllowed()
@@ -2275,6 +2287,7 @@ struct LiveSettingsView: View {
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
         actions.setPhoneScreen = { phoneScreen.setEnabled($0) }
         actions.setScreenGrant = { id, mode in _ = macScreen.setGrant(mode, for: id) }
+        actions.setScreenUnattended = { _ = macScreen.setUnattended($0) }
         actions.setScreenDisplay = { macScreen.setSelectedDisplay($0) }
         actions.openScreenRecordingSettings = { NSWorkspace.shared.open(ScreenRecordingAccess.settingsURL) }
         actions.stopScreenShare = { macScreen.stopLocally() }

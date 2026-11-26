@@ -30,4 +30,8 @@
     <string name="screen_stop">Стоп</string>
     <string name="tile_screen_label">Показать экран</string>
     <string name="tile_screen_unavailable">Нет Mac</string>
+    <string name="screen_sharing_screenshots">Снимки экрана, около 3 в секунду. Нажмите «Включить видео», чтобы картинка была плавной.</string>
+    <string name="screen_use_video">Включить видео</string>
+    <string name="screen_indicator_viewing">%1$s видит этот телефон</string>
+    <string name="screen_indicator_stop_description">Остановить показ экрана на %1$s</string>
 </resources>

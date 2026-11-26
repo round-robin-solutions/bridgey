@@ -274,6 +274,36 @@ final class PhoneScreenTests: XCTestCase {
         XCTAssertEqual(presenter.stats.map(\.latencyMs), [48])
         XCTAssertEqual(screenStatsLine(presenter.stats.last), "48 ms \u{00B7} 2.1 Mb/s \u{00B7} 30 fps")
     }
+
+    /// Unattended access: nobody approved video on the phone, so it sends screenshots; the window says it is slower.
+    func testScreenshotsModeOpensTheWindowAsASlowerMode() throws {
+        let screen = make()
+        screen.receiveStart(start(["fps": 3, "bitrate": 1_500_000, "mode": "screenshots"]), from: "a", phoneName: "OnePlus 11", key: key)
+        XCTAssertEqual(presenter.stillFrames, [true])
+        screen.stopShowing("a")
+        now = now.addingTimeInterval(1)
+        screen.receiveStart(start(["streamId": "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d", "mode": "hologram"]), from: "a", phoneName: "OnePlus 11", key: key)
+        XCTAssertEqual(presenter.stillFrames, [true, false], "an unknown mode is video")
+        let model = PhoneScreenWindowModel(phoneName: "OnePlus 11", stillFrames: true)
+        model.stats = ScreenStats(streamID: streamID, sequence: 2, latencyMs: 410, rttMs: 5, bitrate: 1_500_000, sentBitrate: 600_000, fps: 3, dropped: 0)
+        XCTAssertEqual(model.line, "Slower mode \u{00B7} 410 ms \u{00B7} 0.6 Mb/s \u{00B7} 3 fps")
+        XCTAssertEqual(PhoneScreenWindowModel(phoneName: "OnePlus 11").line, screenStatsLine(nil))
+    }
+
+    /// A phone that allows this Mac without asking, but cannot share on its own, says what it needs.
+    func testWaitingSaysWhatAnUnattendedShareNeeds() throws {
+        let screen = make()
+        let id = try XCTUnwrap(screen.request(from: "a", phoneName: "OnePlus 11"))
+        screen.received(status: .waiting, requestID: id, from: "a", phoneName: "OnePlus 11", needs: .accessibility)
+        XCTAssertEqual(screen.status, "Waiting for someone on OnePlus 11. To see it unattended, turn on Bridgey control there.")
+        XCTAssertNotNil(screen.pending["a"], "still waiting")
+        screen.received(status: .waiting, requestID: id, from: "a", phoneName: "OnePlus 11", needs: .android11)
+        XCTAssertEqual(screen.status, "Waiting for someone on OnePlus 11. Seeing it unattended needs Android 11 or later.")
+        screen.received(status: .waiting, requestID: id, from: "a", phoneName: "OnePlus 11", needs: .unlock)
+        XCTAssertEqual(screen.status, "Unlock OnePlus 11 to see its screen.")
+        let status = try JSONSerialization.data(withJSONObject: ["version": 1, "requestId": id, "status": "declined", "needs": "unlock"])
+        XCTAssertNil(try XCTUnwrap(decodeScreenStatus(status)).needs, "needs only comes with waiting")
+    }
 }
 
 @MainActor
@@ -285,12 +315,15 @@ final class PhoneScreenFakePresenter: PhoneScreenPresenter {
     var stats: [ScreenStats] = []
 
     var controllable: [Bool] = []
+    var stillFrames: [Bool] = []
     var controls: [PhoneControlView] = []
 
-    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, onClose: @escaping () -> Void) -> ScreenDisplaySink? {
+    func open(deviceID: String, phoneName: String, width: Int, height: Int, controllable: Bool, stillFrames: Bool,
+              onClose: @escaping () -> Void) -> ScreenDisplaySink? {
         opened.append(deviceID)
         size = [width, height]
         self.controllable.append(controllable)
+        self.stillFrames.append(stillFrames)
         return nil
     }
 

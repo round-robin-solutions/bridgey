@@ -332,6 +332,10 @@ enum SettingsSearchRegistry {
             row("remote.accessibility", .remoteControl, L10n.text("remote.accessibility", fallback: "Accessibility access"), nil, remote + ["permission", "разрешение"]),
             row("remote.stop", .remoteControl, L10n.text("remote.stop.title", fallback: "Stop at any time"), nil, ["escape", "stop", "остановить"]),
             row("remote.devices", .remoteControl, remoteDevices, nil, remote + ["allow", "разрешить"]),
+            SettingsSearchEntry(id: "remote.displayShare.unattended", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                title: MacScreenSettings.unattendedTitle, subtitle: MacScreenSettings.unattendedDetail,
+                                keywords: screenShare + ["unattended", "without asking", "all my devices", "без вопроса", "все мои устройства"],
+                                scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
             SettingsSearchEntry(id: "remote.displayShare.display", pane: .remoteControl, section: MacScreenSettings.cardTitle,
                                 title: MacScreenSettings.displayTitle, keywords: screenShare + ["display", "monitor", "дисплей", "монитор"],
                                 scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
@@ -445,8 +449,9 @@ enum SettingsSearchRegistry {
         return entries
     }
 
-    /// The rows in a paired device's card on the Devices pane, in the card's order.
-    static func deviceRows(_ device: TrustedDeviceInfo) -> [(title: String, keywords: [String])] {
+    /// The rows in a paired device's card on the Devices pane, in the card's order. A restricted device (a server or
+    /// agent) has no screen choice.
+    static func deviceRows(_ device: TrustedDeviceInfo, restricted: Bool = false) -> [(title: String, keywords: [String])] {
         var rows: [(String, [String])] = []
         rows.append((L10n.text("health.title", fallback: "Connection health"), ["route", "latency", "relay", "соединение"]))
         for feature in BridgeyFeature.allCases where !feature.needsDeviceGrant {
@@ -455,7 +460,7 @@ enum SettingsSearchRegistry {
             if feature == .clipboard { rows.append((L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"), clipboard)) }
         }
         rows.append((L10n.text("remote.grant", fallback: "Allow remote control"), remote))
-        rows.append((MacScreenSettings.grantTitle, screenShare))
+        if !restricted { rows.append((MacScreenSettings.grantTitle, screenShare)) }
         rows.append((L10n.text("actions.grant", fallback: "Allow Mac actions"), featureWords(.macActions)))
         rows.append((L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"), featureWords(.callQuiet)))
         rows.append((L10n.text("settings.sync.device", fallback: "Sync settings with this device"), sync))
@@ -499,7 +504,7 @@ enum SettingsSearchRegistry {
         for device in model.trustedDevices {
             out.append(SettingsSearchEntry(id: "device.\(device.id)", pane: .devices, title: device.name, subtitle: permissions,
                                            keywords: ["device", "permissions", "устройство", "разрешения"] + forget, scope: device.id))
-            for (index, row) in deviceRows(device).enumerated() {
+            for (index, row) in deviceRows(device, restricted: model.restrictedDevices.contains(device.id)).enumerated() {
                 out.append(SettingsSearchEntry(id: "device.\(device.id).\(index)", pane: .devices, section: permissions, title: row.title,
                                                keywords: row.keywords + [device.name], scope: device.id, group: device.name))
             }
@@ -520,9 +525,11 @@ enum SettingsSearchRegistry {
             out.append(SettingsSearchEntry(id: "remote.device.\(device.id)", pane: .remoteControl,
                                            section: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"),
                                            title: device.name, keywords: remote + ["allow", "разрешить"]))
-            out.append(SettingsSearchEntry(id: "display.device.\(device.id)", pane: .remoteControl, section: MacScreenSettings.cardTitle,
-                                           title: device.name, keywords: screenShare + ["allow", "разрешить"],
-                                           scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle))
+            if !model.restrictedDevices.contains(device.id) {
+                out.append(SettingsSearchEntry(id: "display.device.\(device.id)", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                               title: device.name, keywords: screenShare + ["allow", "разрешить"],
+                                               scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle))
+            }
             // Calls window: each phone's permission, drawn while the window is on (a Mac or restricted device is not listed).
             if model.globalFeatures[.dialer] == true, !model.restrictedDevices.contains(device.id), !model.macDevices.contains(device.id) {
                 out.append(SettingsSearchEntry(id: "calls.device.\(device.id)", pane: .calls, section: BridgeyFeature.dialer.title,

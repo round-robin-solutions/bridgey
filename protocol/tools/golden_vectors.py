@@ -573,12 +573,20 @@ sq("over 512 bytes", sized('{"version":1,"requestId":"%s","pad":"' % R1, 513), "
 sq("lenient JSON", "{version:1,requestId:'%s'}" % R1, "reject", raw=True)
 
 scstat = []
-def ss(name, p, expect, raw=False, android=None):
+def ss(name, p, expect, raw=False, android=None, needs=None):
     v = {"name":name, ("plaintextString" if raw else "plaintext"):p, "expect":expect}
     if android: v["android"] = android
+    if needs: v["androidNeeds"] = needs
     scstat.append(v)
 for status in ["waiting","declined","busy","disabled","failed"]:
     ss(status, {"version":1,"requestId":R1,"status":status}, {"requestId":R1,"status":status}, android=status)
+# Unattended access (26 Nov): a Mac allowed without asking waits because the phone cannot share on its own.
+for needs in ["accessibility","android_11","unlock"]:
+    ss("waiting, needs " + needs, {"version":1,"requestId":R1,"status":"waiting","needs":needs},
+       {"requestId":R1,"status":"waiting","needs":needs}, android="waiting", needs=needs)
+ss("an unknown needs is ignored", {"version":1,"requestId":R1,"status":"waiting","needs":"coffee"}, {"requestId":R1,"status":"waiting"})
+ss("needs as a number is ignored", {"version":1,"requestId":R1,"status":"waiting","needs":3}, {"requestId":R1,"status":"waiting"})
+ss("needs with another status is ignored", {"version":1,"requestId":R1,"status":"declined","needs":"unlock"}, {"requestId":R1,"status":"declined"})
 ss("unknown status", {"version":1,"requestId":R1,"status":"opened"}, "reject")
 ss("status missing", {"version":1,"requestId":R1}, "reject")
 ss("requestId not a UUID", {"version":1,"requestId":"x","status":"waiting"}, "reject")
@@ -607,6 +615,12 @@ sm("start with an uppercase stream ID reads lowercased", "screen.start", {**star
 sm("start at the smallest size and rate", "screen.start", {**start, "width":16,"height":16,"fps":1,"bitrate":100000}, sx(width=16,height=16,fps=1,bitrate=100000), "mac")
 sm("start at the largest size and rate", "screen.start", {**start, "width":4096,"height":4096,"fps":60,"bitrate":50000000}, sx(width=4096,height=4096,fps=60,bitrate=50000000), "mac")
 sm("start with unknown fields", "screen.start", {**start, "hdr":True}, sx(), "mac")
+# Unattended access (26 Nov): nobody approved video on the phone, so it sends accessibility screenshots, about 3 a second.
+sm("start in screenshots mode", "screen.start", {**start, "fps":3, "bitrate":1500000, "mode":"screenshots"},
+   sx(fps=3, bitrate=1500000, mode="screenshots"), "mac", android=True)
+sm("start with mode video", "screen.start", {**start, "mode":"video"}, sx(), "mac")
+sm("start with an unknown mode reads as video", "screen.start", {**start, "mode":"hologram"}, sx(), "mac")
+sm("start with mode as a number reads as video", "screen.start", {**start, "mode":2}, sx(), "mac")
 sm("start with codec h265", "screen.start", {**start, "codec":"h265"}, "reject", "mac")
 sm("start with an odd width", "screen.start", {**start, "width":721}, "reject", "mac")
 sm("start with width 4098", "screen.start", {**start, "width":4098}, "reject", "mac")

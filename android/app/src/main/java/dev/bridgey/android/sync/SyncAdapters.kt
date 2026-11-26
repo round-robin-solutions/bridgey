@@ -111,7 +111,7 @@ fun phoneSyncedSettings(
             else -> { { false } }
         }
         result[key] = switch(
-            key.token, { state().globalFeatures[feature] != false }, { settings.setGlobal(feature, it) }, waiting,
+            key.token, { state().globalFeatures[feature] != false }, { settings.setGlobalFromSync(feature, it) }, waiting,
             stored = { settings.hasStored("global.${feature.key}") },
         )
     }

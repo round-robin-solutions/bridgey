@@ -178,15 +178,21 @@ final class BridgeySettings: ObservableObject {
 
     func isAgent(_ deviceID: String?) -> Bool { deviceID.map(agentDevices.contains) ?? false }
 
+    /// A device became restricted or stopped being restricted: whatever depends on it re-checks at once (a stream of
+    /// this Mac's screen to a device just marked as a server ends).
+    var onAgentsChange: (_ deviceID: String) -> Void = { _ in }
+
     func markAgent(_ deviceID: String) {
         guard !agentDevices.contains(deviceID) else { return }
         agentDevices.insert(deviceID)
         defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey)
+        onAgentsChange(deviceID)
     }
 
     func unmarkAgent(_ deviceID: String) {
         guard agentDevices.remove(deviceID) != nil else { return }
         defaults.set(Array(agentDevices).sorted(), forKey: Self.agentDevicesKey)
+        onAgentsChange(deviceID)
     }
 
     init(defaults storedDefaults: UserDefaults = .standard) {
