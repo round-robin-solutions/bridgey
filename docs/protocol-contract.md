@@ -160,7 +160,7 @@ the tables at the end of this page are generated from it with
 
 <!-- BEGIN GENERATED: protocol/tools/contract.py --write -->
 
-Proposed v1 statuses ([protocol-v1.md](protocol-v1.md), not frozen yet): feature keys 5 core, 29 extension, 12 draft; message kinds 30 core, 130 extension, 42 draft.
+Proposed v1 statuses ([protocol-v1.md](protocol-v1.md), not frozen yet): feature keys 6 core, 28 extension, 12 draft; message kinds 30 core, 130 extension, 42 draft.
 
 ### Feature keys
 
@@ -191,7 +191,7 @@ Proposed v1 statuses ([protocol-v1.md](protocol-v1.md), not frozen yet): feature
 | `screen_draft1` | edition-draft | draft | no | false |
 | `screen_control_draft1` | edition-draft | draft | no | false |
 | `phone_control_draft1` | edition-draft | draft | no | false |
-| `files_fast_draft1` | edition-draft | extension | no | false |
+| `files_fast_draft1` | edition-draft | core | no | false |
 | `files_resume_draft1` | edition-draft | draft | no | false |
 | `sms_draft1` | edition-draft | extension | no | false |
 | `settings_sync_draft1` | edition-draft | extension | no | false |

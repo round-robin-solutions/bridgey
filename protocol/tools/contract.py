@@ -89,8 +89,11 @@ def v1_problems(contract):
         v1 = f.get("v1")
         if v1 not in V1_STATUSES:
             problems.append(f"feature {f['key']}: v1 must be one of {', '.join(V1_STATUSES)}")
-        elif f["requiredInMap"] != (v1 == "core"):
-            problems.append(f"feature {f['key']}: the keys every map must carry are exactly the core keys")
+        elif f["requiredInMap"] and v1 != "core":
+            problems.append(f"feature {f['key']}: a key every map must carry is v1 core")
+        elif v1 == "core" and not f["requiredInMap"] and f.get("missingMeans") != "false":
+            # Core for every v1 build but absent from upstream and pre-v1 maps (files_fast_draft1): missing means false.
+            problems.append(f"feature {f['key']}: a core key that maps may omit must read missing as false")
     drafts = [k for k, f in features.items() if f.get("v1") == "draft"]
     for m in contract["messages"]:
         kind, v1 = m["kind"], m.get("v1")
@@ -105,7 +108,11 @@ def v1_problems(contract):
                 problems.append(f"{kind}: a kind without a feature key is a session message, v1 core")
             elif _V1_RANK[v1] < ceiling:
                 problems.append(f"{kind}: v1 {v1} is more frozen than its feature key")
-            elif keys and _V1_RANK[v1] != ceiling and v1 != "draft":
+            elif keys and _V1_RANK[v1] != ceiling and v1 != "draft" and not (
+                v1 == "extension" and all(features[k].get("v1") == "core" and not features[k]["requiredInMap"] for k in keys)
+            ):
+                # Under a core key that maps may omit (files_fast_draft1) a kind may stay an optional extension, as the
+                # speed test does; under the keys every map must carry it may not.
                 problems.append(f"{kind}: v1 {v1} differs from its feature key")
         if m["status"] == "designed" and v1 != "draft":
             problems.append(f"{kind}: designed kinds are v1 draft")
