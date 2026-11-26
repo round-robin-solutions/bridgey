@@ -323,6 +323,7 @@ class BridgeyApplication : Application() {
             clock = android.os.SystemClock::elapsedRealtime,
             touchSlop = android.view.ViewConfiguration.get(this).scaledTouchSlop.toDouble(),
         )
+        settings.raisingBlocked = { phoneControlOrNull?.controllingNow == true }
         pairing.phoneControlAdvertised = { id -> phoneControlOrNull?.advertised(id) == true }
         pairing.phoneControlForget = { id -> phoneControlOrNull?.forget(id) }
         pairing.phoneControlPolicy = ::phoneControlChanged

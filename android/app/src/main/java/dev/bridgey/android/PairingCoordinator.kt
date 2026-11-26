@@ -631,6 +631,7 @@ class PairingCoordinator(
         scope, transferPower,
         linkFor = { id -> registry.session(id)?.takeIf { it.pairingKey != null && it.fastTransfers }?.let { SessionSpeedLink(it) } },
         nameOf = { id -> registry.session(id)?.peerName ?: trust.trustedDevices.value.firstOrNull { it.id == id }?.name ?: "Mac" },
+        allowIncoming = { id -> registry.session(id)?.let { featureEnabled(BridgeyFeature.FILES, it) } == true },
     )
 
     private val outgoingFileJobs = ConcurrentHashMap<String, Job>()

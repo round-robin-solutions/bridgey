@@ -380,7 +380,15 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
         mutableState.value = mutableState.value.copy(focusShare = enabled)
     }
 
+    /**
+     * True while a Mac controls this phone (phone_control_draft1). The switches that let other devices in later (browse
+     * this phone, change files here, start updates here) cannot be turned on meanwhile, as the phone control grants
+     * cannot be raised: the controlling Mac could otherwise allow itself (security review 1.0). Turning them off works.
+     */
+    @Volatile var raisingBlocked: () -> Boolean = { false }
+
     fun setUpdatesRemoteStart(enabled: Boolean) {
+        if (enabled && raisingBlocked()) return
         preferences.edit().putBoolean(KEY_UPDATES_REMOTE_START, enabled).apply()
         mutableState.value = mutableState.value.copy(updatesRemoteStart = enabled)
     }
@@ -486,11 +494,13 @@ class BridgeySettings(context: Context, defaultDeviceName: String, private val d
     }
 
     fun setAllowReplaceFromOtherDevices(enabled: Boolean) {
+        if (enabled && raisingBlocked()) return
         preferences.edit().putBoolean(KEY_FOLDER_ALLOW_REPLACE, enabled).apply()
         mutableState.value = mutableState.value.copy(allowReplaceFromOtherDevices = enabled)
     }
 
     fun setAllowBrowseFromOtherDevices(enabled: Boolean) {
+        if (enabled && raisingBlocked()) return
         preferences.edit().putBoolean(KEY_FILES_ALLOW_BROWSE, enabled).apply()
         mutableState.value = mutableState.value.copy(allowBrowseFromOtherDevices = enabled)
     }

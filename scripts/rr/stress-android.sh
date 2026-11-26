@@ -107,8 +107,10 @@ OUT=${OUT:-$WORK/out}
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
 ADB=$(command -v adb || echo "$SDK/platform-tools/adb")
 [ -x "$ADB" ] || die "adb not found"
-[ -n "$SERIAL" ] || SERIAL=$("$ADB" devices | awk 'NR > 1 && $2 == "device" { print $1; exit }')
-[ -n "$SERIAL" ] || die "no device or emulator on adb"
+# Without --serial only an emulator is picked: the run installs with every permission granted and stops the person's
+# own Bridgey, so a real phone is used only when named (security review 1.0).
+[ -n "$SERIAL" ] || SERIAL=$("$ADB" devices | awk 'NR > 1 && $2 == "device" && $1 ~ /^emulator-/ { print $1; exit }')
+[ -n "$SERIAL" ] || die "no emulator on adb (name a test device with --serial)"
 export ANDROID_SERIAL="$SERIAL"
 # Two nightly runs stalled adb itself when the app sent 1 GiB through `adb forward` (log and broadcasts went quiet,
 # the device came back later), so an emulator gets its port through the emulator instead.

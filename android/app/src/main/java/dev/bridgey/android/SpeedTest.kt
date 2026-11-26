@@ -46,6 +46,12 @@ internal object SpeedLimits {
     const val STALL_TIMEOUT_MILLIS = 5_000L
     /** Throughput counts from here on, so TCP and the window have warmed up. */
     const val WARM_UP_MILLIS = 1_000L
+    /**
+     * Tests another device may start here: at least this far apart and at most this many an hour (security review 1.0:
+     * any paired device could otherwise keep this phone sending at full speed, on mobile data or a relay too).
+     */
+    const val INCOMING_SPACING_MILLIS = 10_000L
+    const val INCOMING_PER_HOUR = 6
 }
 
 /** One device's own view of its network for this test. No names, addresses or network names. */
@@ -398,7 +404,24 @@ internal class SpeedTest(
     /** Nil when the device is not connected or does not advertise files_fast_draft1. */
     private val linkFor: (String) -> SpeedTestLink?,
     private val nameOf: (String) -> String,
+    /** A test from this device may run here: Files is on for it. */
+    private val allowIncoming: (String) -> Boolean = { true },
+    private val clock: () -> Long = SystemClock::elapsedRealtime,
 ) {
+    /** When each device last started tests here (this hour's), for [SpeedLimits.INCOMING_PER_HOUR]. */
+    private val incomingStarts = HashMap<String, ArrayDeque<Long>>()
+
+    private fun incomingAllowed(deviceId: String): Boolean {
+        val now = clock()
+        val starts = incomingStarts.getOrPut(deviceId) { ArrayDeque() }
+        while (starts.isNotEmpty() && now - starts.first() >= 3_600_000L) starts.removeFirst()
+        if (starts.size >= SpeedLimits.INCOMING_PER_HOUR) return false
+        if (starts.isNotEmpty() && now - starts.last() < SpeedLimits.INCOMING_SPACING_MILLIS) return false
+        starts.addLast(now)
+        if (incomingStarts.size > 64) incomingStarts.keys.firstOrNull { it != deviceId }?.let(incomingStarts::remove)
+        return true
+    }
+
     private val mutableState = MutableStateFlow(SpeedTestState())
     val state: StateFlow<SpeedTestState> = mutableState.asStateFlow()
 
@@ -493,8 +516,16 @@ internal class SpeedTest(
         when (payload) {
             is SpeedPayload.Start -> {
                 val link = linkFor(deviceId)
-                if (current != null || link == null) {
-                    link?.sendEncrypted(SpeedKinds.READY, SpeedPayload.Ready(payload.testId, if (current != null) "busy" else "disabled", null).encode())
+                val refusal = when {
+                    link == null -> "disabled"
+                    current != null -> "busy"
+                    !allowIncoming(deviceId) -> "disabled"
+                    !incomingAllowed(deviceId) -> "busy"
+                    else -> null
+                }
+                if (refusal != null || link == null) {
+                    // Nothing about this phone's network goes with a refusal.
+                    link?.sendEncrypted(SpeedKinds.READY, SpeedPayload.Ready(payload.testId, refusal ?: "disabled", null).encode())
                     return
                 }
                 power.acquire(HOLDER)

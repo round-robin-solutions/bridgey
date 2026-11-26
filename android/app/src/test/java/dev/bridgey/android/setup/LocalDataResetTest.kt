@@ -54,6 +54,8 @@ class LocalDataResetTest {
         ResetRoot.NO_BACKUP to "folder-sends/def.plan",
         ResetRoot.NO_BACKUP to "document-index.json",
         ResetRoot.NO_BACKUP to "connect-core-state.json",
+        // Phone control grants: only Everything (with the pairings) clears them.
+        ResetRoot.NO_BACKUP to "phone-control-grants.json",
         ResetRoot.CACHE to "diagnostics/Bridgey-Diagnostics.json",
         ResetRoot.CACHE to "updates/bridgey-610.apk",
         ResetRoot.CACHE to "perf-test/bench.bin",
