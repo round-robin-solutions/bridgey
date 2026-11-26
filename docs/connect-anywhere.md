@@ -527,7 +527,7 @@ Every frame on a new route travels inside QUIC, headers and acknowledgements inc
 | --- | --- | --- |
 | Relay (coturn or Cloudflare) | Both devices' public IP and port, timing and volume, a TURN username (`expiry:sid8.side`), QUIC packets (random connection IDs, encrypted packet numbers) | Names, device IDs, identity keys, plaintext, file names |
 | Control service | Each node's public key and IP while connected; the rendezvous IDs a node registers, and so which node keys share a pair while online; size and timing of sealed signalling; relay grants; optionally a coarse NAT class | Device names, device IDs, identity keys, candidate lists, certificate pins, any content |
-| Network observer on a relayed or direct path | Same as the relay | Same as the relay |
+| Network observer on a relayed or direct path | Same as the relay | Same as the relay (see open item C3 in `docs/security-review-1.0.md`) |
 | Peer device | Everything it is granted, as today | |
 
 ### 5.5 Keys and secrets
