@@ -23,7 +23,8 @@ final class SpeedTestIncomingTests: XCTestCase {
     private final class Host: SpeedTestHost {
         let link = Link()
         var filesOn = false
-        func speedLink(for phoneID: String) -> SpeedTestLink? { link }
+        var connected = true
+        func speedLink(for phoneID: String) -> SpeedTestLink? { connected ? link : nil }
         var speedPhones: [(id: String, name: String)] { [("phone", "Pixel"), ("other", "Pixel 2")] }
         func speedTestAllowed(from phoneID: String) -> Bool { filesOn }
     }
@@ -44,6 +45,10 @@ final class SpeedTestIncomingTests: XCTestCase {
         XCTAssertEqual(host.link.ready.last?.status, "disabled", "Files off for that phone")
         XCTAssertNil(host.link.ready.last?.link, "nothing about this Mac's network goes with a refusal")
         host.filesOn = true
+        // Starts that arrive with no session to answer on do not use up the allowance.
+        host.connected = false
+        for _ in 0..<10 { try start(test, from: "phone") }
+        host.connected = true
         try start(test, from: "phone")
         XCTAssertEqual(host.link.ready.last?.status, "ready")
         test.phoneDisconnected("phone")

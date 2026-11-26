@@ -140,13 +140,17 @@ enum FileResume {
 /// file into it; or plant a dangling link at a part's name before it is created.
 enum ReceivedPartial {
     /// Opens `url` read and write without following a link at its name; `create` makes a new file and fails when the
-    /// name exists in any form. Only a plain file of this user with no other name is taken.
+    /// name exists in any form, which already proves it is ours and fresh. A kept partial (not `create`) is taken
+    /// only as a plain file of this user with no other name. New files skip that check, so a receive folder on a
+    /// network volume that reports another owner keeps working (review of PR #67); only resuming there falls back to
+    /// starting from zero.
     static func open(_ url: URL, create: Bool) throws -> FileHandle {
         let flags = O_RDWR | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | (create ? O_CREAT | O_EXCL : 0)
         let descriptor = Darwin.open(url.path, flags, 0o600)
         guard descriptor >= 0 else { throw CocoaError(create ? .fileWriteFileExists : .fileReadNoPermission) }
         var info = stat()
-        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1, info.st_uid == geteuid() else {
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              create || (info.st_nlink == 1 && info.st_uid == geteuid()) else {
             Darwin.close(descriptor)
             throw CocoaError(.fileReadNoPermission)
         }

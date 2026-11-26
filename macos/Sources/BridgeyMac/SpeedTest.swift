@@ -502,18 +502,23 @@ final class SpeedTest: ObservableObject {
         guard let plaintext, let payload = SpeedPayload.decode(kind: kind, plaintext: plaintext) else { return }
         switch payload {
         case let .start(testId, seconds, link):
+            // A start with no link to answer on is not counted against the phone's allowance.
+            let answerLink = host?.speedLink(for: phoneID)
             var refusal: String?
-            if run != nil {
+            if answerLink == nil {
+                refusal = "disabled"
+            } else if run != nil {
                 refusal = "busy"
             } else if host?.speedTestAllowed(from: phoneID) != true {
                 refusal = "disabled"
             } else if !incomingAllowed(phoneID) {
+                // The protocol has no word for a limit; busy is the nearest, and older apps understand it.
                 refusal = "busy"
             }
-            guard refusal == nil, let reply = host?.speedLink(for: phoneID) else {
+            guard refusal == nil, let reply = answerLink else {
                 // Nothing about this Mac's network goes with a refusal.
                 if let data = SpeedPayload.ready(testId: testId, status: refusal ?? "disabled", link: nil).json {
-                    _ = host?.speedLink(for: phoneID)?.sendEncrypted(kind: SpeedKind.ready, payload: data)
+                    _ = answerLink?.sendEncrypted(kind: SpeedKind.ready, payload: data)
                 }
                 return
             }

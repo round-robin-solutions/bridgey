@@ -133,6 +133,14 @@ export async function readCapped(request, max) {
   return out;
 }
 
+const letters = (s) => s.toLowerCase().replace(/[^0-9a-z]/g, "");
+
+/** True when the code's letters and digits appear, in order and together, among the text's (case ignored). */
+export function codeInText(code, text) {
+  const wanted = letters(code);
+  return wanted.length > 0 && letters(text).includes(wanted);
+}
+
 async function limited(binding, key) {
   const out = await binding.limit({ key });
   return !out || out.success !== true;
@@ -212,8 +220,10 @@ async function handleExtract(request, env) {
   const answer = parseModelAnswer(outcome.value);
   if (!answer) return err(502, "upstream");
   const out = normalise(answer);
-  // Only a code that appears in the message as written (the apps check this too; security review 0.10 F1).
-  if (out.code !== null && !text.includes(out.code)) out.code = null;
+  // Only a code that appears in the message (security review 0.10 F1). Looser than the apps' CodeGuard, never
+  // stricter: letter case, spaces and hyphens are ignored, so "482913" counts for "482 913"; the apps then apply
+  // CodeGuard itself.
+  if (out.code !== null && !codeInText(out.code, text)) out.code = null;
   return json(200, out);
 }
 
