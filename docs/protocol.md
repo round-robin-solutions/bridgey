@@ -130,7 +130,16 @@ advertises them explicitly. Draft keys (`clipboard_files_draft1`, `remote_input_
 `sms_codes_draft1`, `email_codes_draft1`, `mac_actions_draft1`, `links_open_draft1`, `focus_sync_draft1`, `camera_draft1`, `updates_draft1`,
 `screen_draft1`, `screen_control_draft1`, `connect_draft1`, `files_fast_draft1`, `files_resume_draft1`, `lan_first_draft1`, `lan_first_draft2`, `dialer_draft1`, and for agent devices `agent_draft1`, `notify_draft1`,
 `ask_draft1`, `clipboard_request_draft1`, `agent_codes_draft1`, `agents_mirror_draft1` and `codes_detect_draft1`)
-are optional booleans described in their own sections; a missing draft key means `false`.
+are optional booleans described in their own sections; a missing draft key means `false`. Macs also send
+`handoff_takeover_draft1` (always `true`): settings sync sends the Mac-only `handoff.takeover` setting only to peers that
+show it.
+
+**How many keys.** A map carries at most 128 keys, each 1 to 64 bytes (`protocol/messages.json` lists 46, and a sender
+sends only listed keys). A receiver reads every key it knows from any map that fits in a frame, however many other keys
+it holds, and never closes the session because a map is larger: Android and the Mac look up each key they know, and
+`rust/client` reads every listed key first and keeps unknown ones, for its host app, only until it holds 128. Keys over
+64 bytes may be ignored. The vectors "a map of 128 keys is read in full" and "over 128 keys, every known key is still
+read" in `protocol-v1.json` pin this on Android, the Mac and `rust/client`; the `bridgey` command keeps the whole map.
 
 ## Pairing flow
 
@@ -422,6 +431,9 @@ the outer message. The sender answers with one of:
 | `unavailable` | the sender can no longer read it (file deleted, permission gone, read error) |
 | `disabled` | Clipboard or "Copy images and files" is off on the sender for this device |
 | `busy` | the sender already runs 4 clipboard transfers; retry shortly |
+
+A receiver reads a missing or unknown `code` as `unavailable`, so a code added later still ends the paste at once
+(Android always did; earlier Mac builds dropped such an error, so the paste failed only at its timeout).
 
 A sender may also send `clipboard.error` during a transfer (for example the file changed while
 streaming); the receiver then discards the partial data. A fetch that gets neither a transfer nor
@@ -808,7 +820,9 @@ disconnect.
 ### Calls from Mac (`calls.v1`)
 
 macOS sends `calls.request` only when both peers advertise the `calls` feature.
-Its AES-GCM encrypted JSON payload contains a single `number` string. The
+Its AES-GCM encrypted JSON payload contains a single `number` string. The number is
+always a JSON string: a number, `null` or any other type is answered `calls.rejected`
+(before v1, a phone's `org.json` read a JSON number as text; Macs have always sent a string). The
 receiver accepts only 3–15 decimal digits with an optional leading `+`; spaces,
 parentheses, dots, and hyphens may be present for display formatting and are
 removed before use. Letters, extensions, USSD strings, and other dial commands
