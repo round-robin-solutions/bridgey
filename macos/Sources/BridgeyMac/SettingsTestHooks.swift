@@ -116,7 +116,8 @@ final class SettingsTestHooks {
 
     private func snapshot(to path: String) {
         var state: [String: Any] = ["at": Date().timeIntervalSince1970, "windowShown": window?.isVisible == true,
-                                    "appActive": NSApp.isActive, "keyWindow": window?.isKeyWindow == true]
+                                    "appActive": NSApp.isActive, "keyWindow": window?.isKeyWindow == true,
+                                    "occluded": window.map { !$0.occlusionState.contains(.visible) } ?? NSNull()]
         if let window, let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
             view.cacheDisplay(in: view.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
@@ -131,6 +132,9 @@ final class SettingsTestHooks {
             let scrolls = Self.scrollViews(in: view).map { scroll -> (CGRect, NSScrollView) in
                 let frame = scroll.convert(scroll.bounds, to: view)
                 return (view.isFlipped ? frame : CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height), scroll)
+            }
+            state["scrollViews"] = scrolls.map { frame, scroll in
+                ["frame": Self.rect(frame), "scrollY": scroll.documentVisibleRect.minY, "documentHeight": scroll.documentView?.frame.height ?? 0]
             }
             if let (frame, scroll) = scrolls.filter({ $0.0.minX >= 200 }).max(by: { $0.0.width < $1.0.width }) {
                 state["paneViewport"] = Self.rect(frame)

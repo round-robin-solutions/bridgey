@@ -18,6 +18,15 @@ struct SettingsSearchEntry: Identifiable {
     var anchor: String?
     /// Only offered while this holds (the Developer pane, rows that only show in some states).
     var visible: (SettingsModel) -> Bool = { _ in true }
+    /// A row hidden until a switch is on (the Calls window's options): that switch's title, and whether the row is
+    /// drawn now. A result for it shows the switch while the row is hidden, so the jump never lands on nothing.
+    var revealedBy: (title: String, shown: (SettingsModel) -> Bool)?
+
+    /// The title to scroll to and highlight in this state: the row, or the switch that shows it.
+    func anchorTitle(in model: SettingsModel) -> String? {
+        if let revealedBy, !revealedBy.shown(model) { return revealedBy.title }
+        return anchorTitle
+    }
 
     /// The title search scrolls to, or nil to open the pane only.
     var anchorTitle: String? {
@@ -62,7 +71,7 @@ enum SettingsSearchRegistry {
     static let notifications = ["alerts", "mirror", "уведомления", "оповещения"]
     static let sms = ["sms", "texts", "mms", "смс", "сообщения"]
     static let calls = ["phone", "dial", "звонок", "вызов"]
-    static let files = ["send file", "airdrop", "share", "transfer", "folder", "файлы", "передача"]
+    static let files = ["send file", "airdrop", "share", "transfer", "transfers", "folder", "файлы", "передача", "передачи"]
     static let media = ["music", "spotify", "play", "pause", "volume", "музыка", "громкость"]
     static let browsers = ["browser", "extension", "add-on", "chrome", "edge", "firefox", "brave", "arc", "native messaging",
                            "браузер", "расширение", "дополнение"]
@@ -99,9 +108,10 @@ enum SettingsSearchRegistry {
 
     private static func row(_ id: String, _ pane: SettingsPane, section: String? = nil, _ title: String, _ subtitle: String? = nil,
                             _ keywords: [String] = [], sync: SyncKey? = nil, anchor: String? = nil,
-                            visible: @escaping (SettingsModel) -> Bool = { _ in true }) -> SettingsSearchEntry {
+                            visible: @escaping (SettingsModel) -> Bool = { _ in true },
+                            revealedBy: (title: String, shown: (SettingsModel) -> Bool)? = nil) -> SettingsSearchEntry {
         SettingsSearchEntry(id: id, pane: pane, section: section, title: title, subtitle: subtitle, keywords: keywords,
-                            syncKey: sync, anchor: anchor, visible: visible)
+                            syncKey: sync, anchor: anchor, visible: visible, revealedBy: revealedBy)
     }
 
     private static func featureWords(_ feature: BridgeyFeature) -> [String] {
@@ -139,6 +149,9 @@ enum SettingsSearchRegistry {
         let licencesCard = L10n.text("licences.title", fallback: "Licences")
         let pairCard = L10n.text("devices.pair", fallback: "Pair a new device")
         let developerOn: (SettingsModel) -> Bool = { $0.developerMenu }
+        let smsSwitch = L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac")
+        let bySms: (title: String, shown: (SettingsModel) -> Bool) = (smsSwitch, { $0.smsEnabled })
+        let byCallsWindow: (title: String, shown: (SettingsModel) -> Bool) = (BridgeyFeature.dialer.title, { $0.globalFeatures[.dialer] == true })
         let optimizing: (SettingsModel) -> Bool = { _ in
             MainActor.assumeIsolated { SendPreferences.shared.optimization.imageMode == .optimize }
         }
@@ -213,16 +226,17 @@ enum SettingsSearchRegistry {
                 activity + notifications),
 
             // Text messages
-            row("messages.switch", .messages, L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
+            row("messages.switch", .messages, smsSwitch,
                 L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
                 sms, sync: .featureSms),
             row("messages.limits", .messages, L10n.text("sms.limits", fallback: "Group conversations and pictures"),
                 L10n.text("sms.limits.detail", fallback: "You can read them here. Reply to groups and send pictures from your phone."), sms + ["group", "pictures", "группа"],
                 visible: { $0.smsEnabled }),
             row("messages.keep", .messages, section: smsCard, L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
-                L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."), sms),
+                L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."), sms,
+                revealedBy: bySms),
             row("messages.delete", .messages, section: smsCard, L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
-                L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), sms + ["clear", "удалить"]),
+                L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), sms + ["clear", "удалить"], revealedBy: bySms),
 
             // Calls
             feature(.calls, .calls, calls),
@@ -240,13 +254,13 @@ enum SettingsSearchRegistry {
             feature(.dialer, .calls, calls + ["dialer", "keypad", "contacts", "whatsapp", "клавиатура", "контакты"]),
             row("calls.window.open", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
                 L10n.text("calls.window.open", fallback: "Open the Calls window"), L10n.text("calls.window.open.detail", fallback: "Also in the menu bar panel"),
-                calls + ["dialer", "keypad", "open", "открыть"]),
+                calls + ["dialer", "keypad", "open", "открыть"], revealedBy: byCallsWindow),
             row("calls.window.sim", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
-                L10n.text("calls.window.sim", fallback: "Call from"), nil, calls + ["sim", "dual sim", "сим"]),
+                L10n.text("calls.window.sim", fallback: "Call from"), nil, calls + ["sim", "dual sim", "сим"], revealedBy: byCallsWindow),
             row("calls.window.whatsapp", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
-                L10n.text("calls.window.whatsapp", fallback: "Show WhatsApp calls"), nil, calls + ["whatsapp", "video", "видео"]),
+                L10n.text("calls.window.whatsapp", fallback: "Show WhatsApp calls"), nil, calls + ["whatsapp", "video", "видео"], revealedBy: byCallsWindow),
             row("calls.window.recents", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
-                L10n.text("calls.window.recents", fallback: "Recent calls"), nil, calls + ["history", "recent", "недавние"]),
+                L10n.text("calls.window.recents", fallback: "Recent calls"), nil, calls + ["history", "recent", "недавние"], revealedBy: byCallsWindow),
 
             // Files
             feature(.files, .files, files),
