@@ -4,6 +4,7 @@
 use crate::daemon::{not_granted, relay_name, Ask, Daemon, InviteEvent, Reply, TransferInfo, GRANTS};
 use crate::errors::CliError;
 use crate::ipc::Conn;
+use crate::payloads;
 use crate::store::Peer;
 use crate::time::now_ms;
 use serde_json::{json, Value};
@@ -53,6 +54,10 @@ fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 
 fn arg_ms(args: &Value, key: &str, default: u64) -> u64 {
     args[key].as_u64().unwrap_or(default)
+}
+
+fn usage(message: String) -> CliError {
+    CliError::new("usage", message)
 }
 
 fn device_json(p: &Peer) -> Value {
@@ -230,19 +235,13 @@ impl Daemon {
     async fn op_grants_request(&self, args: &Value) -> Result<Value, CliError> {
         let peer = self.resolve(arg_str(args, "device"))?;
         let keys: Vec<String> = args["keys"].as_array().map(|a| a.iter().filter_map(|k| k.as_str().map(str::to_string)).collect()).unwrap_or_default();
-        if keys.is_empty() || keys.len() > GRANTS.len() || keys.iter().any(|k| !GRANTS.iter().any(|g| g.0 == k)) {
-            return Err(CliError::new("usage", format!("name 1 to {} grants from: {}", GRANTS.len(), GRANTS.iter().map(|g| g.0).collect::<Vec<_>>().join(", "))));
-        }
+        let payload = payloads::grant_request(&crate::crypto::uuid4(), &keys, arg_str(args, "note")).map_err(usage)?;
         let h = self.ensure(&peer, self.connect_timeout(args)).await?;
         if self.features(&peer.device_id).get("agent_draft1") != Some(&Value::Bool(true)) {
             return Err(crate::daemon::no_agent_devices(&peer));
         }
         let mid = crate::crypto::uuid4();
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("msg:{mid}")]);
-        let mut payload = json!({"version": 1, "requestId": crate::crypto::uuid4(), "keys": keys});
-        if let Some(n) = arg_str(args, "note") {
-            payload["note"] = json!(n.chars().take(120).collect::<String>());
-        }
         let before = self.trust().peers.get(&peer.device_id).map(|p| p.grants_at).unwrap_or(0);
         h.send_json_id("agent.grant_request", &payload, &mid, None);
         next_reply(&mut rx, Duration::from_secs(10), &peer, &self.local.name()).await?;
@@ -493,12 +492,8 @@ impl Daemon {
         self.require(&peer, "notify")?;
         let id = crate::crypto::uuid4();
         let mid = crate::crypto::uuid4();
-        let mut payload = json!({"version": 1, "notifyId": id, "title": args["title"], "priority": arg_str(args, "priority").unwrap_or("normal")});
-        for k in ["body", "tag", "from"] {
-            if let Some(v) = arg_str(args, k) {
-                payload[k] = json!(v);
-            }
-        }
+        let payload = payloads::notify_post(&id, args["title"].as_str().unwrap_or(""), arg_str(args, "body"), arg_str(args, "priority").unwrap_or("normal"), arg_str(args, "tag"), arg_str(args, "from"))
+            .map_err(usage)?;
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("notify:{id}"), format!("msg:{mid}")]);
         h.send_json_id("notify.post", &payload, &mid, None);
         next_reply(&mut rx, Duration::from_secs(10), &peer, &self.local.name()).await?;
@@ -511,14 +506,11 @@ impl Daemon {
         self.require(&peer, "ask")?;
         let id = crate::crypto::uuid7();
         let timeout = arg_ms(args, "timeoutMs", 30 * 60_000).min(86_400_000);
-        let expires = now_ms() + timeout;
-        let mut payload = json!({"version": 1, "askId": id, "title": args["title"], "options": args["options"], "allowText": args["allowText"] == true,
-                                  "requireUnlock": args["requireUnlock"] == true, "expiresAt": expires});
-        for k in ["body", "textHint", "from"] {
-            if let Some(v) = arg_str(args, k) {
-                payload[k] = json!(v);
-            }
-        }
+        let now = now_ms();
+        let expires = now + timeout;
+        let text = payloads::AskText { title: args["title"].as_str().unwrap_or(""), body: arg_str(args, "body"), text_hint: arg_str(args, "textHint"), from: arg_str(args, "from") };
+        let options = args["options"].as_array().cloned().unwrap_or_default();
+        let payload = payloads::ask_request(&id, &text, &options, args["allowText"] == true, args["requireUnlock"] == true, expires, now).map_err(usage)?;
         let mid = crate::crypto::uuid4();
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("ask:{id}"), format!("msg:{mid}")]);
         self.add_ask(&id, Ask { device: peer.device_id.clone(), expires_at: expires, state: "sent".into(), answer: None });
@@ -577,7 +569,9 @@ impl Daemon {
                     if self.ask(id).is_none() {
                         self.add_ask(id, Ask { device: peer.device_id.clone(), expires_at: now_ms() + timeout.as_millis() as u64, state: "sent".into(), answer: None });
                     }
-                    h.send_json("ask.status", &json!({"version": 1, "askId": id}));
+                    if let Ok(p) = payloads::ask_ref(id) {
+                        h.send_json("ask.status", &p);
+                    }
                     asked_status = true;
                 }
             }
@@ -586,8 +580,8 @@ impl Daemon {
                 Ok(None) => {}
                 Err(_) => {
                     if args["keepOnTimeout"] != true {
-                        if let Some(h) = self.handle_for(&peer.device_id) {
-                            h.send_json("ask.cancel", &json!({"version": 1, "askId": id}));
+                        if let (Some(h), Ok(p)) = (self.handle_for(&peer.device_id), payloads::ask_ref(id)) {
+                            h.send_json("ask.cancel", &p);
                         }
                     }
                     out.event(json!({"event": "timeout", "askId": id})).await;
@@ -703,7 +697,9 @@ impl Daemon {
         let id = crate::crypto::uuid4();
         let mid = crate::crypto::uuid4();
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("cliprq:{id}"), format!("msg:{mid}")]);
-        h.send_json_id("clipboard.request", &json!({"version": 1, "requestId": id, "expiresAt": now_ms() + timeout}), &mid, None);
+        let now = now_ms();
+        let payload = payloads::clipboard_request(&id, now + timeout, now).map_err(usage)?;
+        h.send_json_id("clipboard.request", &payload, &mid, None);
         let r = next_reply(&mut rx, Duration::from_millis(timeout + 5000), &peer, &self.local.name()).await?;
         let p = r.payload.unwrap_or(Value::Null);
         match p["status"].as_str().unwrap_or("") {
@@ -725,7 +721,7 @@ impl Daemon {
         let query = crate::crypto::uuid4();
         let mid = crate::crypto::uuid4();
         let (_guard, mut rx) = self.wait_for(&peer.device_id, vec![format!("notifications:{query}"), format!("msg:{mid}")]);
-        h.send_json_id("agent.notifications.query", &json!({"version": 1, "queryId": query, "limit": limit}), &mid, None);
+        h.send_json_id("agent.notifications.query", &payloads::notifications_query(&query, limit).map_err(usage)?, &mid, None);
         let reply = next_reply(&mut rx, Duration::from_secs(10), &peer, &self.local.name()).await?;
         let payload = crate::notifications::validate_result(reply.payload.unwrap_or(Value::Null), &query, limit as usize)?;
         Ok(json!({"device": device_json(&peer), "notifications": payload["notifications"], "truncated": payload["truncated"]}))
@@ -744,20 +740,15 @@ impl Daemon {
             let id = crate::crypto::uuid4();
             let mid = crate::crypto::uuid4();
             let this_wait = deadline.saturating_sub(now_ms()).min(600_000);
-            let mut payload = json!({"version": 1, "queryId": id, "sinceMs": since, "waitMs": this_wait, "latestOnly": args["latest"] == true});
-            if let Some(s) = arg_str(args, "service") {
-                payload["service"] = json!(s);
-            }
-            if let Some(n) = newer_than {
-                payload["newerThan"] = json!(n);
-            }
+            let query = payloads::CodesQuery { service: arg_str(args, "service"), since_ms: since, newer_than, wait_ms: this_wait, latest_only: args["latest"] == true };
+            let payload = payloads::codes_query(&id, &query).map_err(usage)?;
             let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("codes:{id}"), format!("msg:{mid}")]);
             h.send_json_id("codes.query", &payload, &mid, None);
             let r = next_reply(&mut rx, Duration::from_millis(this_wait + 10_000), &peer, &self.local.name()).await;
             let r = match r {
                 Err(e) if e.code == "timeout" || e.code == "unreachable" => {
-                    if let Some(h) = self.handle_for(&peer.device_id) {
-                        h.send_json("codes.cancel", &json!({"version": 1, "queryId": id}));
+                    if let (Some(h), Ok(p)) = (self.handle_for(&peer.device_id), payloads::codes_cancel(&id)) {
+                        h.send_json("codes.cancel", &p);
                     }
                     return Err(e);
                 }

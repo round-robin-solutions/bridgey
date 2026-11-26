@@ -16,6 +16,7 @@ mod ipc;
 mod ops;
 mod notifications;
 mod paths;
+mod payloads;
 mod service;
 mod session;
 mod store;
@@ -606,10 +607,8 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             Ok((v, text))
         }
         Command::Notify { title, body, priority, tag, from } => {
-            check_len("title", &title, 1, 120)?;
-            if let Some(b) = &body {
-                check_len("body", b, 0, 1000)?;
-            }
+            // What the phone would refuse is refused here, before anything is sent.
+            payloads::notify_post(CHECK_ID, &title, body.as_deref(), &priority, tag.as_deref(), from.as_deref()).map_err(usage)?;
             let v = ctx.call("notify", json!({"title": title, "body": body, "priority": priority, "tag": tag, "from": from})).await?;
             Ok((v.clone(), format!("Posted on {}\n", v["device"]["name"].as_str().unwrap_or("the phone"))))
         }
@@ -754,13 +753,8 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
     }
 }
 
-fn check_len(name: &str, text: &str, min: usize, max: usize) -> Result<(), CliError> {
-    let n = text.chars().count();
-    if n < min || n > max {
-        return Err(usage(format!("{name} is {min} to {max} characters (got {n})")));
-    }
-    Ok(())
-}
+/// A request ID for checking a payload before the daemon writes the real one.
+const CHECK_ID: &str = "00000000-0000-4000-8000-000000000000";
 
 fn answer_text(v: &Value) -> String {
     let a = &v["answer"];
@@ -773,34 +767,19 @@ fn answer_text(v: &Value) -> String {
 }
 
 async fn ask(ctx: &Ctx, a: AskArgs) -> Result<(Value, String), CliError> {
-    check_len("title", &a.title, 1, 120)?;
-    if let Some(b) = &a.body {
-        check_len("body", b, 0, 1000)?;
-    }
     let mut options = Vec::new();
     for o in &a.options {
         let (id, label) = o.split_once('=').ok_or_else(|| usage(format!("--option {o}: use ID=LABEL")))?;
-        if id.is_empty() || id.len() > 32 || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
-            return Err(usage(format!("option ID {id}: 1 to 32 of a-z, 0-9, _ and -")));
-        }
-        check_len("option label", label, 1, 20)?;
-        if options.iter().any(|x: &Value| x["id"] == id) {
-            return Err(usage(format!("option ID {id} is used twice")));
-        }
         options.push(json!({"id": id, "label": label}));
     }
-    let max = if a.text { 2 } else { 3 };
-    if options.len() > max || (options.is_empty() && !a.text) {
-        return Err(usage(if a.text { "with --text, give at most 2 options" } else { "give 1 to 3 options (-o ID=LABEL) or --text" }));
-    }
+    let timeout = ms(&a.timeout)?;
+    // What the phone would refuse is refused here, before anything is sent.
+    let text = payloads::AskText { title: &a.title, body: a.body.as_deref(), text_hint: a.text_hint.as_deref(), from: a.from.as_deref() };
+    payloads::ask_request(CHECK_ID, &text, &options, a.text, a.require_unlock, timeout.saturating_add(1), 1).map_err(usage)?;
     if let Some(f) = &a.fail_unless {
         if !options.iter().any(|x| x["id"] == f.as_str()) {
             return Err(usage(format!("--fail-unless {f} is not one of the options")));
         }
-    }
-    let timeout = ms(&a.timeout)?;
-    if timeout > 86_400_000 {
-        return Err(usage("--timeout is at most 24h"));
     }
     let v = ctx
         .call(
@@ -960,6 +939,9 @@ async fn service_cmd(ctx: &Ctx, action: ServiceAction) -> Result<(Value, String)
         }
     }
 }
+
+#[cfg(test)]
+mod contract_tests;
 
 #[cfg(test)]
 mod command_tests {
