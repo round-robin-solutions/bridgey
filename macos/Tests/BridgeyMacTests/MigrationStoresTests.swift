@@ -222,12 +222,57 @@ final class MigrationStoresTests: XCTestCase {
         XCTAssertEqual(written["unattended"] as? Bool, true)
     }
 
-    func testABadScreenGrantIsDroppedOnItsOwn() throws {
+    /// An entry that does not decode is Off for its device whatever the device's key, never Default (which may be Allow),
+    /// and stays Off through saves; the good entry next to it is kept.
+    func testABadScreenGrantIsOffForItsDevice() throws {
         let grants = try screenGrants("screen-grants.bad-entries.json")
         XCTAssertTrue(grants.unattended)
         XCTAssertEqual(grants.explicitMode(for: F.phoneA, identityKey: F.keyA), .ask, "the good entry is kept")
-        XCTAssertNil(grants.explicitMode(for: F.phoneB, identityKey: F.keyB), "a mode this build does not know")
-        XCTAssertNil(grants.explicitMode(for: F.phoneC, identityKey: F.keyC), "a key that is not a digest")
-        XCTAssertNil(grants.explicitMode(for: F.phoneD, identityKey: F.keyA), "an entry that is not an object")
+        XCTAssertEqual(grants.explicitMode(for: F.phoneB, identityKey: F.keyB), .off, "a mode this build does not know")
+        XCTAssertEqual(grants.explicitMode(for: F.phoneC, identityKey: F.keyC), .off, "a key that is not a digest")
+        XCTAssertEqual(grants.explicitMode(for: F.phoneD, identityKey: F.keyA), .off, "an entry that is not an object")
+        XCTAssertEqual(grants.mode(for: F.phoneB, identityKey: F.keyC), .off, "whatever the device's key")
+        // A save keeps them Off; choosing again replaces one.
+        grants.set(.always, for: F.phoneA, identityKey: F.keyA)
+        grants.set(.ask, for: F.phoneC, identityKey: F.keyC)
+        let reloaded = MacScreenGrants(directory: directory)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneA, identityKey: F.keyA), .always)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneB, identityKey: F.keyB), .off)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneC, identityKey: F.keyC), .ask)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneD, identityKey: F.keyB), .off)
+        let written = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: reloaded.fileURL)) as? [String: Any])
+        let entries = try XCTUnwrap(written["grants"] as? [String: [String: String]])
+        XCTAssertEqual(entries[F.phoneB], ["mode": "off", "key": MacScreenGrants.anyKey])
+    }
+
+    /// A file that cannot be read turns the switch off, and every device ID still legible in it stays Off when the
+    /// person turns the switch back on.
+    func testAnUnreadableScreenGrantsFileKeepsItsDevicesOff() throws {
+        let truncated = #"{"grants":{"\#(F.phoneA)":{"key":"b5b687073f14e2d770eb7c73b682ca25368e213808fcb4d7d924bd8083f084e2","mode":"always"},"\#(F.phoneB)":{"ke"#
+        try Data(truncated.utf8).write(to: directory.appendingPathComponent(MacScreenGrants.fileName))
+        let grants = MacScreenGrants(directory: directory)
+        XCTAssertFalse(grants.unattended)
+        XCTAssertTrue(grants.setUnattended(true))
+        XCTAssertEqual(grants.mode(for: F.phoneA, identityKey: F.keyA), .off, "a lost Allow without asking does not come back as Allow")
+        XCTAssertEqual(grants.mode(for: F.phoneB, identityKey: F.keyB), .off)
+        XCTAssertEqual(grants.mode(for: F.phoneC, identityKey: F.keyC), .always, "a device the file never named follows the switch")
+        let reloaded = MacScreenGrants(directory: directory)
+        XCTAssertTrue(reloaded.unattended, "the save wrote a good file")
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneA, identityKey: F.keyB), .off)
+        XCTAssertEqual(reloaded.explicitMode(for: F.phoneB, identityKey: F.keyA), .off)
+        XCTAssertEqual(MacScreenGrants.salvagedDeviceIDs(Data("no ids here".utf8)), [])
+    }
+
+    /// Missing `unattended` is on (files from before it); present and not a Boolean, null included, is off.
+    func testAnUnattendedThatIsNotABooleanReadsAsOff() throws {
+        let url = directory.appendingPathComponent(MacScreenGrants.fileName)
+        let entry = #"{"\#(F.phoneA)":{"key":"b5b687073f14e2d770eb7c73b682ca25368e213808fcb4d7d924bd8083f084e2","mode":"ask"}}"#
+        for (value, expected) in [("null", false), ("\"yes\"", false), ("1", false), ("true", true), ("false", false)] {
+            try? FileManager.default.removeItem(at: url)
+            try Data(#"{"grants":\#(entry),"unattended":\#(value),"version":1}"#.utf8).write(to: url)
+            let grants = MacScreenGrants(directory: directory)
+            XCTAssertEqual(grants.unattended, expected, "unattended \(value)")
+            XCTAssertEqual(grants.explicitMode(for: F.phoneA, identityKey: F.keyA), .ask, "the rest of the file is read (\(value))")
+        }
     }
 }

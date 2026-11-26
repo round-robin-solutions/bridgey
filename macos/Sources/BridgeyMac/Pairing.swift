@@ -8016,6 +8016,9 @@ extension PairingCoordinator {
         macScreen.identityKey = { [weak self] id in self?.trustRegistry.identityKey(for: id) }
         // Servers, agents and devices paired over the tailnet until trusted: never any screen access (unattended access too).
         macScreen.isRestricted = { [weak self] id in self?.settings.isAgent(id) == true }
+        // Marked a server (its own map, or a first pairing over the tailnet) or trusted again: a stream or a prompt for it
+        // ends at once rather than running on.
+        settings.onAgentsChange = { [weak self] _ in self?.macScreen.policyChanged() }
         macScreen.peerAdvertises = { [weak self] id in self?.registry.state(for: id)?.remoteScreenControl == true }
         macScreen.controlGrant = { [weak self] id in self?.settings.isEnabled(.remoteInput, for: id) == true }
         macScreen.touchpadController = { [weak self] in self?.remoteInput.active?.deviceID }

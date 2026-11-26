@@ -153,6 +153,9 @@ final class MacScreenShare: ObservableObject {
         var counts: [String: Int] = [:]
         var rejected = 0
         var controlled = false
+        /// Started after the person allowed it on this Mac's prompt (Ask each time). A stream that started without one ends
+        /// when the device is lowered to Ask each time.
+        var prompted = false
         /// Why the last keyboard authority was not ready (focus, permission or a key this Mac never posts).
         var ineligible: DisplayControlReason?
 
@@ -310,7 +313,7 @@ final class MacScreenShare: ObservableObject {
         case .off:
             return
         case .always:
-            begin(entry)
+            begin(entry, prompted: false)
         case .ask:
             guard asking == nil else { return answer(.busy) }
             pending[deviceID] = entry
@@ -341,7 +344,7 @@ final class MacScreenShare: ObservableObject {
         guard !locked else { return answer(.locked) }
         guard stream == nil else { return answer(.busy) }
         guard environment.captureAllowed() else { return answer(.permission) }
-        begin(entry)
+        begin(entry, prompted: true)
     }
 
     /// The pending prompt, answered from a test instance's control file.
@@ -351,7 +354,8 @@ final class MacScreenShare: ObservableObject {
         consentAnswered(deviceID: entry.deviceID, requestID: entry.requestID, allowed: allowed)
     }
 
-    private func begin(_ entry: PendingRequest) {
+    /// `prompted`: the person allowed this stream on this Mac's prompt.
+    private func begin(_ entry: PendingRequest, prompted: Bool) {
         func answer(_ status: DisplayStatus) {
             _ = send(entry.deviceID, DisplayKinds.status, DisplayPayloads.status(requestID: entry.requestID, status: status))
         }
@@ -367,6 +371,7 @@ final class MacScreenShare: ObservableObject {
         let current = Stream(deviceID: entry.deviceID, deviceName: entry.deviceName, requestID: entry.requestID, viewer: entry.capabilities,
                              sender: sender, source: source, encoder: encoder, number: streamCounter, startedAt: environment.clock(),
                              display: display, geometry: geometry)
+        current.prompted = prompted
         encoder.onAccessUnit = { [weak sender] unit in sender?.encoded(unit) }
         sender.encoder = encoder
         sender.onEnded = { [weak self, weak current] reason, told in
@@ -634,7 +639,8 @@ final class MacScreenShare: ObservableObject {
         }
     }
 
-    /// Any change to grants, permissions or the lock: control re-checks its authority, a stream without a grant ends.
+    /// Any change to grants, permissions, the lock or a device becoming restricted: control re-checks its authority, a
+    /// stream without a grant ends, and so does one that started without a prompt when its device is now Ask each time.
     func policyChanged() {
         for (deviceID, entry) in pending where grantMode(for: deviceID) == .off {
             pending.removeValue(forKey: deviceID)
@@ -643,7 +649,8 @@ final class MacScreenShare: ObservableObject {
             _ = send(deviceID, DisplayKinds.status, DisplayPayloads.status(requestID: entry.requestID, status: .disabled))
         }
         guard let current = stream else { return }
-        if grantMode(for: current.deviceID) == .off {
+        let mode = grantMode(for: current.deviceID)
+        if mode == .off || (mode == .ask && !current.prompted) {
             endStream(current, reason: .disabled, tell: true)
             return
         }

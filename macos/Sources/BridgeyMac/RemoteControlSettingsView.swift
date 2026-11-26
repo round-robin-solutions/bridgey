@@ -284,8 +284,11 @@ enum MacScreenSettings {
     }
     static var defaultTitle: String { L10n.text("display.grant.default", fallback: "Default") }
 
-    /// The menu's value: Default for a device without a choice of its own, else its choice.
-    static func choiceTitle(_ choice: MacScreenGrantMode?) -> String { choice.map(modeTitle) ?? defaultTitle }
+    /// The menu's value: the device's own choice, or "Default (Allow without asking)" with what Default gives it now.
+    static func choiceTitle(_ choice: MacScreenGrantMode?, now effective: MacScreenGrantMode) -> String {
+        if let choice { return modeTitle(choice) }
+        return String(format: L10n.text("display.grant.defaultValue", fallback: "Default (%@)"), modeTitle(effective))
+    }
 
     /// The devices the card lists: every paired device but servers and agents.
     static func devices(_ model: SettingsModel) -> [TrustedDeviceInfo] {
@@ -373,9 +376,10 @@ struct MacScreenGrantRow: View {
 
     var body: some View {
         let choice = model.screenGrantChoices[device.id]
+        let now: MacScreenGrantMode = model.screenGrants[device.id] ?? (model.screenUnattended ? .always : .off)
         let warning = MacScreenSettings.note(device: device, model: model)
         SettingsRow(title: title ?? MacScreenSettings.grantTitle, subtitle: warning, subtitleIsWarning: warning != nil, divider: divider) {
-            ChoiceButton(value: MacScreenSettings.choiceTitle(choice)) {
+            ChoiceButton(value: MacScreenSettings.choiceTitle(choice, now: now)) {
                 [PopUpMenuItem(title: MacScreenSettings.defaultTitle, checked: choice == nil) { actions.setScreenGrant(device.id, nil) }]
                     + MacScreenGrantMode.allCases.map { mode in
                         PopUpMenuItem(title: MacScreenSettings.modeTitle(mode), checked: choice == mode) { actions.setScreenGrant(device.id, mode) }

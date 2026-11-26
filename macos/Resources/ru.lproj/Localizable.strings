@@ -1933,6 +1933,7 @@
 "display.grant.ask" = "Спрашивать каждый раз";
 "display.grant.always" = "Разрешать без вопроса";
 "display.grant.default" = "По умолчанию";
+"display.grant.defaultValue" = "По умолчанию (%@)";
 "display.unattended.title" = "Неконтролируемый доступ";
 "display.unattended.detail" = "Устройства с вариантом «По умолчанию» видят экран этого Mac без вопроса. Серверам и агентам это недоступно.";
 "display.grant.phoneOff" = "Включите «Видеть экраны Mac» в Bridgey на %@";

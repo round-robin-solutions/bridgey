@@ -432,6 +432,68 @@ final class MacScreenShareTests: XCTestCase {
         XCTAssertTrue(share.setGrant(.ask, for: phone), "lowering works while controlled")
     }
 
+    /// A device marked as a server mid-stream (its own map, or a first pairing over the tailnet): the stream ends, and so
+    /// does a prompt waiting for an answer.
+    func testADeviceThatBecomesRestrictedLosesItsStreamAndPrompt() {
+        make(unattended: true)
+        share.receiveRequest(requestData(), from: phone, deviceName: "Pixel 9")
+        viewer(DisplayKinds.started, [:])
+        restricted = [phone]
+        share.policyChanged()
+        XCTAssertNil(share.stream)
+        XCTAssertEqual(link.last(DisplayKinds.stop)?["reason"] as? String, "disabled")
+        restricted = []
+        XCTAssertTrue(share.setGrant(.ask, for: phone))
+        now += 4
+        share.receiveRequest(requestData(), from: phone, deviceName: "Pixel 9")
+        XCTAssertEqual(consent.asked, "Pixel 9")
+        restricted = [phone]
+        share.policyChanged()
+        XCTAssertNil(consent.asked, "the prompt goes")
+        XCTAssertNil(share.asking)
+        XCTAssertEqual(lastStatus(), "disabled")
+    }
+
+    /// BridgeySettings tells the coordinator when a device is marked or unmarked as a server (wired to policyChanged).
+    @MainActor
+    func testMarkingAnAgentIsAnnounced() {
+        let suite = "bridgey-agents-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = BridgeySettings(defaults: defaults)
+        var changed: [String] = []
+        settings.onAgentsChange = { changed.append($0) }
+        settings.markAgent(phone)
+        settings.markAgent(phone)
+        settings.unmarkAgent(phone)
+        settings.unmarkAgent(phone)
+        XCTAssertEqual(changed, [phone, phone], "once per real change")
+    }
+
+    /// Lowering a device to Ask each time ends a stream that started without asking; one the person allowed here stays.
+    func testLoweringToAskEndsAStreamThatWasNotAsked() {
+        make(unattended: true)
+        share.receiveRequest(requestData(), from: phone, deviceName: "Pixel 9")
+        viewer(DisplayKinds.started, [:])
+        XCTAssertTrue(share.setGrant(.ask, for: phone))
+        XCTAssertNil(share.stream, "it was never asked for")
+        XCTAssertEqual(link.last(DisplayKinds.stop)?["reason"] as? String, "disabled")
+        now += 4
+        share.receiveRequest(requestData(), from: phone, deviceName: "Pixel 9")
+        consent.answer?(true)
+        XCTAssertNotNil(share.stream)
+        XCTAssertTrue(share.setGrant(.always, for: phone))
+        XCTAssertTrue(share.setGrant(.ask, for: phone))
+        XCTAssertNotNil(share.stream, "the person allowed this one on the prompt")
+    }
+
+    func testDefaultShowsWhatItGivesNow() {
+        XCTAssertEqual(MacScreenSettings.choiceTitle(nil, now: .always), "Default (Allow without asking)")
+        XCTAssertEqual(MacScreenSettings.choiceTitle(nil, now: .off), "Default (Off)")
+        XCTAssertEqual(MacScreenSettings.choiceTitle(.ask, now: .ask), "Ask each time")
+        XCTAssertEqual(MacScreenSettings.defaultTitle, "Default")
+    }
+
     func testTurningTheSwitchOnAsksForScreenRecordingOnlyWhenMissing() {
         make(unattended: false)
         capture = true

@@ -11,6 +11,11 @@ import Foundation
  * newly paired device. The switch and the choices live in their own private file next to the pairing file (folder
  * 0700, file 0600, excluded from backups), never in settings sync, never sent to a device; forgetting a device removes
  * its choice.
+ *
+ * Reading fails closed. No file: the defaults. A stored entry that does not decode (a mode this build does not know, a
+ * key that is not a digest, not an object) becomes Off for that device whatever its key, kept through saves until the
+ * person chooses again. An `unattended` that is present but not a Boolean (null too) reads as off. A file that cannot
+ * be read at all turns the switch off, and every device ID still legible in it is stored as Off for any key.
  */
 
 enum MacScreenGrantMode: String, Codable, CaseIterable, Equatable {
@@ -41,27 +46,47 @@ final class MacScreenGrants {
     /// Unattended access while nobody chose (Rahul, 26 Nov: on by default).
     static let unattendedDefault = true
 
+    /// The key of an entry that is Off whatever the device's key (a stored entry that did not decode, or one salvaged
+    /// from an unreadable file). Not a digest, so builds before unattended access read it as Off too.
+    static let anyKey = "any"
+
     private struct Grant: Codable, Equatable {
         var mode: MacScreenGrantMode
-        /// Hex SHA-256 of the identity key the choice was made for.
+        /// Hex SHA-256 of the identity key the choice was made for, or `anyKey`.
         var key: String
+
+        /// Off for any key.
+        static let off = Grant(mode: .off, key: MacScreenGrants.anyKey)
     }
 
-    /// One stored entry: a grant that does not decode (an unknown mode, a bad key) is dropped on its own.
+    /// One stored entry: one that does not decode (an unknown mode, a key that is not a digest, not an object) is Off for
+    /// that device whatever its key.
     private struct StoredGrant: Decodable {
-        let grant: Grant?
+        let grant: Grant
 
         init(from decoder: Decoder) throws {
             let decoded = try? Grant(from: decoder)
-            grant = decoded.flatMap { MacScreenGrants.validDigest($0.key) ? $0 : nil }
+            grant = decoded.flatMap { MacScreenGrants.validDigest($0.key) ? $0 : nil } ?? .off
         }
     }
 
     private struct StoredFile: Decodable {
         var version: Int
-        /// Missing in files written before unattended access (1.0 Beta 5 to Beta 9): on.
-        var unattended: Bool?
-        var grants: [String: StoredGrant]?
+        var unattended: Bool
+        var grants: [String: StoredGrant]
+
+        enum CodingKeys: String, CodingKey { case version, unattended, grants }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            version = try container.decode(Int.self, forKey: .version)
+            // Missing in files written before unattended access (1.0 Beta 5 to Beta 9): on. Present and not a Boolean,
+            // null included: off.
+            unattended = container.contains(.unattended)
+                ? (try? container.decode(Bool.self, forKey: .unattended)) ?? false
+                : MacScreenGrants.unattendedDefault
+            grants = try container.decodeIfPresent([String: StoredGrant].self, forKey: .grants) ?? [:]
+        }
     }
 
     private struct File: Encodable {
@@ -89,9 +114,12 @@ final class MacScreenGrants {
         return unattended ? .always : .off
     }
 
-    /// The device's own choice for this identity key; nil when it has none (it follows Unattended access).
+    /// The device's own choice for this identity key; nil when it has none (it follows Unattended access). An entry for
+    /// any key (one that did not decode) is Off whatever the key.
     func explicitMode(for deviceID: String, identityKey: String?) -> MacScreenGrantMode? {
-        guard let identityKey, let grant = grants[deviceID], grant.key == Self.hex(screenIdentityDigest(identityKey)) else { return nil }
+        guard let grant = grants[deviceID] else { return nil }
+        if !Self.validDigest(grant.key) { return .off }
+        guard let identityKey, grant.key == Self.hex(screenIdentityDigest(identityKey)) else { return nil }
         return grant.mode
     }
 
@@ -135,26 +163,38 @@ final class MacScreenGrants {
     }
 
     private func load() {
+        var raw: Data?
         do {
             try PairingFile.prepareDirectory(directory)
             PairingFile.removeStaleTemporaryFiles(in: directory, for: Self.fileName)
             // No file yet: the defaults (Unattended access on, no choices).
             guard let data = try PairingFile.readIfPresent(fileURL) else { return }
+            raw = data
             let file = try JSONDecoder().decode(StoredFile.self, from: data)
-            guard file.version == 1 else { return failClosed("version \(file.version)") }
-            grants = (file.grants ?? [:]).compactMapValues(\.grant)
-            unattended = file.unattended ?? Self.unattendedDefault
+            guard file.version == 1 else { return failClosed("version \(file.version)", raw: data) }
+            grants = file.grants.mapValues(\.grant)
+            unattended = file.unattended
         } catch {
-            failClosed(String(describing: error))
+            failClosed(String(describing: error), raw: raw)
         }
     }
 
-    /// A file that exists but cannot be read grants nothing: Unattended access off and no choices, until the next save
-    /// writes a good file again.
-    private func failClosed(_ why: String) {
+    /// A file that exists but cannot be read grants nothing: Unattended access off, and every device ID still legible in
+    /// it Off for any key, so turning the switch back on does not let them in. The next save writes them.
+    private func failClosed(_ why: String, raw: Data?) {
         NSLog("SCREEN_GRANTS unreadable: %@", why)
-        grants = [:]
+        grants = Dictionary(Self.salvagedDeviceIDs(raw).map { ($0, Grant.off) }, uniquingKeysWith: { first, _ in first })
         unattended = false
+    }
+
+    /// Every UUID-shaped device ID in a file's raw text, as written.
+    static func salvagedDeviceIDs(_ raw: Data?) -> [String] {
+        guard let raw, let pattern = try? NSRegularExpression(
+            pattern: "[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}") else { return [] }
+        let text = String(decoding: raw, as: UTF8.self)
+        return pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match in
+            Range(match.range, in: text).map { String(text[$0]) }
+        }
     }
 
     @discardableResult

@@ -1933,6 +1933,7 @@
 "display.grant.ask" = "Ask each time";
 "display.grant.always" = "Allow without asking";
 "display.grant.default" = "Default";
+"display.grant.defaultValue" = "Default (%@)";
 "display.unattended.title" = "Unattended access";
 "display.unattended.detail" = "Paired devices set to Default can see this Mac without asking. Servers and agents never can.";
 "display.grant.phoneOff" = "Turn on See Mac screens in Bridgey on %@";
