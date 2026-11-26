@@ -1,9 +1,10 @@
 # Quiet media during calls
 
-Implementation in progress, 2026-11-04. This is a v0.6 extension, before later roadmap work.
-The local playback engines, transport, settings and live acceptance must all pass before this
-feature is described as shipped. Platform research is recorded in PA
-`outputs/bridgey/roadmap-run/call-media-research.md` with official source links.
+Shipped in 0.11.0-rr.1 Beta 1 (15 November 2026): [#5](https://github.com/round-robin-solutions/bridgey/pull/5)
+landed in the stacked [#20](https://github.com/round-robin-solutions/bridgey/pull/20). This is a v0.6 extension.
+Pausing, the Android media-stream fallback, the settings and the wire contract below are in every build since.
+The Mac's selective process mute still lacks native acceptance on an isolated audio host (see Acceptance).
+Platform research is recorded in PA `outputs/bridgey/roadmap-run/call-media-research.md` with official source links.
 
 ## Agreed behavior
 
@@ -135,8 +136,8 @@ Native Core Audio graph checks are quarantined after disrupting the Work Mac's s
 server. Private taps do not isolate failures in that server. Do not run audio-backed tests or
 the native probe on either daily-use Mac. Owner: Bridgey native acceptance. Ordinary CI skips
 these checks; only a dedicated isolated audio host may set `BRIDGEY_CALL_AUDIO_ISOLATED=1`.
-The backend remains unshipped until the incident is understood and isolated native acceptance
-passes. A passing model suite or skipped hardware check is not native proof.
+Until the incident is understood and isolated native acceptance passes, the selective mute stays
+unproven on real hardware; pausing does not depend on it. A passing model suite or skipped hardware check is not native proof.
 
 Meaningful checks include all three modes/restoration options, mid-call joining, notifications
 Off, per-device permission Off, overlapping calls, stale/forged/replayed/oversized state,
