@@ -194,25 +194,14 @@ struct CodesCard: View {
     private var display: CodeModelDisplay { model.codeModel }
 
     var body: some View {
-        SettingsCard(title: L10n.text("codes.title", fallback: "Codes from messages"), footnote: footnote) {
-            SettingsToggle(title: L10n.text("codes.toggle", fallback: "Show codes from text messages"),
-                           subtitle: toggleAvailable
-                               ? L10n.text("codes.toggle.detail", fallback: "\u{201C}Code 482913 from HDFC Bank\u{201D} with a Copy button. Off by default.")
-                               : L10n.text("codes.toggle.unavailable", fallback: "Not available in this build"),
-                           subtitleIsWarning: !toggleAvailable,
-                           divider: false,
-                           synced: model.syncs(.codesEnabled),
-                           isOn: model.codesEnabled || model.codesPendingSync,
-                           set: setEnabled)
-                .disabled(!toggleAvailable && !model.codesEnabled)
+        FeatureCard(card: .codes,
+                    detail: toggleAvailable ? nil : L10n.text("codes.toggle.unavailable", fallback: "Not available in this build"),
+                    toggle: CardToggle(title: L10n.text("codes.toggle", fallback: "Show codes from text messages"),
+                                       isOn: model.codesEnabled || model.codesPendingSync, synced: model.syncs(.codesEnabled),
+                                       enabled: toggleAvailable || model.codesEnabled, set: setEnabled),
+                    footnote: footnote) {
             // Turned on from another device: Allow runs this card's own consent step (cloud question or model download).
             SyncStatusLine(key: .codesEnabled, model: model, actions: actions, allow: { setEnabled(true) })
-            // Mail previews are always read by the model here, whichever engine reads text messages.
-            SettingsToggle(title: L10n.text("codes.email", fallback: "Also read codes in email"),
-                           subtitle: L10n.text("codes.email.detail", fallback: "Gmail, Outlook, Proton Mail and Spark on your phone. Read on this Mac only, even when Cloud reads texts."),
-                           synced: model.syncs(.codesEmail), isOn: model.codesEmail, set: actions.setCodesEmail)
-                .disabled(!model.codesEnabled)
-            SyncStatusLine(key: .codesEmail, model: model, actions: actions)
             CodeEngineChoice(selected: model.codesEngine, cloudAvailable: model.codesAvailable, localAvailable: display.available,
                              size: display.size, select: selectEngine)
                 .settingsSearchAnchor(L10n.text("codes.engine", fallback: "Read codes"))
@@ -225,6 +214,13 @@ struct CodesCard: View {
                            subtitle: L10n.text("codes.autoCopy.detail", fallback: "Only while you are using this Mac. Any app can read the clipboard, so this is off by default."),
                            isOn: model.codesAutoCopy, set: actions.setCodesAutoCopy)
                 .disabled(!model.codesEnabled)
+        } more: {
+            // Mail previews are always read by the model here, whichever engine reads text messages.
+            SettingsToggle(title: L10n.text("codes.email", fallback: "Also read codes in email"),
+                           subtitle: L10n.text("codes.email.detail", fallback: "Gmail, Outlook, Proton Mail and Spark on your phone. Read on this Mac only, even when Cloud reads texts."),
+                           synced: model.syncs(.codesEmail), isOn: model.codesEmail, set: actions.setCodesEmail)
+                .disabled(!model.codesEnabled)
+            SyncStatusLine(key: .codesEmail, model: model, actions: actions)
             SettingsRow(title: L10n.text("codes.float.title", fallback: "Keep the copy button on screen for"),
                         subtitle: L10n.text("codes.float.detail", fallback: "A small card at the top right with the code and a Copy button.")) {
                 ChoiceButton(value: model.codesFloat.title) {
@@ -241,6 +237,7 @@ struct CodesCard: View {
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                 }
             }
+            LocalAgentCodesCard(options: model.localAgentCodeOptions, unavailable: model.localAgentCodesUnavailable, set: actions.setLocalAgentCodes)
         }
         .onAppear(perform: actions.refreshCodeModel)
         .sheet(isPresented: $showsDownload) {

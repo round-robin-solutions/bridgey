@@ -6,7 +6,6 @@
 "action.dismiss" = "Dismiss";
 "action.next" = "Next";
 "action.notNow" = "Not now";
-"action.open" = "Open";
 "action.skip" = "Skip";
 "panel.review" = "See what’s new and review your setup";
 "permission.accessibility" = "Accessibility";
@@ -37,8 +36,6 @@
 "permission.without" = "Without it:";
 "permissions.manage" = "Manage";
 "permissions.note" = "Bridgey asks for each permission only when a feature needs it. Manage opens the exact page in System Settings.";
-"permissions.summary.missing" = "%d needed but not allowed";
-"permissions.summary.ok" = "What Bridgey can use on this Mac, and why";
 "permissions.title" = "Permissions";
 "permissions.why.help" = "Why Bridgey asks";
 "permissions.why.label" = "Why Bridgey asks for %@";
@@ -146,7 +143,6 @@
 "setup.left.other" = "%d steps left";
 "setup.more" = "More options";
 "setup.more.done" = "Done";
-"setup.more.eyebrow" = "Settings";
 "setup.pair.done" = "Paired with %@";
 "setup.pair.fromPhone" = "You can also start pairing on the phone while this page is open.";
 "setup.pair.next" = "Click Next to continue.";

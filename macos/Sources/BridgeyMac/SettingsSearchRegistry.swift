@@ -1,11 +1,12 @@
 import Foundation
 
 /// One row search can offer, its text already in the app's language. `title` is the row's own title, the one the
-/// row draws, so the pane can find it to scroll to and highlight (`anchor` when the row is found by another
-/// name). `scope` is the device or agent card the row sits in; `group` names that card in the breadcrumb.
+/// row draws, so the group can find it to scroll to and highlight (`anchor` when the row is found by another
+/// name). `card` is where the row lives now; `more` says it sits in that card's More options. `scope` is the device,
+/// agent or card the row is told apart by; `place` names that device or agent in the breadcrumb.
 struct SettingsSearchEntry: Identifiable {
     let id: String
-    let pane: SettingsPane
+    let card: SettingsCardID
     var section: String?
     let title: String
     var subtitle: String?
@@ -13,14 +14,18 @@ struct SettingsSearchEntry: Identifiable {
     /// The row's value syncs: found as synced and by its sync status ("waiting for permission").
     var syncKey: SyncKey?
     var scope: String?
-    var group: String?
-    /// The anchor to show when it differs from the title; "" opens the pane without a row.
+    var place: String?
+    /// The anchor to show when it differs from the title; "" opens the group without a row.
     var anchor: String?
-    /// Only offered while this holds (the Developer pane, rows that only show in some states).
+    /// Inside the card's More options: a jump opens them first.
+    var more = false
+    /// Only offered while this holds (the Developer card, rows that only show in some states).
     var visible: (SettingsModel) -> Bool = { _ in true }
     /// A row hidden until a switch is on (the Calls window's options): that switch's title, and whether the row is
     /// drawn now. A result for it shows the switch while the row is hidden, so the jump never lands on nothing.
     var revealedBy: (title: String, shown: (SettingsModel) -> Bool)?
+
+    var group: SettingsGroup { card.group }
 
     /// The title to scroll to and highlight in this state: the row, or the switch that shows it.
     func anchorTitle(in model: SettingsModel) -> String? {
@@ -28,32 +33,39 @@ struct SettingsSearchEntry: Identifiable {
         return anchorTitle
     }
 
-    /// The title search scrolls to, or nil to open the pane only.
+    /// The card whose More options to open for a jump in this state: none while the row is hidden behind its switch,
+    /// which sits in the header.
+    func expands(in model: SettingsModel) -> SettingsCardID? {
+        guard more else { return nil }
+        if let revealedBy, !revealedBy.shown(model) { return nil }
+        return card
+    }
+
+    /// The title search scrolls to, or nil to open the group only.
     var anchorTitle: String? {
         guard let anchor else { return title }
         return anchor.isEmpty ? nil : anchor
     }
 
-    /// "Notifications › Codes from messages", "Devices › OnePlus 11".
+    /// "Phone \u{203A} Codes from messages", "Sharing \u{203A} OnePlus 11".
     var breadcrumb: String {
-        var parts: [String] = []
-        if let parent = pane.parentPane { parts.append(parent.sidebarTitle) }
-        parts.append(pane.sidebarTitle)
-        if let group { parts.append(group) }
-        if let section, section != title { parts.append(section) }
+        var parts = [group.title]
+        if card != .pairedDevices, card.title != title { parts.append(card.title) }
+        if let place, place != title { parts.append(place) }
+        if let section, section != title, section != card.title, section != place { parts.append(section) }
         return parts.joined(separator: SettingsSearchRegistry.crumb)
     }
 
     var doc: SearchDoc {
-        var pages = [pane.title, pane.sidebarTitle]
-        if let parent = pane.parentPane { pages.append(parent.title) }
-        if let group { pages.append(group) }
+        var pages = [group.title, card.title]
+        if let place { pages.append(place) }
         return SearchDoc(title: title, subtitle: subtitle, section: section, page: pages.joined(separator: " "), keywords: keywords)
     }
 }
 
-/// Settings search's registry: every row on every Settings pane, kept beside the panes. The drift test
-/// (SettingsSearchTests) renders each pane and fails when a row has no entry here or an entry no longer draws.
+/// Settings search's registry: every row in every Settings group, kept beside the cards. The drift test
+/// (SettingsSearchTests) renders each group, with More options shut and open, and fails when a row has no entry
+/// here, an entry no longer draws, or an entry's `more` is wrong.
 /// Android keeps the same list (SettingsSearchRegistry.kt); keep the synonyms in step.
 enum SettingsSearchRegistry {
     /// The breadcrumb separator: a single right-pointing angle quotation mark with spaces.
@@ -101,17 +113,18 @@ enum SettingsSearchRegistry {
     /// About's version line.
     static var version: String { L10n.text("settings.search.version", fallback: "Version") }
 
-    private static func feature(_ feature: BridgeyFeature, _ pane: SettingsPane, section: String? = nil, _ keywords: [String]) -> SettingsSearchEntry {
-        SettingsSearchEntry(id: "\(pane.rawValue).\(feature.rawValue)", pane: pane, section: section, title: feature.title,
+    /// A feature's switch, in its card's header. The id keeps the pane it was first registered under.
+    private static func feature(_ feature: BridgeyFeature, _ pane: SettingsPane, _ card: SettingsCardID, section: String? = nil, _ keywords: [String]) -> SettingsSearchEntry {
+        SettingsSearchEntry(id: "\(pane.rawValue).\(feature.rawValue)", card: card, section: section, title: feature.title,
                             subtitle: feature.subtitle, keywords: keywords, syncKey: SyncKey.key(for: feature))
     }
 
-    private static func row(_ id: String, _ pane: SettingsPane, section: String? = nil, _ title: String, _ subtitle: String? = nil,
-                            _ keywords: [String] = [], sync: SyncKey? = nil, anchor: String? = nil,
+    private static func row(_ id: String, _ card: SettingsCardID, more: Bool = false, section: String? = nil, _ title: String, _ subtitle: String? = nil,
+                            _ keywords: [String] = [], sync: SyncKey? = nil, scope: String? = nil, anchor: String? = nil,
                             visible: @escaping (SettingsModel) -> Bool = { _ in true },
                             revealedBy: (title: String, shown: (SettingsModel) -> Bool)? = nil) -> SettingsSearchEntry {
-        SettingsSearchEntry(id: id, pane: pane, section: section, title: title, subtitle: subtitle, keywords: keywords,
-                            syncKey: sync, anchor: anchor, visible: visible, revealedBy: revealedBy)
+        SettingsSearchEntry(id: id, card: card, section: section, title: title, subtitle: subtitle, keywords: keywords,
+                            syncKey: sync, scope: scope, anchor: anchor, more: more, visible: visible, revealedBy: revealedBy)
     }
 
     private static func featureWords(_ feature: BridgeyFeature) -> [String] {
@@ -132,8 +145,8 @@ enum SettingsSearchRegistry {
         }
     }
 
-    /// The fixed rows, pane by pane in sidebar order, then the sub-pages (on equal scores the main pane's row is
-    /// offered first).
+    /// The fixed rows, in the order of the old panes, then the old sub-pages (on equal scores the earlier row is
+    /// offered first). Each names the card it lives in now.
     static var staticEntries: [SettingsSearchEntry] {
         let shortcutCard = L10n.text("settings.shortcut", fallback: "Keyboard shortcut")
         let codesCard = L10n.text("codes.title", fallback: "Codes from messages")
@@ -162,64 +175,64 @@ enum SettingsSearchRegistry {
             row("thisMac.connection", .thisMac, L10n.text("thisMac.connection", fallback: "Connection"), nil, ["disconnect", "connected", "отключить"]),
 
             // Devices and permissions
-            row("devices.lookAgain", .devices, L10n.text("panel.lookAgain", fallback: "Look for devices again"),
+            row("devices.lookAgain", .pair, L10n.text("panel.lookAgain", fallback: "Look for devices again"),
                 L10n.text("devices.lookAgain.detail", fallback: "Announces this Mac again and retries every paired device now"),
                 ["refresh", "discover", "retry", "найти устройства"]),
-            row("devices.away", .devices, SettingsPane.away.title,
+            row("devices.away", .away, SettingsPane.away.title,
                 L10n.text("connect.detail", fallback: "Reach your paired devices from any network. They connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account needed."),
                 ["away"]),
-            row("devices.pair", .devices, pairCard, L10n.text("devices.pair.detail", fallback: "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code."), pair),
-            row("devices.pairAddress", .devices, section: pairCard, L10n.text("devices.pair.address", fallback: "Pair by tailnet name or address"),
+            row("devices.pair", .pair, pairCard, L10n.text("devices.pair.detail", fallback: "Open Bridgey on the phone, on the same Wi-Fi as this Mac. Both screens then show the same code."), pair),
+            row("devices.pairAddress", .pair, section: pairCard, L10n.text("devices.pair.address", fallback: "Pair by tailnet name or address"),
                 L10n.text("devices.pair.address.detail", fallback: "For a device on your tailnet. Tap Allow pairing there first."), pair + ["tailnet", "ip address"]),
-            row("devices.tailscaleSetup", .devices, L10n.text("tailscale.status.notInstalled", fallback: "Set up Tailscale"),
+            row("devices.tailscaleSetup", .tailscale, L10n.text("tailscale.status.notInstalled", fallback: "Set up Tailscale"),
                 nil, tailscaleSetup, anchor: "Tailscale"),
 
             // Clipboard
-            feature(.clipboard, .clipboard, clipboard),
+            feature(.clipboard, .clipboard, .clipboard, clipboard),
             row("clipboard.auto", .clipboard, L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"),
                 L10n.text("settings.autoClipboard.detail", fallback: "Copy on one device, paste on the other."), clipboard, sync: .autoClipboard),
             row("clipboard.files", .clipboard, L10n.text("settings.clipboardFiles", fallback: "Copy images and files"),
                 L10n.text("settings.clipboardFiles.detail", fallback: "Images, videos, files and long text. Big items move when you paste."),
                 ["images", "photos", "картинки"], sync: .clipboardFiles),
-            row("clipboard.handoff", .clipboard, HandoffText.title, HandoffText.detail, ["handoff", "universal clipboard", "apple"], sync: .handoffTakeover),
-            row("clipboard.eager", .clipboard, L10n.text("settings.clipboardEager", fallback: "Send right away up to"),
+            row("clipboard.handoff", .clipboard, more: true, HandoffText.title, HandoffText.detail, ["handoff", "universal clipboard", "apple"], sync: .handoffTakeover),
+            row("clipboard.eager", .clipboard, more: true, L10n.text("settings.clipboardEager", fallback: "Send right away up to"),
                 L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant."), ["size", "limit", "mb", "размер"]),
-            row("clipboard.shortcut", .clipboard, section: shortcutCard, ShortcutAction.clipboard.displayTitle, nil, shortcut + clipboard),
+            row("clipboard.shortcut", .clipboard, more: true, section: shortcutCard, ShortcutAction.clipboard.displayTitle, nil, shortcut + clipboard),
 
-            row("notifications.presence", .notifications, L10n.text("settings.presence.share", fallback: "Share when I'm using this device"),
+            row("notifications.presence", .notifications, more: true, L10n.text("settings.presence.share", fallback: "Share when I'm using this device"),
                 L10n.text("settings.presence.detail", fallback: "Helps other devices send here. Only activity status and time since input are shared."),
                 ["share", "activity", "presence", "active device", "активность"]),
 
             // Notifications
-            feature(.notifications, .notifications, notifications),
+            feature(.notifications, .notifications, .notifications, notifications),
             row("notifications.mac", .notifications, L10n.text("settings.macNotifications", fallback: "Mac notifications"), nil,
                 notifications + ["permission", "banner", "разрешение"]),
-            row("notifications.codes", .notifications, section: codesCard, L10n.text("codes.toggle", fallback: "Show codes from text messages"),
+            row("notifications.codes", .codes, section: codesCard, L10n.text("codes.toggle", fallback: "Show codes from text messages"),
                 L10n.text("codes.toggle.detail", fallback: "\u{201C}Code 482913 from HDFC Bank\u{201D} with a Copy button. Off by default."), codes, sync: .codesEnabled),
-            row("notifications.codesEmail", .notifications, section: codesCard, L10n.text("codes.email", fallback: "Also read codes in email"),
+            row("notifications.codesEmail", .codes, more: true, section: codesCard, L10n.text("codes.email", fallback: "Also read codes in email"),
                 L10n.text("codes.email.detail", fallback: "Gmail, Outlook, Proton Mail and Spark on your phone. Read on this Mac only, even when Cloud reads texts."),
                 codes + codesEmail, sync: .codesEmail),
-            row("notifications.codesEngine", .notifications, section: codesCard, L10n.text("codes.engine", fallback: "Read codes"), nil,
+            row("notifications.codesEngine", .codes, section: codesCard, L10n.text("codes.engine", fallback: "Read codes"), nil,
                 codes + ["cloud", "on this mac", "model", "download", "gemma", "облако", "модель"]),
-            row("notifications.codesAutoCopy", .notifications, section: codesCard, L10n.text("codes.autoCopy", fallback: "Copy automatically"),
+            row("notifications.codesAutoCopy", .codes, section: codesCard, L10n.text("codes.autoCopy", fallback: "Copy automatically"),
                 L10n.text("codes.autoCopy.detail", fallback: "Only while you are using this Mac. Any app can read the clipboard, so this is off by default."), codes + clipboard),
-            row("notifications.codesFloat", .notifications, section: codesCard, L10n.text("codes.float.title", fallback: "Keep the copy button on screen for"),
+            row("notifications.codesFloat", .codes, more: true, section: codesCard, L10n.text("codes.float.title", fallback: "Keep the copy button on screen for"),
                 L10n.text("codes.float.detail", fallback: "A small card at the top right with the code and a Copy button."), codes),
-            row("notifications.localCodes", .notifications, section: LocalAgentCodesText.title, LocalAgentCodesText.toggle, nil,
+            row("notifications.localCodes", .codes, more: true, section: LocalAgentCodesText.title, LocalAgentCodesText.toggle, nil,
                 codes + ["agent", "local", "socket", "otp"]),
-            row("notifications.localCodesLifetime", .notifications, section: LocalAgentCodesText.title, LocalAgentCodesText.lifetime, nil,
+            row("notifications.localCodesLifetime", .codes, more: true, section: LocalAgentCodesText.title, LocalAgentCodesText.lifetime, nil,
                 codes + ["expiry", "minutes", "duration"]),
-            row("notifications.localCodesBlocked", .notifications, section: LocalAgentCodesText.title, LocalAgentCodesText.blocked, nil,
+            row("notifications.localCodesBlocked", .codes, more: true, section: LocalAgentCodesText.title, LocalAgentCodesText.blocked, nil,
                 codes + ["bank", "payment", "blocklist"]),
-            row("notifications.codesAccess", .notifications, section: codesCard, L10n.text("codes.access", fallback: "Code access"), nil,
+            row("notifications.codesAccess", .codes, more: true, section: codesCard, L10n.text("codes.access", fallback: "Code access"), nil,
                 codes + ["bluetooth", "link this phone", "companion"]),
-            row("notifications.focusShare", .notifications, section: focusCard, L10n.text("focus.share", fallback: "Share Focus with phones"),
+            row("notifications.focusShare", .focus, section: focusCard, L10n.text("focus.share", fallback: "Share Focus with phones"),
                 L10n.text("focus.share.detail", fallback: "Phones that follow this Mac turn on Do Not Disturb with your Focus"), focus, sync: .focusShare),
-            row("notifications.focusFollow", .notifications, section: focusCard, L10n.text("focus.follow", fallback: "Follow the phone\u{2019}s Do Not Disturb"),
+            row("notifications.focusFollow", .focus, section: focusCard, L10n.text("focus.follow", fallback: "Follow the phone\u{2019}s Do Not Disturb"),
                 L10n.text("focus.follow.detail", fallback: "Runs your Shortcut when Do Not Disturb turns on or off on a phone that shares it"), focus, sync: .focusFollow),
-            row("notifications.focusOn", .notifications, section: focusCard, L10n.text("focus.follow.on", fallback: "When it turns on, run"), nil,
+            row("notifications.focusOn", .focus, section: focusCard, L10n.text("focus.follow.on", fallback: "When it turns on, run"), nil,
                 focus + shortcut, visible: { $0.focusSync.follow }),
-            row("notifications.focusOff", .notifications, section: focusCard, L10n.text("focus.follow.off", fallback: "When it turns off, run"), nil,
+            row("notifications.focusOff", .focus, section: focusCard, L10n.text("focus.follow.off", fallback: "When it turns off, run"), nil,
                 focus + shortcut, visible: { $0.focusSync.follow }),
             row("notifications.history", .notifications, section: historyCard, L10n.text("settings.history.toggle", fallback: "Keep a private local history"),
                 L10n.text("settings.history.detail", fallback: "Off by default. Keeps at most 200 notifications, with their text, for 7 days on this Mac. Turning it off deletes the history."),
@@ -232,190 +245,190 @@ enum SettingsSearchRegistry {
             row("messages.limits", .messages, L10n.text("sms.limits", fallback: "Group conversations and pictures"),
                 L10n.text("sms.limits.detail", fallback: "You can read them here. Reply to groups and send pictures from your phone."), sms + ["group", "pictures", "группа"],
                 visible: { $0.smsEnabled }),
-            row("messages.keep", .messages, section: smsCard, L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
+            row("messages.keep", .messages, more: true, section: smsCard, L10n.text("sms.keep", fallback: "Keep conversations on this Mac"),
                 L10n.text("sms.keep.detail", fallback: "Up to 200 conversations, readable only by your account, so they open instantly. Off: they load from the phone each time. Images are never kept."), sms,
                 revealedBy: bySms),
-            row("messages.delete", .messages, section: smsCard, L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
+            row("messages.delete", .messages, more: true, section: smsCard, L10n.text("sms.delete", fallback: "Delete messages on this Mac"),
                 L10n.text("sms.delete.detail", fallback: "Your phone keeps every message."), sms + ["clear", "удалить"], revealedBy: bySms),
 
             // Calls
-            feature(.calls, .calls, calls),
-            row("calls.phoneLinks", .calls, L10n.text("settings.phoneLinks", fallback: "Phone links"),
+            feature(.calls, .calls, .calls, calls),
+            row("calls.phoneLinks", .calls, more: true, L10n.text("settings.phoneLinks", fallback: "Phone links"),
                 L10n.text("settings.phoneLinks.detail", fallback: "Open tel: links from browsers and other apps with Bridgey, to call from the phone. The browser still asks first."),
                 calls + ["tel", "browser", "default app"]),
             row("calls.otherApps", .calls, L10n.text("settings.calls.otherApps", fallback: "When another app asks to call"), nil, calls),
             row("calls.ring", .calls, L10n.text("settings.calls.ring", fallback: "Ring for incoming calls"), nil, calls + ["ringtone", "sound", "звук"]),
-            row("calls.pause", .calls, L10n.text("settings.media.pauseForCalls", fallback: "Pause media during phone calls"), nil, calls + media),
-            feature(.callQuiet, .calls, calls + media + ["mute", "all devices", "без звука"]),
-            row("calls.quietMode", .calls, L10n.text("callMedia.mode", fallback: "During a call"), nil, calls + media + ["pause", "mute", "пауза"]),
-            row("calls.quietRestore", .calls, L10n.text("callMedia.restore", fallback: "After the last call"), nil, calls + media + ["resume", "restore", "продолжить"]),
-            row("calls.manual", .calls, L10n.text("callMedia.manual", fallback: "This Mac's call status"), nil, calls + ["manual", "FaceTime", "Zoom", "Teams", "вручную"]),
-            row("calls.shortcut", .calls, section: shortcutCard, ShortcutAction.call.displayTitle, nil, shortcut + calls),
-            feature(.dialer, .calls, calls + ["dialer", "keypad", "contacts", "whatsapp", "клавиатура", "контакты"]),
-            row("calls.window.open", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+            row("calls.pause", .calls, more: true, L10n.text("settings.media.pauseForCalls", fallback: "Pause media during phone calls"), nil, calls + media),
+            feature(.callQuiet, .calls, .callQuiet, calls + media + ["mute", "all devices", "без звука"]),
+            row("calls.quietMode", .callQuiet, L10n.text("callMedia.mode", fallback: "During a call"), nil, calls + media + ["pause", "mute", "пауза"]),
+            row("calls.quietRestore", .callQuiet, L10n.text("callMedia.restore", fallback: "After the last call"), nil, calls + media + ["resume", "restore", "продолжить"]),
+            row("calls.manual", .callQuiet, more: true, L10n.text("callMedia.manual", fallback: "This Mac's call status"), nil, calls + ["manual", "FaceTime", "Zoom", "Teams", "вручную"]),
+            row("calls.shortcut", .calls, more: true, section: shortcutCard, ShortcutAction.call.displayTitle, nil, shortcut + calls),
+            feature(.dialer, .calls, .callsWindow, calls + ["dialer", "keypad", "contacts", "whatsapp", "клавиатура", "контакты"]),
+            row("calls.window.open", .callsWindow, section: L10n.text("calls.window.title", fallback: "Calls window"),
                 L10n.text("calls.window.open", fallback: "Open the Calls window"), L10n.text("calls.window.open.detail", fallback: "Also in the menu bar panel"),
                 calls + ["dialer", "keypad", "open", "открыть"], revealedBy: byCallsWindow),
-            row("calls.window.sim", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+            row("calls.window.sim", .callsWindow, section: L10n.text("calls.window.title", fallback: "Calls window"),
                 L10n.text("calls.window.sim", fallback: "Call from"), nil, calls + ["sim", "dual sim", "сим"], revealedBy: byCallsWindow),
-            row("calls.window.whatsapp", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+            row("calls.window.whatsapp", .callsWindow, more: true, section: L10n.text("calls.window.title", fallback: "Calls window"),
                 L10n.text("calls.window.whatsapp", fallback: "Show WhatsApp calls"), nil, calls + ["whatsapp", "video", "видео"], revealedBy: byCallsWindow),
-            row("calls.window.recents", .calls, section: L10n.text("calls.window.title", fallback: "Calls window"),
+            row("calls.window.recents", .callsWindow, more: true, section: L10n.text("calls.window.title", fallback: "Calls window"),
                 L10n.text("calls.window.recents", fallback: "Recent calls"), nil, calls + ["history", "recent", "недавние"], revealedBy: byCallsWindow),
 
             // Files
-            feature(.files, .files, files),
+            feature(.files, .files, .files, files),
             row("files.received", .files, L10n.text("settings.receivedFiles", fallback: "Received files"), nil, files + ["download", "save", "папка"]),
             row("files.autoResume", .files, L10n.text("settings.files.autoResume", fallback: "Resume interrupted files automatically"), nil,
                 ["resume", "continue", "retry", "interrupted", "продолжить", "прерванные"]),
-            row("files.hidden", .files, L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
+            row("files.hidden", .files, more: true, L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
                 L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
                 ["dotfiles", "hidden", "скрытые"], sync: .folderIncludeHidden),
-            row("files.system", .files, L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
+            row("files.system", .files, more: true, L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
                 L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
                 ["ds_store", "thumbs.db", "системные"], sync: .folderIncludeSystem),
-            row("files.foldersMode", .files, L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"), nil,
+            row("files.foldersMode", .files, more: true, L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"), nil,
                 files + ["save", "where", "сохранять"], sync: .folderDestination),
-            row("files.conflict", .files, L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), nil,
+            row("files.conflict", .files, more: true, L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), nil,
                 ["merge", "replace", "conflict", "заменить"], sync: .folderConflict),
-            row("files.tag", .files, L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
+            row("files.tag", .files, more: true, L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
                 L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."), ["finder", "tag", "метка"]),
-            row("files.camera", .files, L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
+            row("files.camera", .files, more: true, L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
                 L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"), ["camera", "photo", "take photo", "камера", "фото"]),
-            row("files.phoneQuality", .files, L10n.text("settings.phoneFiles.quality", fallback: "Copy and download from the phone"), nil,
+            row("files.phoneQuality", .files, more: true, L10n.text("settings.phoneFiles.quality", fallback: "Copy and download from the phone"), nil,
                 ["phone files", "copy", "download", "optimize", "optimise", "original", "compress", "копировать", "загрузить", "оригинал", "сжать"]),
-            row("files.photos", .files, section: beforeSending, L10n.text("optimize.images", fallback: "Photos"), nil, ["resize", "compress", "optimise", "optimize", "сжать"]),
-            row("files.format", .files, section: beforeSending, L10n.text("optimize.format", fallback: "Format"), nil, ["webp", "jpeg", "heic"], visible: optimizing),
-            row("files.quality", .files, section: beforeSending, L10n.text("optimize.quality", fallback: "Quality"), nil, ["compress", "качество"], visible: optimizing),
-            row("files.stripLocation", .files, section: beforeSending, L10n.text("optimize.strip.location", fallback: "Remove location"),
+            row("files.photos", .files, more: true, section: beforeSending, L10n.text("optimize.images", fallback: "Photos"), nil, ["resize", "compress", "optimise", "optimize", "сжать"]),
+            row("files.format", .files, more: true, section: beforeSending, L10n.text("optimize.format", fallback: "Format"), nil, ["webp", "jpeg", "heic"], visible: optimizing),
+            row("files.quality", .files, more: true, section: beforeSending, L10n.text("optimize.quality", fallback: "Quality"), nil, ["compress", "качество"], visible: optimizing),
+            row("files.stripLocation", .files, more: true, section: beforeSending, L10n.text("optimize.strip.location", fallback: "Remove location"),
                 L10n.text("optimize.strip.location.detail", fallback: "Where a photo was taken. On by default."), ["gps", "exif", "metadata", "privacy", "геолокация"]),
-            row("files.stripCamera", .files, section: beforeSending, L10n.text("optimize.strip.camera", fallback: "Remove camera details"),
+            row("files.stripCamera", .files, more: true, section: beforeSending, L10n.text("optimize.strip.camera", fallback: "Remove camera details"),
                 L10n.text("optimize.strip.camera.detail", fallback: "Make, model, lens and serial numbers."), ["exif", "metadata"]),
-            row("files.stripDates", .files, section: beforeSending, L10n.text("optimize.strip.dates", fallback: "Remove dates"),
+            row("files.stripDates", .files, more: true, section: beforeSending, L10n.text("optimize.strip.dates", fallback: "Remove dates"),
                 L10n.text("optimize.strip.dates.detail", fallback: "When it was taken. The phone's gallery sorts by this."), ["exif", "metadata", "date"]),
-            row("files.videos", .files, section: beforeSending, L10n.text("optimize.videos", fallback: "Videos"),
+            row("files.videos", .files, more: true, section: beforeSending, L10n.text("optimize.videos", fallback: "Videos"),
                 L10n.text("optimize.videos.detail", fallback: "HEVC with this Mac's hardware encoder"), ["hevc", "compress", "video", "видео"]),
-            row("files.folders", .files, section: beforeSending, L10n.text("optimize.folders", fallback: "Folders"), nil, ["zip", "folder", "папки"]),
-            row("files.drop", .files, L10n.text("settings.drop", fallback: "When I drop on the menu-bar icon"), nil, ["drag", "drop", "tray", "menu bar", "перетащить"]),
+            row("files.folders", .files, more: true, section: beforeSending, L10n.text("optimize.folders", fallback: "Folders"), nil, ["zip", "folder", "папки"]),
+            row("files.drop", .files, more: true, L10n.text("settings.drop", fallback: "When I drop on the menu-bar icon"), nil, ["drag", "drop", "tray", "menu bar", "перетащить"]),
 
             // Media and quick actions
-            feature(.media, .media, media),
+            feature(.media, .media, .media, media),
             row("media.player", .media, L10n.text("settings.media.player", fallback: "Player"),
                 L10n.text("settings.media.player.detail", fallback: "Automatic follows whatever is playing on this Mac. Or pick one app."), media),
-            feature(.links, .media, section: quickActions, featureWords(.links)),
-            row("media.openLinks", .media, section: quickActions, L10n.text("settings.links.openRightAway", fallback: "Open links from other devices right away"),
+            feature(.links, .media, .links, section: quickActions, featureWords(.links)),
+            row("media.openLinks", .links, section: quickActions, L10n.text("settings.links.openRightAway", fallback: "Open links from other devices right away"),
                 L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from other devices open in the browser. Turn this off to keep them in Bridgey's menu bar."),
                 ["url", "browser", "ссылки"]),
-            feature(.ping, .media, section: quickActions, ping),
-            feature(.findDevice, .media, section: quickActions, find),
-            feature(.battery, .media, section: quickActions, battery),
-            row("media.browsers", .media, L10n.text("browser.support", fallback: "Browser extensions"),
+            feature(.ping, .media, .ping, section: quickActions, ping),
+            feature(.findDevice, .media, .find, section: quickActions, find),
+            feature(.battery, .media, .battery, section: quickActions, battery),
+            row("media.browsers", .links, L10n.text("browser.support", fallback: "Browser extensions"),
                 L10n.text("browser.support.detail", fallback: "Send pages and links to your devices from Chrome, Edge, Firefox, Brave and Arc"),
                 browsers),
         ]
-        entries.append(feature(.macActions, .media, section: macActionsCard, featureWords(.macActions)))
+        entries.append(feature(.macActions, .media, .macActions, section: macActionsCard, featureWords(.macActions)))
         entries += MacActionSwitch.allCases.map { item in
-            row("media.macAction.\(item.rawValue)", .media, section: macActionsCard, macActionSwitchTitle(item), nil, featureWords(.macActions))
+            row("media.macAction.\(item.rawValue)", .macActions, more: item == .sleep || item == .screensaver, section: macActionsCard, macActionSwitchTitle(item), nil, featureWords(.macActions))
         }
         entries += [
-            row("media.macActionsAccessibility", .media, section: macActionsCard, L10n.text("remote.accessibility", fallback: "Accessibility access"), nil,
-                ["lock", "permission", "разрешение"],
+            row("media.macActionsAccessibility", .macActions, section: macActionsCard, L10n.text("remote.accessibility", fallback: "Accessibility access"), nil,
+                ["lock", "permission", "разрешение"], scope: SettingsCardID.macActions.rawValue,
                 visible: { $0.globalFeatures[.macActions] == true && $0.macActions.isOn(.lock) && !$0.accessibilityTrusted }),
-            row("media.apps", .media, L10n.text("actions.apps", fallback: "Apps a phone can open"), nil, ["open app", "launch", "приложения"]),
-            row("media.shortcuts", .media, L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"), nil, ["shortcuts", "automation", "быстрые команды"]),
-            row("media.devices", .media, L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"), nil, ["allow", "permission", "разрешить"]),
-            row("media.log", .media, L10n.text("actions.log", fallback: "Action log"), nil, logs + activity),
-            row("media.shortcutLink", .media, section: shortcutCard, ShortcutAction.link.displayTitle, nil, shortcut + ["url", "link"]),
-            row("media.shortcutPing", .media, section: shortcutCard, ShortcutAction.ping.displayTitle, nil, shortcut + ping),
+            row("media.apps", .macActions, more: true, L10n.text("actions.apps", fallback: "Apps a phone can open"), nil, ["open app", "launch", "приложения"]),
+            row("media.shortcuts", .macActions, more: true, L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"), nil, ["shortcuts", "automation", "быстрые команды"]),
+            row("media.devices", .macActions, L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"), nil, ["allow", "permission", "разрешить"]),
+            row("media.log", .macActions, more: true, L10n.text("actions.log", fallback: "Action log"), nil, logs + activity),
+            row("media.shortcutLink", .links, more: true, section: shortcutCard, ShortcutAction.link.displayTitle, nil, shortcut + ["url", "link"]),
+            row("media.shortcutPing", .ping, more: true, section: shortcutCard, ShortcutAction.ping.displayTitle, nil, shortcut + ping),
 
             // Remote control
-            feature(.remoteInput, .remoteControl, remote),
+            feature(.remoteInput, .remoteControl, .remoteControl, remote),
             row("remote.accessibility", .remoteControl, L10n.text("remote.accessibility", fallback: "Accessibility access"), nil, remote + ["permission", "разрешение"]),
             row("remote.stop", .remoteControl, L10n.text("remote.stop.title", fallback: "Stop at any time"), nil, ["escape", "stop", "остановить"]),
             row("remote.devices", .remoteControl, remoteDevices, nil, remote + ["allow", "разрешить"]),
-            SettingsSearchEntry(id: "remote.displayShare.unattended", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+            SettingsSearchEntry(id: "remote.displayShare.unattended", card: .macScreen,
                                 title: MacScreenSettings.unattendedTitle, subtitle: MacScreenSettings.unattendedDetail,
                                 keywords: screenShare + ["unattended", "without asking", "all my devices", "без вопроса", "все мои устройства"],
-                                scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
-            SettingsSearchEntry(id: "remote.displayShare.display", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                scope: MacScreenSettings.scope),
+            SettingsSearchEntry(id: "remote.displayShare.display", card: .macScreen,
                                 title: MacScreenSettings.displayTitle, keywords: screenShare + ["display", "monitor", "дисплей", "монитор"],
-                                scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
-            SettingsSearchEntry(id: "remote.displayShare.recording", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                                scope: MacScreenSettings.scope),
+            SettingsSearchEntry(id: "remote.displayShare.recording", card: .macScreen,
                                 title: MacScreenSettings.recordingTitle,
                                 keywords: screenShare + ["permission", "screen recording", "privacy", "разрешение", "запись экрана"],
-                                scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle),
-            row("remote.screen", .remoteControl, section: PhoneScreenSettings.cardTitle, PhoneScreenSettings.switchTitle, PhoneScreenSettings.switchDetail,
+                                scope: MacScreenSettings.scope),
+            row("remote.screen", .phoneScreen, section: PhoneScreenSettings.cardTitle, PhoneScreenSettings.switchTitle, PhoneScreenSettings.switchDetail,
                 ["screen sharing", "mirror", "экран", "control phone", "tap phone", "type on phone", "управление телефоном"], sync: .featureScreen),
-            row("remote.log", .remoteControl, L10n.text("remote.log", fallback: "Session log"), nil, logs + activity),
+            row("remote.log", .remoteControl, more: true, L10n.text("remote.log", fallback: "Session log"), nil, logs + activity),
 
             // Privacy
-            row("privacy.permissions", .privacy, L10n.setup("permissions.title", fallback: "Permissions"), nil, ["permissions", "access", "разрешения"]),
-            row("privacy.previews", .privacy, section: activityCard, L10n.text("settings.previews", fallback: "Show previews in activity"),
+            row("privacy.permissions", .permissions, L10n.setup("permissions.title", fallback: "Permissions"), nil, ["permissions", "access", "разрешения"]),
+            row("privacy.previews", .activity, section: activityCard, L10n.text("settings.previews", fallback: "Show previews in activity"),
                 L10n.text("settings.previews.detail", fallback: "Clipboard text, app names and callers. Off keeps only what happened."), previews, sync: .activityPreviews),
-            row("privacy.activity", .privacy, section: activityCard, L10n.text("settings.activity.clear", fallback: "Clear activity"),
+            row("privacy.activity", .activity, section: activityCard, L10n.text("settings.activity.clear", fallback: "Clear activity"),
                 L10n.text("settings.activity.detail", fallback: "Kept only on this Mac, for 7 days. Never in diagnostics."), activity + ["clear", "delete", "очистить"]),
-            row("privacy.logConnection", .privacy, section: loggingCard, L10n.text("settings.logging.connection", fallback: "Connection events"),
+            row("privacy.logConnection", .logging, more: true, section: loggingCard, L10n.text("settings.logging.connection", fallback: "Connection events"),
                 L10n.text("settings.logging.connection.detail", fallback: "Discovery, pairing, connects and reconnects"), logs),
-            row("privacy.logCalls", .privacy, section: loggingCard, L10n.text("settings.logging.calls", fallback: "Call events"),
+            row("privacy.logCalls", .logging, more: true, section: loggingCard, L10n.text("settings.logging.calls", fallback: "Call events"),
                 L10n.text("settings.logging.calls.detail", fallback: "Call states and the caller\u{2019}s name, so call problems can be traced"), logs),
-            row("privacy.logCallNumbers", .privacy, section: loggingCard, L10n.text("settings.logging.callNumbers", fallback: "Include phone numbers"),
+            row("privacy.logCallNumbers", .logging, more: true, section: loggingCard, L10n.text("settings.logging.callNumbers", fallback: "Include phone numbers"),
                 L10n.text("settings.logging.callNumbers.detail", fallback: "Off masks numbers in call events"), logs),
-            row("privacy.logNotifications", .privacy, section: loggingCard, L10n.text("settings.logging.notifications", fallback: "Notification events"),
+            row("privacy.logNotifications", .logging, more: true, section: loggingCard, L10n.text("settings.logging.notifications", fallback: "Notification events"),
                 L10n.text("settings.logging.notifications.detail", fallback: "Which app posted and what happened to it"), logs),
-            row("privacy.logNotificationContent", .privacy, section: loggingCard, L10n.text("settings.logging.notificationContent", fallback: "Notification titles and text"),
+            row("privacy.logNotificationContent", .logging, more: true, section: loggingCard, L10n.text("settings.logging.notificationContent", fallback: "Notification titles and text"),
                 L10n.text("settings.logging.notificationContent.detail", fallback: "Adds what the notification says"), logs),
-            row("privacy.logClipboard", .privacy, section: loggingCard, L10n.text("settings.logging.clipboard", fallback: "Clipboard events"),
+            row("privacy.logClipboard", .logging, more: true, section: loggingCard, L10n.text("settings.logging.clipboard", fallback: "Clipboard events"),
                 L10n.text("settings.logging.clipboard.detail", fallback: "Sends and receipts, without the content"), logs),
-            row("privacy.logClipboardPreviews", .privacy, section: loggingCard, L10n.text("settings.logging.clipboardPreviews", fallback: "Clipboard previews"),
+            row("privacy.logClipboardPreviews", .logging, more: true, section: loggingCard, L10n.text("settings.logging.clipboardPreviews", fallback: "Clipboard previews"),
                 L10n.text("settings.logging.clipboardPreviews.detail", fallback: "Adds the first 40 characters"), logs),
-            row("privacy.logFileNames", .privacy, section: loggingCard, L10n.text("settings.logging.fileNames", fallback: "File names"),
+            row("privacy.logFileNames", .logging, more: true, section: loggingCard, L10n.text("settings.logging.fileNames", fallback: "File names"),
                 L10n.text("settings.logging.fileNames.detail", fallback: "Adds file and folder names to transfer events"), logs),
-            row("privacy.logRemote", .privacy, section: loggingCard, L10n.text("settings.logging.remote", fallback: "Remote control sessions"),
+            row("privacy.logRemote", .logging, more: true, section: loggingCard, L10n.text("settings.logging.remote", fallback: "Remote control sessions"),
                 L10n.text("settings.logging.remote.detail", fallback: "When a session ends and why; the remote control audit keeps its own record"), logs),
-            row("privacy.diagnostics", .privacy, section: loggingCard, L10n.text("settings.diagnostics.export", fallback: "Export diagnostics"),
+            row("privacy.diagnostics", .logging, section: loggingCard, L10n.text("settings.diagnostics.export", fallback: "Export diagnostics"),
                 L10n.text("settings.diagnostics.detail", fallback: "A bounded event log without clipboard text, notification content, file names, addresses or device identifiers."),
                 logs + ["export", "report", "bug"]),
-            row("privacy.clearLogs", .privacy, section: loggingCard, L10n.text("settings.logging.clear", fallback: "Clear logs"),
+            row("privacy.clearLogs", .logging, section: loggingCard, L10n.text("settings.logging.clear", fallback: "Clear logs"),
                 L10n.text("settings.logging.clear.detail", fallback: "Deletes the diagnostics log on this Mac"), logs),
-            row("privacy.reset", .privacy, L10n.setup("reset.title", fallback: "Reset Bridgey on this device"),
+            row("privacy.reset", .reset, L10n.setup("reset.title", fallback: "Reset Bridgey on this device"),
                 L10n.setup("reset.row.detail", fallback: "Delete activity, caches, settings or everything"), reset),
 
             // Updates
             row("updates.status", .updates, checkForUpdates, nil, updates + ["install", "check now", "установить"]),
-            row("updates.devices", .updates, L10n.text("updateAll.devices", fallback: "Your devices"),
+            row("updates.devices", .updates, more: true, L10n.text("updateAll.devices", fallback: "Your devices"),
                 L10n.text("updateAll.devices.detail", fallback: "This Mac and the phones connected to it. Macs are not connected to each other."), updates + ["update all", "phone"]),
             row("updates.channel", .updates, L10n.text("updates.channel", fallback: "Release channel"),
                 L10n.text("updates.channel.note", fallback: "Switching to a steadier channel waits for its next release; nothing is downgraded."),
                 updates + ["stable", "nightly", "стабильный"]),
-            row("updates.automatic", .updates, L10n.text("updates.automatic", fallback: "Check automatically"), nil, updates + ["automatic", "автоматически"]),
+            row("updates.automatic", .updates, more: true, L10n.text("updates.automatic", fallback: "Check automatically"), nil, updates + ["automatic", "автоматически"]),
             row("updates.auto", .updates, AutoUpdateText.title, AutoUpdateText.subtitle, updates + ["automatic", "автоматически"], sync: .updatesAutoAll),
-            row("updates.remoteStart", .updates, L10n.text("updates.remoteStart", fallback: "Let paired devices start updates on this Mac"),
+            row("updates.remoteStart", .updates, more: true, L10n.text("updates.remoteStart", fallback: "Let paired devices start updates on this Mac"),
                 L10n.text("updates.remoteStart.detail", fallback: "Only starts Bridgey\u{2019}s own signed update from this Mac\u{2019}s channel."), updates),
 
             // General
             row("general.login", .general, L10n.text("settings.launchAtLogin", fallback: "Launch at login"), nil, login),
             row("general.reduceMotion", .general, L10n.text("settings.reduceMotion", fallback: "Reduce motion"),
                 L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"), motion, sync: .reduceMotion),
-            row("general.panelMotion", .general, L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"), nil,
+            row("general.panelMotion", .general, more: true, L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"), nil,
                 motion + ["menu bar", "panel", "animation", "панель", "анимация"]),
-            row("general.shift", .general, L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"), nil, shortcut),
-            row("general.sync", .general, L10n.text("settings.sync", fallback: "Sync settings with paired devices"),
+            row("general.shift", .general, more: true, L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"), nil, shortcut),
+            row("general.sync", .sync, L10n.text("settings.sync", fallback: "Sync settings with paired devices"),
                 L10n.text("settings.sync.detail", fallback: "Keeps settings and features the same on your devices. Permissions, pairing and folders stay on each device."), sync),
-            row("general.syncChoose", .general, L10n.text("sync.choose.title", fallback: "What syncs"), nil, sync + ["choose what syncs"]),
-            row("general.setup", .general, L10n.setup("setup.again", fallback: "Run setup again"),
+            row("general.syncChoose", .sync, L10n.text("sync.choose.title", fallback: "What syncs"), nil, sync + ["choose what syncs"]),
+            row("general.setup", .general, more: true, L10n.setup("setup.again", fallback: "Run setup again"),
                 L10n.setup("setup.again.detail", fallback: "Go through setup from the start. Pairings and settings are kept."), ["setup", "onboarding", "настройка"]),
 
             // About
             row("about.version", .about, version, nil, updates + ["build", "сборка"]),
             row("about.credit", .about, L10n.text("about.credit", fallback: "Built on Bridgey by Semyon Mikhailov (MIT)"),
                 L10n.text("about.license", fallback: "Open source under the MIT License."), ["credit", "upstream", "open source", "github"]),
-            row("about.fonts", .about, L10n.text("about.fonts", fallback: "Fonts"),
+            row("about.fonts", .about, more: true, L10n.text("about.fonts", fallback: "Fonts"),
                 L10n.text("about.fonts.detail", fallback: "Space Grotesk and Inter, under the SIL Open Font License 1.1."), ["font", "шрифты"]),
-            row("about.data", .about, L10n.text("about.network", fallback: "Your data"),
+            row("about.data", .about, more: true, L10n.text("about.network", fallback: "Your data"),
                 L10n.text("about.network.detail", fallback: "Bridgey talks directly over your local network. Clipboard, files and notification content are encrypted in transit."),
                 ["privacy", "encryption", "шифрование"]),
         ]
         entries += LicenceDocument.allCases.map { document in
-            row("about.licence.\(document.rawValue)", .about, section: licencesCard, document.title, nil, ["license", "licence", "open source", "лицензии"])
+            row("about.licence.\(document.rawValue)", .about, more: true, section: licencesCard, document.title, nil, ["license", "licence", "open source", "лицензии"])
         }
         entries += [
             // Developer and experimental (only while it is on)
@@ -423,20 +436,20 @@ enum SettingsSearchRegistry {
                 L10n.text("speed.run", fallback: "Test transfer speed"), nil, developer, visible: developerOn),
             row("developer.perf", .developer, section: L10n.text("perf.title", fallback: "Performance test"),
                 L10n.text("perf.intro.title", fallback: "File check cost"), nil, developer, visible: developerOn),
-            row("developer.hide", .developer, L10n.text("developer.hide", fallback: "Hide this pane"),
+            row("developer.hide", .developer, L10n.text("developer.hide", fallback: "Hide developer settings"),
                 L10n.text("developer.hide.detail", fallback: "Click the version in About five times to bring it back"), developer, visible: developerOn),
 
             // Devices › Connect away from home
-            row("away.tailscaleSetup", .away, "Tailscale", nil, tailscaleSetup),
+            row("away.tailscaleSetup", .tailscale, "Tailscale", nil, tailscaleSetup),
             row("away.switch", .away, SettingsPane.away.title,
                 L10n.text("connect.detail", fallback: "Reach your paired devices from any network. They connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account needed."),
                 away, sync: .connectAway),
             row("away.status", .away, L10n.text("connect.status", fallback: "Status"), nil, ["online", "relay", "в сети"]),
-            row("away.reset", .away, L10n.text("connect.reset", fallback: "Reset away-from-home identity"),
+            row("away.reset", .away, more: true, L10n.text("connect.reset", fallback: "Reset away-from-home identity"),
                 L10n.text("connect.reset.detail", fallback: "A new key for the Round Robin service, and new secrets with your devices. Pairings stay."), ["identity", "relay", "key"]),
-            row("away.serviceAddress", .away, section: L10n.text("connect.debug", fallback: "Testing"), L10n.text("connect.debug.url", fallback: "Service address"), nil,
+            row("away.serviceAddress", .away, more: true, section: L10n.text("connect.debug", fallback: "Testing"), L10n.text("connect.debug.url", fallback: "Service address"), nil,
                 ["url", "server"], visible: { $0.connect.debug }),
-            row("away.relayOnly", .away, section: L10n.text("connect.debug", fallback: "Testing"), L10n.text("connect.debug.relayOnly", fallback: "Relay only"),
+            row("away.relayOnly", .away, more: true, section: L10n.text("connect.debug", fallback: "Testing"), L10n.text("connect.debug.relayOnly", fallback: "Relay only"),
                 L10n.text("connect.debug.relayOnly.detail", fallback: "Blocks every other route, to test the relay"), away, visible: { $0.connect.debug }),
         ]
         // Privacy › Permissions and Privacy › Reset
@@ -449,22 +462,60 @@ enum SettingsSearchRegistry {
         return entries
     }
 
-    /// The rows in a paired device's card on the Devices pane, in the card's order. A restricted device (a server or
-    /// agent) has no screen choice.
-    static func deviceRows(_ device: TrustedDeviceInfo, restricted: Bool = false) -> [(title: String, keywords: [String])] {
-        var rows: [(String, [String])] = []
-        rows.append((L10n.text("health.title", fallback: "Connection health"), ["route", "latency", "relay", "соединение"]))
+    /// What used to be the rows of a paired device's card on the Devices pane, in that card's order (the order keeps the
+    /// "device.<id>.<index>" ids). Each now lives in its feature's card: a chip in the Devices row, the device's line
+    /// in This Mac's screen, or its Battery alerts row; Connection health stays in the device's card. A restricted
+    /// device (a server or agent) has no screen choice.
+    struct DeviceRow {
+        let title: String
+        let keywords: [String]
+        let card: SettingsCardID
+        var more = false
+        /// The row it lands on when that is not the device's own scoped row (This Mac's screen lists devices by name).
+        var scope: String?
+        var anchor: String?
+    }
+
+    static func deviceRows(_ device: TrustedDeviceInfo, restricted: Bool = false) -> [DeviceRow] {
+        var rows: [DeviceRow] = []
+        rows.append(DeviceRow(title: L10n.text("health.title", fallback: "Connection health"), keywords: ["route", "latency", "relay", "соединение"],
+                              card: .pairedDevices))
         for feature in BridgeyFeature.allCases where !feature.needsDeviceGrant {
-            rows.append((feature.title, featureWords(feature)))
-            if feature == .battery { rows.append((L10n.text("battery.alerts", fallback: "Battery alerts"), battery)) }
-            if feature == .clipboard { rows.append((L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"), clipboard)) }
+            rows.append(DeviceRow(title: feature.title, keywords: featureWords(feature), card: card(for: feature)))
+            if feature == .battery {
+                rows.append(DeviceRow(title: L10n.text("battery.alerts", fallback: "Battery alerts"), keywords: battery, card: .battery, more: true))
+            }
+            if feature == .clipboard {
+                rows.append(DeviceRow(title: L10n.text("settings.autoClipboard", fallback: "Automatic clipboard"), keywords: clipboard, card: .clipboard, more: true))
+            }
         }
-        rows.append((L10n.text("remote.grant", fallback: "Allow remote control"), remote))
-        if !restricted { rows.append((MacScreenSettings.grantTitle, screenShare)) }
-        rows.append((L10n.text("actions.grant", fallback: "Allow Mac actions"), featureWords(.macActions)))
-        rows.append((L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"), featureWords(.callQuiet)))
-        rows.append((L10n.text("settings.sync.device", fallback: "Sync settings with this device"), sync))
+        rows.append(DeviceRow(title: L10n.text("remote.grant", fallback: "Allow remote control"), keywords: remote, card: .remoteControl))
+        if !restricted {
+            rows.append(DeviceRow(title: MacScreenSettings.grantTitle, keywords: screenShare, card: .macScreen, scope: MacScreenSettings.scope, anchor: device.name))
+        }
+        rows.append(DeviceRow(title: L10n.text("actions.grant", fallback: "Allow Mac actions"), keywords: featureWords(.macActions), card: .macActions))
+        rows.append(DeviceRow(title: L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"), keywords: featureWords(.callQuiet), card: .callQuiet))
+        rows.append(DeviceRow(title: L10n.text("settings.sync.device", fallback: "Sync settings with this device"), keywords: sync, card: .sync))
         return rows
+    }
+
+    /// The card a feature every device gets lives in.
+    static func card(for feature: BridgeyFeature) -> SettingsCardID {
+        switch feature {
+        case .clipboard: .clipboard
+        case .files: .files
+        case .notifications: .notifications
+        case .battery: .battery
+        case .findDevice: .find
+        case .ping: .ping
+        case .links: .links
+        case .media: .media
+        case .calls: .calls
+        case .callQuiet: .callQuiet
+        case .remoteInput: .remoteControl
+        case .macActions: .macActions
+        case .dialer: .callsWindow
+        }
     }
 
     /// Everything search can offer now: the fixed rows that show in this state, with synced rows marked and
@@ -501,51 +552,56 @@ enum SettingsSearchRegistry {
     static func dynamicEntries(_ model: SettingsModel) -> [SettingsSearchEntry] {
         var out: [SettingsSearchEntry] = []
         let permissions = L10n.agents("tab.permissions", fallback: "Permissions")
+        let remoteGrant = L10n.text("remote.grant", fallback: "Allow remote control")
+        let macActionsGrant = L10n.text("actions.grant", fallback: "Allow Mac actions")
         for device in model.trustedDevices {
-            out.append(SettingsSearchEntry(id: "device.\(device.id)", pane: .devices, title: device.name, subtitle: permissions,
+            out.append(SettingsSearchEntry(id: "device.\(device.id)", card: .pairedDevices, title: device.name, subtitle: permissions,
                                            keywords: ["device", "permissions", "устройство", "разрешения"] + forget, scope: device.id))
             for (index, row) in deviceRows(device, restricted: model.restrictedDevices.contains(device.id)).enumerated() {
-                out.append(SettingsSearchEntry(id: "device.\(device.id).\(index)", pane: .devices, section: permissions, title: row.title,
-                                               keywords: row.keywords + [device.name], scope: device.id, group: device.name))
+                out.append(SettingsSearchEntry(id: "device.\(device.id).\(index)", card: row.card, title: row.title,
+                                               keywords: row.keywords + [device.name, permissions], scope: row.scope ?? device.id, place: device.name,
+                                               anchor: row.anchor, more: row.more))
             }
             if let state = model.agents.phones[device.id] {
                 let section = String(format: L10n.agents("mac.section", fallback: "Agents on %1$@"), device.name)
                 for agent in state.agents {
                     let scope = "agent:\(device.id):\(agent.deviceId)"
-                    out.append(SettingsSearchEntry(id: "agent.\(device.id).\(agent.deviceId)", pane: .devices, section: section, title: agent.name,
+                    out.append(SettingsSearchEntry(id: "agent.\(device.id).\(agent.deviceId)", card: .pairedDevices, section: section, title: agent.name,
                                                    subtitle: AgentsText.subtitle(agent),
-                                                   keywords: ["agent", "server", "cli", "агент", "сервер"], scope: scope, group: device.name))
+                                                   keywords: ["agent", "server", "cli", "агент", "сервер"], scope: scope, place: device.name))
                     for key in AgentGrantKey.allCases {
-                        out.append(SettingsSearchEntry(id: "agent.\(device.id).\(agent.deviceId).\(key.rawValue)", pane: .devices, section: section,
+                        out.append(SettingsSearchEntry(id: "agent.\(device.id).\(agent.deviceId).\(key.rawValue)", card: .pairedDevices, section: section,
                                                        title: AgentsText.grantTitle(key), subtitle: AgentsText.grantDetail(key, agent: agent),
-                                                       keywords: ["agent", "агент", agent.name], scope: scope, group: agent.name))
+                                                       keywords: ["agent", "агент", agent.name], scope: scope, place: agent.name))
                     }
                 }
             }
-            out.append(SettingsSearchEntry(id: "remote.device.\(device.id)", pane: .remoteControl,
+            // The phone's chip in Remote control's Devices row (the old "Phones allowed to control this Mac" list).
+            out.append(SettingsSearchEntry(id: "remote.device.\(device.id)", card: .remoteControl,
                                            section: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"),
-                                           title: device.name, keywords: remote + ["allow", "разрешить"]))
+                                           title: device.name, keywords: remote + ["allow", "разрешить"], scope: device.id, anchor: remoteGrant))
             if !model.restrictedDevices.contains(device.id) {
-                out.append(SettingsSearchEntry(id: "display.device.\(device.id)", pane: .remoteControl, section: MacScreenSettings.cardTitle,
+                out.append(SettingsSearchEntry(id: "display.device.\(device.id)", card: .macScreen,
                                                title: device.name, keywords: screenShare + ["allow", "разрешить"],
-                                               scope: MacScreenSettings.scope, group: MacScreenSettings.cardTitle))
+                                               scope: MacScreenSettings.scope))
             }
-            // Calls window: each phone's permission, drawn while the window is on (a Mac or restricted device is not listed).
+            // Calls window: each phone's chip, drawn while the window is on (a Mac or restricted device is not listed).
             if model.globalFeatures[.dialer] == true, !model.restrictedDevices.contains(device.id), !model.macDevices.contains(device.id) {
-                out.append(SettingsSearchEntry(id: "calls.device.\(device.id)", pane: .calls, section: BridgeyFeature.dialer.title,
-                                               title: device.name, keywords: featureWords(.dialer) + ["allow", "разрешить"]))
+                out.append(SettingsSearchEntry(id: "calls.device.\(device.id)", card: .callsWindow,
+                                               title: device.name, keywords: featureWords(.dialer) + ["allow", "разрешить"],
+                                               scope: device.id, anchor: BridgeyFeature.dialer.title))
             }
-            out.append(SettingsSearchEntry(id: "media.device.\(device.id)", pane: .media,
+            out.append(SettingsSearchEntry(id: "media.device.\(device.id)", card: .macActions,
                                            section: L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"),
-                                           title: device.name, keywords: featureWords(.macActions) + ["allow", "разрешить"]))
+                                           title: device.name, keywords: featureWords(.macActions) + ["allow", "разрешить"], scope: device.id, anchor: macActionsGrant))
         }
         for app in model.macActions.apps {
-            out.append(SettingsSearchEntry(id: "media.app.\(app.bundleID)", pane: .media, section: L10n.text("actions.apps", fallback: "Apps a phone can open"),
-                                           title: app.name, subtitle: app.bundleID, keywords: ["app", "приложение"]))
+            out.append(SettingsSearchEntry(id: "media.app.\(app.bundleID)", card: .macActions, section: L10n.text("actions.apps", fallback: "Apps a phone can open"),
+                                           title: app.name, subtitle: app.bundleID, keywords: ["app", "приложение"], more: true))
         }
         for shortcut in model.macActions.shortcuts {
-            out.append(SettingsSearchEntry(id: "media.shortcut.\(shortcut.id)", pane: .media, section: L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"),
-                                           title: shortcut.name, keywords: ["shortcut", "быстрая команда"]))
+            out.append(SettingsSearchEntry(id: "media.shortcut.\(shortcut.id)", card: .macActions, section: L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"),
+                                           title: shortcut.name, keywords: ["shortcut", "быстрая команда"], more: true))
         }
         return out
     }

@@ -329,7 +329,7 @@ final class SetupFlowTests: XCTestCase {
         XCTAssertEqual(SetupFeatures.textMessagesTitle, SettingsPane.messages.title)
         XCTAssertEqual(SetupFeatures.feature("messages")?.pane, .messages)
         XCTAssertEqual(SetupQuestions.question("messages")?.pane, .messages)
-        XCTAssertTrue(SettingsPane.sidebarItems.contains(.messages))
+        XCTAssertEqual(SettingsPane.messages.card, .messages)
         for bundle in SetupBundles.all {
             XCTAssertEqual(bundle.title, bundle.pane.title)
             XCTAssertTrue(names.contains(bundle.title), bundle.title)
@@ -352,8 +352,8 @@ final class SetupFlowTests: XCTestCase {
         let bundle = SetupBundles.all.first { $0.id == "away" }
         XCTAssertEqual(bundle?.title, SettingsPane.away.title)
         XCTAssertEqual(SetupBundles.answers(picked: ["away"], typed: []).map(\.id), ["away"])
-        XCTAssertEqual(SettingsPane.away.parentPane, .devices)
-        XCTAssertFalse(SettingsPane.sidebarItems.contains(.away))
+        XCTAssertEqual(SettingsPane.away.group, .devices)
+        XCTAssertEqual(SettingsPane.away.card, .away)
     }
 
     // MARK: Back, Escape and the close button

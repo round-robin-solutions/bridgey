@@ -329,7 +329,7 @@
 "remote.count.scroll" = "Scrolls: %d";
 "remote.count.text" = "Texts: %d";
 "remote.devices" = "Phones allowed to control this Mac";
-"remote.footnote" = "Each phone needs its own permission, below, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.";
+"remote.footnote" = "Each phone needs its own permission, in Devices, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.";
 "remote.grant" = "Allow remote control";
 "remote.grant.globalOff" = "Remote control is off on this Mac. Turn it on in Remote control.";
 "remote.grant.off" = "Off until you allow it";
@@ -1192,7 +1192,7 @@
 "actions.apps.detail" = "Up to %d apps. The phone sees their names; it can only open them.";
 "actions.apps.empty" = "No apps yet";
 "actions.devices" = "Phones allowed to use Mac actions";
-"actions.footnote" = "A phone can only pick from this list, and only if you allow that phone below. It never sends commands, and Bridgey never runs anything else.";
+"actions.footnote" = "A phone can only pick from this list, and only if you allow that phone in Devices. It never sends commands, and Bridgey never runs anything else.";
 "actions.grant" = "Allow Mac actions";
 "actions.grant.globalOff" = "Mac actions is off on this Mac. Turn it on in Media and actions.";
 "actions.grant.on" = "Can use the actions, apps and Shortcuts you listed";
@@ -1786,18 +1786,18 @@
 /* Developer and experimental pane (DeveloperMenu.swift) */
 "developer.experimental" = "Experimental features";
 "developer.experimental.empty" = "Nothing to try right now. New experiments show up here before everyone gets them.";
-"developer.hide" = "Hide this pane";
+"developer.hide" = "Hide developer settings";
 "developer.hide.action" = "Hide";
 "developer.hide.detail" = "Click the version in About five times to bring it back";
 "developer.noPhones" = "No phone connected";
-"developer.on" = "Developer and experimental pane is on";
+"developer.on" = "Developer and experimental settings are on";
 "developer.path.fast" = "Fast transfers: 256 KiB binary frames";
 "developer.path.json" = "24 KiB chunks inside messages, as before fast transfers";
 "developer.route.direct" = "Away from home, direct";
 "developer.route.local" = "Local network";
 "developer.route.relay" = "Away from home, through a relay";
-"developer.tapsLeft" = "%d more clicks to open the developer pane";
-"developer.tapsLeft.one" = "%d more click to open the developer pane";
+"developer.tapsLeft" = "%d more clicks to open the developer settings";
+"developer.tapsLeft.one" = "%d more click to open the developer settings";
 "developer.transfers" = "How files travel now";
 "settings.developer" = "Developer and experimental";
 
@@ -1923,7 +1923,7 @@
 "display.name.fallback" = "Display";
 "display.name.test" = "Test pattern";
 "display.settings.card" = "This Mac’s screen";
-"display.settings.note" = "Seeing and controlling are separate: a phone controls this screen only if it may also use remote control, above. While a phone watches, the pill at the top of the screen names it, with Stop.";
+"display.settings.note" = "Seeing and controlling are separate: a phone controls this screen only if it may also use Remote control. While a phone watches, the pill at the top of the screen names it, with Stop.";
 "display.settings.display" = "Screen to share";
 "display.settings.recording" = "Screen Recording access";
 "display.settings.recording.on" = "Allowed. Bridgey captures the screen only while a phone you allow is watching.";
@@ -1937,7 +1937,7 @@
 "display.unattended.title" = "Unattended access";
 "display.unattended.detail" = "Paired devices set to Default can see this Mac without asking. Servers and agents never can.";
 "display.grant.phoneOff" = "Turn on See Mac screens in Bridgey on %@";
-"display.grant.recordingOff" = "Needs Screen Recording access, below";
+"display.grant.recordingOff" = "Needs Screen Recording access";
 "display.log.phone" = "Stopped on the phone";
 "display.log.disabled" = "Ended: permission turned off";
 "display.log.permission" = "Ended: Screen Recording was turned off";
@@ -1974,3 +1974,28 @@
 "browser.support.guide" = "Get the extension";
 "browser.support.remove" = "Remove";
 "browser.support.install" = "Install";
+
+/* Settings, six groups and feature cards (26 Nov 2026) */
+"settings.group.devices" = "Devices";
+"settings.group.sharing" = "Sharing";
+"settings.group.phone" = "Phone";
+"settings.group.control" = "Control";
+"settings.group.privacy" = "Privacy";
+"settings.group.app" = "App";
+"settings.group.devices.count" = "%1$@, %2$d paired";
+"settings.card.paired" = "Paired devices";
+"settings.card.battery" = "Battery";
+"settings.card.find" = "Find device";
+"settings.card.ping" = "Ping";
+"settings.card.media" = "Media";
+"settings.card.links" = "Links";
+"settings.card.sync" = "Sync settings";
+"settings.more" = "More options";
+"settings.more.label" = "More options for %@";
+"settings.more.open" = "Expanded";
+"settings.more.closed" = "Collapsed";
+"settings.devicesRow" = "Devices";
+"settings.chip.label" = "%1$@, %2$@";
+"settings.autoClipboard.perDevice" = "Automatic clipboard on";
+"remote.grant.globalOffShort" = "Remote control is off on this Mac";
+"actions.grant.globalOffShort" = "Mac actions is off on this Mac";

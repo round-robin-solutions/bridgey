@@ -502,6 +502,7 @@ private struct SetupPairing: View {
         VStack(alignment: .leading, spacing: 10) {
             switch model.pairingFlow {
             case .idle, .connected:
+                TailscaleSetupCard(display: model.tailscaleSetup, actions: actions)
                 PairNewCard(model: model, actions: actions)
                 SetupPairFromPhoneLine()
             default:
@@ -1351,15 +1352,10 @@ private struct SetupMorePanel: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L10n.setup("setup.more.eyebrow", fallback: "Settings"))
-                        .font(BrandFont.body(12, .semibold))
-                        .foregroundStyle(c.tbi)
-                    Text(pane.title)
-                        .font(BrandFont.heading(22))
-                        .foregroundStyle(c.on)
-                        .accessibilityAddTraits(.isHeader)
-                }
+                Text(pane.title)
+                    .font(BrandFont.heading(22))
+                    .foregroundStyle(c.on)
+                    .accessibilityAddTraits(.isHeader)
                 Spacer()
                 Button(L10n.setup("setup.more.done", fallback: "Done"), action: done)
                     .buttonStyle(PillButtonStyle(kind: .gradient, height: 34))
@@ -1371,8 +1367,10 @@ private struct SetupMorePanel: View {
             .overlay(alignment: .bottom) { Rectangle().fill(c.olv).frame(height: 1) }
             BoundedScroll {
                 VStack(alignment: .leading, spacing: 16) {
+                    // The cards of that setting, every option shown: this is setup's More options already.
                     SettingsPaneView(pane: pane, model: model, actions: actions)
                         .environment(\.setupMode, true)
+                        .environment(\.settingsExpandAll, true)
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 20)

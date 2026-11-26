@@ -6,7 +6,6 @@
 "action.dismiss" = "Закрыть";
 "action.next" = "Далее";
 "action.notNow" = "Не сейчас";
-"action.open" = "Открыть";
 "action.skip" = "Пропустить";
 "panel.review" = "Посмотрите, что нового, и проверьте настройку";
 "permission.accessibility" = "Универсальный доступ";
@@ -37,8 +36,6 @@
 "permission.without" = "Без этого:";
 "permissions.manage" = "Настроить";
 "permissions.note" = "Bridgey запрашивает разрешение, только когда оно нужно функции. «Настроить» открывает нужную страницу Системных настроек.";
-"permissions.summary.missing" = "Нужно, но не разрешено: %d";
-"permissions.summary.ok" = "Что Bridgey может использовать на этом Mac и зачем";
 "permissions.title" = "Разрешения";
 "permissions.why.help" = "Зачем Bridgey это нужно";
 "permissions.why.label" = "Зачем Bridgey нужно разрешение «%@»";
@@ -146,7 +143,6 @@
 "setup.left.other" = "Осталось шагов: %d";
 "setup.more" = "Другие параметры";
 "setup.more.done" = "Готово";
-"setup.more.eyebrow" = "Настройки";
 "setup.pair.done" = "Связано с %@";
 "setup.pair.fromPhone" = "Пока эта страница открыта, сопряжение можно начать и с телефона.";
 "setup.pair.next" = "Нажмите «Далее», чтобы продолжить.";

@@ -267,10 +267,11 @@ final class DesignScreenshots: XCTestCase {
             ("later", updatesModel(.idle, deferral: UpdateDeferral(version: beta10, kind: .later))),
         ]
         for (name, model) in states {
-            let height = try paneHeight(model, pane: .updates)
+            // App scrolls its cards; the Updates card, scrolled to the top of the window, shows whole.
+            let height = try paneHeight(model, pane: .updates, heading: false)
             let room = SettingsWindowView.size.height - 40  // the window footer
-            XCTAssertLessThanOrEqual(height, room, "\(name): the Updates pane needs \(height) pt but the window has \(room) pt")
-            print("updates pane \(name): \(height) of \(room) pt")
+            XCTAssertLessThanOrEqual(height, room, "\(name): the Updates card needs \(height) pt but the window has \(room) pt")
+            print("updates card \(name): \(height) of \(room) pt")
             for scheme in [ColorScheme.light, .dark] {
                 try render(settings: model, pane: .updates, scheme: scheme, name: "mac-updates-\(name)-\(scheme == .dark ? "dark" : "light")")
             }
@@ -330,7 +331,8 @@ final class DesignScreenshots: XCTestCase {
         for scheme in [ColorScheme.dark, .light] {
             let view = BrandRoot(reduceMotion: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    RemoteControlPane(model: settingsModel, actions: SettingsActions())
+                    SettingsPaneView(pane: .remoteControl, model: settingsModel, actions: SettingsActions())
+                        .environment(\.settingsExpandAll, true)
                 }
                 .padding(32)
                 .frame(width: 670)
@@ -368,17 +370,17 @@ final class DesignScreenshots: XCTestCase {
         try write(view.padding(24).background(scheme == .dark ? Color(hex: 0x0A1428) : Color(hex: 0xDFE7F0)), scheme: scheme, name: name)
     }
 
-    /// The scrolling column's natural height (title, pane and paddings) at the window's width.
-    @MainActor private func paneHeight(_ model: SettingsModel, pane: SettingsPane) throws -> CGFloat {
+    /// The scrolling column's natural height (title, the pane's cards and paddings, or the cards alone) at the window's width.
+    @MainActor private func paneHeight(_ model: SettingsModel, pane: SettingsPane, heading: Bool = true) throws -> CGFloat {
         let view = BrandRoot(reduceMotion: false) {
             VStack(alignment: .leading, spacing: 16) {
-                Text(pane.title).font(BrandFont.heading(24)).frame(height: 30)
+                if heading { Text(pane.title).font(BrandFont.heading(24)).frame(height: 30) }
                 SettingsPaneView(pane: pane, model: model, actions: SettingsActions())
             }
             .padding(.horizontal, 40)
-            .padding(.top, 32)
-            .padding(.bottom, 24)
-            .frame(width: SettingsWindowView.size.width - 210, alignment: .leading)
+            .padding(.top, heading ? 32 : 0)
+            .padding(.bottom, heading ? 24 : 0)
+            .frame(width: SettingsWindowView.size.width - 220, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }
         let renderer = ImageRenderer(content: view.environment(\.snapshotRendering, true))

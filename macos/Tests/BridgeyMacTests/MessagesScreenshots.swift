@@ -208,7 +208,8 @@ final class MessagesScreenshots: XCTestCase {
             let view = BrandRoot(reduceMotion: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(SettingsPane.messages.title).font(BrandFont.heading(24)).frame(height: 30)
-                    TextMessagesPane(model: settings, actions: SettingsActions())
+                    TextMessagesCard(model: settings, actions: SettingsActions())
+                        .environment(\.settingsExpandAll, true)
                 }
                 .padding(32)
                 .frame(width: 670, alignment: .leading)

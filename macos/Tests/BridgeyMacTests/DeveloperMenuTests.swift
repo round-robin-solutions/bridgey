@@ -46,10 +46,11 @@ final class DeveloperMenuTests: XCTestCase {
         XCTAssertEqual(after.tap(), .counting, "hidden: counting starts again")
     }
 
-    func testTheSidebarShowsThePaneOnlyWhileOnAndItNeverSyncs() {
-        XCTAssertFalse(SettingsPane.sidebarItems.contains(.developer))
-        XCTAssertEqual(SettingsPane.sidebar(developer: true).last, .developer)
-        XCTAssertFalse(SettingsPane.sidebar(developer: false).contains(.developer))
+    func testAppShowsTheCardOnlyWhileOnAndItNeverSyncs() {
+        XCTAssertFalse(SettingsGroup.app.cards(developer: false).contains(.developer))
+        XCTAssertEqual(SettingsGroup.app.cards(developer: true).last, .developer)
+        XCTAssertEqual(SettingsPane.developer.group, .app)
+        XCTAssertFalse(SettingsGroup.allCases.filter { $0 != .app }.contains { $0.cards(developer: true).contains(.developer) })
         XCTAssertFalse(SyncKey.allCases.contains { "\($0.rawValue)".contains("developer") })
     }
 

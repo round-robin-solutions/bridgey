@@ -3,9 +3,9 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /*
- * Settings > Media and actions, Mac actions part: the switch for this Mac, which actions phones
- * may use, the apps and Shortcuts they may open, which phones are allowed, and the private action
- * log. Drawn from `SettingsModel`, so the screenshots render it from sample state.
+ * Control > Mac actions: the switch for this Mac, which actions phones may use, which phones are allowed
+ * (the Devices row), then in More options the other actions, the apps and Shortcuts they may open, and the
+ * private action log. Drawn from `SettingsModel`, so the screenshots render it from sample state.
  */
 
 struct MacActionsCards: View {
@@ -14,18 +14,15 @@ struct MacActionsCards: View {
     @State private var confirmClear = false
     @Environment(\.brand) private var c
 
+    /// The actions people turn on most: Lock and Volume first; Sleep and Screen saver are in More options.
+    static let commonSwitches: [MacActionSwitch] = [.lock, .volume]
+
     var body: some View {
         let on = model.globalFeatures[.macActions] == true
-        SettingsCard(title: L10n.text("settings.macActions", fallback: "Mac actions"),
-                     footnote: L10n.text("actions.footnote", fallback: "A phone can only pick from this list, and only if you allow that phone below. It never sends commands, and Bridgey never runs anything else.")) {
-            SettingsToggle(title: BridgeyFeature.macActions.title, subtitle: BridgeyFeature.macActions.subtitle, divider: false,
-                           synced: model.syncs(.featureMacActions), isOn: on, set: { actions.setGlobal(.macActions, $0) })
+        FeatureCard(card: .macActions, toggle: featureToggle(.macActions, model, actions),
+                    footnote: L10n.text("actions.footnote", fallback: "A phone can only pick from this list, and only if you allow that phone in Devices. It never sends commands, and Bridgey never runs anything else.")) {
             SyncStatusLine(key: .featureMacActions, model: model, actions: actions)
-            ForEach(MacActionSwitch.allCases) { item in
-                SettingsToggle(title: macActionSwitchTitle(item), subtitle: switchNote(item), subtitleIsWarning: switchWarning(item),
-                               isOn: model.macActions.isOn(item), set: { actions.setMacActionSwitch(item, $0) })
-                    .disabled(!on)
-            }
+            ForEach(Self.commonSwitches) { item in switchRow(item, on: on) }
             if on && model.macActions.isOn(.lock) && !model.accessibilityTrusted {
                 SettingsRow(title: L10n.text("remote.accessibility", fallback: "Accessibility access"),
                             subtitle: L10n.text("actions.lock.accessibility", fallback: "Lock screen presses the macOS Lock Screen shortcut, which needs Accessibility. Turn on Bridgey in Privacy & Security > Accessibility."),
@@ -33,82 +30,86 @@ struct MacActionsCards: View {
                     Button(L10n.text("remote.accessibility.open", fallback: "Open System Settings"), action: actions.openAccessibilitySettings)
                         .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                 }
+                // Remote control's card has a row of the same name in this group: search tells them apart by card.
+                .settingsSearchScope(SettingsCardID.macActions.rawValue)
             }
-        }
-        SettingsCard(title: L10n.text("actions.apps", fallback: "Apps a phone can open"),
-                     footnote: String(format: L10n.text("actions.apps.detail", fallback: "Up to %d apps. The phone sees their names; it can only open them."), MacActionsConfig.maximumApps)) {
-            ForEach(Array(model.macActions.apps.enumerated()), id: \.element.id) { index, app in
-                SettingsRow(title: app.name, subtitle: app.bundleID, divider: index > 0) {
-                    Button(L10n.text("action.remove", fallback: "Remove")) { actions.removeMacActionApp(app.bundleID) }
-                        .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+            DeviceChoicesRow(feature: SettingsCardID.macActions.title, chips: DeviceChoices.macActions(model, actions),
+                           anchor: L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"),
+                           subtitle: !on && model.trustedDevices.contains(where: { model.deviceFeatures[$0.id]?[.macActions] == true })
+                               ? L10n.text("actions.grant.globalOffShort", fallback: "Mac actions is off on this Mac") : nil)
+        } more: {
+            ForEach(MacActionSwitch.allCases.filter { !Self.commonSwitches.contains($0) }) { item in switchRow(item, on: on) }
+            SettingsCard(title: L10n.text("actions.apps", fallback: "Apps a phone can open"),
+                         footnote: String(format: L10n.text("actions.apps.detail", fallback: "Up to %d apps. The phone sees their names; it can only open them."), MacActionsConfig.maximumApps)) {
+                ForEach(Array(model.macActions.apps.enumerated()), id: \.element.id) { index, app in
+                    SettingsRow(title: app.name, subtitle: app.bundleID, divider: index > 0) {
+                        Button(L10n.text("action.remove", fallback: "Remove")) { actions.removeMacActionApp(app.bundleID) }
+                            .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    }
                 }
+                SettingsRow(title: model.macActions.apps.isEmpty ? L10n.text("actions.apps.empty", fallback: "No apps yet") : "",
+                            divider: !model.macActions.apps.isEmpty) {
+                    Button(L10n.text("actions.apps.add", fallback: "Add app\u{2026}"), action: actions.addMacActionApps)
+                        .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        .disabled(!on || model.macActions.apps.count >= MacActionsConfig.maximumApps)
+                }
+                .settingsSearchSkip()
             }
-            SettingsRow(title: model.macActions.apps.isEmpty ? L10n.text("actions.apps.empty", fallback: "No apps yet") : "",
-                        divider: !model.macActions.apps.isEmpty) {
-                Button(L10n.text("actions.apps.add", fallback: "Add app\u{2026}"), action: actions.addMacActionApps)
-                    .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
-                    .disabled(!on || model.macActions.apps.count >= MacActionsConfig.maximumApps)
+            .settingsSearchAnchor(L10n.text("actions.apps", fallback: "Apps a phone can open"))
+            SettingsCard(title: L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"),
+                         footnote: L10n.text("actions.shortcuts.detail", fallback: "From the Shortcuts app on this Mac. They run with no input from the phone, one at a time, for up to a minute.")) {
+                ForEach(Array(model.macActions.shortcuts.enumerated()), id: \.element.id) { index, shortcut in
+                    SettingsRow(title: shortcut.name, divider: index > 0) {
+                        Button(L10n.text("action.remove", fallback: "Remove")) { actions.removeMacActionShortcut(shortcut.id) }
+                            .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    }
+                }
+                SettingsRow(title: shortcutsRowTitle, subtitle: model.availableShortcuts == nil ? nil : shortcutsRowSubtitle,
+                            divider: !model.macActions.shortcuts.isEmpty) {
+                    PopUpMenuButton(items: shortcutMenu) {
+                        Text(L10n.text("actions.shortcuts.add", fallback: "Add Shortcut"))
+                            .font(BrandFont.body(13, .medium))
+                            .foregroundStyle(c.on)
+                            .padding(.horizontal, 12)
+                            .frame(height: 28)
+                            .background(Capsule().fill(c.s3))
+                            .contentShape(Capsule())
+                    }
+                    .disabled(!on || model.macActions.shortcuts.count >= MacActionsConfig.maximumShortcuts)
+                }
+                .settingsSearchSkip()
+            }
+            .settingsSearchAnchor(L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"))
+            SettingsCard(title: L10n.text("actions.log", fallback: "Action log"),
+                         footnote: L10n.text("actions.log.detail", fallback: "Kept only on this Mac, for 30 days: which phone asked for what, when, and whether it ran.")) {
+                if model.macActionsAudit.isEmpty {
+                    SettingsRow(title: L10n.text("actions.log.empty", fallback: "No actions yet"), divider: false) { EmptyView() }
+                } else {
+                    ForEach(Array(model.macActionsAudit.prefix(8).enumerated()), id: \.element.id) { index, entry in
+                        MacActionAuditRow(entry: entry, divider: index > 0)
+                    }
+                    SettingsRow(title: model.macActionsAudit.count > 8
+                                    ? String(format: L10n.text("remote.log.more", fallback: "%d more in the last 30 days"), model.macActionsAudit.count - 8)
+                                    : "") {
+                        Button(L10n.text("remote.log.clear", fallback: "Clear log")) { confirmClear = true }
+                            .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+                    }
+                }
             }
             .settingsSearchSkip()
+            .settingsSearchAnchor(L10n.text("actions.log", fallback: "Action log"))
         }
-        .settingsSearchAnchor(L10n.text("actions.apps", fallback: "Apps a phone can open"))
-        SettingsCard(title: L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"),
-                     footnote: L10n.text("actions.shortcuts.detail", fallback: "From the Shortcuts app on this Mac. They run with no input from the phone, one at a time, for up to a minute.")) {
-            ForEach(Array(model.macActions.shortcuts.enumerated()), id: \.element.id) { index, shortcut in
-                SettingsRow(title: shortcut.name, divider: index > 0) {
-                    Button(L10n.text("action.remove", fallback: "Remove")) { actions.removeMacActionShortcut(shortcut.id) }
-                        .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-                }
-            }
-            SettingsRow(title: shortcutsRowTitle, subtitle: model.availableShortcuts == nil ? nil : shortcutsRowSubtitle,
-                        divider: !model.macActions.shortcuts.isEmpty) {
-                PopUpMenuButton(items: shortcutMenu) {
-                    Text(L10n.text("actions.shortcuts.add", fallback: "Add Shortcut"))
-                        .font(BrandFont.body(13, .medium))
-                        .foregroundStyle(c.on)
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .background(Capsule().fill(c.s3))
-                        .contentShape(Capsule())
-                }
-                .disabled(!on || model.macActions.shortcuts.count >= MacActionsConfig.maximumShortcuts)
-            }
-            .settingsSearchSkip()
-        }
-        .settingsSearchAnchor(L10n.text("actions.shortcuts", fallback: "Shortcuts a phone can run"))
-        SettingsCard(title: L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions")) {
-            if model.trustedDevices.isEmpty {
-                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"), divider: false) { EmptyView() }
-                    .settingsSearchSkip()
-            }
-            ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
-                MacActionsGrantToggle(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
-            }
-        }
-        .settingsSearchAnchor(L10n.text("actions.devices", fallback: "Phones allowed to use Mac actions"))
-        SettingsCard(title: L10n.text("actions.log", fallback: "Action log"),
-                     footnote: L10n.text("actions.log.detail", fallback: "Kept only on this Mac, for 30 days: which phone asked for what, when, and whether it ran.")) {
-            if model.macActionsAudit.isEmpty {
-                SettingsRow(title: L10n.text("actions.log.empty", fallback: "No actions yet"), divider: false) { EmptyView() }
-            } else {
-                ForEach(Array(model.macActionsAudit.prefix(8).enumerated()), id: \.element.id) { index, entry in
-                    MacActionAuditRow(entry: entry, divider: index > 0)
-                }
-                SettingsRow(title: model.macActionsAudit.count > 8
-                                ? String(format: L10n.text("remote.log.more", fallback: "%d more in the last 30 days"), model.macActionsAudit.count - 8)
-                                : "") {
-                    Button(L10n.text("remote.log.clear", fallback: "Clear log")) { confirmClear = true }
-                        .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
-                }
-            }
-        }
-        .settingsSearchSkip()
-        .settingsSearchAnchor(L10n.text("actions.log", fallback: "Action log"))
         .confirmationDialog(L10n.text("actions.log.clear.title", fallback: "Clear the action log?"), isPresented: $confirmClear) {
             Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearMacActionsAudit)
         } message: {
             Text(L10n.text("actions.log.clear.body", fallback: "This removes the record of past Mac actions from this Mac."))
         }
+    }
+
+    private func switchRow(_ item: MacActionSwitch, on: Bool) -> some View {
+        SettingsToggle(title: macActionSwitchTitle(item), subtitle: switchNote(item), subtitleIsWarning: switchWarning(item),
+                       isOn: model.macActions.isOn(item), set: { actions.setMacActionSwitch(item, $0) })
+            .disabled(!on)
     }
 
     private var shortcutsRowTitle: String {
@@ -150,41 +151,6 @@ func macActionSwitchTitle(_ item: MacActionSwitch) -> String {
     case .sleep: macSystemActionTitle(.sleep)
     case .screensaver: macSystemActionTitle(.screensaver)
     case .volume: L10n.text("actions.volume", fallback: "Volume")
-    }
-}
-
-/// Settings > Devices > [phone] and the Mac actions card: the per-device grant, off by default.
-struct MacActionsGrantToggle: View {
-    let device: TrustedDeviceInfo
-    let model: SettingsModel
-    let actions: SettingsActions
-    var title: String?
-    var divider = true
-
-    var body: some View {
-        let granted = model.deviceFeatures[device.id]?[.macActions] == true
-        let warning = note(granted: granted)
-        SettingsToggle(
-            title: title ?? L10n.text("actions.grant", fallback: "Allow Mac actions"),
-            subtitle: warning ?? (granted
-                ? L10n.text("actions.grant.on", fallback: "Can use the actions, apps and Shortcuts you listed")
-                : L10n.text("remote.grant.off", fallback: "Off until you allow it")),
-            subtitleIsWarning: warning != nil,
-            divider: divider,
-            isOn: granted,
-            set: { actions.setForDevice(device.id, .macActions, $0) }
-        )
-    }
-
-    private func note(granted: Bool) -> String? {
-        guard granted else { return nil }
-        if model.globalFeatures[.macActions] != true {
-            return L10n.text("actions.grant.globalOff", fallback: "Mac actions is off on this Mac. Turn it on in Media and actions.")
-        }
-        if model.phoneFeatures[device.id]?[.macActions] == false {
-            return String(format: L10n.text("actions.grant.phoneOff", fallback: "Turn on Mac actions in Bridgey on %@"), device.name)
-        }
-        return nil
     }
 }
 
@@ -310,15 +276,17 @@ func chooseAllowedApps() -> [AllowedApp] {
     }
 }
 
-/// Settings > Devices > [phone]: when to say the phone's battery is low or charged.
+/// Settings > Devices > Battery > More options: when to say a phone's battery is low or charged.
 struct BatteryAlertsRow: View {
     let thresholds: BatteryAlertThresholds
     let enabled: Bool
+    /// The device it is for, under the title (the Battery card lists one row per device; the card says what it does).
+    var device: String?
     let set: (BatteryAlertThresholds) -> Void
 
     var body: some View {
         SettingsRow(title: L10n.text("battery.alerts", fallback: "Battery alerts"),
-                    subtitle: L10n.text("battery.alerts.detail", fallback: "A notification when the phone runs low, and when it has charged. Once per charge.")) {
+                    subtitle: device ?? L10n.text("battery.alerts.detail", fallback: "A notification when the phone runs low, and when it has charged. Once per charge.")) {
             ChoiceButton(value: label(L10n.text("battery.alerts.low", fallback: "Low"), thresholds.low)) {
                 BatteryAlertThresholds.lowChoices.map { value in
                     PopUpMenuItem(title: choiceTitle(value), checked: value == thresholds.low) {

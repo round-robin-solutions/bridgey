@@ -93,16 +93,17 @@ struct PermissionChipView: View {
     }
 }
 
-/// Settings > Privacy > Permissions.
+/// Privacy > Permissions: what Bridgey can use on this Mac, and why, with Manage for each.
 struct PermissionsPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
 
     var body: some View {
-        SettingsCard(footnote: L10n.setup("permissions.note", fallback: "Bridgey asks for each permission only when a feature needs it. Manage opens the exact page in System Settings.")) {
-            ForEach(Array(model.setup.permissions.enumerated()), id: \.element.id) { index, status in
-                PermissionRow(status: status, divider: index > 0,
+        FeatureCard(card: .permissions, headerAnchor: SettingsCardID.permissions.title,
+                    footnote: L10n.setup("permissions.note", fallback: "Bridgey asks for each permission only when a feature needs it. Manage opens the exact page in System Settings.")) {
+            ForEach(model.setup.permissions, id: \.id) { status in
+                PermissionRow(status: status, divider: true,
                               manage: { actions.setup.managePermission(status.permission) },
                               explain: { actions.setup.explainPermission(status.permission) })
             }
@@ -156,7 +157,7 @@ struct PermissionRow: View {
     }
 }
 
-// MARK: - Entry rows on the Privacy and General pages
+// MARK: - Rows hidden inside setup
 
 /// Hides rows that make no sense inside setup (Reset, Run setup again).
 private struct SetupModeKey: EnvironmentKey {
@@ -167,47 +168,6 @@ extension EnvironmentValues {
     var setupMode: Bool {
         get { self[SetupModeKey.self] }
         set { self[SetupModeKey.self] = newValue }
-    }
-}
-
-/// Privacy: the row that opens Permissions.
-struct PrivacyPermissionsCard: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard {
-            SettingsRow(title: L10n.setup("permissions.title", fallback: "Permissions"),
-                        subtitle: permissionsSummary(model.setup.permissions), divider: false) {
-                Button(L10n.setup("action.open", fallback: "Open")) { actions.setup.showPane(.permissions) }
-                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-            }
-        }
-    }
-}
-
-/// "4 allowed, 1 not allowed" for the Privacy row.
-func permissionsSummary(_ statuses: [PermissionStatus]) -> String {
-    let missing = statuses.filter { $0.chip == .notAllowed }.count
-    if missing == 0 { return L10n.setup("permissions.summary.ok", fallback: "What Bridgey can use on this Mac, and why") }
-    return String(format: L10n.setup("permissions.summary.missing", fallback: "%d needed but not allowed"), missing)
-}
-
-/// Privacy: the row that opens Reset Bridgey on this device (not inside setup).
-struct PrivacyResetCard: View {
-    let actions: SettingsActions
-    @Environment(\.setupMode) private var setupMode
-
-    var body: some View {
-        if !setupMode {
-            SettingsCard {
-                SettingsRow(title: L10n.setup("reset.title", fallback: "Reset Bridgey on this device"),
-                            subtitle: L10n.setup("reset.row.detail", fallback: "Delete activity, caches, settings or everything"), divider: false) {
-                    Button(L10n.setup("action.open", fallback: "Open")) { actions.setup.showPane(.reset) }
-                        .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-                }
-            }
-        }
     }
 }
 
@@ -225,52 +185,6 @@ struct RunSetupAgainCard: View {
                         .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
                 }
             }
-        }
-    }
-}
-
-// MARK: - Sub-pages of Privacy
-
-extension SettingsPane {
-    /// Permissions and Reset open from Privacy and are not in the sidebar.
-    var parentPane: SettingsPane? {
-        switch self {
-        case .permissions, .reset: .privacy
-        case .away: .devices
-        default: nil
-        }
-    }
-
-    /// The sidebar item that shows as selected.
-    var sidebarPane: SettingsPane { parentPane ?? self }
-
-    /// The heading of Permissions or Reset (SettingsPane.title uses it for both).
-    var subpageTitle: String {
-        self == .reset
-            ? L10n.setup("reset.title", fallback: "Reset Bridgey on this device")
-            : L10n.setup("permissions.title", fallback: "Permissions")
-    }
-}
-
-/// "< Privacy" above a sub-page's heading.
-struct SettingsBackButton: View {
-    @Binding var pane: SettingsPane
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        if let parent = pane.parentPane {
-            Button {
-                pane = parent
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .bold))
-                    Text(parent.title).font(BrandFont.body(13, .semibold))
-                }
-                .foregroundStyle(c.pri)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, -8)
         }
     }
 }

@@ -32,9 +32,8 @@ struct CallMediaSettingsCard: View {
     private var devices: [TrustedDeviceInfo] { model.trustedDevices.filter { !model.restrictedDevices.contains($0.id) } }
 
     var body: some View {
-        SettingsCard(footnote: L10n.text("callMedia.limits", fallback: "Allow each device in Devices. Music and Spotify have independent controls; other apps may be limited. Call audio is protected. Mac calls without an integration use the manual mark below.")) {
-            SettingsToggle(title: BridgeyFeature.callQuiet.title, subtitle: BridgeyFeature.callQuiet.subtitle,
-                           divider: false, isOn: enabled, set: { actions.setGlobal(.callQuiet, $0) })
+        FeatureCard(card: .callQuiet, detail: BridgeyFeature.callQuiet.subtitle, toggle: featureToggle(.callQuiet, model, actions),
+                    footnote: L10n.text("callMedia.limits", fallback: "Allow each device in Devices. Music and Spotify have independent controls; other apps may be limited. Call audio is protected. Mac calls without an integration use the manual mark below.")) {
             SettingsRow(title: L10n.text("callMedia.mode", fallback: "During a call")) {
                 Picker("", selection: Binding(get: { model.callMediaMode }, set: actions.setCallMediaMode)) {
                     ForEach(CallMediaMode.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -42,13 +41,15 @@ struct CallMediaSettingsCard: View {
             }.disabled(!enabled)
             Text(L10n.text("callMedia.audioAccess", fallback: "Mac muting needs macOS 14.2 or later and System Audio Recording access. Audio stays in memory and is discarded; nothing is recorded or sent."))
                 .font(BrandFont.body(12)).foregroundStyle(c.on2).fixedSize(horizontal: false, vertical: true)
-                .padding(.vertical, 6)
+                .padding(.bottom, 8)
             SettingsRow(title: L10n.text("callMedia.restore", fallback: "After the last call"),
                         subtitle: L10n.text("callMedia.ownership", fallback: "Only changes made by Bridgey are restored. Later playback, volume and output choices stay yours.")) {
                 Picker("", selection: Binding(get: { model.callMediaRestoration == .leaveAsIs ? .restoreSound : model.callMediaRestoration }, set: actions.setCallMediaRestoration)) {
                     ForEach(CallMediaRestoration.macChoices, id: \.self) { Text($0.title).tag($0) }
                 }.labelsHidden().frame(maxWidth: 270)
             }.disabled(!enabled)
+            DeviceChoicesRow(feature: SettingsCardID.callQuiet.title, chips: DeviceChoices.callQuiet(model, actions))
+        } more: {
             SettingsRow(title: L10n.text("callMedia.manual", fallback: "This Mac's call status"),
                         subtitle: L10n.text("callMedia.manual.detail", fallback: "A manual mark for FaceTime, Zoom or browser calls. It never answers or ends an actual call.")) {
                 Button(model.callMediaManual ? L10n.text("callMedia.offCall", fallback: "I'm off the call") : L10n.text("callMedia.onCall", fallback: "I'm on a call")) {
@@ -60,8 +61,9 @@ struct CallMediaSettingsCard: View {
                     ForEach(devices) { device in
                         Text(device.name + ": " + (model.callMediaStatuses[device.id] ?? L10n.text("callMedia.waiting", fallback: "Waiting for this device's playback result")))
                             .font(BrandFont.body(12))
+                            .foregroundStyle(c.on2)
                     }
-                }.padding(.vertical, 6).settingsSearchSkip()
+                }.padding(.vertical, 8).settingsSearchSkip()
             }
             if !model.callMediaRecovery.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -84,19 +86,6 @@ struct CallMediaSettingsCard: View {
                 }
             }
         }
-    }
-}
-
-struct CallMediaGrantToggle: View {
-    let device: TrustedDeviceInfo
-    let model: SettingsModel
-    let actions: SettingsActions
-    var body: some View {
-        SettingsToggle(title: L10n.text("callMedia.grant", fallback: "Allow call status and media quieting"),
-                       subtitle: model.callMediaStatuses[device.id],
-                       isOn: model.globalFeatures[.callQuiet] == true && model.deviceFeatures[device.id]?[.callQuiet] == true,
-                       set: { actions.setForDevice(device.id, .callQuiet, $0) })
-            .disabled(model.globalFeatures[.callQuiet] != true || model.restrictedDevices.contains(device.id))
     }
 }
 

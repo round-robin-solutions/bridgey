@@ -4,18 +4,21 @@ import SwiftUI
 
 /*
  * Settings search on the Mac, as in System Settings: a field at the top of the sidebar (Command-F), results
- * grouped by pane in place of the pane list (Up, Down, Return, Escape), and the chosen row scrolled to the
- * middle of its pane and briefly highlighted. Rows find themselves by title: SettingsRow and SettingsToggle
+ * grouped by group in place of the group list (Up, Down, Return, Escape), and the chosen row scrolled to the
+ * middle of its group and briefly highlighted (its card's More options open first when it is inside them). Rows find themselves by title: SettingsRow and SettingsToggle
  * carry a search anchor, so any row a pane draws can be the target. The matching is SettingsSearch.swift; the
  * rows it knows are SettingsSearchRegistry.swift.
  */
 
-/// What a chosen result points at: a pane, and the row in it to show (by title, inside a device's or an
-/// agent's card when `scope` is set). `token` makes choosing the same row again highlight it again.
+/// What a chosen result points at: a group, and the row in it to show (by title, inside a device's or an
+/// agent's card when `scope` is set). With no title, `card` is the card to scroll to (a link to an old pane).
+/// `expand` is the card whose More options hold the row. `token` makes choosing the same row again highlight it again.
 struct SettingsSearchTarget: Equatable {
-    var pane: SettingsPane
+    var group: SettingsGroup
     var scope: String?
     var title: String?
+    var card: SettingsCardID?
+    var expand: SettingsCardID?
     var token = UUID()
 }
 
@@ -69,8 +72,9 @@ extension EnvironmentValues {
 }
 
 extension View {
-    /// Makes this view a row search can scroll to and highlight, found by `title`.
-    func settingsSearchAnchor(_ title: String) -> some View { modifier(SettingsSearchAnchor(title: title)) }
+    /// Makes this view a row search can scroll to and highlight, found by `title`. `inset` widens (negative) or
+    /// narrows the highlight behind it.
+    func settingsSearchAnchor(_ title: String, inset: CGFloat = -10) -> some View { modifier(SettingsSearchAnchor(title: title, inset: inset)) }
 
     /// Rows inside are a status or a list item, not settings: search neither offers nor records them.
     func settingsSearchSkip(_ skip: Bool = true) -> some View { environment(\.settingsSearchSkip, skip) }
@@ -81,6 +85,7 @@ extension View {
 
 struct SettingsSearchAnchor: ViewModifier {
     let title: String
+    var inset: CGFloat = -10
     @Environment(\.settingsSearchScope) private var scope
     @Environment(\.settingsSearchHighlight) private var highlight
     @Environment(\.settingsSearchRecorder) private var recorder
@@ -95,7 +100,7 @@ struct SettingsSearchAnchor: ViewModifier {
             let target = highlight.flatMap { $0.title == title && $0.scope == scope ? $0 : nil }
             content
                 .background(alignment: .center) {
-                    if let target { SearchPulse(token: target.token).padding(.horizontal, -10) }
+                    if let target { SearchPulse(token: target.token).padding(.horizontal, inset) }
                 }
                 .id(id)
         }
@@ -168,9 +173,9 @@ struct SettingsSearchRow: Identifiable, Equatable {
 
 /// Results grouped by sidebar item, in the order of each item's best row.
 struct SettingsSearchGroup: Identifiable, Equatable {
-    let pane: SettingsPane
+    let group: SettingsGroup
     let rows: [SettingsSearchRow]
-    var id: String { pane.rawValue }
+    var id: String { group.rawValue }
 }
 
 struct SettingsSearchOutcome: Equatable {
@@ -192,20 +197,24 @@ struct SettingsSearchOutcome: Equatable {
             }
             return SettingsSearchOutcome(groups: [], closest: closest)
         }
-        var order: [SettingsPane] = []
-        var byPane: [SettingsPane: [SettingsSearchRow]] = [:]
+        var order: [SettingsGroup] = []
+        var byGroup: [SettingsGroup: [SettingsSearchRow]] = [:]
+        // Two entries can name one row (a device's switch found by the device and by the feature): offer it once.
+        var seen = Set<SearchAnchorID>()
         for hit in hits {
             let entry = entries[hit.index]
+            if let anchor = entry.anchorTitle {
+                guard seen.insert(SearchAnchorID(scope: "\(entry.group.rawValue)|\(entry.scope ?? "")", title: anchor)).inserted else { continue }
+            }
             let showsSubtitle = hit.titleRanges.isEmpty && !hit.subtitleRanges.isEmpty
             let row = SettingsSearchRow(entry: entry, titleRanges: hit.titleRanges,
                                         subtitle: showsSubtitle ? entry.subtitle : nil,
                                         subtitleRanges: showsSubtitle ? hit.subtitleRanges : [])
-            // Sub-pages (Connect away from home, Permissions, Reset) join the sidebar item they open from.
-            let group = entry.pane.sidebarPane
-            if byPane[group] == nil { order.append(group) }
-            byPane[group, default: []].append(row)
+            let group = entry.group
+            if byGroup[group] == nil { order.append(group) }
+            byGroup[group, default: []].append(row)
         }
-        return SettingsSearchOutcome(groups: order.map { SettingsSearchGroup(pane: $0, rows: byPane[$0] ?? []) })
+        return SettingsSearchOutcome(groups: order.map { SettingsSearchGroup(group: $0, rows: byGroup[$0] ?? []) })
     }
 }
 
@@ -296,7 +305,7 @@ struct SettingsSearchResultsList: View {
                     } else {
                         let flat = outcome.rows
                         ForEach(outcome.groups) { group in
-                            heading(group.pane)
+                            heading(group.group)
                             ForEach(group.rows) { row in
                                 let index = flat.firstIndex(where: { $0.id == row.id }) ?? 0
                                 resultRow(row, index: index, selected: index == selected)
@@ -317,11 +326,11 @@ struct SettingsSearchResultsList: View {
         .accessibilityLabel(L10n.text("settings.search.results", fallback: "Search results"))
     }
 
-    private func heading(_ pane: SettingsPane) -> some View {
+    private func heading(_ group: SettingsGroup) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: pane.sidebarPane.symbol)
+            Image(systemName: group.symbol)
                 .font(.system(size: 11, weight: .semibold))
-            Text(pane.sidebarPane.sidebarTitle)
+            Text(group.title)
                 .font(BrandFont.body(12, .semibold))
                 .lineLimit(1)
         }

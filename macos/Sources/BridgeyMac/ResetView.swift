@@ -9,25 +9,33 @@ struct ResetPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
+    /// Not inside setup.
+    @Environment(\.setupMode) private var setupMode
 
     var body: some View {
-        if let message = model.setup.resetMessage {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(c.tgi)
-                Text(message)
-                    .font(BrandFont.body(13, .medium))
-                    .foregroundStyle(c.on)
-                Spacer(minLength: 0)
+        if !setupMode { card }
+    }
+
+    private var card: some View {
+        FeatureCard(card: .reset, headerAnchor: SettingsCardID.reset.title,
+                    footnote: L10n.setup("reset.note", fallback: "Only this Mac changes. Your phones keep their own data. Each choice asks before it deletes anything.")) {
+            if let message = model.setup.resetMessage {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(c.tgi)
+                    Text(message)
+                        .font(BrandFont.body(13, .medium))
+                        .foregroundStyle(c.on)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 44)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(c.tg))
+                .padding(.bottom, 8)
+                .accessibilityElement(children: .combine)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 44)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(c.tg))
-            .accessibilityElement(children: .combine)
-        }
-        SettingsCard(footnote: L10n.setup("reset.note", fallback: "Only this Mac changes. Your phones keep their own data. Each choice asks before it deletes anything.")) {
-            ForEach(Array(ResetChoice.allCases.enumerated()), id: \.element) { index, choice in
+            ForEach(ResetChoice.allCases, id: \.self) { choice in
                 HStack(spacing: 12) {
                     IconTile(symbol: choice.symbol, tint: choice == .everything ? .purple : .neutral, size: 30, corner: 9)
                     RowText(title: choice.title, subtitle: choice.summary)
@@ -41,7 +49,7 @@ struct ResetPane: View {
                 .padding(.vertical, 10)
                 .frame(minHeight: 56)
                 .settingsSearchAnchor(choice.title)
-                .overlay(alignment: .top) { if index > 0 { Rectangle().fill(c.olv).frame(height: 1) } }
+                .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
             }
         }
     }
