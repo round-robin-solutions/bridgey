@@ -11365,6 +11365,93 @@
    "android": "failed"
   },
   {
+   "name": "waiting, needs accessibility",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "accessibility"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "accessibility"
+   },
+   "android": "waiting",
+   "androidNeeds": "accessibility"
+  },
+  {
+   "name": "waiting, needs android_11",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "android_11"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "android_11"
+   },
+   "android": "waiting",
+   "androidNeeds": "android_11"
+  },
+  {
+   "name": "waiting, needs unlock",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "unlock"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "unlock"
+   },
+   "android": "waiting",
+   "androidNeeds": "unlock"
+  },
+  {
+   "name": "an unknown needs is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": "coffee"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting"
+   }
+  },
+  {
+   "name": "needs as a number is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting",
+    "needs": 3
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "waiting"
+   }
+  },
+  {
+   "name": "needs with another status is ignored",
+   "plaintext": {
+    "version": 1,
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "declined",
+    "needs": "unlock"
+   },
+   "expect": {
+    "requestId": "8a5d9c3e-2b47-4f1a-9e60-7c1d2b3a4f5e",
+    "status": "declined"
+   }
+  },
+  {
    "name": "unknown status",
    "plaintext": {
     "version": 1,
@@ -11553,6 +11640,112 @@
     "fps": 30,
     "bitrate": 4000000,
     "hdr": true
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "start in screenshots mode",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 3,
+    "bitrate": 1500000,
+    "mode": "screenshots"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 3,
+    "bitrate": 1500000,
+    "mode": "screenshots"
+   },
+   "android": true
+  },
+  {
+   "name": "start with mode video",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "mode": "video"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "start with an unknown mode reads as video",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "mode": "hologram"
+   },
+   "expect": {
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "requestId": null,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000
+   }
+  },
+  {
+   "name": "start with mode as a number reads as video",
+   "kind": "screen.start",
+   "decoder": "mac",
+   "plaintext": {
+    "version": 1,
+    "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
+    "sequence": 3,
+    "codec": "h264",
+    "width": 720,
+    "height": 1600,
+    "fps": 30,
+    "bitrate": 4000000,
+    "mode": 2
    },
    "expect": {
     "streamId": "6c2e9a14-3b5d-4e7f-8a90-1b2c3d4e5f60",
