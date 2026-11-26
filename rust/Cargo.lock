@@ -189,6 +189,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bridgey-browser-host"
+version = "1.0.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "bridgey-cli"
 version = "0.3.0"
 dependencies = [

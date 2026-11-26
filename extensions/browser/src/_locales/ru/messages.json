@@ -1,0 +1,202 @@
+{
+  "extName": {
+    "message": "Bridgey от Round Robin",
+    "description": "Extension name in the store and the browser"
+  },
+  "extShortName": {
+    "message": "Bridgey",
+    "description": "Short name"
+  },
+  "extDescription": {
+    "message": "Отправляйте открытую страницу или любую ссылку на телефон или другой компьютер через Bridgey.",
+    "description": "Store and browser description, at most 132 characters"
+  },
+  "actionTitle": {
+    "message": "Отправить через Bridgey",
+    "description": "Toolbar button tooltip"
+  },
+  "commandSendPage": {
+    "message": "Отправить страницу на последнее устройство",
+    "description": "Keyboard shortcut description"
+  },
+  "popupTitle": {
+    "message": "Отправить на устройство",
+    "description": "Popup heading"
+  },
+  "popupCantSend": {
+    "message": "Отправить можно только веб-страницу. Чтобы отправить ссылку, нажмите на неё правой кнопкой.",
+    "description": "Status line when the current tab is not a web page"
+  },
+  "popupCantSendShort": {
+    "message": "Это не веб-страница",
+    "description": "Under the heading when the current tab is not a web page"
+  },
+  "send": {
+    "message": "Отправить",
+    "description": "Button"
+  },
+  "sending": {
+    "message": "Отправка…",
+    "description": "Button while sending"
+  },
+  "stateConnected": {
+    "message": "Подключено",
+    "description": "Device state"
+  },
+  "stateOffline": {
+    "message": "Не подключено",
+    "description": "Device state"
+  },
+  "stateLinksOff": {
+    "message": "Ссылки выключены",
+    "description": "Device state: the Links setting is off on this computer or the device"
+  },
+  "resultOpened": {
+    "message": "Открыто на $1",
+    "description": "$1 is the device name"
+  },
+  "resultWaiting": {
+    "message": "Ждёт на $1, откройте там",
+    "description": "The device keeps the link until it is opened there. $1 is the device name"
+  },
+  "resultCalling": {
+    "message": "Звонок с $1",
+    "description": "A tel: link: the phone places the call. $1 is the phone name"
+  },
+  "resultAsking": {
+    "message": "Подтвердите звонок в Bridgey",
+    "description": "A tel: link: Bridgey asks before calling"
+  },
+  "resultCopied": {
+    "message": "Адрес скопирован на $1",
+    "description": "A mailto: link: the address is on the device's clipboard. $1 is the device name"
+  },
+  "errorNotInstalled": {
+    "message": "Включите поддержку браузеров в Bridgey",
+    "description": "Heading when the native messaging host is not installed"
+  },
+  "errorNotInstalledDetail": {
+    "message": "В настройках Bridgey нажмите «Установить» рядом с пунктом «Расширения для браузеров». Bridgey должен быть установлен на этом компьютере.",
+    "description": "Detail"
+  },
+  "errorAppNotRunning": {
+    "message": "Откройте Bridgey на этом компьютере",
+    "description": "Heading when the app is not running"
+  },
+  "errorAppNotRunningDetail": {
+    "message": "Расширение отправляет через Bridgey, поэтому приложение должно быть запущено.",
+    "description": "Detail"
+  },
+  "errorUnsafe": {
+    "message": "Соединение Bridgey на этом компьютере выглядит неправильно. Перезапустите Bridgey.",
+    "description": "The local socket or pipe has the wrong owner or permissions"
+  },
+  "errorUnknownDevice": {
+    "message": "Bridgey больше не знает это устройство",
+    "description": "Error"
+  },
+  "errorNotConnected": {
+    "message": "$1 не подключено",
+    "description": "$1 is the device name"
+  },
+  "errorLinksOff": {
+    "message": "Ссылки выключены на $1 или на этом компьютере",
+    "description": "$1 is the device name"
+  },
+  "errorCallsOff": {
+    "message": "Звонки выключены, или $1 не может звонить",
+    "description": "$1 is the device name"
+  },
+  "errorBusy": {
+    "message": "Всё ещё ждём ответа от $1",
+    "description": "$1 is the device name"
+  },
+  "errorDeclined": {
+    "message": "$1 отказало. Возможно, там уже ждёт другая ссылка.",
+    "description": "$1 is the device name"
+  },
+  "errorRateLimited": {
+    "message": "Слишком много сразу. Попробуйте через несколько секунд.",
+    "description": "Error"
+  },
+  "errorUnsupported": {
+    "message": "$1 не принимает такие ссылки",
+    "description": "$1 is the device name"
+  },
+  "errorBadUrl": {
+    "message": "Этот адрес нельзя отправить",
+    "description": "Error"
+  },
+  "errorNoAnswer": {
+    "message": "$1 не ответило",
+    "description": "$1 is the device name"
+  },
+  "errorFailed": {
+    "message": "Не удалось отправить. Попробуйте ещё раз.",
+    "description": "Error"
+  },
+  "emptyNoDevices": {
+    "message": "Нет сопряжённых устройств",
+    "description": "Heading"
+  },
+  "emptyNoDevicesDetail": {
+    "message": "Сначала свяжите телефон или другой компьютер в Bridgey.",
+    "description": "Detail"
+  },
+  "recent": {
+    "message": "Недавние",
+    "description": "Heading of the recent sends list"
+  },
+  "clear": {
+    "message": "Очистить",
+    "description": "Clears the recent sends"
+  },
+  "retry": {
+    "message": "Ещё раз",
+    "description": "Button"
+  },
+  "getBridgey": {
+    "message": "Скачать Bridgey",
+    "description": "Button that opens Bridgey's website"
+  },
+  "agoNow": {
+    "message": "только что",
+    "description": "Time"
+  },
+  "agoMinutes": {
+    "message": "$1 мин назад",
+    "description": "Time, $1 is a number"
+  },
+  "agoHours": {
+    "message": "$1 ч назад",
+    "description": "Time, $1 is a number"
+  },
+  "agoDays": {
+    "message": "$1 дн назад",
+    "description": "Time, $1 is a number"
+  },
+  "menuSendPage": {
+    "message": "Отправить страницу через Bridgey",
+    "description": "Page context menu"
+  },
+  "menuSendLink": {
+    "message": "Отправить ссылку через Bridgey",
+    "description": "Link context menu"
+  },
+  "menuSendPageTo": {
+    "message": "Отправить страницу на $1",
+    "description": "Page context menu, $1 is the device name"
+  },
+  "menuSendLinkTo": {
+    "message": "Отправить ссылку на $1",
+    "description": "Link context menu, $1 is the device name"
+  },
+  "menuSendPageToOffline": {
+    "message": "Отправить страницу на $1 (не подключено)",
+    "description": "Page context menu, $1 is the device name"
+  },
+  "menuSendLinkToOffline": {
+    "message": "Отправить ссылку на $1 (не подключено)",
+    "description": "Link context menu, $1 is the device name"
+  }
+}

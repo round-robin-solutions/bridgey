@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <link rel="stylesheet" href="popup.css">
+  <title>Bridgey</title>
+</head>
+<body>
+  <main class="panel">
+    <header class="head">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+      </div>
+      <div class="head-text">
+        <h1 id="title" data-i18n="popupTitle"></h1>
+        <p id="page" class="sub"></p>
+      </div>
+    </header>
+    <div id="devices" class="devices" role="radiogroup" aria-labelledby="title"></div>
+    <div id="empty" class="empty" hidden>
+      <h2 id="empty-title"></h2>
+      <p id="empty-detail"></p>
+      <button id="empty-action" class="pill outline" type="button" hidden></button>
+    </div>
+    <footer id="foot" class="foot">
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <button id="send" class="pill primary" type="button" disabled data-i18n="send"></button>
+    </footer>
+    <section id="recent" class="recent" hidden>
+      <div class="recent-head">
+        <h2 data-i18n="recent"></h2>
+        <button id="clear" class="text-button" type="button" data-i18n="clear"></button>
+      </div>
+      <ol id="recent-list"></ol>
+    </section>
+  </main>
+  <script src="lib.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

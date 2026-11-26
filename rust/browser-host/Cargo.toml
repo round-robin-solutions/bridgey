@@ -1,0 +1,32 @@
+[package]
+name = "bridgey-browser-host"
+description = "The native messaging helper that connects Bridgey's browser extension to the Bridgey app (docs/browser-extensions.md)"
+edition.workspace = true
+license.workspace = true
+version = "1.0.0"
+
+[lib]
+name = "bridgey_browser_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bridgey-browser-host"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
