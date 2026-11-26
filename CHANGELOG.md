@@ -2,6 +2,10 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 7 (1.0.0-beta.7), 26 November 2026
+
+- Send the page you're on, or any link, from Chrome, Edge, Firefox, Brave or Arc to one of your devices: from the toolbar, the right-click menu or Alt+Shift+S. Turn on Browser extensions in Bridgey's Settings, then add the extension from this release's files.
+
 ## 1.0 Beta 6 (1.0.0-beta.6), 25 November 2026
 
 - Control your phone from the Mac while you view its screen: tap, type, scroll, and use Back, Home and Recents. It needs Bridgey's accessibility service turned on in Android settings, and a grant on the phone for that Mac, which is off until you choose Ask each time or Allow without asking. The phone shows when a Mac is controlling it, with Stop.
