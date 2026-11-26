@@ -61,10 +61,13 @@ class SettingsSearchJumpTest {
                     }
                 }
             }
-            // Up to 15 s of the main looper's clock: the full motion waits for the page, then animates the scroll, and a
-            // slow CI worker takes more steps to get there.
+            // The full motion first waits 280 ms for the page with a coroutine delay, which runs on real time (Compose's
+            // UI dispatcher has no delay of its own), so step the looper and let real time pass too: up to 10 s of each.
             var steps = 0
-            while (host.arrived != token && steps++ < 60) shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250))
+            while (host.arrived != token && steps++ < 200) {
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(50))
+                Thread.sleep(50)
+            }
             assertEquals("the row was found and the highlight started", token, host.arrived)
         }
         return host to list
