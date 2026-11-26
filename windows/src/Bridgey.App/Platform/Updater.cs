@@ -11,7 +11,12 @@ namespace Bridgey.Platform;
 /// </summary>
 internal sealed class UpdateHost(Func<MainWindow?> window, Action quit) : IUpdateHost
 {
-    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = true }) { Timeout = TimeSpan.FromMinutes(10) };
+    // The feed is read whole, so it is capped while it arrives (downloads stream and keep their own cap).
+    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = true })
+    {
+        Timeout = TimeSpan.FromMinutes(10),
+        MaxResponseContentBufferSize = 256 * 1024,
+    };
 
     static UpdateHost()
     {

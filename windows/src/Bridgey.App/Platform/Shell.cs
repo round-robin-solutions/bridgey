@@ -11,6 +11,12 @@ internal sealed class ExplorerFiles : IFileService
 {
     public void Open(string path)
     {
+        // A program, script, shortcut or installer from a paired device is shown, never run with one click.
+        if (!ReceivedFiles.OpensDirectly(path))
+        {
+            ShowInFolder(path);
+            return;
+        }
         try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
         catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or FileNotFoundException)
         {

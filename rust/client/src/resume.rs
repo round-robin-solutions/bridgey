@@ -336,7 +336,14 @@ pub fn sender_answer(plain: &[u8], transfer_id: &str, size: u64, sha256: &[u8], 
 /// SHA-256 of a file's first `length` bytes, read in 256 KiB pieces, and the running hash to continue from there.
 /// Fails when the file is shorter.
 pub fn hash_prefix(path: &Path, length: u64) -> io::Result<(ring::digest::Context, [u8; 32])> {
-    let mut file = File::open(path)?;
+    hash_prefix_of(&mut File::open(path)?, length)
+}
+
+/// [hash_prefix] through an open handle, from byte zero: the receiver re-reads the very file it will write to, never
+/// whatever the path names by then.
+pub fn hash_prefix_of(file: &mut File, length: u64) -> io::Result<(ring::digest::Context, [u8; 32])> {
+    use std::io::Seek;
+    file.seek(io::SeekFrom::Start(0))?;
     let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
     let mut buf = vec![0u8; 256 * 1024];
     let mut left = length;

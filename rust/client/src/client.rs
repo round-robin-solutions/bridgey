@@ -993,7 +993,8 @@ impl Inner {
     /// verified, their file gone or cut short), whose files are deleted (files_resume_draft1).
     fn load_partials(&self) {
         let mut store = resume::Store::decode(&self.storage.load(resume::STORAGE_KEY).ok().flatten().unwrap_or_default());
-        let gone = store.sweep(now_ms(), |p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len()));
+        // symlink_metadata: a link where a partial was is not the partial (security review 1.0, F1).
+        let gone = store.sweep(now_ms(), |p| std::fs::symlink_metadata(p).ok().filter(|m| m.is_file()).map(|m| m.len()));
         if !gone.is_empty() {
             self.partials_changed(&store, gone);
         }

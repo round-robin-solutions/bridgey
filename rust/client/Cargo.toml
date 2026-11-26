@@ -27,5 +27,8 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["fs"] }
 mdns-sd = { version = "0.21", optional = true, default-features = false }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 cbindgen = { version = "0.29", default-features = false }

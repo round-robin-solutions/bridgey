@@ -1677,13 +1677,14 @@ impl Session {
             if let Some(r) = self.host.resume_claim(&device_id, size, &crypto::b64(&sha256), &name, &dir) {
                 let part = r.part_path();
                 let prefix: Option<[u8; 32]> = crypto::unb64(&r.prefix).and_then(|b| b.try_into().ok());
-                match (std::fs::OpenOptions::new().read(true).write(true).open(&part), prefix) {
-                    (Ok(file), Some(prefix)) => {
+                let opened = transfer::open_partial(&part).and_then(|file| Ok((file.try_clone()?, file)));
+                match (opened, prefix) {
+                    (Ok((reader, file)), Some(prefix)) => {
                         let transfer = self.host.next_id();
                         let i = new(part.clone(), file, transfer, Phase::Checking { length: r.length, prefix }, r.length);
                         self.incoming.insert(transfer_id.to_string(), i);
                         self.host.event(Event::FileIncoming { transfer, device_id, name: name.clone(), size, mime });
-                        self.check_partial(transfer_id.to_string(), part, r.length);
+                        self.check_partial(transfer_id.to_string(), reader, r.length);
                         return Step::Continue;
                     }
                     _ => {
@@ -1692,6 +1693,13 @@ impl Session {
                     }
                 }
             }
+        }
+        // Room for this file and the ones already arriving, plus a margin (0.10 M6, as on the Mac); a resumed file needs
+        // only what is left of it.
+        let arriving: u64 = self.incoming.values().map(|i| i.size.saturating_sub(i.received)).sum();
+        if transfer::free_space(&dir).is_some_and(|free| free < size.saturating_add(arriving).saturating_add(transfer::FREE_SPACE_MARGIN)) {
+            self.host.event(Event::FileFailed { transfer: 0, device_id, incoming: true, name, reason: "storage".into() });
+            return self.outer("files.cancel", &outer_id, None).await;
         }
         let part = transfer::part_path(&dir, transfer_id);
         let file = match std::fs::create_dir_all(&dir).and_then(|_| std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&part)) {
@@ -1718,7 +1726,7 @@ impl Session {
     /// Re-reads a kept partial's verified bytes off the session's task (up to 10 GiB); the result comes back as
     /// `Command::Checked`. Meanwhile `Command::Checking` every 30 seconds sends `files.resume.wait`, so a sender
     /// whose 120-second wait would run out first keeps waiting instead of cancelling, which would cost the partial.
-    fn check_partial(&self, id: String, part: PathBuf, length: u64) {
+    fn check_partial(&self, id: String, mut part: std::fs::File, length: u64) {
         let tx = self.handle.tx.clone();
         let (_, every, held) = self.host.resume_timing();
         tokio::spawn(async move {
@@ -1726,7 +1734,7 @@ impl Session {
                 if !held.is_zero() {
                     std::thread::sleep(held);
                 }
-                resume::hash_prefix(&part, length).ok()
+                resume::hash_prefix_of(&mut part, length).ok()
             });
             let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
             let prefix = loop {
@@ -1940,6 +1948,7 @@ impl Session {
             self.file_failed(transfer, true, &name, if verified { "storage" } else { "verification_failed" });
             return self.outer("files.cancel", &id, None).await;
         }
+        transfer::mark_from_elsewhere(&part);
         match transfer::place(&part, &dir, &name) {
             Ok(path) => {
                 let saved = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name);
