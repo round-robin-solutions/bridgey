@@ -56,8 +56,11 @@ class SettingsSearchHost {
     /** Where the target's row is, in root coordinates, once drawn. */
     internal var rowBounds: Rect? = null
 
-    /** Tests: every row drawn, with its page (route key), scope, title and whether search offers it. */
-    var recorder: ((route: String?, scope: String?, title: String, searchable: Boolean) -> Unit)? = null
+    /**
+     * Tests: every row drawn, with its page (route key), scope, title, whether search offers it, and an object that
+     * stays the same while the row stays drawn (rows record again when they recompose).
+     */
+    var recorder: ((route: String?, scope: String?, title: String, searchable: Boolean, row: Any) -> Unit)? = null
 
     fun open(routeKey: String, title: String, scope: String? = null, fallback: String? = null) {
         rowBounds = null
@@ -106,7 +109,10 @@ fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Bo
     val host = LocalSettingsSearch.current ?: return@composed Modifier
     val route = LocalSearchRoute.current
     val scope = LocalSearchScope.current
-    host.recorder?.let { record -> SideEffect { record(route, scope, title, searchable) } }
+    host.recorder?.let { record ->
+        val row = remember { Any() }
+        SideEffect { record(route, scope, title, searchable, row) }
+    }
     val target = host.pending
     if (!searchable || target == null || target.routeKey != route || target.scope != scope || target.title != title) return@composed Modifier
     val motion = LocalMotion.current

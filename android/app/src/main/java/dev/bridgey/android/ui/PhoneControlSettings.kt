@@ -111,7 +111,6 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
                             detailWarning = mac.mode != PhoneControlGrantMode.OFF && !mac.sharing,
                             onClick = { choosing = mac.id },
                             role = Role.Button,
-                            searchTitle = stringResource(R.string.control_settings_title),
                         ) {
                             Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant)
                         }

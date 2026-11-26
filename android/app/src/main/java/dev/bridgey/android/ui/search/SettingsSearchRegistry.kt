@@ -368,7 +368,6 @@ object SettingsSearchRegistry {
             BridgeyFeature.CAMERA -> CAMERA_WORDS
             BridgeyFeature.LINKS -> LINK_WORDS
             BridgeyFeature.MAC_ACTIONS -> MAC_ACTION_WORDS
-            else -> emptyList()
         }
     }
 
@@ -428,8 +427,38 @@ object SettingsSearchRegistry {
                 fallbackTitle = entry.revealedBy?.let(context::getString),
             )
         }
+        out += devices.filterNot { it.isAgent }.flatMap { macRows(context, it) }
         out += devices.flatMap { deviceEntries(context, it) }
         return out
+    }
+
+    /**
+     * A paired Mac's rows on other pages, found by its name: may it start calls (Calls › Macs that can call) and may
+     * it control this phone (Remote control). Each falls back to its page's switch while hidden.
+     */
+    private fun macRows(context: Context, device: SearchDevice): List<SearchResultEntry> {
+        fun row(id: String, page: SearchPage, @StringRes section: Int, words: List<String>, @StringRes fallback: Int): SearchResultEntry {
+            val sectionTitle = context.getString(section)
+            return SearchResultEntry(
+                id = id,
+                group = context.getString(page.titleRes),
+                icon = page.icon(),
+                tint = page.tint,
+                title = device.name,
+                subtitle = null,
+                breadcrumb = (context.crumb(page) + sectionTitle).joinToString(CRUMB),
+                doc = SearchDoc(device.name, null, sectionTitle, context.crumb(page).joinToString(" "), words + listOf("allow", "разрешить")),
+                route = page.route,
+                rowTitle = device.name,
+                fallbackTitle = context.getString(fallback),
+            )
+        }
+        return listOfNotNull(
+            row("calls.mac.${device.id}", SearchPage.CALLS, R.string.dialer_macs, DIALER_WORDS, R.string.dialer_title)
+                .takeIf { dev.bridgey.android.BuildGates.featureBuilt(BridgeyFeature.DIALER) },
+            row("remote.mac.${device.id}", SearchPage.REMOTE_CONTROL, R.string.control_settings_title, PHONE_CONTROL_WORDS, R.string.control_settings_title)
+                .takeIf { dev.bridgey.android.BuildGates.phoneControl },
+        )
     }
 
     /**

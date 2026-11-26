@@ -44,6 +44,11 @@ import dev.bridgey.android.ui.DeviceScreen
 import dev.bridgey.android.ui.DeviceState
 import dev.bridgey.android.ui.DeviceSyncState
 import dev.bridgey.android.ui.DeviceTab
+import dev.bridgey.android.ui.DialerMac
+import dev.bridgey.android.ui.DialerSettingsState
+import dev.bridgey.android.ui.PhoneControlMac
+import dev.bridgey.android.ui.PhoneControlSettingsState
+import dev.bridgey.android.control.PhoneControlGrantMode
 import dev.bridgey.android.ui.DevicesSettingsActions
 import dev.bridgey.android.ui.DevicesSettingsScreen
 import dev.bridgey.android.ui.DevicesSettingsState
@@ -91,12 +96,12 @@ class SettingsSearchDriftTest {
         shadowOf(app.packageManager).addActivityIfNotPresent(ComponentName(app, ComponentActivity::class.java))
     }
 
-    private data class Drawn(val route: String?, val title: String, val searchable: Boolean)
+    private data class Drawn(val route: String?, val title: String, val searchable: Boolean, val scope: String? = null, val row: Any? = null)
 
     /** Every row [content] draws, with the route key it was drawn under. */
     private fun record(routeKey: String, content: @Composable () -> Unit): List<Drawn> {
         val drawn = mutableListOf<Drawn>()
-        val host = SettingsSearchHost().apply { recorder = { route, _, title, searchable -> drawn += Drawn(route, title, searchable) } }
+        val host = SettingsSearchHost().apply { recorder = { route, scope, title, searchable, row -> drawn += Drawn(route, title, searchable, scope, row) } }
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -123,6 +128,9 @@ class SettingsSearchDriftTest {
             messages = MessagesSettingsState(dualSim = true),
             setup = SetupSettingsState(oem = OemChecklist(OemVendor.ONEPLUS, listOf(OemStep(OemStepKind.AUTO_START, emptyList())))),
             connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 1),
+            // A paired Mac's own rows: Macs that can call, and control of this phone.
+            dialer = DialerSettingsState(macs = listOf(DialerMac(work.id, work.name, allowed = true))),
+            phoneControl = PhoneControlSettingsState(macs = listOf(PhoneControlMac(work.id, work.name, PhoneControlGrantMode.ASK, sharing = true))),
             // Sync on with status lines, so the lines are drawn (and must not count as settings).
             sync = SyncUiState(
                 switches = SyncSwitches(enabled = true),
@@ -204,6 +212,15 @@ class SettingsSearchDriftTest {
         val total = pages.values.sumOf { drawn -> drawn.count { it.searchable } }
         pages.forEach { (key, drawn) -> println("drift: $key ${drawn.count { it.searchable }} rows") }
         assertTrue("only $total rows drawn", total >= 120)
+    }
+
+    /** One row per title on a page: rows sharing a title would all highlight, and the scroll would pick either. */
+    @Test fun noPageDrawsATitleTwice() {
+        val problems = drawAll().flatMap { (key, drawn) ->
+            drawn.filter { it.searchable && it.route == key }.distinctBy { it.row }.groupingBy { it.scope to it.title }.eachCount()
+                .filter { it.value > 1 }.keys.map { (_, title) -> "$key draws \"$title\" more than once" }
+        }
+        assertTrue(problems.joinToString("\n"), problems.isEmpty())
     }
 
     /**
