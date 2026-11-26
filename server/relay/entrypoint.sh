@@ -19,6 +19,14 @@ if [ -n "${LISTENING_IP:-}" ]; then
   echo "listening-ip=$LISTENING_IP" >> /run/coturn/turnserver.conf
   echo "relay-ip=$LISTENING_IP" >> /run/coturn/turnserver.conf
 fi
+# The relay's own addresses are never peers: a client could otherwise reach UDP services bound on this host
+# (security review 1.0). EXTERNAL_IP may be "public/private" behind 1:1 NAT.
+for own in "${EXTERNAL_IP%%/*}" "${EXTERNAL_IP#*/}" "${LISTENING_IP:-}"; do
+  case "$own" in
+    ''|*[!0-9a-fA-F.:]*) ;;
+    *) echo "denied-peer-ip=$own" >> /run/coturn/turnserver.conf ;;
+  esac
+done
 # Local tests only: let the relay reach its own tailnet address (relay to relay on one host).
 if [ -n "${ALLOWED_PEER_IP:-}" ]; then
   echo "allowed-peer-ip=$ALLOWED_PEER_IP" >> /run/coturn/turnserver.conf

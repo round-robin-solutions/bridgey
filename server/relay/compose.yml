@@ -30,3 +30,9 @@ services:
       BPS_CAPACITY: ${BPS_CAPACITY:-25000000}
     cpus: ${COTURN_CPUS:-1.0}
     mem_limit: 512m
+    # Session lines name client and peer addresses: keep at most about 30 MB of them (security review 1.0).
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
