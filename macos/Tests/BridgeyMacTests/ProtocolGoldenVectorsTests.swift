@@ -73,6 +73,15 @@ final class ProtocolGoldenVectorsTests: XCTestCase {
         }
     }
 
+    /// Calls (upstream v1): the number the phone dials from a calls.request, or reject; the Mac sends only numbers that read alike.
+    func testCallsRequest() throws {
+        try each("callsRequest") { vector in
+            let payload = try? JSONSerialization.jsonObject(with: plaintext(vector)) as? [String: Any]
+            let result = (payload?["number"] as? String).flatMap(normalizedPhoneNumber) ?? "reject"
+            return result == vector["expect"] as? String
+        }
+    }
+
     func testClipboardOffer() throws {
         try each("clipboardOffer") { vector in
             let result: Any = ClipboardOffer.decode(plaintext(vector)).map { offer in

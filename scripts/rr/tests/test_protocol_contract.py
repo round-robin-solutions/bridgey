@@ -38,8 +38,13 @@ class ProtocolContractTest(unittest.TestCase):
         broken["messages"].append(dict(broken["messages"][0]))
         broken["messages"].append({"kind": "x.y", "status": "edition-draft", "direction": "either", "feature": "files",
                                    "encrypted": True, "outer": ["sessionId"], "implemented": ["ios"], "reply": ["nope.kind"]})
+        kinds = {m["kind"]: m for m in broken["messages"]}
+        kinds["clipboard.rich"]["v1"] = "extension"
+        kinds["notifications.post"]["v1DraftFields"] = ["presentation"]
         problems = "\n".join(contract.validate(broken))
-        for expected in ("listed twice", "*_draft1", "nonce and ciphertext", "unknown platform", "reply nope.kind"):
+        for expected in ("listed twice", "*_draft1", "nonce and ciphertext", "unknown platform", "reply nope.kind",
+                         "x.y: v1 must be one of", "clipboard.rich: v1 extension differs from its feature key",
+                         "notifications.post: eventId is gated by draft notification_routing_draft1"):
             self.assertIn(expected, problems)
 
     def test_scan_finds_kinds_in_each_style(self):

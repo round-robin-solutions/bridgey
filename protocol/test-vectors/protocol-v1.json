@@ -1,5 +1,5 @@
 {
- "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own). Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent.",
+ "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own). Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent. Calls (calls, upstream v1): callsRequest is a calls.request payload; expect is the number both platforms read from it, or reject.",
  "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
  "frames": [
   {
@@ -433,6 +433,185 @@
     "kind": "pairing.offer",
     "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
     "deviceName": "@PAD@"
+   }
+  },
+  {
+   "name": "heartbeat.ping",
+   "line": "{\"kind\":\"heartbeat.ping\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "heartbeat.ping",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "heartbeat.pong",
+   "line": "{\"kind\":\"heartbeat.pong\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "heartbeat.pong",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "clipboard.rejected",
+   "line": "{\"kind\":\"clipboard.rejected\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "clipboard.rejected",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "files.rejected",
+   "line": "{\"kind\":\"files.rejected\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "files.rejected",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "files.cancel",
+   "line": "{\"kind\":\"files.cancel\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "files.cancel",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "files.cancel.ack",
+   "line": "{\"kind\":\"files.cancel.ack\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "files.cancel.ack",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "find.stop",
+   "line": "{\"kind\":\"find.stop\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"nonce\":\"bm9uY2U=\",\"ciphertext\":\"Y2lwaGVy\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "find.stop",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "nonce": "bm9uY2U=",
+    "ciphertext": "Y2lwaGVy",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "ping.request",
+   "line": "{\"kind\":\"ping.request\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"nonce\":\"bm9uY2U=\",\"ciphertext\":\"Y2lwaGVy\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "ping.request",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "nonce": "bm9uY2U=",
+    "ciphertext": "Y2lwaGVy",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "calls.request",
+   "line": "{\"kind\":\"calls.request\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"nonce\":\"bm9uY2U=\",\"ciphertext\":\"Y2lwaGVy\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "calls.request",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "nonce": "bm9uY2U=",
+    "ciphertext": "Y2lwaGVy",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "calls.started",
+   "line": "{\"kind\":\"calls.started\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "calls.started",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "calls.confirmation_required",
+   "line": "{\"kind\":\"calls.confirmation_required\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "calls.confirmation_required",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "calls.rejected",
+   "line": "{\"kind\":\"calls.rejected\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"messageId\":\"0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "calls.rejected",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "messageId": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "speed.ping",
+   "line": "{\"kind\":\"speed.ping\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"sequence\":3,\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "speed.ping",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "sequence": 3,
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "speed.pong",
+   "line": "{\"kind\":\"speed.pong\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"sequence\":3,\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "speed.pong",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "sequence": 3,
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "speed.ack",
+   "line": "{\"kind\":\"speed.ack\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"sequence\":7,\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "speed.ack",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "sequence": 7,
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "speed.cancel",
+   "line": "{\"kind\":\"speed.cancel\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "speed.cancel",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+    "tag": "dGFn"
+   }
+  },
+  {
+   "name": "folders.cancel.ack",
+   "line": "{\"kind\":\"folders.cancel.ack\",\"sessionId\":\"4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c\",\"transferId\":\"3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f\",\"tag\":\"dGFn\"}",
+   "expect": {
+    "kind": "folders.cancel.ack",
+    "sessionId": "4f1c2a9e-6b3d-4c8e-9a1f-2d3e4f5a6b7c",
+    "transferId": "3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f",
+    "tag": "dGFn"
    }
   }
  ],
@@ -2978,6 +3157,119 @@
   {
    "name": "not JSON",
    "plaintextString": "<p>x</p>",
+   "expect": "reject"
+  }
+ ],
+ "callsRequest": [
+  {
+   "name": "international with spaces and brackets",
+   "plaintext": {
+    "number": " +7 (999) 123-45-67 "
+   },
+   "expect": "+79991234567"
+  },
+  {
+   "name": "digits only",
+   "plaintext": {
+    "number": "12345"
+   },
+   "expect": "12345"
+  },
+  {
+   "name": "dots and hyphens",
+   "plaintext": {
+    "number": "+44.20-7946.0958"
+   },
+   "expect": "+442079460958"
+  },
+  {
+   "name": "shortest, 3 digits",
+   "plaintext": {
+    "number": "123"
+   },
+   "expect": "123"
+  },
+  {
+   "name": "longest, 15 digits",
+   "plaintext": {
+    "number": "+123456789012345"
+   },
+   "expect": "+123456789012345"
+  },
+  {
+   "name": "16 digits",
+   "plaintext": {
+    "number": "1234567890123456"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "2 digits",
+   "plaintext": {
+    "number": "12"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "USSD code",
+   "plaintext": {
+    "number": "*100#"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "letters",
+   "plaintext": {
+    "number": "+1 555 CALL-NOW"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "plus not first",
+   "plaintext": {
+    "number": "7 +999 123"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "two plus signs",
+   "plaintext": {
+    "number": "++7999123"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "non-ASCII digits",
+   "plaintext": {
+    "number": "١٢٣٤٥"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "empty",
+   "plaintext": {
+    "number": ""
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "spaces only",
+   "plaintext": {
+    "number": "   "
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "number": "12345",
+    "extra": true
+   },
+   "expect": "12345"
+  },
+  {
+   "name": "number missing",
+   "plaintext": {},
    "expect": "reject"
   }
  ],
