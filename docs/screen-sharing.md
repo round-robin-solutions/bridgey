@@ -134,7 +134,8 @@ phone, so the share falls back to Bridgey control's accessibility screenshots:
   which needs no notification permission. Nothing is captured until the bar is on the screen, and the share
   ends if it cannot be shown. When the Mac takes control the control bar at the top says so instead.
   Locking the phone or turning its screen off ends the share; a request that waited for the unlock starts
-  once the phone is unlocked. Lowering access (the Mac to Ask each time or Off, the switch off for a Mac on
+  once the phone is unlocked (on Android's "user present", which comes before the keyguard stops reading
+  locked, and otherwise by looking again every half second while the screen is on at the lock screen). Lowering access (the Mac to Ask each time or Off, the switch off for a Mac on
   Default, Share screen with Macs off, the device an agent) ends it at once. There is no foreground service
   of its own: Bridgey's connection service and the bound accessibility service keep the app alive.
 - **On the Mac.** The window's header says "Slower mode" before its numbers.

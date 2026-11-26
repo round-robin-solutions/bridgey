@@ -204,6 +204,66 @@ class ScreenShareHubUnattendedTest {
         assertEquals(ScreenMode.SCREENSHOTS, hub.state.value.mode)
     }
 
+    /** A request from the Mac arrives while the phone is locked: it waits for the unlock. */
+    private fun waitingRequest(): String {
+        val requestId = UUID.randomUUID().toString()
+        val request = (pairing.screenRequests.receive(
+            mac, "MacBook Air", JSONObject().put("version", 1).put("requestId", requestId).toString().toByteArray(), enabled = true, sharing = false,
+        ) as ScreenRequestDecision.Accept).request
+        assertEquals(ScreenAnswer.Waiting(ScreenNeeds.UNLOCK), hub.requested(request))
+        return requestId
+    }
+
+    private fun idle(millis: Long = 0) = shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(millis))
+
+    @Test
+    fun theScreenComesOnStillLockedThenThePersonIsPresentWhileTheKeyguardStillReadsLocked() {
+        val keyguard = shadowOf(context.getSystemService(KeyguardManager::class.java))
+        keyguard.setKeyguardLocked(true)
+        val requestId = waitingRequest()
+        context.sendBroadcast(Intent(Intent.ACTION_SCREEN_ON))
+        idle()
+        assertTrue("at the lock screen nothing starts", started.isEmpty())
+        // Past a swipe lock screen: Android says the person is present before the keyguard stops reading locked.
+        context.sendBroadcast(Intent(Intent.ACTION_USER_PRESENT))
+        idle()
+        assertEquals(listOf(mac), started)
+        assertNull(pairing.screenRequests.current(mac, requestId))
+    }
+
+    @Test
+    fun anUnlockWithoutASignalIsSeenByTheNextLook() {
+        val keyguard = shadowOf(context.getSystemService(KeyguardManager::class.java))
+        keyguard.setKeyguardLocked(true)
+        waitingRequest()
+        context.sendBroadcast(Intent(Intent.ACTION_SCREEN_ON))
+        idle()
+        idle(2_000)
+        assertTrue("still locked: still waiting", started.isEmpty())
+        keyguard.setKeyguardLocked(false)
+        idle(600)
+        assertEquals(listOf(mac), started)
+        idle(2_000)
+        assertEquals("it starts once", listOf(mac), started)
+    }
+
+    @Test
+    fun withTheScreenOffItStopsLookingUntilTheScreenComesOn() {
+        val keyguard = shadowOf(context.getSystemService(KeyguardManager::class.java))
+        val power = shadowOf(context.getSystemService(android.os.PowerManager::class.java))
+        keyguard.setKeyguardLocked(true)
+        waitingRequest()
+        power.setIsInteractive(false)
+        hub.unlocked()
+        keyguard.setKeyguardLocked(false)
+        idle(2_000)
+        assertTrue(started.isEmpty())
+        power.setIsInteractive(true)
+        context.sendBroadcast(Intent(Intent.ACTION_SCREEN_ON))
+        idle()
+        assertEquals(listOf(mac), started)
+    }
+
     @Test
     fun aRequestThatWaitedButIsNoLongerAllowedStartsNothing() {
         val keyguard = shadowOf(context.getSystemService(KeyguardManager::class.java))

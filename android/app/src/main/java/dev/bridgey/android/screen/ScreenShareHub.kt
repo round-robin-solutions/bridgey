@@ -76,8 +76,12 @@ class ScreenShareHub(
     @Volatile private var waitingForUnlock: ScreenRequest? = null
     private var unlockRegistered = false
     private val unlockReceiver = object : android.content.BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) = unlocked()
+        override fun onReceive(context: Context?, intent: Intent?) = unlocked(present = intent?.action == Intent.ACTION_USER_PRESENT)
     }
+
+    /** Looks again while the phone sits at its lock screen with the screen on (Android may still report it locked). */
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    private val unlockRecheck = Runnable { unlocked() }
 
     private fun log(message: String) = BridgeyLogging.i(LogCategory.REMOTE_CONTROL, message)
 
@@ -208,15 +212,19 @@ class ScreenShareHub(
         current.stop(ScreenStopReason.DISABLED, tell = true)
     }
 
-    /** What a request from [deviceId] does now: ask the person, or share screenshots without asking. */
-    fun route(deviceId: String): ScreenRoute {
+    /**
+     * What a request from [deviceId] does now: ask the person, or share screenshots without asking. [present]: Android just
+     * said the person is past the lock screen (ACTION_USER_PRESENT), which counts as unlocked even while the keyguard still
+     * reports locked for a moment.
+     */
+    fun route(deviceId: String, present: Boolean = false): ScreenRoute {
         val hub = phoneControl() ?: return ScreenRoute.Ask(null)
         if (!hub.unattendedView(deviceId)) return ScreenRoute.Ask(null)
         val keyguard = context.getSystemService(android.app.KeyguardManager::class.java)
         val power = context.getSystemService(android.os.PowerManager::class.java)
         return screenRoute(
             dev.bridgey.android.control.PhoneControlGrantMode.ALWAYS,
-            unlocked = keyguard?.isKeyguardLocked != true,
+            unlocked = present || keyguard?.isKeyguardLocked != true,
             screenOn = power?.isInteractive != false,
             sdkInt = android.os.Build.VERSION.SDK_INT,
             serviceConnected = screenshots() != null,
@@ -243,14 +251,25 @@ class ScreenShareHub(
 
     // MARK: Waiting for the unlock
 
-    /** The phone was unlocked or its screen came on: a request waiting for that starts its share if still allowed. */
-    fun unlocked() {
+    /**
+     * The screen came on, the person got past the lock screen ([present]), or a look again came due: a request waiting for
+     * the unlock starts its share if the Mac is still allowed. While the screen stays on at the lock screen it looks again
+     * every half second, so an unlock is never missed because the keyguard still read locked when a signal came; it stops
+     * when the screen goes off (the next screen-on starts it again) or the request ends.
+     */
+    fun unlocked(present: Boolean = false) {
+        main.removeCallbacks(unlockRecheck)
         val request = waitingForUnlock ?: return
         if (pairing.screenRequests.current(request.deviceId, request.requestId) == null) {
             stopWaitingForUnlock(request)
             return
         }
-        if (route(request.deviceId) != ScreenRoute.Screenshots) return
+        val route = route(request.deviceId, present)
+        if (route != ScreenRoute.Screenshots) {
+            val screenOn = context.getSystemService(android.os.PowerManager::class.java)?.isInteractive != false
+            if (route == ScreenRoute.Ask(ScreenNeeds.UNLOCK) && screenOn) main.postDelayed(unlockRecheck, UNLOCK_RECHECK_MILLIS)
+            return
+        }
         stopWaitingForUnlock(request)
         log("SCREEN unlocked: the waiting request starts peer=${request.deviceId.take(8)}")
         shareScreenshots(request.deviceId, request.macName, request.requestId)
@@ -259,6 +278,9 @@ class ScreenShareHub(
     private fun waitForUnlock(request: ScreenRequest) {
         synchronized(this) {
             waitingForUnlock = request
+            // At the lock screen with the screen on already: look again soon, as after a screen-on.
+            main.removeCallbacks(unlockRecheck)
+            main.postDelayed(unlockRecheck, UNLOCK_RECHECK_MILLIS)
             if (unlockRegistered) return
             val filter = android.content.IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_ON) }
             unlockRegistered = runCatching { ContextCompat.registerReceiver(context, unlockReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED) }.isSuccess
@@ -269,6 +291,7 @@ class ScreenShareHub(
         synchronized(this) {
             if (request != null && waitingForUnlock?.requestId != request.requestId) return
             waitingForUnlock = null
+            main.removeCallbacks(unlockRecheck)
             if (!unlockRegistered) return
             runCatching { context.unregisterReceiver(unlockReceiver) }
             unlockRegistered = false
@@ -450,5 +473,8 @@ class ScreenShareHub(
     private companion object {
         /** How long a screenshot share waits for the viewing bar before it gives up. */
         const val VIEWING_BAR_WAIT_MILLIS = 2_000L
+
+        /** How often a request waiting for the unlock looks again while the screen is on at the lock screen. */
+        const val UNLOCK_RECHECK_MILLIS = 500L
     }
 }

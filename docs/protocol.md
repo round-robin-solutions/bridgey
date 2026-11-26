@@ -1132,7 +1132,9 @@ sends screenshots and offers Use video: Android's consent dialog, then a new vid
 Bridgey control or an unlocked screen, the request is asked as above and `waiting` carries `needs`
 (`android_11`, `accessibility` or `unlock`) so the Mac can say what the phone needs. With `unlock`, the
 open request starts its screenshot share by itself once the phone is unlocked, if the Mac is still
-allowed then, so the Mac waits rather than asking again. A Mac on Ask each time or Off is asked as above.
+allowed then, so the Mac waits rather than asking again: Android's "user present" counts as unlocked even
+while the keyguard still reads locked for a moment, and while the screen is on at the lock screen the
+phone looks again every half second until the request expires. A Mac on Ask each time or Off is asked as above.
 Lowering access ends a screenshot share at once with `screen.stop` `disabled`: the Mac set to Ask each
 time or Off, Unattended access turned off for a Mac on Default, Share screen with Macs turned off, or the
 device found to be an agent. A video share the person approved stays. Share screen with Macs turned on
