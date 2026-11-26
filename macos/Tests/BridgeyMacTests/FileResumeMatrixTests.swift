@@ -205,6 +205,39 @@ final class FileResumeMatrixTests: XCTestCase {
         XCTAssertEqual(try sendAgain(source, to: receiver), 0, "the kept bytes no longer match their record")
     }
 
+    /// Security review 1.0: something that can write to the receive folder put a link (or a second name) where a kept
+    /// partial waited; the resume cut the link's target and wrote the incoming file into it.
+    func testAPartialSwappedForALinkIsNeverWrittenThrough() throws {
+        let (source, receiver) = try setUpPair("link")
+        let victim = receiver.directory.deletingLastPathComponent().appendingPathComponent("victim.txt")
+        try Data("keep me".utf8).write(to: victim)
+        try attempt(source, to: receiver, stopAt: cut)
+        var part = try XCTUnwrap(receiver.parts.first)
+        try FileManager.default.removeItem(at: part)
+        try FileManager.default.createSymbolicLink(at: part, withDestinationURL: victim)
+        XCTAssertEqual(try sendAgain(source, to: receiver), 0, "a link is not resumed")
+        XCTAssertEqual(try Data(contentsOf: victim), Data("keep me".utf8), "nothing written through it")
+        // A second name for another file (a hard link) is refused the same way.
+        try attempt(source, to: receiver, stopAt: cut)
+        part = try XCTUnwrap(receiver.parts.first)
+        try FileManager.default.removeItem(at: part)
+        try FileManager.default.linkItem(at: victim, to: part)
+        XCTAssertEqual(try sendAgain(source, to: receiver), 0)
+        XCTAssertEqual(try Data(contentsOf: victim), Data("keep me".utf8))
+    }
+
+    /// A link planted at the name a new part would take, pointing nowhere, is never followed to create a file.
+    func testADanglingLinkAtAPartsNameIsNeverFollowed() throws {
+        let (source, receiver) = try setUpPair("dangling")
+        let outside = receiver.directory.deletingLastPathComponent().appendingPathComponent("planted.txt")
+        try FileManager.default.createSymbolicLink(at: receiver.directory.appendingPathComponent("video.mov.bridgey-part"), withDestinationURL: outside)
+        let (_, end) = try attempt(source, to: receiver, resumeOn: false)
+        guard case let .saved(url) = end else { return XCTFail("saved under another name") }
+        XCTAssertEqual(url.lastPathComponent, "video 2.mov")
+        XCTAssertEqual(try Data(contentsOf: url), try Data(contentsOf: source))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outside.path), "no file created through the link")
+    }
+
     func testAShorterOrMissingPartialStartsFromZero() throws {
         let (source, receiver) = try setUpPair("short")
         try attempt(source, to: receiver, stopAt: cut)

@@ -48,7 +48,8 @@ final class PhoneScreen: ObservableObject {
     static let lifetime: TimeInterval = 120
     static let spacing: TimeInterval = 3
     static let streamTimeout: TimeInterval = 6
-    static let rememberedStreams = 16
+    /// Ended streams stay refused (a recorded stream replayed later in the same connection is not shown as live).
+    static let rememberedStreams = 1_024
     static let defaultsKey = "settings.screen.show"
 
     struct Request: Equatable {

@@ -17,7 +17,7 @@ final class DisplayConsentPanel: DisplayConsentPresenting {
         model.blocked = false
         model.allow = { [weak self] in
             guard let self else { return }
-            guard canAllow() else {
+            guard DisplayConsentRules.allowTakes(canAllow: canAllow(), event: NSApp.currentEvent) else {
                 self.model.blocked = true
                 return
             }
@@ -46,6 +46,34 @@ final class DisplayConsentPanel: DisplayConsentPresenting {
     func dismiss() {
         BridgeyWindows.orderOut(panel)
         panel = nil
+    }
+}
+
+/// When Allow on the prompt counts (security review 1.0).
+enum DisplayConsentRules {
+    /// Nothing controls this Mac now, and the click is a person's: a click Bridgey injected for a phone (the touchpad
+    /// or screen control, marked by [InjectedEvents]) never presses Allow, even one that arrives after its session ended,
+    /// such as the release of a held button.
+    static func allowTakes(canAllow: Bool, event: NSEvent?) -> Bool {
+        canAllow && !InjectedEvents.isInjected(event)
+    }
+}
+
+/// Every mouse and key event Bridgey posts for another device carries this mark, so Bridgey's own prompts can tell
+/// them from a person's.
+enum InjectedEvents {
+    /// "BRDGYIN1".
+    static let marker: Int64 = 0x4252_4447_5949_4E31
+
+    /// An event source whose events carry the mark (`eventSourceUserData`).
+    static func source() -> CGEventSource? {
+        let source = CGEventSource(stateID: .hidSystemState)
+        source?.userData = marker
+        return source
+    }
+
+    static func isInjected(_ event: NSEvent?) -> Bool {
+        event?.cgEvent?.getIntegerValueField(.eventSourceUserData) == marker
     }
 }
 

@@ -197,7 +197,7 @@ struct ClickCounter {
 /// Posts CGEvents at the HID level. Needs Accessibility access; without it macOS drops them.
 @MainActor
 final class CGEventInjector: RemoteInputInjecting {
-    private let source = CGEventSource(stateID: .hidSystemState)
+    private let source = InjectedEvents.source()
     private var clicks = ClickCounter(interval: NSEvent.doubleClickInterval)
     private var clickState: [PointerButton: Int] = [:]
 

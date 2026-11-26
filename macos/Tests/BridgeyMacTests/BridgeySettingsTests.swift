@@ -34,6 +34,38 @@ final class BridgeySettingsTests: XCTestCase {
         XCTAssertTrue(BridgeySettings().shareActivityStatus)
     }
 
+    /// Security review 1.0: while a phone controls this Mac, grants that let a device control or act on it cannot be
+    /// turned on (the phone could otherwise allow itself in Settings); turning them off still works.
+    @MainActor
+    func testGrantsCannotBeRaisedWhileThisMacIsControlled() {
+        let device = "7e57d00d-0000-4000-8000-00000000cafe"
+        let globalKey = "settings.global.\(BridgeyFeature.remoteInput.rawValue)"
+        let savedGlobal = UserDefaults.standard.object(forKey: globalKey)
+        defer {
+            if let savedGlobal { UserDefaults.standard.set(savedGlobal, forKey: globalKey) } else { UserDefaults.standard.removeObject(forKey: globalKey) }
+            for feature in BridgeyFeature.allCases { UserDefaults.standard.removeObject(forKey: "settings.device.\(device).\(feature.rawValue)") }
+        }
+        let settings = BridgeySettings()
+        settings.setGlobal(.remoteInput, enabled: false)
+        var controlled = true
+        settings.raisingBlocked = { controlled }
+        settings.setForDevice(device, feature: .remoteInput, enabled: true)
+        settings.setForDevice(device, feature: .macActions, enabled: true)
+        settings.setGlobal(.remoteInput, enabled: true)
+        XCTAssertNotEqual(settings.deviceFeatures[device]?[.remoteInput], true)
+        XCTAssertNotEqual(settings.deviceFeatures[device]?[.macActions], true)
+        XCTAssertNotEqual(settings.globalFeatures[.remoteInput], true)
+        // Other features are not grants and change as before.
+        settings.setForDevice(device, feature: .clipboard, enabled: true)
+        XCTAssertEqual(settings.deviceFeatures[device]?[.clipboard], true)
+        controlled = false
+        settings.setForDevice(device, feature: .remoteInput, enabled: true)
+        XCTAssertEqual(settings.deviceFeatures[device]?[.remoteInput], true)
+        controlled = true
+        settings.setForDevice(device, feature: .remoteInput, enabled: false)
+        XCTAssertEqual(settings.deviceFeatures[device]?[.remoteInput], false, "turning off always works")
+    }
+
     func testGlobalSwitchOverridesDeviceSetting() {
         XCTAssertFalse(effectiveFeatureEnabled(globalEnabled: false, deviceEnabled: true))
         XCTAssertFalse(effectiveFeatureEnabled(globalEnabled: false, deviceEnabled: nil))

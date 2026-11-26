@@ -2274,7 +2274,7 @@ struct LiveSettingsView: View {
         actions.setBatteryAlerts = { id, thresholds in batteryAlerts.setThresholds(thresholds, for: id) }
         actions.setCameraCopyToClipboard = { camera.setCopyToClipboard($0) }
         actions.setPhoneScreen = { phoneScreen.setEnabled($0) }
-        actions.setScreenGrant = { id, mode in macScreen.setGrant(mode, for: id) }
+        actions.setScreenGrant = { id, mode in _ = macScreen.setGrant(mode, for: id) }
         actions.setScreenDisplay = { macScreen.setSelectedDisplay($0) }
         actions.openScreenRecordingSettings = { NSWorkspace.shared.open(ScreenRecordingAccess.settingsURL) }
         actions.stopScreenShare = { macScreen.stopLocally() }

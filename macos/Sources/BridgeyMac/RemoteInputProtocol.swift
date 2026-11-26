@@ -25,7 +25,9 @@ enum RemoteInputLimits {
     static let idleSeconds: TimeInterval = 6
     /// At most one start a second from one device.
     static let minimumStartInterval: TimeInterval = 1
-    static let rememberedEndedSessions = 64
+    /// Ended sessions stay refused this long (in starts): a recorded session replayed later in the same connection,
+    /// once the memory had rolled over, used to run again (security review 1.0). Starts come at most one a second.
+    static let rememberedEndedSessions = 4_096
     static let maximumSequence = 9_007_199_254_740_991
 }
 

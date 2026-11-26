@@ -15,6 +15,15 @@ enum MacScreenGrantMode: String, Codable, CaseIterable, Equatable {
     case ask
     /// A persistent unattended grant, only for a phone picked explicitly.
     case always
+
+    /// Off, then Ask each time, then Allow without asking.
+    var rank: Int {
+        switch self {
+        case .off: 0
+        case .ask: 1
+        case .always: 2
+        }
+    }
 }
 
 /// SHA-256 of a pinned identity key (the base64 text as stored by the trust registry, decoded when it is base64).

@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import CoreVideo
 import Foundation
@@ -365,6 +366,38 @@ final class MacScreenShareTests: XCTestCase {
         XCTAssertEqual(consent.canAllow?(), true)
         share.answerPendingPrompt(true)
         XCTAssertNotNil(share.stream)
+    }
+
+    /// Security review 1.0: a phone controlling this Mac could open Settings and raise its own screen grant.
+    func testAGrantCannotBeRaisedWhileAnythingControlsThisMac() throws {
+        make()
+        share.setGrant(.ask, for: phone)
+        touchpad = phone
+        XCTAssertFalse(share.setGrant(.always, for: phone))
+        XCTAssertEqual(share.grantMode(for: phone), .ask)
+        XCTAssertTrue(share.setGrant(.off, for: phone), "lowering always works")
+        XCTAssertEqual(share.grantMode(for: phone), .off)
+        XCTAssertFalse(share.setGrant(.ask, for: phone))
+        touchpad = nil
+        XCTAssertTrue(share.setGrant(.always, for: phone))
+        XCTAssertEqual(share.grantMode(for: phone), .always)
+        // Screen control counts too: Settings (and the grant guard) see this Mac as controlled.
+        _ = try controlling()
+        XCTAssertFalse(share.allowPossible)
+    }
+
+    /// Security review 1.0: the touchpad could press Allow on this prompt itself, with a button released as its session
+    /// ended. A click Bridgey injected never counts; a person's does.
+    func testAnInjectedClickNeverPressesAllow() throws {
+        let point = CGPoint(x: 10, y: 10)
+        let injected = try XCTUnwrap(CGEvent(mouseEventSource: InjectedEvents.source(), mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left))
+        let person = try XCTUnwrap(CGEvent(mouseEventSource: CGEventSource(stateID: .hidSystemState), mouseType: .leftMouseUp,
+                                           mouseCursorPosition: point, mouseButton: .left))
+        XCTAssertEqual(injected.getIntegerValueField(.eventSourceUserData), InjectedEvents.marker)
+        XCTAssertFalse(DisplayConsentRules.allowTakes(canAllow: true, event: NSEvent(cgEvent: injected)))
+        XCTAssertTrue(DisplayConsentRules.allowTakes(canAllow: true, event: NSEvent(cgEvent: person)))
+        XCTAssertTrue(DisplayConsentRules.allowTakes(canAllow: true, event: nil))
+        XCTAssertFalse(DisplayConsentRules.allowTakes(canAllow: false, event: NSEvent(cgEvent: person)))
     }
 
     func testAllowWithoutAskingStartsAtOnceAndAnotherPhoneIsBusy() {

@@ -259,6 +259,25 @@ final class RemoteInputHostTests: XCTestCase {
         XCTAssertNil(host.active, "a replayed start of an ended session")
     }
 
+    /// Security review 1.0: only 64 ended sessions were remembered, so a recorded session replayed after 64 more could
+    /// run again in the same connection.
+    @MainActor func testAnEndedSessionStaysRefusedAfterManyMore() {
+        makeHost()
+        start()
+        message("input.session.stop", ["reason": "user"])
+        for _ in 0..<100 {
+            now += 2
+            let other = UUID().uuidString.lowercased()
+            start(session: other)
+            XCTAssertNotNil(host.active)
+            message("input.session.stop", ["reason": "user"], session: other)
+        }
+        XCTAssertNil(host.active)
+        now += 2
+        start()
+        XCTAssertNil(host.active, "the first session, replayed after 100 others")
+    }
+
     @MainActor func testMalformedInputIsCountedNotInjected() {
         makeHost()
         start()

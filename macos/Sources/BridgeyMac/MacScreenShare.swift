@@ -207,14 +207,19 @@ final class MacScreenShare: ObservableObject {
 
     /// Settings: a phone's choice. Turning it on asks macOS for Screen Recording if it is missing (the only place a
     /// prompt may come from).
-    func setGrant(_ mode: MacScreenGrantMode, for deviceID: String) {
-        guard let key = identityKey(deviceID) else { return }
+    /// Raising a grant is refused while anything controls this Mac (a phone could otherwise open Settings and allow
+    /// itself, security review 1.0); lowering always works.
+    @discardableResult
+    func setGrant(_ mode: MacScreenGrantMode, for deviceID: String) -> Bool {
+        guard let key = identityKey(deviceID) else { return false }
         let before = grantMode(for: deviceID)
+        if mode.rank > before.rank && !allowPossible { return false }
         grants.set(mode, for: deviceID, identityKey: key)
         grantsVersion += 1
         if before == .off, mode != .off, !environment.captureAllowed() { environment.requestCapture() }
         onGrantsChange()
         policyChanged()
+        return true
     }
 
     /// The phone was forgotten: its grant goes with it.
@@ -778,9 +783,10 @@ final class MacScreenShare: ObservableObject {
         ]
         for (center, name, isLocked) in watch {
             lockObservers.append(center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.screenLockChanged(isLocked) }
+                MainActor.assumeIsolated { self?.screenLockChanged(isLocked || ConsoleSession.lockedNow()) }
             })
         }
+        screenLockChanged(ConsoleSession.lockedNow())
     }
 
     // MARK: Test instance status
