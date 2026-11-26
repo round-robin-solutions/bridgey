@@ -216,8 +216,10 @@ struct AXTree {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.finishLaunching()
-        for attribute in ["AXEnhancedUserInterface", "AXManualAccessibility"] {
-            app.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: attribute))
+        // The old attribute setter, by selector: its Swift name is deprecated and CI builds with warnings as errors.
+        let setter = NSSelectorFromString("accessibilitySetValue:forAttribute:")
+        for attribute in ["AXEnhancedUserInterface", "AXManualAccessibility"] where app.responds(to: setter) {
+            _ = app.perform(setter, with: NSNumber(value: true), with: attribute)
         }
         _ = app.accessibilityWindows()
     }()
