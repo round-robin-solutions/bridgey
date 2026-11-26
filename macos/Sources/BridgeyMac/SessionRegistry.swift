@@ -26,6 +26,8 @@ struct PhoneLinkState: Equatable {
     var remoteNotificationRouting = false
     /// The phone advertised `camera_draft1`: it takes photos for this Mac.
     var remoteCamera = false
+    /// The peer advertised `links_open_draft1`: it understands `open` links (opened at once when it allows it).
+    var remoteLinksOpen = false
     /// The phone advertised `updates_draft1` (Update all), and its latest `updates.status`.
     var remoteUpdates = false
     var updateStatus: PeerUpdateStatus?

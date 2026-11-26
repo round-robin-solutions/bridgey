@@ -1953,3 +1953,15 @@
 "phonecontrol.note.timeout" = "Управление остановлено: %@ не отвечает";
 "phonecontrol.note.localStop" = "Управление остановлено на %@";
 "phonecontrol.note.failed" = "Управление остановлено";
+
+/* Media and actions > Browser extensions (BrowserSupport.swift) */
+"browser.support" = "Расширения для браузеров";
+"browser.support.detail" = "Отправляйте страницы и ссылки на свои устройства из Chrome, Edge, Firefox, Brave и Arc";
+"browser.support.unavailable" = "Недоступно в этой сборке";
+"browser.support.translocated" = "Переместите Bridgey в «Программы», откройте снова и установите";
+"browser.support.noBrowser" = "Подходящий браузер не найден. Установите его и снова нажмите «Установить».";
+"browser.support.notListening" = "Не удалось запустить. Закройте и снова откройте Bridgey.";
+"browser.support.installed" = "Установлено для: %@. Добавьте расширение в каждом браузере.";
+"browser.support.guide" = "Получить расширение";
+"browser.support.remove" = "Удалить";
+"browser.support.install" = "Установить";
