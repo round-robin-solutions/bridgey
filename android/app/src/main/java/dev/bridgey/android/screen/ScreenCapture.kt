@@ -98,7 +98,7 @@ class ScreenCapture(
             codec = created.first
             surface = created.second
             size = target
-            source.attach(created.second, target.first, target.second, context.resources.displayMetrics.densityDpi, handler)
+            this.source.attach(created.second, target.first, target.second, context.resources.displayMetrics.densityDpi, handler)
             attached = true
             startDrain(created.first)
         }
