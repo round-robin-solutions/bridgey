@@ -51,8 +51,22 @@ struct OutboxItem: Codable, Identifiable, Equatable {
 enum Outbox {
     static var directory: URL { SharedStorage.root.appendingPathComponent("Outbox", isDirectory: true) }
 
+    /// A file name another app suggested, as one plain name in the item's folder: its last component, without `/`,
+    /// `:` or control characters, never empty, `.` or `..` (security review 1.0: a sharing app's name could otherwise
+    /// put the copy outside the item's folder).
+    static func safeFileName(_ name: String?, fallback: String = "file") -> String {
+        let last = (name ?? "").split(separator: "/", omittingEmptySubsequences: false).last.map(String.init) ?? ""
+        let cleaned = String(last.unicodeScalars.filter { $0 != ":" && !CharacterSet.controlCharacters.contains($0) }.map(Character.init))
+            .trimmingCharacters(in: .whitespaces)
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." {
+            return fallback == "file" ? "file" : safeFileName(fallback)
+        }
+        return String(cleaned.prefix(200))
+    }
+
     static func add(_ item: OutboxItem, file: URL? = nil) throws {
         let folder = directory.appendingPathComponent(item.id.uuidString, isDirectory: true)
+        if file != nil, safeFileName(item.value) != item.value { throw CocoaError(.fileWriteInvalidFileName) }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         if let file {
             try FileManager.default.copyItem(at: file, to: folder.appendingPathComponent(item.value))
