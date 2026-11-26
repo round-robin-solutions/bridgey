@@ -28,10 +28,12 @@ struct SearchAnchorID: Hashable {
 /// Collects the rows a pane draws, for the registry's drift test. Nil in the app.
 final class SettingsSearchRecorder {
     private(set) var rows: [SearchAnchorID] = []
+    /// Anchors drawn more than once in one render: a jump would scroll to one of them and highlight both.
+    private(set) var duplicates: [SearchAnchorID] = []
     private var seen = Set<SearchAnchorID>()
 
     func record(_ id: SearchAnchorID) {
-        if seen.insert(id).inserted { rows.append(id) }
+        if seen.insert(id).inserted { rows.append(id) } else { duplicates.append(id) }
     }
 }
 

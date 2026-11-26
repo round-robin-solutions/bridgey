@@ -9,7 +9,7 @@ import SwiftUI
 /// - `settings-close`: closes the window, as its close button does.
 /// - `settings-appearance`: `light`, `dark` or `system`, for this app only.
 /// - `settings-keys`: keys separated by spaces (`cmd-f`, `down`, `up`, `return`, `esc`, `tab`, `shift-tab`,
-///   `text:<characters>`), posted one at a time to this app's own event queue for the Settings window, so they pass
+///   `text:<characters>`, and `blur`, which takes the keyboard away from every field as a click elsewhere would), posted one at a time to this app's own event queue for the Settings window, so they pass
 ///   the window's key monitor and its first responder as typed keys do. Nothing reaches any other app, and no
 ///   Accessibility or input monitoring is involved.
 /// - `settings-snapshot`: once the keys have gone, draws the window into the PNG named in the file (under /tmp) and
@@ -93,6 +93,10 @@ final class SettingsTestHooks {
 
     private func post(_ token: String) {
         guard let window else { return }
+        if token == "blur" {
+            window.makeFirstResponder(nil)
+            return
+        }
         let key: (code: UInt16, characters: String, flags: NSEvent.ModifierFlags)? = switch token {
         case "cmd-f": (3, "f", .command)
         case "down": (125, String(UnicodeScalar(NSDownArrowFunctionKey)!), [.numericPad, .function])

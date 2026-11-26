@@ -156,6 +156,9 @@ final class SettingsSearchRegistryTests: XCTestCase {
 
     private var models: [SettingsModel] { [fullModel, emptyModel] }
 
+    /// Anchors drawn twice in one render, by the last `recorded` call.
+    private var duplicates: [SearchAnchorID] = []
+
     /// The anchors a view draws.
     private func recorded<V: View>(_ view: V) -> [SearchAnchorID] {
         let recorder = SettingsSearchRecorder()
@@ -168,6 +171,7 @@ final class SettingsSearchRegistryTests: XCTestCase {
         let renderer = ImageRenderer(content: content)
         renderer.scale = 1
         _ = renderer.cgImage
+        duplicates = recorder.duplicates
         return recorder.rows
     }
 
@@ -245,6 +249,19 @@ final class SettingsSearchRegistryTests: XCTestCase {
             }
         }
         XCTAssertGreaterThanOrEqual(revealed, 6, "the off state hides the Calls window and text message options")
+    }
+
+    /// One anchor per row: a card that repeats its switch's anchor (the Calls window did) is highlighted twice, and the
+    /// scroll picks either.
+    func testNoPaneDrawsAnAnchorTwice() {
+        for model in models {
+            for pane in SettingsPane.allCases {
+                _ = recorded(SettingsPaneView(pane: pane, model: model, actions: SettingsActions()))
+                for id in Set(duplicates) {
+                    XCTFail("Settings > \(pane.rawValue) draws the anchor \u{201C}\(Self.describe(id))\u{201D} more than once")
+                }
+            }
+        }
     }
 
     func testIdsAreUnique() {
