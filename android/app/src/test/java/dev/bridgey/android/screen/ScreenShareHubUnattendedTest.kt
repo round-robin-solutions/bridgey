@@ -184,7 +184,7 @@ class ScreenShareHubUnattendedTest {
     @Test
     fun aRequestThatWaitedForTheUnlockStartsWhenThePhoneIsUnlocked() {
         val keyguard = shadowOf(context.getSystemService(KeyguardManager::class.java))
-        keyguard.setIsKeyguardLocked(true)
+        keyguard.setKeyguardLocked(true)
         val requestId = UUID.randomUUID().toString()
         val decision = pairing.screenRequests.receive(
             mac, "MacBook Air", JSONObject().put("version", 1).put("requestId", requestId).toString().toByteArray(), enabled = true, sharing = false,
@@ -196,7 +196,7 @@ class ScreenShareHubUnattendedTest {
         context.sendBroadcast(Intent(Intent.ACTION_SCREEN_ON))
         shadowOf(android.os.Looper.getMainLooper()).idle()
         assertTrue(started.isEmpty())
-        keyguard.setIsKeyguardLocked(false)
+        keyguard.setKeyguardLocked(false)
         context.sendBroadcast(Intent(Intent.ACTION_USER_PRESENT))
         shadowOf(android.os.Looper.getMainLooper()).idle()
         assertEquals(listOf(mac), started)
@@ -207,14 +207,14 @@ class ScreenShareHubUnattendedTest {
     @Test
     fun aRequestThatWaitedButIsNoLongerAllowedStartsNothing() {
         val keyguard = shadowOf(context.getSystemService(KeyguardManager::class.java))
-        keyguard.setIsKeyguardLocked(true)
+        keyguard.setKeyguardLocked(true)
         val requestId = UUID.randomUUID().toString()
         val request = (pairing.screenRequests.receive(
             mac, "MacBook Air", JSONObject().put("version", 1).put("requestId", requestId).toString().toByteArray(), enabled = true, sharing = false,
         ) as ScreenRequestDecision.Accept).request
         hub.requested(request)
         control.setGrant(mac, PhoneControlGrantMode.ASK)
-        keyguard.setIsKeyguardLocked(false)
+        keyguard.setKeyguardLocked(false)
         hub.unlocked()
         assertTrue(started.isEmpty())
     }
