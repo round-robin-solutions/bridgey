@@ -40,13 +40,14 @@ hooks, S screen and control, I IPC, updaters, Windows and iOS.
 | --- | --- | --- | --- |
 | Critical | 0 | 0 | 0 |
 | High | 3 | 3 | 0 |
-| Medium | 9 | 7 | 2 |
+| Medium | 9 | 6 | 3 |
 | Low | 27 | 14 (C5 and C11 in part) | 15 (including the rest of C5 and C11) |
 
 Seven follow-ups from the 0.10 review are still open (O1).
 
-The fixes need no wire change. Three need a deploy after merge: the control service (C1, C2, C6), the relays (C4, C8)
-and the codes worker (I4); see [Needs Rahul](#needs-rahul).
+The fixes need no wire change. Three need a deploy after merge: the control service and the core (C1, C2, C6), the
+relays (C8, and the C4 firewall rule) and the codes worker (I4); see [Needs Rahul](#needs-rahul). The changes after the
+review of this branch (PR #67) are listed under [After review](#after-review).
 
 | ID | Severity | Surface | Finding | Status |
 | --- | --- | --- | --- | --- |
@@ -55,7 +56,7 @@ and the codes worker (I4); see [Needs Rahul](#needs-rahul).
 | I1 | High | Windows | Another Windows user could reach the browser pipe | Fixed |
 | C2 | Medium | Control service | One client could stall the service's single lock; memory grew without bound | Fixed, deploy pending |
 | C3 | Medium | Core, apps | Dials to addresses learned on another network are not pinned (privacy) | Open, needs a wire change |
-| C4 | Medium | Relays | coturn could relay to its own host's addresses | Fixed, deploy pending |
+| C4 | Medium | Relays | coturn could relay to its own host's addresses | Open, host firewall rule at redeploy |
 | F2 | Medium | Windows | Received files had no mark of the web; one click ran them | Fixed |
 | F3 | Medium | Android, Mac | Any paired device could start speed tests without limit | Fixed |
 | S1 | Medium | Mac | The touchpad could press Allow on the screen prompt | Fixed |
@@ -104,19 +105,30 @@ and the codes worker (I4); see [Needs Rahul](#needs-rahul).
 - **Evidence:** a scratch test gave 500 fresh keys 500 twelve-hour credentials, about 108 TB of capacity at the
   client pace against the 50 GB between the hard cap and the free 1,000 GB, and none could be revoked after usage
   passed the hard cap. A 59-minute-old reading still counted as fresh.
-- **Fix:** the service now keeps every Cloudflare credential it mints (memory only) and mints another only while all
-  of them, each at 50 Mbit/s (Cloudflare's own per-allocation limit) until the next reading plus 15 minutes, would
-  stay under `hard_gb`. At each reading the newest credentials beyond that budget are revoked through Cloudflare's
-  revoke API, warm ones first; at the hard cap, or once the reading is too old, all of them; failed revocations are
-  tried again. Each address (IPv4, or IPv6 /64) gets at most 30 Cloudflare credentials an hour. Past the budget or the
-  address limit a grant goes to the own pool, as for any client without the capability. Settings `budget_kbps`,
-  `budget_extra_s`, `mints_per_ip_hour`; `/v1/status` shows `credentialsOut` and `budget`. Details in
+- **Fix:** the service now keeps every Cloudflare credential it mints, in a state file when one is configured, and
+  mints another only while all of them, each at 100 Mbit/s (the top of Cloudflare's per-client rate) until the next
+  reading plus 5 minutes, would stay under `hard_gb`. Past the soft cap usage is read every minute (Cloudflare says
+  analytics lag about 30 seconds). At each reading the credentials beyond the budget are revoked through Cloudflare's
+  revoke API: credentials a node has replaced first, then session credentials, a node's current warm credential last
+  (sessions ride on it); at the hard cap all of them. A credential still counts until Cloudflare confirms its
+  revocation, and a failed revocation is tried again. A stale reading stops minting and revokes nothing. Each address
+  (IPv4, or IPv6 /64) gets at most 30 Cloudflare credentials an hour. Past the budget or the address limit a grant goes
+  to the own pool. After a start without the state file the service assumes the budget's worth is out, expiring
+  evenly over the 12-hour warm lifetime. In the core, an allocation whose refresh fails is dead: it is never handed to a
+  session again, and when it was made with the warm credentials the node asks for warm credentials on another relay.
+  Settings `budget_kbps` (0 turns the budget and revocations off), `budget_extra_s`, `mints_per_ip_hour`,
+  `state_file`; `/v1/status` shows `credentialsOut` and `budget`. Details in
   [connect-anywhere.md](connect-anywhere.md#94-cloudflare-realtime-turn).
-- **Tests:** `cloudflare_credentials_out_stay_within_the_budget`, `cloudflare_credentials_are_revoked_when_readings_stop`,
-  `cloudflare_credentials_per_address`, `revokes_through_the_api` (`rust/rendezvous`).
-- **Assumption to confirm:** Cloudflare's documentation does not say whether an allocation ends when its credential
-  is revoked; it can no longer be refreshed, so it ends within its lifetime (the core asks for 10 minutes). The 15
-  minutes in the budget cover that and the analytics delay.
+- **Tests:** `cloudflare_credentials_out_stay_within_the_budget`,
+  `cloudflare_revokes_replaced_credentials_first_and_live_warm_ones_last`,
+  `cloudflare_readings_that_stop_end_minting_not_sessions`, `cloudflare_budget_off_means_no_budget_and_no_revocations`,
+  `cloudflare_credentials_survive_a_restart_or_are_assumed_out`, `cloudflare_credentials_per_address`,
+  `revokes_through_the_api` (`rust/rendezvous`); `an_allocation_whose_refresh_fails_is_dead` (`rust/core`).
+- **What the budget cannot bound:** Cloudflare does not limit allocations per credential, so a client that opens
+  several allocations on one credential can carry more than the budget assumes. Readings every minute near the cap,
+  the revocations and the per-address limit are what stop it, with the 50 GB between the hard cap and the free tier as
+  the margin. Cloudflare's documentation also does not say whether an allocation ends at once when its credential is
+  revoked; it can no longer be refreshed, so it ends within its lifetime (the core asks for 10 minutes).
 
 ### F1. A link put where a kept partial waits was written through on resume (Mac, session client)
 
@@ -164,8 +176,9 @@ and the codes worker (I4); see [Needs Rahul](#needs-rahul).
 - **Evidence:** a scratch test left 20,000 grant windows and 20,000 pending entries after 20,000 nodes had gone, and
   1,000 messages then held the lock for 1.75 s (debug build). The container has 256 MiB.
 - **Fix:** 600 messages a minute per connection (then dropped; past twice that the connection closes); expired
-  entries swept at most once a second; quiet nodes' windows forgotten; at most 100,000 pending grants; at most 8
-  connections on one rendezvous ID.
+  entries swept at most once a second, in expiry order; quiet nodes' windows forgotten; pending grants (only a
+  convenience for the other side's claim) capped at 1,000 per address group and 100,000 in all, the oldest making
+  room, so grants are never refused because the table is full; at most 8 connections on one rendezvous ID.
 - **Tests:** `one_connection_cannot_hold_the_lock`, `quiet_nodes_and_expired_grants_are_forgotten`,
   `a_rendezvous_id_holds_a_pair_not_a_crowd`.
 
@@ -183,14 +196,19 @@ and the codes worker (I4); see [Needs Rahul](#needs-rahul).
   anything; dial a learned LAN address only on the network it was learned on (a keyed network tag); leave the device
   name out of reconnect offers.
 
-### C4. coturn could relay to its own host's addresses
+### C4. coturn could relay to its own host's addresses, open
 
 - **Where:** `server/relay/turnserver.conf.template:25-36`, `entrypoint.sh:54-56`.
 - **What:** the denied ranges covered private and special addresses but not the relay host's own public address, so
-  a client with credentials could reach UDP services bound on that host. Confidence: likely; coturn's own handling and
-  the hosts' listening ports were not checked from here.
-- **Fix:** the entrypoint denies the host's public and private addresses, and the template denies 240.0.0.0/4.
-  Checked by rendering the template with test values. Needs a relay redeploy; check `ss -ulpn` on each relay host.
+  a client with credentials could reach UDP services bound on that host. Confidence: likely; the hosts' listening
+  ports were not checked from here.
+- **Why not in coturn:** denying the relay's own address breaks two peers on the same relay, and the core asks
+  permission for every relay in the pool, its own included; coturn has no exception for itself and refuses the whole
+  request (review of PR #67).
+- **Proposed fix (relay hosts, at the next redeploy):** a host firewall rule that drops UDP from the relay's own
+  address and relay ports to anything but other relay ports, in
+  [connect-anywhere-deploy.md](connect-anywhere-deploy.md#3-the-relays); check `ss -ulpn` on each host. The template
+  now also denies 240.0.0.0/4.
 
 ### F2. Windows received files had no mark of the web; one click ran them
 
@@ -368,7 +386,7 @@ What each party can see after this branch, and what it keeps.
 
 | Party | Sees | Keeps |
 | --- | --- | --- |
-| Control service (`connect.roundrobin.in`) | Each node key and its address while connected; the app name, platform and version; the rendezvous IDs a node registers (so which node keys share a pair while online); per-relay round trips (coarse location); size and timing of sealed signals; relay grants | Memory only: connections while open, pending grants for 2 hours, grant windows for an hour, Cloudflare credentials until they expire or are revoked, per-address counts for an hour. Logs carry no addresses or IDs; nginx access logs are off. Never sees device names, device IDs, identity keys, candidates, pins or content |
+| Control service (`connect.roundrobin.in`) | Each node key and its address while connected; the app name, platform and version; the rendezvous IDs a node registers (so which node keys share a pair while online); per-relay round trips (coarse location); size and timing of sealed signals; relay grants | In memory: connections while open, pending grants for 2 hours, grant windows for an hour, per-address counts for an hour. Cloudflare credentials out (username, node ID, expiry, never the password) in memory and in the state file, until they expire (at most 12 hours) or are revoked. Logs carry no addresses or IDs; nginx access logs are off. Never sees device names, device IDs, identity keys, candidates, pins or content |
 | Own relays (coturn) | Both devices' public addresses and ports, timing, volume, the TURN username; QUIC packets | Session lines in Docker's log, at most about 30 MB (C8) |
 | Cloudflare TURN | The same as a relay, plus the usernames it minted | Cloudflare's own retention; the mint request carries only the lifetime |
 | Codes worker (Cloudflare Workers AI) | Only when the person chose the cloud option: message text (600 characters), sender (64), a random install ID and the address | Nothing (observability off, no logs) |
@@ -377,24 +395,53 @@ What each party can see after this branch, and what it keeps.
 | Paired device | What the person granted it, as before; a speed test answer shows the other device's network type and screen state only once it is accepted | |
 | This device | Transfer history (Mac, up to 2,000 entries over 30 days, 0600), resume records (file names, up to 16, 24 hours), kept partials in the receive folder (24 hours), grants bound to identity keys, logs without content | Reset and Forget remove them, with the gaps in F5 |
 
+## After review
+
+The review of this branch (PR #67) found two blockers and four should-fix items in the first fixes. What changed:
+
+- **C4:** the first fix denied the relay's own addresses in coturn, which breaks two peers on the same relay and every
+  pool permission request. Removed; the protection moves to a host firewall rule (open, at the next redeploy).
+- **C1:** revocation took warm credentials first, but sessions ride on them, and the core kept a dead warm allocation
+  for hours. Now replaced credentials go first and a node's current warm one last; the core drops an allocation whose
+  refresh fails and asks for warm credentials elsewhere. A stale reading stops minting instead of revoking everything,
+  and `budget_kbps = 0` now turns revocation off too. A credential being revoked still counts until Cloudflare
+  confirms; the revoke call sends no body and no `Content-Type`, as Cloudflare's example does; the list survives
+  restarts in a state file, or the service starts cautiously; the budget assumes 100 Mbit/s per credential with
+  readings every minute near the cap, and the doc says what it cannot bound.
+- **C2:** one global pending cap let a few addresses fill it for everyone. Now per address group, the oldest making
+  room, and grants are never refused for it.
+- **F1:** new parts no longer need this user's owner ID and a single link (a receive folder on a network volume can
+  report another owner); `O_EXCL | O_NOFOLLOW` already proves a new part is ours. Kept parts keep the checks.
+- **I4:** the worker's check was stricter than the apps' CodeGuard (letter case, "482 913"). It now compares letters
+  and digits only, never stricter than CodeGuard; every sample code passes.
+- **F3:** the Mac no longer counts a start it cannot answer. A refusal for the limit is still `busy`: the protocol has
+  no other word, and older apps understand it.
+- Not done: feedback when a switch is refused while the device is controlled. It needs new copy in both apps and
+  their translations, so it goes with the localisation review.
+
 ## Needs Rahul
 
 1. **Deploy the control service** (C1, C2, C6) after merge, and watch `credentialsOut`, `budget` and `cfOverBudget` in
-   `/v1/status`. Recommendation: deploy soon; Cloudflare spend is not bounded until then. The budget keeps 84
-   Cloudflare credentials out at zero usage, 48 at 400 GB, fewer past the soft cap; devices beyond it use the own
+   `/v1/status`. Recommendation: deploy soon; Cloudflare spend is not bounded until then. The budget keeps 63
+   Cloudflare credentials out at zero usage, 36 at 400 GB, fewer past the soft cap; devices beyond it use the own
    relays. If that is too tight once more devices are online, lower `budget_kbps` (it assumes the worst case) rather
-   than turn it off.
-2. **Redeploy the relays** (C4, C8) and check `ss -ulpn` on each relay host for UDP services on public addresses.
-3. **Deploy the codes worker** (I4). The per-address limit is now 10 a minute; many phones behind one carrier address
+   than turn it off. Apps from this branch drop a revoked warm relay at once; older apps keep trying it until their
+   next network change or renewal, using session grants meanwhile only when a new session cannot allocate.
+2. **Mount a volume for the state file** at `/var/lib/bridgey-rendezvous` in the Dokploy app (production config).
+   Without it the service keeps the file across container restarts but not across deploys, and after each deploy it
+   assumes the budget's worth of credentials is still out, so Cloudflare comes back gradually over 12 hours.
+3. **Redeploy the relays** (C8) with the host firewall rule for C4 in
+   [connect-anywhere-deploy.md](connect-anywhere-deploy.md#3-the-relays), and check `ss -ulpn` on each relay host.
+4. **Deploy the codes worker** (I4). The per-address limit is now 10 a minute; many phones behind one carrier address
    share it.
-4. **Restrict `/v1/status`** (C7) to the tailnet or Cloudflare Access at nginx, and bind the published port 18450 to
+5. **Restrict `/v1/status`** (C7) to the tailnet or Cloudflare Access at nginx, and bind the published port 18450 to
    127.0.0.1.
-5. **Approve signing the update feeds** (I2) in a separate release-tooling PR: Sparkle appcast with
+6. **Approve signing the update feeds** (I2) in a separate release-tooling PR: Sparkle appcast with
    `SURequireSignedFeed`, and a signed Windows tuple.
-6. **Reserve the Firefox add-on ID** (I6) on AMO with an unlisted upload.
-7. **Approve the C3 wire change** (certificate hash in `connect.addresses`, network-tagged LAN addresses) for a
+7. **Reserve the Firefox add-on ID** (I6) on AMO with an unlisted upload.
+8. **Approve the C3 wire change** (certificate hash in `connect.addresses`, network-tagged LAN addresses) for a
    separate PR.
-8. **Product decisions:** whether restricted tailnet devices may connect from anywhere (C10), a confirmation before a
+9. **Product decisions:** whether restricted tailnet devices may connect from anywhere (C10), a confirmation before a
    synced turn-on of Remote control (S8), `FLAG_SECURE` for the Mac's screen on the phone (Info), and the 0.10 F3 and F4
    decisions.
 
@@ -409,8 +456,8 @@ What each party can see after this branch, and what it keeps.
   `LocalDataResetTest`, `FolderSettingsTest`, `BridgeySettingsTest` and the `control` tests, all passing. Lint and the
   full unit suite run in RR CI.
 - **Mac and iOS:** the personal Mac did not answer (ssh timed out twice during the review), so the Swift changes and
-  tests were not built locally; they run in the RR CI macOS lane (`swift test -Xswiftc -warnings-as-errors`) and the
-  iOS lane.
-- **Codes worker** (rr-dev-1): `node --test`, 27 passing.
+  tests were not built locally. They run in the RR CI macOS lane (`swift test -Xswiftc -warnings-as-errors`, 1,872
+  tests) and the iOS lane, both green on the first reviewed head, and again on every push.
+- **Codes worker** (rr-dev-1): `node --test`, 28 passing.
 - **Scripts and config:** `sh -n` on the stress script; the relay entrypoint rendered with test addresses.
 - Nothing was run against production servers, real devices or installed apps.
