@@ -1239,17 +1239,18 @@ cap too. So the service counts every credential out (minted, not expired, revoca
 only while all of them, each at `budget_kbps` (100 Mbit/s, the top of Cloudflare's per-client rate, not the client's
 pace) until the next reading plus `budget_extra_s` (5 minutes: the analytics delay, about 30 seconds, and the time an
 allocation takes to stop once its credential is revoked), would still stay under `hard_gb`. Past the soft cap usage is
-read every minute. At each reading the credentials beyond the budget are revoked: those a node has replaced (a renewal,
-a restart of the app) first, then session credentials, the oldest first, and a node's current warm credential only if
-the budget still has no room, since sessions ride on it; at the hard cap all of them. A stale reading stops minting and
-revokes nothing. Each address (an IPv4 address or an IPv6 /64) gets at most `mints_per_ip_hour` (30) Cloudflare
+read every minute. At every reading the warm credentials a node has replaced (its newest is another one) with more
+than an hour left are revoked whatever the budget: an app restart left them unused. With a fresh reading the
+credentials beyond the budget follow: other replaced ones, then session credentials, and a node's current warm
+credential only if the budget still has no room, since sessions ride on it, the newest first within each; at the hard
+cap all of them. A stale reading stops minting and revokes nothing more. Each address (an IPv4 address or an IPv6 /64) gets at most `mints_per_ip_hour` (30) Cloudflare
 credentials an hour. Over the budget or the address limit a grant goes to the own pool. With nothing used the budget is
 63 credentials; at 400 GB, 36; past the soft cap it shrinks towards zero. The list is kept in `state_file` across
 restarts (a volume keeps it across deploys); without it a start assumes the budget's worth is out, expiring evenly over
 the warm lifetime. Cloudflare does not limit allocations per credential, so a client that opens several can carry more
 than the budget assumes; the minute readings and the revocations stop it within the hard cap's 50 GB margin. In the
-core, an allocation whose refresh fails is dropped, and when it carried the warm credentials the node asks for warm
-credentials on another relay. `/v1/status` shows `credentialsOut` and `budget`.
+core, an allocation whose refresh fails is dropped and the node allocates again with the same credentials; only when
+the relay refuses them does it ask for warm credentials on another relay. `/v1/status` shows `credentialsOut` and `budget`.
 
 **Billing direction.** Cloudflare bills "data sent from the Cloudflare edge to the TURN client";
 traffic from the relay to a peer that is not a TURN client is "not part of billing"

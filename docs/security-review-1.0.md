@@ -109,13 +109,17 @@ review of this branch (PR #67) are listed under [After review](#after-review).
   mints another only while all of them, each at 100 Mbit/s (the top of Cloudflare's per-client rate) until the next
   reading plus 5 minutes, would stay under `hard_gb`. Past the soft cap usage is read every minute (Cloudflare says
   analytics lag about 30 seconds). At each reading the credentials beyond the budget are revoked through Cloudflare's
-  revoke API: credentials a node has replaced first, then session credentials, a node's current warm credential last
-  (sessions ride on it); at the hard cap all of them. A credential still counts until Cloudflare confirms its
-  revocation, and a failed revocation is tried again. A stale reading stops minting and revokes nothing. Each address
+  revoke API: credentials a node has replaced first, then session credentials, a node's current (newest) warm
+  credential last, since sessions ride on it, the newest first within each so long-held devices keep theirs; at the
+  hard cap all of them. A credential still counts until Cloudflare confirms its
+  revocation, and a failed revocation is tried again. Replaced warm credentials with more than an hour left are
+  revoked at every reading whatever the budget (they are unused, and would hold budget slots). A stale reading stops
+  minting and revokes nothing more. Each address
   (IPv4, or IPv6 /64) gets at most 30 Cloudflare credentials an hour. Past the budget or the address limit a grant goes
   to the own pool. After a start without the state file the service assumes the budget's worth is out, expiring
-  evenly over the 12-hour warm lifetime. In the core, an allocation whose refresh fails is dead: it is never handed to a
-  session again, and when it was made with the warm credentials the node asks for warm credentials on another relay.
+  evenly over the 12-hour warm lifetime. In the core, an allocation whose refresh fails is dead and never handed to a
+  session again; the node allocates again with the same warm credentials, and only when the relay refuses them asks
+  for warm credentials on another relay.
   Settings `budget_kbps` (0 turns the budget and revocations off), `budget_extra_s`, `mints_per_ip_hour`,
   `state_file`; `/v1/status` shows `credentialsOut` and `budget`. Details in
   [connect-anywhere.md](connect-anywhere.md#94-cloudflare-realtime-turn).
@@ -416,6 +420,13 @@ The review of this branch (PR #67) found two blockers and four should-fix items 
   and digits only, never stricter than CodeGuard; every sample code passes.
 - **F3:** the Mac no longer counts a start it cannot answer. A refusal for the limit is still `busy`: the protocol has
   no other word, and older apps understand it.
+- **Second review:** the core no longer drops still-valid warm credentials when a refresh fails (a phone asleep for
+  10 minutes, or Wi-Fi to mobile): it allocates again with them, and asks for others only when the relay refuses
+  them. Replaced warm credentials with more than an hour left are revoked at every reading whatever the budget, so
+  restarts cannot fill it. A node's current warm credential is its newest, so this holds after a restart that loaded
+  the state file. Within current warm and session credentials the newest go first, so long-held devices keep theirs.
+  The budget is counted from the reading (it no longer shrinks during an interval), and saves of the state file are
+  taken and written one at a time.
 - Not done: feedback when a switch is refused while the device is controlled. It needs new copy in both apps and
   their translations, so it goes with the localisation review.
 
@@ -425,9 +436,11 @@ The review of this branch (PR #67) found two blockers and four should-fix items 
    `/v1/status`. Recommendation: deploy soon; Cloudflare spend is not bounded until then. The budget keeps 63
    Cloudflare credentials out at zero usage, 36 at 400 GB, fewer past the soft cap; devices beyond it use the own
    relays. If that is too tight once more devices are online, lower `budget_kbps` (it assumes the worst case) rather
-   than turn it off. Apps from this branch drop a revoked warm relay at once; older apps keep trying it until their
-   next network change or renewal, using session grants meanwhile only when a new session cannot allocate.
-2. **Mount a volume for the state file** at `/var/lib/bridgey-rendezvous` in the Dokploy app (production config).
+   than turn it off. Apps from this branch move off a revoked warm relay at their next keep-alive; older apps keep
+   trying it until their next network change or renewal, using session grants meanwhile only when a new session
+   cannot allocate. Cloudflare has been live since 2026-11-24 14:44 UTC, so spend is open until this deploys.
+2. **Mount a named volume for the state file** at `/var/lib/bridgey-rendezvous` in the Dokploy app (the coordinator
+   will add it at deploy; steps in [connect-anywhere-deploy.md](connect-anywhere-deploy.md#cloudflare-relay-live-since-2026-11-24-1444-utc)).
    Without it the service keeps the file across container restarts but not across deploys, and after each deploy it
    assumes the budget's worth of credentials is still out, so Cloudflare comes back gradually over 12 hours.
 3. **Redeploy the relays** (C8) with the host firewall rule for C4 in
