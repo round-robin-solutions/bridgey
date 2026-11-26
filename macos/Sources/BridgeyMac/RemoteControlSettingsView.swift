@@ -394,7 +394,7 @@ private struct ScreenRecordingRow: View {
         SettingsRow(title: MacScreenSettings.recordingTitle,
                     subtitle: allowed
                         ? L10n.text("display.settings.recording.on", fallback: "Allowed. Bridgey captures the screen only while a phone you allow is watching.")
-                        : L10n.text("display.settings.recording.off", fallback: "Needed to share this screen. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Screen & System Audio Recording."),
+                        : L10n.text("display.settings.recording.off", fallback: "Needed to share this screen. Turn on Bridgey in Privacy & Security > Screen & System Audio Recording."),
                     subtitleIsWarning: !allowed) {
             if allowed {
                 HStack(spacing: 4) {

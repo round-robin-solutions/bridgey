@@ -1927,7 +1927,7 @@
 "display.settings.display" = "Screen to share";
 "display.settings.recording" = "Screen Recording access";
 "display.settings.recording.on" = "Allowed. Bridgey captures the screen only while a phone you allow is watching.";
-"display.settings.recording.off" = "Needed to share this screen. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Screen & System Audio Recording.";
+"display.settings.recording.off" = "Needed to share this screen. Turn on Bridgey in Privacy & Security > Screen & System Audio Recording.";
 "display.grant.title" = "See this Mac’s screen";
 "display.grant.off" = "Off";
 "display.grant.ask" = "Ask each time";
