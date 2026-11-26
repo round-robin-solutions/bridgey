@@ -53,7 +53,7 @@ final class DesignScreenshots: XCTestCase {
         DiscoveredPeer(serviceName: name, deviceIDHint: id, deviceNameHint: name, platformHint: "android", protocolVersionHint: 1, host: "10.0.0.2", port: 4000)
     }
 
-    private var connectedModel: PanelModel {
+    var connectedModel: PanelModel {
         var model = PanelModel()
         model.state = .connected(deviceID: phoneID, peerName: "OnePlus 11")
         model.rings = deviceRings(trusted: trusted, peers: [peer(phoneID, "OnePlus 11"), peer(tabletID, "Pixel Tablet")], state: model.state)

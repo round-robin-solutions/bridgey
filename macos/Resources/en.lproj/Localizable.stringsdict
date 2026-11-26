@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- English plural forms; the matching .strings entries are fallbacks. Keep the keys the same as ru.lproj. -->
+<plist version="1.0">
+<dict>
+	<key>stream.alerts</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@alerts@</string>
+		<key>alerts</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d alert</string>
+			<key>other</key>
+			<string>%d alerts</string>
+		</dict>
+	</dict>
+	<key>stream.calls</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@calls@</string>
+		<key>calls</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d call</string>
+			<key>other</key>
+			<string>%d calls</string>
+		</dict>
+	</dict>
+	<key>stream.alerts.app</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@alerts@</string>
+		<key>alerts</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%1$d %2$@ alert</string>
+			<key>other</key>
+			<string>%1$d %2$@ alerts</string>
+		</dict>
+	</dict>
+	<key>updateAll.title</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Updates for %#@devices@</string>
+		<key>devices</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d device</string>
+			<key>other</key>
+			<string>%d devices</string>
+		</dict>
+	</dict>
+	<key>updateAll.failedMany</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@devices@</string>
+		<key>devices</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d didn’t finish</string>
+			<key>other</key>
+			<string>%d didn’t finish</string>
+		</dict>
+	</dict>
+	<key>phonefiles.counts</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@folders@, %2$#@files@</string>
+		<key>folders</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%1$d folder</string>
+			<key>other</key>
+			<string>%1$d folders</string>
+		</dict>
+		<key>files</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%2$d file</string>
+			<key>other</key>
+			<string>%2$d files</string>
+		</dict>
+	</dict>
+	<key>phonefiles.shown</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@items@</string>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d item</string>
+			<key>other</key>
+			<string>%d items</string>
+		</dict>
+	</dict>
+	<key>phonefiles.progress.files</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$d of %2$#@files@, %3$@ of %4$@</string>
+		<key>files</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%2$d file</string>
+			<key>other</key>
+			<string>%2$d files</string>
+		</dict>
+	</dict>
+	<key>sync.choose.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$d of %2$#@settings@</string>
+		<key>settings</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%2$d setting</string>
+			<key>other</key>
+			<string>%2$d settings</string>
+		</dict>
+	</dict>
+	<key>developer.tapsLeft</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@clicks@</string>
+		<key>clicks</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d more click to open the developer settings</string>
+			<key>other</key>
+			<string>%d more clicks to open the developer settings</string>
+		</dict>
+	</dict>
+	<key>updateAll.summary.phones</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Updates %#@phones@</string>
+		<key>phones</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d connected phone</string>
+			<key>other</key>
+			<string>%d connected phones</string>
+		</dict>
+	</dict>
+	<key>updateAll.summary.phonesAndMac</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>Updates %#@phones@ and this Mac</string>
+		<key>phones</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d connected phone</string>
+			<key>other</key>
+			<string>%d connected phones</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

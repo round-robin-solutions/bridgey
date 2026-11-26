@@ -36,7 +36,7 @@ final class CallsScreenshots: XCTestCase {
         ]
     }
 
-    private var model: CallsModel {
+    var model: CallsModel {
         var model = CallsModel()
         model.now = at(15, 9, 41)
         model.phones = [CallsPhoneItem(id: phoneID, name: "OnePlus 11")]

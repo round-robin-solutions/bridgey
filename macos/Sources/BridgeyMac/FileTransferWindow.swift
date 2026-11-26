@@ -37,6 +37,8 @@ final class FileTransferWindowController: NSWindowController {
             window?.showQuickLook([url])
         }
         window.onEscape = { [weak model] in model?.escape() ?? false }
+        window.onArrow = { [weak model] step in model?.moveSelection(by: step) ?? false }
+        window.onReturn = { [weak model] in model?.openSelection() ?? false }
         model.window = window
         super.init(window: window)
         model.connect(pairing)
@@ -108,6 +110,24 @@ final class TransfersWindowModel: ObservableObject {
     var selectedURL: URL? {
         guard let selection, !state.missing.contains(selection), let item = state.items.first(where: { $0.id == selection }) else { return nil }
         return item.localURL
+    }
+
+    /// The arrow keys move the selection through the items shown (the filter applied), as in Finder; nothing selected
+    /// starts at the first. False when nothing is shown.
+    func moveSelection(by step: Int) -> Bool {
+        let shown = state.items.filter { filter.matches($0) }.map(\.id)
+        guard !shown.isEmpty else { return false }
+        let current = selection.flatMap { shown.firstIndex(of: $0) }
+        let next = current.map { min(shown.count - 1, max(0, $0 + step)) } ?? 0
+        selection = shown[next]
+        return true
+    }
+
+    /// Return opens the selected item, as a double-click does.
+    func openSelection() -> Bool {
+        guard let url = selectedURL else { return false }
+        NSWorkspace.shared.open(url)
+        return true
     }
 
     /// Escape closes the picker, then clears the selection.
@@ -353,6 +373,9 @@ final class TransfersNSWindow: NSWindow {
     let quickLookSource = PhoneQuickLookSource()
     var onSpace: (() -> Void)?
     var onEscape: (() -> Bool)?
+    /// Left and Up are -1, Right and Down +1.
+    var onArrow: ((Int) -> Bool)?
+    var onReturn: (() -> Bool)?
     private var placingButtons = false
 
     private var textEditing: Bool { firstResponder is NSTextView || firstResponder is NSTextField }
@@ -364,6 +387,12 @@ final class TransfersNSWindow: NSWindow {
                 if let onSpace { onSpace(); return }
             case 53:
                 if onEscape?() == true { return }
+            case 123, 126:
+                if event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty, onArrow?(-1) == true { return }
+            case 124, 125:
+                if event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty, onArrow?(1) == true { return }
+            case 36, 76:
+                if onReturn?() == true { return }
             default:
                 break
             }

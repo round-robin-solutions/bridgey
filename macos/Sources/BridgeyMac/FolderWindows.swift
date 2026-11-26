@@ -556,7 +556,7 @@ struct BrandCheckboxStyle: ToggleStyle {
             HStack(spacing: 6) {
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(configuration.isOn ? c.pri : Color.clear)
-                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(configuration.isOn ? c.pri : c.ol, lineWidth: 1.5))
+                    .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(configuration.isOn ? c.pri : c.on2, lineWidth: 1.5))
                     .overlay(Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(c.onpri).opacity(configuration.isOn ? 1 : 0))
                     .frame(width: 15, height: 15)
                 configuration.label.foregroundStyle(c.on)
@@ -564,6 +564,7 @@ struct BrandCheckboxStyle: ToggleStyle {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityValue(configuration.isOn ? "on" : "off")
+        .accessibilityValue(configuration.isOn ? L10n.text("action.on", fallback: "On") : L10n.text("action.off", fallback: "Off"))
+        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
     }
 }

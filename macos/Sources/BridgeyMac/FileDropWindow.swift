@@ -6,7 +6,7 @@ final class FileDropWindowController: NSWindowController {
     init(pairing: PairingCoordinator) {
         let root = FileDropView(pairing: pairing)
         let window = NSWindow(contentViewController: NSHostingController(rootView: root))
-        window.title = "Bridgey File Drop"
+        window.title = L10n.text("drop.window.title", fallback: "Bridgey File Drop")
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.setContentSize(NSSize(width: 460, height: 280))
         window.minSize = NSSize(width: 400, height: 240)
@@ -70,7 +70,7 @@ private struct FileDropView: View {
                 guard canSend, !urls.isEmpty else { return false }
                 return pairing.sendDroppedFiles(urls)
             } isTargeted: { isTargeted = $0 }
-            .accessibilityLabel("File drop area")
+            .accessibilityLabel(L10n.text("drop.area", fallback: "File drop area"))
             .accessibilityHint(L10n.text("drop.hint", fallback: "Drop files or folders to send them to the connected Android device one after another"))
         }
         .padding(24)

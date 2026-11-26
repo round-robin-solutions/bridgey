@@ -564,7 +564,7 @@ private struct TransferLiveRow: View {
                     AuroraBar(fraction: fraction).padding(.top, 10)
                     stats
                 } else {
-                    Text(live.status)
+                    Text(StatusText.localized(live.status))
                         .font(BrandFont.body(12))
                         .foregroundStyle(c.on2)
                         .lineLimit(1)

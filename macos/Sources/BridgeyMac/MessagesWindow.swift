@@ -672,7 +672,7 @@ private struct MessagesLiveView: View {
 
     // MARK: Keyboard
 
-    /// Command-Delete, Shift-Command-U, Command-F and Escape, the usual Mac way. Command-Delete is left
+    /// Command-Delete, Shift-Command-U, Command-F, Escape and the arrow keys, the usual Mac way. Command-Delete is left
     /// to a text field that is being edited.
     private func installKeys() {
         guard keyMonitor == nil else { return }
@@ -705,6 +705,15 @@ private struct MessagesLiveView: View {
         }
         if flags.isEmpty && event.keyCode == 53 && (!selection.selected.isEmpty || selection.selecting) {
             actions.clearSelection()
+            return true
+        }
+        // Up and Down open the conversation above or below, as in Mail, while no text is being typed.
+        if flags.isEmpty, !editing, event.keyCode == 125 || event.keyCode == 126 {
+            let order = (selection.query.isEmpty ? model.rows : model.search.threads).map(\.id)
+            guard !order.isEmpty else { return false }
+            let current = openThread.flatMap { order.firstIndex(of: $0) }
+            let next = current.map { event.keyCode == 125 ? min(order.count - 1, $0 + 1) : max(0, $0 - 1) } ?? 0
+            click(order[next], command: false, shift: false)
             return true
         }
         return false
@@ -1216,13 +1225,14 @@ private struct MessagesSidebar: View {
         }
     }
 
+    /// Sentence case and untracked, as the activity stream's day headings and the Settings cards.
     private func sectionTitle(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(BrandFont.body(11, .semibold)).foregroundStyle(c.on2)
-            .tracking(0.6)
+        Text(title)
+            .font(BrandFont.body(12, .semibold)).foregroundStyle(c.on2)
             .padding(.horizontal, 10)
             .padding(.top, 10)
             .padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 

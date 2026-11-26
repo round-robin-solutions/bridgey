@@ -52,7 +52,7 @@ final class MessagesScreenshots: XCTestCase {
         }
     }
 
-    private var model: MessagesModel {
+    var model: MessagesModel {
         var model = MessagesModel()
         model.now = at(27, 9, 41)
         model.phones = [MessagesPhone(id: phoneID, name: "OnePlus 11")]
@@ -83,6 +83,15 @@ final class MessagesScreenshots: XCTestCase {
     }
 
     /// Managing conversations: unread ones and a pin, the unread divider in an opened conversation.
+    /// Searching for "olive": a conversation and a message match (the accessibility review's screenshots use it too).
+    var searchModel: MessagesModel {
+        var search = model
+        search.query = "olive"
+        search.search = search.cache.search("olive", management: SmsManagement())
+        search.focusMessage = "s104"
+        return search
+    }
+
     private var managed: SmsManagement {
         var manage = SmsManagement()
         manage.setPinned(12, true)

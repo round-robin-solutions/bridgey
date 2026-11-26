@@ -187,8 +187,8 @@ enum PhoneFilesText {
         case .transferring:
             let done = size(progress.bytesDone), total = size(progress.bytesTotal)
             if progress.filesTotal > 1 {
-                return String(format: L10n.text("phonefiles.progress.files", fallback: "%1$d of %2$d files, %3$@ of %4$@"),
-                              progress.filesDone, progress.filesTotal, done, total)
+                return L10n.plural("phonefiles.progress.files", fallback: "%1$d of %2$d files, %3$@ of %4$@",
+                                   progress.filesDone, progress.filesTotal, done, total)
             }
             return String(format: L10n.text("phonefiles.progress.bytes", fallback: "%1$@ of %2$@"), done, total)
         }

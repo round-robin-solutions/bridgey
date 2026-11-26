@@ -651,6 +651,9 @@ private struct SettingsSidebar: View {
                             .font(BrandFont.body(13, .medium))
                             .foregroundStyle(c.on)
                             .lineLimit(1)
+                            // Russian "Конфиденциальность" is a few letters wider than the sidebar: shrink a little
+                            // rather than cut the word.
+                            .minimumScaleFactor(0.8)
                         Spacer(minLength: 0)
                         if item == .devices, !model.trustedDevices.isEmpty {
                             Text("\(model.trustedDevices.count)")
@@ -857,6 +860,8 @@ struct ChoiceButton: View {
                 Text(value)
                     .font(BrandFont.body(13, .medium))
                     .foregroundStyle(c.on)
+                    // The chosen value is read whole ("По умолчанию (Разрешать без вопроса)"); the row title wraps instead.
+                    .fixedSize(horizontal: true, vertical: false)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(c.on2)
@@ -1187,6 +1192,7 @@ struct PairAddressRow: View {
                 TextField(L10n.text("devices.pair.address.placeholder", fallback: "work or 100.64.0.10"), text: $address)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 170)
+                    .accessibilityLabel(L10n.text("devices.pair.address", fallback: "Pair by tailnet name or address"))
                     .onSubmit { submit() }
             }
             Button(L10n.text("action.pair", fallback: "Pair")) { submit() }
@@ -1549,9 +1555,7 @@ struct AboutPane: View {
         case .counting:
             tapNote = nil
         case let .remaining(left):
-            tapNote = String(format: left == 1
-                ? L10n.text("developer.tapsLeft.one", fallback: "%d more click to open the developer settings")
-                : L10n.text("developer.tapsLeft", fallback: "%d more clicks to open the developer settings"), left)
+            tapNote = L10n.plural("developer.tapsLeft", fallback: "%d more clicks to open the developer settings", left)
         case .unlocked:
             tapNote = L10n.text("developer.on", fallback: "Developer and experimental settings are on")
         case .open:

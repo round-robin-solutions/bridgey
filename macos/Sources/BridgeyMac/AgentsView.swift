@@ -9,7 +9,7 @@ import SwiftUI
 extension L10n {
     /// Agent devices (ru.lproj/Agents.strings too), kept apart from Localizable.strings like Setup's table.
     static func agents(_ key: String, fallback: String) -> String {
-        NSLocalizedString(key, tableName: "Agents", bundle: .main, value: fallback, comment: "")
+        NSLocalizedString(key, tableName: "Agents", bundle: bundle, value: fallback, comment: "")
     }
 }
 

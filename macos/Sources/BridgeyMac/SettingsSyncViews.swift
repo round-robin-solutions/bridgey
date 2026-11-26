@@ -39,7 +39,7 @@ struct SettingsSyncCard: View {
     private var syncedCountText: String {
         let listed = SyncKey.listedOnMac
         let count = listed.filter { !model.syncExcluded.contains($0) }.count
-        return String(format: L10n.text("sync.choose.count", fallback: "%1$d of %2$d settings"), count, listed.count)
+        return L10n.plural("sync.choose.count", fallback: "%1$d of %2$d settings", count, listed.count)
     }
 }
 
@@ -76,6 +76,8 @@ struct SyncChoicesView: View {
         }
         .padding(24)
         .frame(width: 400, alignment: .leading)
+        // Escape closes it too: the choices are saved as they change.
+        .onExitCommand(perform: done)
         .background(c.bg)
     }
 }

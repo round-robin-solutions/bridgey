@@ -192,6 +192,7 @@ private struct PhoneFilesToolbar: View {
                 .buttonStyle(PillButtonStyle(kind: .neutral, height: 28))
                 .disabled(model.phone?.browsable != true)
                 .help(L10n.text("phonefiles.refresh", fallback: "Refresh"))
+                .accessibilityLabel(L10n.text("phonefiles.refresh", fallback: "Refresh"))
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
@@ -1025,10 +1026,10 @@ private struct PhoneFilesStatusStrip: View {
             return String(format: L10n.text("phonefiles.selected", fallback: "%1$d selected, %2$@"), model.selection.count, PhoneFilesText.size(bytes))
         }
         if model.section == .folders, model.placeID != nil, listing.loaded {
-            return String(format: L10n.text("phonefiles.counts", fallback: "%1$d folders, %2$d files"), listing.folderCount, listing.fileCount)
+            return L10n.plural("phonefiles.counts", fallback: "%1$d folders, %2$d files", listing.folderCount, listing.fileCount)
         }
         if listing.loaded, !listing.entries.isEmpty {
-            return String(format: L10n.text("phonefiles.shown", fallback: "%d items"), listing.entries.count)
+            return L10n.plural("phonefiles.shown", fallback: "%d items", listing.entries.count)
         }
         return ""
     }

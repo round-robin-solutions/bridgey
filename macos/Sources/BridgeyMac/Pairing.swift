@@ -2447,7 +2447,7 @@ final class PairingCoordinator: ObservableObject {
             devices: diagnosticDevices()
         ) else { return }
         let panel = NSSavePanel()
-        panel.title = "Export Bridgey Diagnostics"
+        panel.title = L10n.text("diagnostics.export.title", fallback: "Export Bridgey diagnostics")
         panel.nameFieldStringValue = "Bridgey-Diagnostics.json"
         panel.allowedContentTypes = [.json]
         NSApp.activate(ignoringOtherApps: true)

@@ -21,7 +21,7 @@ final class SettingsSearchScreenshots: XCTestCase {
         XCTAssertTrue(BrandFont.isAvailable, "bundled fonts should load from Resources/Fonts")
     }
 
-    private var model: SettingsModel {
+    var model: SettingsModel {
         var model = SettingsModel()
         model.deviceName = "Rahul\u{2019}s MacBook Pro"
         let trusted = [TrustedDeviceInfo(id: phoneID, name: "OnePlus 11"), TrustedDeviceInfo(id: tabletID, name: "Pixel Tablet")]

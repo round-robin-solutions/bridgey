@@ -230,5 +230,5 @@ func routeText(_ route: ConnectionRoute) -> String {
 /// "12 ms" or "1.2 s".
 func roundTripText(_ seconds: TimeInterval) -> String {
     seconds < 1 ? String(format: L10n.text("health.ms", fallback: "%d ms"), Int((seconds * 1000).rounded()))
-        : String(format: L10n.text("health.seconds", fallback: "%.1f s"), seconds)
+        : String(format: L10n.text("health.seconds", fallback: "%.1f s"), locale: .current, seconds)
 }

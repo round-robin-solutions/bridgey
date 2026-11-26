@@ -576,7 +576,7 @@ enum UpdateAllText {
         if targets.count == 1, let only = targets.first {
             return String(format: L10n.text("updateAll.title.one", fallback: "Update ready for %@"), only.isLocal ? thisMac : only.name)
         }
-        return String.localizedStringWithFormat(L10n.text("updateAll.title", fallback: "Updates for %d devices"), targets.count)
+        return L10n.plural("updateAll.title", fallback: "Updates for %d devices", targets.count)
     }
 
     /// "Updates 2 connected phones and this Mac", "Updates this Mac", "Updates 1 connected phone".
@@ -590,9 +590,9 @@ enum UpdateAllText {
         case (1, false):
             return L10n.text("updateAll.summary.onePhone", fallback: "Updates 1 connected phone")
         case (_, true):
-            return String.localizedStringWithFormat(L10n.text("updateAll.summary.phonesAndMac", fallback: "Updates %d connected phones and this Mac"), phones)
+            return L10n.plural("updateAll.summary.phonesAndMac", fallback: "Updates %d connected phones and this Mac", phones)
         case (_, false):
-            return String.localizedStringWithFormat(L10n.text("updateAll.summary.phones", fallback: "Updates %d connected phones"), phones)
+            return L10n.plural("updateAll.summary.phones", fallback: "Updates %d connected phones", phones)
         }
     }
 
@@ -745,7 +745,7 @@ enum UpdateAllText {
             return Capsule(tone: .failed, label: label, action: only.canRetry ? .retry(only.id) : .dismiss)
         }
         if failed.count > 1 {
-            return Capsule(tone: .failed, label: String.localizedStringWithFormat(L10n.text("updateAll.failedMany", fallback: "%d didn\u{2019}t finish"), failed.count),
+            return Capsule(tone: .failed, label: L10n.plural("updateAll.failedMany", fallback: "%d didn\u{2019}t finish", failed.count),
                            action: failed.contains(where: \.canRetry) ? .retryAll : .dismiss)
         }
         if run.local?.step == .later {
