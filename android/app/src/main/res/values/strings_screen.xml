@@ -30,4 +30,9 @@
     <string name="screen_stop">Stop</string>
     <string name="tile_screen_label">Share screen</string>
     <string name="tile_screen_unavailable">No Mac</string>
+    <!-- Unattended access: nobody approved video, so the share sends screenshots. -->
+    <string name="screen_sharing_screenshots">Screenshots, about 3 a second. Tap Use video for a smooth picture.</string>
+    <string name="screen_use_video">Use video</string>
+    <string name="screen_indicator_viewing">%1$s is viewing this phone</string>
+    <string name="screen_indicator_stop_description">Stop sharing this screen with %1$s</string>
 </resources>

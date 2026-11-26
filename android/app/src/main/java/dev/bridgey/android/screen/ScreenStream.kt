@@ -49,6 +49,8 @@ class ScreenStream(
     private val stopWriter: (Runnable) -> Unit = { it.run() },
     /** Where screen.geometry and screen.control are written, in order, so input handling never waits for a frame. */
     private val controlWriter: (Runnable) -> Unit = { it.run() },
+    /** Video, or accessibility screenshots about 3 a second when nobody approved video (unattended access). */
+    val mode: ScreenMode = ScreenMode.VIDEO,
 ) : dev.bridgey.android.control.ControlStreamLink {
     @Volatile var encoder: ScreenEncoderControl? = null
 
@@ -74,7 +76,7 @@ class ScreenStream(
     private val guard = ScreenSequenceGuard()
     private val pacer = ScreenPacer()
     private val startedAt = clock()
-    private val bitrate = ScreenBitrate(startedAt)
+    private val bitrate = ScreenBitrate(startedAt, if (mode == ScreenMode.SCREENSHOTS) StillFrameRates.START_BITRATE else ScreenRates.START_BITRATE)
     private val window = ScreenStatsWindow(startedAt)
     private var frameNumber = 0L
     private var lastKeyRequestAt = Long.MIN_VALUE / 2
@@ -84,10 +86,11 @@ class ScreenStream(
 
     /** Sends screen.start, with the control object when the stream is control-capable. False when the session is gone. */
     fun start(width: Int, height: Int, displayWidth: Int = width, displayHeight: Int = height): Boolean {
-        val info = ScreenStartInfo(width, height, ScreenRates.FPS, bitrate.bitrate, requestId)
+        val fps = if (mode == ScreenMode.SCREENSHOTS) StillFrameRates.FPS else ScreenRates.FPS
+        val info = ScreenStartInfo(width, height, fps, bitrate.bitrate, requestId, mode)
         val offer = control?.offer(width, height, displayWidth, displayHeight)
         val sent = synchronized(sendLock) { link.sendJson(ScreenKinds.START, screenStartPayload(streamId, sequence.incrementAndGet(), info, offer)) }
-        log("SCREEN start stream=${streamId.take(8)} size=${width}x$height bitrate=${bitrate.bitrate} control=${offer != null} sent=$sent")
+        log("SCREEN start stream=${streamId.take(8)} size=${width}x$height bitrate=${bitrate.bitrate} mode=${mode.name.lowercase()} control=${offer != null} sent=$sent")
         if (!sent) end(ScreenStopReason.FAILED, tell = false)
         return sent
     }

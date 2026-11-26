@@ -21,8 +21,8 @@ class ScreenStreamTest {
         override fun sendFrame(plaintext: ByteArray): Boolean { if (linkUp) frames += plaintext; return linkUp }
     }
 
-    private fun make(requestId: String? = null): ScreenStream {
-        val stream = ScreenStream("mac", "MacBook", requestId, link, clock = { now }, streamId = STREAM)
+    private fun make(requestId: String? = null, mode: ScreenMode = ScreenMode.VIDEO): ScreenStream {
+        val stream = ScreenStream("mac", "MacBook", requestId, link, clock = { now }, streamId = STREAM, mode = mode)
         stream.encoder = object : ScreenEncoderControl {
             override fun requestKeyFrame() { keyRequests += now }
             override fun setBitrate(bitsPerSecond: Long) { bitrates += bitsPerSecond }
@@ -44,6 +44,23 @@ class ScreenStreamTest {
         assertEquals(REQUEST, payload.getString("requestId"))
         assertEquals(720, payload.getInt("width"))
         assertEquals(4_000_000L, payload.getLong("bitrate"))
+    }
+
+    @Test fun aVideoStartHasNoMode() {
+        make().start(720, 1600)
+        val payload = json.single().second
+        assertFalse(payload.has("mode"))
+        assertEquals(30, payload.getInt("fps"))
+    }
+
+    @Test fun aScreenshotStartSaysSoAtThreeFramesASecond() {
+        val stream = make(requestId = REQUEST, mode = ScreenMode.SCREENSHOTS)
+        assertTrue(stream.start(720, 1600))
+        val payload = json.single().second
+        assertEquals("screenshots", payload.getString("mode"))
+        assertEquals(3, payload.getInt("fps"))
+        assertEquals(1_500_000L, payload.getLong("bitrate"))
+        assertEquals(REQUEST, payload.getString("requestId"))
     }
 
     @Test fun framesWaitForStartedThenAKeyFrame() {

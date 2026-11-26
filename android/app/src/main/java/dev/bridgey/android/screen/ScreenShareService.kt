@@ -109,7 +109,7 @@ class ScreenShareService : Service() {
         }
         androidx.core.content.ContextCompat.registerReceiver(this, screenOff, IntentFilter(Intent.ACTION_SCREEN_OFF), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         screenOffRegistered = true
-        val newCapture = ScreenCapture(this, taken, created, handler) { reason -> created.stop(reason) }
+        val newCapture = ScreenCapture(this, ProjectionFrameSource(taken), created, handler) { reason -> created.stop(reason) }
         capture = newCapture
         handler.post { newCapture.start() }
         ticker = Executors.newSingleThreadScheduledExecutor { runnable -> Thread(runnable, "bridgey-screen-ticker") }.also {

@@ -31,13 +31,16 @@ import dev.bridgey.android.control.PhoneControlGrantMode
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import dev.bridgey.android.ui.theme.BridgeyType
 
-/** A paired Mac on the Remote control page: whether it may control this phone. */
+/** A paired Mac on the Remote control page: whether it may see and control this phone without asking. */
 data class PhoneControlMac(
     val id: String,
     val name: String,
+    /** What it may do now: its own choice, else what Unattended access gives. */
     val mode: PhoneControlGrantMode,
     /** Share screen with Macs is on for it: control happens inside a share, so without it nothing can start. */
     val sharing: Boolean,
+    /** Its own choice; null is Default (it follows Unattended access). */
+    val choice: PhoneControlGrantMode? = mode,
 )
 
 /** Settings > Remote control > Let Macs control this phone. */
@@ -53,13 +56,19 @@ data class PhoneControlSettingsState(
     /** The Mac controlling this phone now, if any: grants cannot be raised meanwhile. */
     val controlledBy: String? = null,
     val macs: List<PhoneControlMac> = emptyList(),
+    /** Unattended access: Macs on Default see and control this phone without asking. On by default. */
+    val unattended: Boolean = true,
+    /** Screenshots need Android 11 or later (seeing this phone with nobody here). */
+    val screenshots: Boolean = true,
 )
 
 class PhoneControlSettingsActions(
     val openServiceSettings: () -> Unit = {},
     val openAppInfo: () -> Unit = {},
-    /** False when refused (raising a grant while a Mac controls this phone). */
-    val setMode: (String, PhoneControlGrantMode) -> Boolean = { _, _ -> true },
+    /** A Mac's choice, null for Default. False when refused (raising a grant while a Mac controls this phone). */
+    val setMode: (String, PhoneControlGrantMode?) -> Boolean = { _, _ -> true },
+    /** False when refused (turning it on while a Mac controls this phone). */
+    val setUnattended: (Boolean) -> Boolean = { true },
 )
 
 @Composable
@@ -71,21 +80,37 @@ private fun modeLabel(mode: PhoneControlGrantMode): String = stringResource(
     },
 )
 
+/** What a Mac row says: Default, or its own choice. */
+@Composable
+private fun choiceLabel(choice: PhoneControlGrantMode?): String = choice?.let { modeLabel(it) } ?: stringResource(R.string.control_mode_default)
+
 /**
- * The Remote control page's part: Bridgey control's status with Android's settings one tap away, then each Mac's choice
- * (Off, Ask each time, Allow without asking), and why Android asks for an accessibility service.
+ * The Remote control page's part: Unattended access, Bridgey control's status with Android's settings one tap away, then
+ * each Mac's choice (Default, Off, Ask each time, Allow without asking), and why Android asks for an accessibility service.
  */
 internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, actions: PhoneControlSettingsActions) {
     if (!state.built) return
     item(key = "remote.phoneControl") {
         var choosing by rememberSaveable { mutableStateOf<String?>(null) }
         var asked by rememberSaveable { mutableStateOf(false) }
+        var unattendedRefused by rememberSaveable { mutableStateOf(false) }
         val openSettings = {
             asked = true
             actions.openServiceSettings()
         }
         Column {
             RowGroup(Modifier.padding(top = 16.dp)) {
+                row { shape ->
+                    SwitchRow(
+                        shape, stringResource(R.string.unattended_title),
+                        if (unattendedRefused && state.controlledBy != null) stringResource(R.string.control_raise_refused, state.controlledBy)
+                        else stringResource(R.string.unattended_detail),
+                        BridgeyIcons.ScreenShare, if (state.unattended) Tint.PURPLE else Tint.NEUTRAL,
+                        checked = state.unattended,
+                        onCheckedChange = { on -> unattendedRefused = !actions.setUnattended(on) },
+                        detailWarning = unattendedRefused && state.controlledBy != null,
+                    )
+                }
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.control_settings_title),
@@ -102,13 +127,15 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
                     }
                 }
                 state.macs.forEach { mac ->
+                    // A Mac on Default is not flagged: without screen sharing the switch simply has nothing to do for it.
+                    val needsShare = mac.choice != null && mac.choice != PhoneControlGrantMode.OFF && !mac.sharing
                     row { shape ->
                         ListRow(
                             shape, mac.name,
-                            if (mac.mode != PhoneControlGrantMode.OFF && !mac.sharing) stringResource(R.string.control_mac_needs_share) else modeLabel(mac.mode),
+                            if (needsShare) stringResource(R.string.control_mac_needs_share) else choiceLabel(mac.choice),
                             BridgeyIcons.LaptopMac, if (mac.mode == PhoneControlGrantMode.OFF) Tint.NEUTRAL else Tint.PURPLE,
                             compact = true,
-                            detailWarning = mac.mode != PhoneControlGrantMode.OFF && !mac.sharing,
+                            detailWarning = needsShare,
                             onClick = { choosing = mac.id },
                             role = Role.Button,
                         ) {
@@ -120,6 +147,14 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
             if (asked && !state.serviceEnabled && state.restrictedPossible) {
                 RestrictedSettingsHint(stringResource(R.string.control_service_label), actions.openAppInfo, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
             }
+            // Unattended access needs Bridgey's screenshots: say what is missing rather than fail quietly.
+            val unattendedNeeds = when {
+                !state.unattended && state.macs.none { it.choice == PhoneControlGrantMode.ALWAYS } -> null
+                !state.screenshots -> R.string.unattended_needs_android
+                !state.serviceEnabled -> R.string.unattended_needs_service
+                else -> null
+            }
+            unattendedNeeds?.let { Note(stringResource(it), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
             Note(
                 stringResource(if (state.typing) R.string.control_settings_note else R.string.control_settings_note_no_typing),
                 Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp),
@@ -131,9 +166,12 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
     }
 }
 
-/** Off, Ask each time or Allow without asking for one Mac. Raising it is refused while a Mac controls this phone. */
+/**
+ * Default, Off, Ask each time or Allow without asking for one Mac. Raising what it may do is refused while a Mac controls
+ * this phone.
+ */
 @Composable
-private fun PhoneControlModeDialog(mac: PhoneControlMac, controlledBy: String?, onDismiss: () -> Unit, choose: (PhoneControlGrantMode) -> Boolean) {
+private fun PhoneControlModeDialog(mac: PhoneControlMac, controlledBy: String?, onDismiss: () -> Unit, choose: (PhoneControlGrantMode?) -> Boolean) {
     var refused by rememberSaveable { mutableStateOf(false) }
     val colors = BridgeyTheme.colors
     AlertDialog(
@@ -141,8 +179,8 @@ private fun PhoneControlModeDialog(mac: PhoneControlMac, controlledBy: String?, 
         title = { Text(stringResource(R.string.control_mode_title, mac.name)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                PhoneControlGrantMode.entries.forEach { mode ->
-                    val selected = mode == mac.mode
+                (listOf<PhoneControlGrantMode?>(null) + PhoneControlGrantMode.entries).forEach { mode ->
+                    val selected = mode == mac.choice
                     Row(
                         Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp))
                             .selectable(selected = selected, role = Role.RadioButton) {
@@ -154,10 +192,11 @@ private fun PhoneControlModeDialog(mac: PhoneControlMac, controlledBy: String?, 
                     ) {
                         RadioButton(selected = selected, onClick = null)
                         Column(Modifier.weight(1f)) {
-                            Text(modeLabel(mode), style = BridgeyType.itemTitle, color = colors.onSurface)
+                            Text(choiceLabel(mode), style = BridgeyType.itemTitle, color = colors.onSurface)
                             Text(
                                 stringResource(
                                     when (mode) {
+                                        null -> R.string.control_mode_default_detail
                                         PhoneControlGrantMode.OFF -> R.string.control_mode_off_detail
                                         PhoneControlGrantMode.ASK -> R.string.control_mode_ask_detail
                                         PhoneControlGrantMode.ALWAYS -> R.string.control_mode_always_detail
@@ -202,13 +241,16 @@ fun rememberPhoneControlSettings(macs: List<Pair<String, String>>, sharingWith: 
     }
     val controlState by (hub?.state ?: idleControl).collectAsStateWithLifecycle()
     val modes = androidx.compose.runtime.remember(revision, macs, hub) { macs.associate { (id, _) -> id to (hub?.mode(id) ?: PhoneControlGrantMode.OFF) } }
+    val choices = androidx.compose.runtime.remember(revision, macs, hub) { macs.associate { (id, _) -> id to hub?.choice(id) } }
     val state = PhoneControlSettingsState(
         built = hub != null,
         serviceEnabled = serviceEnabled,
         typing = android.os.Build.VERSION.SDK_INT >= dev.bridgey.android.control.PhoneControlLimits.TYPING_SDK,
         restrictedPossible = android.os.Build.VERSION.SDK_INT >= dev.bridgey.android.setup.RestrictedSettings.FIRST_SDK,
         controlledBy = controlState.takeIf { it.active }?.macName,
-        macs = if (hub == null) emptyList() else macs.map { (id, name) -> PhoneControlMac(id, name, modes[id] ?: PhoneControlGrantMode.OFF, sharingWith(id)) },
+        macs = if (hub == null) emptyList() else macs.map { (id, name) -> PhoneControlMac(id, name, modes[id] ?: PhoneControlGrantMode.OFF, sharingWith(id), choices[id]) },
+        unattended = androidx.compose.runtime.remember(revision, hub) { hub?.unattended ?: false },
+        screenshots = android.os.Build.VERSION.SDK_INT >= dev.bridgey.android.screen.StillFrameRates.MIN_SDK,
     )
     val actions = PhoneControlSettingsActions(
         openServiceSettings = { runCatching { context.startActivity(dev.bridgey.android.control.BridgeyControlService.settingsIntent()) } },
@@ -221,6 +263,7 @@ fun rememberPhoneControlSettings(macs: List<Pair<String, String>>, sharingWith: 
             }
         },
         setMode = { id, mode -> (hub?.setGrant(id, mode) == true).also { if (it) revision++ } },
+        setUnattended = { on -> (hub?.setUnattended(on) == true).also { if (it) revision++ } },
     )
     return PhoneControlSettingsUi(state, actions)
 }

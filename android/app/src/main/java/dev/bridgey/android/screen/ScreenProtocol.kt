@@ -94,8 +94,11 @@ fun decodeScreenRequest(plaintext: ByteArray): String? {
     return canonicalUuid(json.opt("requestId"))
 }
 
-fun screenStatusPayload(requestId: String, status: ScreenStatus): JSONObject =
-    JSONObject().put("version", 1).put("requestId", requestId).put("status", status.wire)
+/** [needs]: with waiting, why a Mac allowed without asking still waits for someone here (unattended access). */
+fun screenStatusPayload(requestId: String, status: ScreenStatus, needs: ScreenNeeds? = null): JSONObject =
+    JSONObject().put("version", 1).put("requestId", requestId).put("status", status.wire).apply {
+        if (status == ScreenStatus.WAITING && needs != null) put("needs", needs.wire)
+    }
 
 /** What the Mac sends on a stream, decoded. */
 sealed interface ScreenMacMessage {
@@ -140,8 +143,15 @@ fun decodeScreenMacMessage(kind: String, plaintext: ByteArray): ScreenMacMessage
     }
 }
 
-/** What the phone puts in screen.start. */
-data class ScreenStartInfo(val width: Int, val height: Int, val fps: Int, val bitrate: Long, val requestId: String? = null)
+/** What the phone puts in screen.start. [mode] screenshots: nobody approved video (unattended access). */
+data class ScreenStartInfo(
+    val width: Int,
+    val height: Int,
+    val fps: Int,
+    val bitrate: Long,
+    val requestId: String? = null,
+    val mode: ScreenMode = ScreenMode.VIDEO,
+)
 
 private fun streamBase(streamId: String, sequence: Long): JSONObject =
     JSONObject().put("version", 1).put("streamId", streamId).put("sequence", sequence)
@@ -155,6 +165,7 @@ fun screenStartPayload(streamId: String, sequence: Long, info: ScreenStartInfo, 
         put("height", info.height)
         put("fps", info.fps)
         put("bitrate", info.bitrate)
+        info.mode.wire?.let { put("mode", it) }
         control?.let { put("control", it) }
     }
 

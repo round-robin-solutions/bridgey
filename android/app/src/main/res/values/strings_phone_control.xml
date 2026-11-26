@@ -2,7 +2,7 @@
 <!-- A Mac controls this phone (phone_control_draft1): Bridgey control, the prompt, the indicator and Settings. -->
 <resources>
     <string name="control_service_label">Bridgey control</string>
-    <string name="control_service_description">Lets a Mac you allow in Bridgey tap, swipe, go Back or Home and type on this phone while you share your screen with it. Bridgey never reads what is on the screen and never uses your clipboard. You can stop it on the phone at any time.</string>
+    <string name="control_service_description">Lets a Mac you allow in Bridgey tap, swipe, go Back or Home and type on this phone while it sees your screen. When nobody is here to approve video, it can send screenshots to a Mac you allow without asking. Bridgey never reads text or buttons from the screen and never uses your clipboard. You can stop it on the phone at any time.</string>
     <string name="control_indicator_text">%1$s is controlling this phone</string>
     <string name="control_stop">Stop</string>
     <string name="control_stop_description">Stop %1$s controlling this phone</string>
@@ -27,8 +27,16 @@
     <string name="control_mode_title">Control from %1$s</string>
     <string name="control_mode_off_detail">This Mac cannot control this phone.</string>
     <string name="control_mode_ask_detail">This phone asks you every time.</string>
-    <string name="control_mode_always_detail">Starts without asking. Only for your own Mac.</string>
+    <string name="control_mode_always_detail">Sees and controls this phone without asking.</string>
     <string name="control_raise_refused">Stop %1$s controlling this phone first.</string>
-    <string name="control_settings_note">Android asks you to turn on Bridgey control, an accessibility service, before a Mac can tap and type here. It acts only while you share your screen with an allowed Mac, and it never reads what is on the screen.</string>
-    <string name="control_settings_note_no_typing">Android asks you to turn on Bridgey control, an accessibility service, before a Mac can tap here. It acts only while you share your screen with an allowed Mac, and it never reads what is on the screen. Typing from a Mac needs Android 13 or later.</string>
+    <string name="control_settings_note">Android asks you to turn on Bridgey control, an accessibility service, before a Mac can tap and type here. It acts only while an allowed Mac sees your screen, and it never reads text or buttons from the screen.</string>
+    <string name="control_settings_note_no_typing">Android asks you to turn on Bridgey control, an accessibility service, before a Mac can tap here. It acts only while an allowed Mac sees your screen, and it never reads text or buttons from the screen. Typing from a Mac needs Android 13 or later.</string>
+    <!-- Unattended access (26 Nov): one switch, on by default; a Mac on Default follows it. -->
+    <string name="unattended_title">Unattended access</string>
+    <string name="unattended_detail">Macs set to Default can see and control this phone without asking. Agents and servers never can.</string>
+    <string name="unattended_search_detail">See and control this phone from your Macs without asking</string>
+    <string name="unattended_needs_service">To see this phone with nobody here, turn on Bridgey control.</string>
+    <string name="unattended_needs_android">Seeing this phone with nobody here needs Android 11 or later. Until then, someone approves each share here.</string>
+    <string name="control_mode_default">Default</string>
+    <string name="control_mode_default_detail">Follows Unattended access.</string>
 </resources>

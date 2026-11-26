@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="control_service_label">Управление Bridgey</string>
-    <string name="control_service_description">Позволяет Mac, которому вы разрешили это в Bridgey, нажимать, листать, возвращаться назад или на главный экран и печатать на этом телефоне, пока вы показываете ему свой экран. Bridgey никогда не читает содержимое экрана и не использует буфер обмена. Остановить можно на телефоне в любой момент.</string>
+    <string name="control_service_description">Позволяет Mac, которому вы разрешили это в Bridgey, нажимать, листать, возвращаться назад или на главный экран и печатать на этом телефоне, пока он видит ваш экран. Если рядом нет никого, кто разрешит видео, служба может отправлять снимки экрана Mac, которому разрешено без вопросов. Bridgey никогда не считывает текст и кнопки с экрана и не использует буфер обмена. Остановить можно на телефоне в любой момент.</string>
     <string name="control_indicator_text">%1$s управляет этим телефоном</string>
     <string name="control_stop">Стоп</string>
     <string name="control_stop_description">Запретить %1$s управлять этим телефоном</string>
@@ -26,8 +26,15 @@
     <string name="control_mode_title">Управление с %1$s</string>
     <string name="control_mode_off_detail">Этот Mac не может управлять телефоном.</string>
     <string name="control_mode_ask_detail">Телефон будет спрашивать вас каждый раз.</string>
-    <string name="control_mode_always_detail">Начинается без вопросов. Только для вашего собственного Mac.</string>
+    <string name="control_mode_always_detail">Видит телефон и управляет им без вопросов.</string>
     <string name="control_raise_refused">Сначала остановите управление с %1$s.</string>
-    <string name="control_settings_note">Android попросит включить управление Bridgey, службу специальных возможностей, прежде чем Mac сможет нажимать и печатать здесь. Она работает, только пока вы показываете экран разрешённому Mac, и никогда не читает содержимое экрана.</string>
-    <string name="control_settings_note_no_typing">Android попросит включить управление Bridgey, службу специальных возможностей, прежде чем Mac сможет нажимать здесь. Она работает, только пока вы показываете экран разрешённому Mac, и никогда не читает содержимое экрана. Ввод текста с Mac работает в Android 13 и новее.</string>
+    <string name="control_settings_note">Android попросит включить управление Bridgey, службу специальных возможностей, прежде чем Mac сможет нажимать и печатать здесь. Она работает, только пока разрешённый Mac видит ваш экран, и никогда не считывает текст и кнопки с экрана.</string>
+    <string name="control_settings_note_no_typing">Android попросит включить управление Bridgey, службу специальных возможностей, прежде чем Mac сможет нажимать здесь. Она работает, только пока разрешённый Mac видит ваш экран, и никогда не считывает текст и кнопки с экрана. Ввод текста с Mac работает в Android 13 и новее.</string>
+    <string name="unattended_title">Неконтролируемый доступ</string>
+    <string name="unattended_detail">Mac с настройкой «По умолчанию» видят этот телефон и управляют им без вопросов. Агентам и серверам это недоступно.</string>
+    <string name="unattended_search_detail">Видеть телефон и управлять им со своих Mac без вопросов</string>
+    <string name="unattended_needs_service">Чтобы видеть телефон, когда рядом никого нет, включите управление Bridgey.</string>
+    <string name="unattended_needs_android">Чтобы видеть телефон, когда рядом никого нет, нужен Android 11 или новее. До тех пор каждый показ подтверждают здесь.</string>
+    <string name="control_mode_default">По умолчанию</string>
+    <string name="control_mode_default_detail">Как в настройке «Неконтролируемый доступ».</string>
 </resources>

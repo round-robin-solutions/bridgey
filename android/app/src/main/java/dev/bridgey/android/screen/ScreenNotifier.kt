@@ -68,8 +68,11 @@ object ScreenNotifier {
         if (deviceId.isNotEmpty()) context.getSystemService(NotificationManager::class.java)?.cancel(askId(deviceId))
     }
 
-    /** The ongoing notification the service runs under. [controlling]: the Mac controls the phone now, with Stop control. */
-    fun sharing(context: Context, macName: String, sharing: Boolean, controlling: Boolean = false): Notification {
+    /**
+     * The ongoing notification the service runs under. [controlling]: the Mac controls the phone now, with Stop control.
+     * [screenshotsFor]: an unattended share sending screenshots to that Mac, with Use video (Android's consent, then video).
+     */
+    fun sharing(context: Context, macName: String, sharing: Boolean, controlling: Boolean = false, screenshotsFor: String? = null): Notification {
         channels(context)
         val stop = PendingIntent.getBroadcast(
             context, SHARING_NOTIFICATION_ID, ScreenActionReceiver.stopIntent(context),
@@ -82,23 +85,38 @@ object ScreenNotifier {
             context, SHARING_NOTIFICATION_ID + 1, dev.bridgey.android.control.PhoneControlReceiver.stopIntent(context),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         ) else null
+        val video = screenshotsFor?.let {
+            PendingIntent.getActivity(
+                context, SHARING_NOTIFICATION_ID + 2, ScreenConsentActivity.intent(context, it, macName, null),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+        val text = when {
+            controlling -> R.string.control_sharing_text
+            !sharing -> R.string.screen_sharing_starting
+            video != null -> R.string.screen_sharing_screenshots
+            else -> R.string.screen_sharing_text
+        }
         return Notification.Builder(context, SHARING_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_bridgey_notification)
             .setContentTitle(context.getString(if (controlling) R.string.control_sharing_title else R.string.screen_sharing_title, macName))
-            .setContentText(context.getString(if (controlling) R.string.control_sharing_text else if (sharing) R.string.screen_sharing_text else R.string.screen_sharing_starting))
+            .setContentText(context.getString(text))
             .setCategory(Notification.CATEGORY_STATUS)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(true)
             .setUsesChronometer(sharing)
             .apply { open?.let(::setContentIntent) }
+            .apply { video?.let { addAction(Notification.Action.Builder(null, context.getString(R.string.screen_use_video), it).build()) } }
             .apply { stopControl?.let { addAction(Notification.Action.Builder(null, context.getString(R.string.control_stop_control), it).build()) } }
             .addAction(Notification.Action.Builder(null, context.getString(R.string.screen_stop), stop).build())
             .build()
     }
 
-    fun updateSharing(context: Context, macName: String, sharing: Boolean, controlling: Boolean = false) {
-        runCatching { context.getSystemService(NotificationManager::class.java)?.notify(SHARING_NOTIFICATION_ID, sharing(context, macName, sharing, controlling)) }
+    fun updateSharing(context: Context, macName: String, sharing: Boolean, controlling: Boolean = false, screenshotsFor: String? = null) {
+        runCatching {
+            context.getSystemService(NotificationManager::class.java)?.notify(SHARING_NOTIFICATION_ID, sharing(context, macName, sharing, controlling, screenshotsFor))
+        }
     }
 }
 

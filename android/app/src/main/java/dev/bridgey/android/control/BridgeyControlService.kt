@@ -38,9 +38,11 @@ import dev.bridgey.android.display.ControlNavigation
  * Off until the person turns it on in Android's accessibility settings. It performs gestures and Back, Home and Recents,
  * and from Android 13 types into the focused editor as an accessibility input method. It never reads window content
  * (canRetrieveWindowContent is off), ignores every accessibility event, never touches the clipboard and does nothing
- * unless a Mac controls the phone through PhoneControlHub. While one does, it shows the indicator with Stop.
+ * unless a Mac controls the phone through PhoneControlHub. While one does, it shows the indicator with Stop. From Android
+ * 11 it also takes screenshots, only for a share with a Mac allowed without asking when nobody approved Android's video
+ * prompt (unattended access, ScreenShareHub); the sharing notification with Stop shows for as long as that runs.
  */
-class BridgeyControlService : AccessibilityService(), ControlService {
+class BridgeyControlService : AccessibilityService(), ControlService, dev.bridgey.android.screen.ScreenshotTaker {
     private val main = Handler(Looper.getMainLooper())
 
     /** The last dispatched stroke of each finger that is still down, so the next part continues it. */
@@ -48,6 +50,10 @@ class BridgeyControlService : AccessibilityService(), ControlService {
     private val strokeLock = Any()
     private var indicator: View? = null
     private var prompt: View? = null
+
+    /** Main thread only: the bar shows control while a Mac controls the phone, else the screenshot share's viewer. */
+    private var controlBar: Pair<String, () -> Unit>? = null
+    private var viewingBar: Pair<String, () -> Unit>? = null
 
     @Volatile private var inputMethodReady = false
 
@@ -75,6 +81,8 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         current = null
         synchronized(strokeLock) { strokes.clear() }
         main.post {
+            controlBar = null
+            viewingBar = null
             removeIndicator()
             removePrompt()
         }
@@ -140,6 +148,39 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         }
     }
 
+    // MARK: ScreenshotTaker
+
+    override fun screenshot(executor: java.util.concurrent.Executor, done: (dev.bridgey.android.screen.ScreenShot) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            executor.execute { done(dev.bridgey.android.screen.ScreenShot.Failed(dev.bridgey.android.screen.ShotError.NO_ACCESS)) }
+            return
+        }
+        takeDisplayScreenshot(executor, done)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun takeDisplayScreenshot(executor: java.util.concurrent.Executor, done: (dev.bridgey.android.screen.ScreenShot) -> Unit) {
+        takeScreenshot(android.view.Display.DEFAULT_DISPLAY, executor, object : TakeScreenshotCallback {
+            override fun onSuccess(screenshot: ScreenshotResult) {
+                val buffer = screenshot.hardwareBuffer
+                val bitmap = runCatching { android.graphics.Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace) }.getOrNull()
+                if (bitmap == null) {
+                    buffer.close()
+                    done(dev.bridgey.android.screen.ScreenShot.Failed(dev.bridgey.android.screen.ShotError.OTHER))
+                    return
+                }
+                done(dev.bridgey.android.screen.ScreenShot.Frame(bitmap) {
+                    bitmap.recycle()
+                    buffer.close()
+                })
+            }
+
+            override fun onFailure(errorCode: Int) {
+                done(dev.bridgey.android.screen.ScreenShot.Failed(screenshotError(errorCode)))
+            }
+        })
+    }
+
     override fun navigate(action: ControlNavigation): Boolean = performGlobalAction(
         when (action) {
             ControlNavigation.BACK -> GLOBAL_ACTION_BACK
@@ -180,13 +221,41 @@ class BridgeyControlService : AccessibilityService(), ControlService {
 
     override fun showIndicator(macName: String, onStop: () -> Unit) {
         main.post {
-            removeIndicator()
-            runCatching { addIndicator(macName, onStop) }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "CONTROL indicator", it) }
+            controlBar = macName to onStop
+            drawIndicator()
         }
     }
 
     override fun hideIndicator() {
-        main.post { removeIndicator() }
+        main.post {
+            controlBar = null
+            drawIndicator()
+        }
+    }
+
+    override fun showViewing(macName: String, onStop: () -> Unit) {
+        main.post {
+            viewingBar = macName to onStop
+            drawIndicator()
+        }
+    }
+
+    override fun hideViewing() {
+        main.post {
+            viewingBar = null
+            drawIndicator()
+        }
+    }
+
+    /** Control's bar wins; with no control, a screenshot share's bar; else none. */
+    private fun drawIndicator() {
+        removeIndicator()
+        val (text, stopDescription, onStop) = controlBar?.let { (name, stop) ->
+            Triple(getString(R.string.control_indicator_text, name), getString(R.string.control_stop_description, name), stop)
+        } ?: viewingBar?.let { (name, stop) ->
+            Triple(getString(R.string.screen_indicator_viewing, name), getString(R.string.screen_indicator_stop_description, name), stop)
+        } ?: return
+        runCatching { addIndicator(text, stopDescription, onStop) }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "CONTROL indicator", it) }
     }
 
     override fun showPrompt(macName: String, answer: (Boolean) -> Unit) {
@@ -203,11 +272,12 @@ class BridgeyControlService : AccessibilityService(), ControlService {
     // MARK: The indicator
 
     /**
-     * "MacBook Air is controlling this phone" with Stop, over the top of the screen. An accessibility overlay needs no
-     * other permission, and it shows in the Mac's picture too. Only the bar takes touches; the rest of the screen does not.
+     * "MacBook Air is controlling this phone" (or "is viewing this phone" for a screenshot share) with Stop, over the top
+     * of the screen. An accessibility overlay needs no other permission, and it shows in the Mac's picture too. Only the
+     * bar takes touches; the rest of the screen does not.
      */
     @SuppressLint("SetTextI18n")
-    private fun addIndicator(macName: String, onStop: () -> Unit) {
+    private fun addIndicator(message: String, stopDescription: String, onStop: () -> Unit) {
         val manager = getSystemService(WindowManager::class.java) ?: return
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
@@ -233,7 +303,7 @@ class BridgeyControlService : AccessibilityService(), ControlService {
         }
         bar.addView(dot, LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) })
         val label = TextView(this).apply {
-            text = getString(R.string.control_indicator_text, macName)
+            text = message
             setTextColor(onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
             maxLines = 1
@@ -256,7 +326,7 @@ class BridgeyControlService : AccessibilityService(), ControlService {
             }
             isClickable = true
             isFocusable = true
-            contentDescription = getString(R.string.control_stop_description, macName)
+            contentDescription = stopDescription
             setOnClickListener { onStop() }
         }
         bar.addView(stop, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT))
@@ -391,6 +461,14 @@ class BridgeyControlService : AccessibilityService(), ControlService {
 
         /** Android's accessibility settings, where the person turns Bridgey control on or off. */
         fun settingsIntent(): Intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        /** AccessibilityService's screenshot error codes, as the share's pacer reads them. */
+        fun screenshotError(code: Int): dev.bridgey.android.screen.ShotError = when (code) {
+            AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> dev.bridgey.android.screen.ShotError.TOO_SOON
+            AccessibilityService.ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS -> dev.bridgey.android.screen.ShotError.NO_ACCESS
+            AccessibilityService.ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY -> dev.bridgey.android.screen.ShotError.INVALID_DISPLAY
+            else -> dev.bridgey.android.screen.ShotError.OTHER
+        }
 
         fun keyCode(key: ControlKey): Int? = when (key) {
             ControlKey.ENTER -> KeyEvent.KEYCODE_ENTER

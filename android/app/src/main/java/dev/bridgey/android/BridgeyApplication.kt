@@ -222,7 +222,7 @@ class BridgeyApplication : Application() {
         startCamera()
         startBlockedNumbers()
         startPhoneControl()
-        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing, { startedActivityCount > 0 }) { phoneControlOrNull }
+        screenShare = dev.bridgey.android.screen.ScreenShareHub(this, pairing, { startedActivityCount > 0 }, phoneControl = { phoneControlOrNull })
         pairing.screenListener = screenShare
         startDisplay()
         busyMonitor.start()
@@ -306,9 +306,13 @@ class BridgeyApplication : Application() {
             override fun controlling(macName: String?) {
                 val share = screenShare.state.value
                 if (share.phase != dev.bridgey.android.screen.ScreenShareState.Phase.SHARING) return
-                dev.bridgey.android.screen.ScreenNotifier.updateSharing(this@BridgeyApplication, share.macName.orEmpty(), sharing = true, controlling = macName != null)
+                dev.bridgey.android.screen.ScreenNotifier.updateSharing(
+                    this@BridgeyApplication, share.macName.orEmpty(), sharing = true, controlling = macName != null,
+                    screenshotsFor = share.deviceId.takeIf { share.mode == dev.bridgey.android.screen.ScreenMode.SCREENSHOTS },
+                )
             }
             override fun grantsChanged(deviceId: String) = pairing.refreshFeatureState(deviceId)
+            override fun unattendedChanged() = pairing.refreshFeatureStateForAll()
             override fun record(event: String, deviceId: String, detail: String) = pairing.recordRemoteControlEvent(event, deviceId, detail)
             override fun log(message: String) = BridgeyLogging.i(LogCategory.REMOTE_CONTROL, message)
         }

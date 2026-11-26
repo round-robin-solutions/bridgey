@@ -258,6 +258,8 @@ object SettingsSearchRegistry {
         SettingsSearchEntry("remote.speed", SearchPage.REMOTE_CONTROL, null, R.string.remote_speed_title, null, REMOTE_WORDS + listOf("pointer", "cursor", "скорость"), revealedBy = R.string.feature_remote_input),
         SettingsSearchEntry("remote.volumeKeys", SearchPage.REMOTE_CONTROL, null, R.string.remote_volume_keys_title, R.string.remote_volume_keys_detail, listOf("volume", "slides", "громкость"), revealedBy = R.string.feature_remote_input),
         feature("remote.screenControl", SearchPage.REMOTE_CONTROL, R.string.feature_screen_control, R.string.settings_screen_control_detail, BridgeyFeature.SCREEN_CONTROL, SCREEN_CONTROL_WORDS),
+        SettingsSearchEntry("remote.unattended", SearchPage.REMOTE_CONTROL, null, R.string.unattended_title, R.string.unattended_search_detail,
+            PHONE_CONTROL_WORDS + listOf("without asking", "always allow", "неконтролируемый", "без вопросов")),
         SettingsSearchEntry("remote.phoneControl", SearchPage.REMOTE_CONTROL, null, R.string.control_settings_title, R.string.control_settings_search_detail, PHONE_CONTROL_WORDS),
 
         // Privacy
@@ -389,7 +391,7 @@ object SettingsSearchRegistry {
             if (entry.page == SearchPage.UPDATES && !dev.bridgey.android.BuildGates.selfUpdate) continue
             if (entry.id in setOf("permissions.sms", "permissions.contacts") && !dev.bridgey.android.BuildGates.sms) continue
             if (entry.id == "permissions.install" && !dev.bridgey.android.BuildGates.selfUpdate) continue
-            if (entry.id == "remote.phoneControl" && !dev.bridgey.android.BuildGates.phoneControl) continue
+            if (entry.id in setOf("remote.phoneControl", "remote.unattended") && !dev.bridgey.android.BuildGates.phoneControl) continue
             val page = context.getString(entry.page.titleRes)
             val section = entry.section?.let(context::getString)
             val title = context.getString(entry.title)

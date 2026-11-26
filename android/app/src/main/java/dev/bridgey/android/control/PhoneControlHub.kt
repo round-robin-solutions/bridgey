@@ -46,6 +46,10 @@ interface ControlService : GestureSink {
     /** Ask each time on the screen itself, with Don't allow and Allow; [answer] runs on any thread. */
     fun showPrompt(macName: String, answer: (Boolean) -> Unit)
     fun hidePrompt()
+
+    /** The bar for a screenshot share (unattended access): "MacBook Air is viewing this phone" with Stop. Control's bar wins. */
+    fun showViewing(macName: String, onStop: () -> Unit) {}
+    fun hideViewing() {}
 }
 
 /** What the hub needs from the rest of the app; a fake in tests. */
@@ -73,6 +77,8 @@ interface PhoneControlEnvironment {
     fun controlling(macName: String?)
     /** A grant changed: features.update goes to that Mac. */
     fun grantsChanged(deviceId: String)
+    /** Unattended access changed: features.update goes to every connected Mac. */
+    fun unattendedChanged() {}
     fun record(event: String, deviceId: String, detail: String) {}
     fun log(message: String) {}
 }
@@ -157,6 +163,19 @@ class PhoneControlHub(
 
     fun mode(deviceId: String): PhoneControlGrantMode = if (!environment.built) PhoneControlGrantMode.OFF else grants.mode(subject(deviceId))
 
+    /** The choice made for a Mac, or null for Default (it follows [unattended]). */
+    fun choice(deviceId: String): PhoneControlGrantMode? = if (!environment.built) null else grants.choice(subject(deviceId))
+
+    /** Settings > Remote control > Unattended access: on by default. */
+    val unattended: Boolean get() = grants.unattended
+
+    /**
+     * A Mac allowed without asking may see this phone with nobody here: the share skips Bridgey's own question, and when
+     * nobody approves Android's video prompt it falls back to accessibility screenshots (ScreenShareHub).
+     */
+    fun unattendedView(deviceId: String): Boolean =
+        environment.built && !environment.isAgent(deviceId) && environment.viewGrant(deviceId) && mode(deviceId) == PhoneControlGrantMode.ALWAYS
+
     /** phone_control_draft1 in features.update to that Mac. */
     fun advertised(deviceId: String): Boolean =
         environment.built && !environment.isAgent(deviceId) && environment.viewGrant(deviceId) && mode(deviceId) != PhoneControlGrantMode.OFF
@@ -165,15 +184,32 @@ class PhoneControlHub(
     fun controlCapable(deviceId: String): Boolean = advertised(deviceId) && environment.macAdvertises(deviceId)
 
     /**
-     * Settings: a Mac's grant. Raising it is refused while any Mac controls this phone (a Mac could otherwise open
-     * this screen and allow itself); lowering it always works and ends control at once.
+     * Settings: a Mac's choice, null for Default. Raising what it may do is refused while any Mac controls this phone (a
+     * Mac could otherwise open this screen and allow itself); Default counts as what the switch gives. Lowering always
+     * works and ends control at once.
      */
-    fun setGrant(deviceId: String, mode: PhoneControlGrantMode): Boolean {
+    fun setGrant(deviceId: String, mode: PhoneControlGrantMode?): Boolean {
+        val subject = subject(deviceId)
         val before = this.mode(deviceId)
-        if (before.raises(mode) && controllingNow) return false
-        if (!grants.set(subject(deviceId), mode)) return false
+        val after = PhoneControlGrants.resolve(mode, grants.unattended, subject.agent, !subject.identityKey.isNullOrEmpty())
+        if (before.raises(after) && controllingNow) return false
+        if (!grants.set(subject, mode)) return false
         environment.grantsChanged(deviceId)
-        environment.record("phone_control_grant", deviceId, mode.wire)
+        environment.record("phone_control_grant", deviceId, mode?.wire ?: "default")
+        policyChanged()
+        return true
+    }
+
+    /**
+     * Settings: Unattended access. Turning it on is refused while any Mac controls this phone, as raising a grant is;
+     * turning it off always works and ends control by a Mac on Default at once.
+     */
+    fun setUnattended(on: Boolean): Boolean {
+        if (on == grants.unattended) return true
+        if (on && controllingNow) return false
+        grants.setUnattended(on)
+        environment.unattendedChanged()
+        environment.record("phone_control_unattended", "", if (on) "on" else "off")
         policyChanged()
         return true
     }

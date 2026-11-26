@@ -252,10 +252,12 @@ class ProtocolGoldenVectorsTest {
             checked++
             val plaintext = vector.getJSONObject("plaintext")
             val status = dev.bridgey.android.screen.ScreenStatus.entries.first { it.wire == wire }
+            // Unattended access: waiting with why a Mac allowed without asking still waits for someone here.
+            val needs = vector.optString("androidNeeds").takeIf { it.isNotEmpty() }?.let { n -> dev.bridgey.android.screen.ScreenNeeds.entries.first { it.wire == n } }
             vector.get("expect") != "reject" &&
-                normalize(dev.bridgey.android.screen.screenStatusPayload(plaintext.getString("requestId"), status)) == normalize(plaintext)
+                normalize(dev.bridgey.android.screen.screenStatusPayload(plaintext.getString("requestId"), status, needs)) == normalize(plaintext)
         }
-        assertEquals(dev.bridgey.android.screen.ScreenStatus.entries.size, checked)
+        assertEquals(dev.bridgey.android.screen.ScreenStatus.entries.size + dev.bridgey.android.screen.ScreenNeeds.entries.size, checked)
     }
 
     /** Screen sharing: the Mac's stream messages as the phone reads them (decoder android or both). */
@@ -295,6 +297,7 @@ class ProtocolGoldenVectorsTest {
                     dev.bridgey.android.screen.ScreenStartInfo(
                         plaintext.getInt("width"), plaintext.getInt("height"), plaintext.getInt("fps"), plaintext.getLong("bitrate"),
                         plaintext.optString("requestId").takeIf { it.isNotEmpty() },
+                        dev.bridgey.android.screen.ScreenMode.entries.first { it.wire == plaintext.optString("mode").takeIf(String::isNotEmpty) },
                     ),
                 )
                 "screen.stats" -> dev.bridgey.android.screen.screenStatsPayload(
