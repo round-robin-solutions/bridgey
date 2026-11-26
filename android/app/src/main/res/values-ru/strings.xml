@@ -213,7 +213,12 @@
         <item quantity="other">%1$d устройства</item>
     </plurals>
     <string name="settings_notification_apps">Приложения с уведомлениями</string>
-    <string name="settings_notification_apps_count">%1$d из %2$d приложений</string>
+    <plurals name="settings_notification_apps_count">
+        <item quantity="one">%1$d из %2$d приложения</item>
+        <item quantity="few">%1$d из %2$d приложений</item>
+        <item quantity="many">%1$d из %2$d приложений</item>
+        <item quantity="other">%1$d из %2$d приложения</item>
+    </plurals>
     <string name="settings_forwarding">Пересылка уведомлений</string>
     <string name="settings_forwarding_on">Уведомления Android появляются на других устройствах</string>
     <string name="settings_forwarding_off">Нужен доступ к уведомлениям</string>
@@ -1302,7 +1307,12 @@
     <string name="screen_destination_note">Выберите Mac. Затем Android запросит разрешение на захват экрана.</string>
     <string name="screen_destination_continue">Продолжить</string>
     <string name="smart_routing_change">Изменить</string>
-    <string name="attach_browsed_count">Выбрано через Обзор: %1$d · выберите устройство и нажмите «Отправить»</string>
+    <plurals name="attach_browsed_count">
+        <item quantity="one">Выбрано через Обзор: %1$d · выберите устройство и нажмите «Отправить»</item>
+        <item quantity="few">Выбрано через Обзор: %1$d · выберите устройство и нажмите «Отправить»</item>
+        <item quantity="many">Выбрано через Обзор: %1$d · выберите устройство и нажмите «Отправить»</item>
+        <item quantity="other">Выбрано через Обзор: %1$d · выберите устройство и нажмите «Отправить»</item>
+    </plurals>
     <string name="smart_routing_none_option">Не выбран</string>
     <string name="destination_idle">Не используется</string>
     <string name="destination_locked">Заблокировано</string>

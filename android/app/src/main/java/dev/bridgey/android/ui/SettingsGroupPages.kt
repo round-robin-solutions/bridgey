@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -456,7 +457,7 @@ private fun NotificationsCard(state: SettingsState, actions: SettingsActions) {
                 row { shape ->
                     ListRow(
                         shape, stringResource(R.string.settings_notification_apps),
-                        stringResource(R.string.settings_notification_apps_count, state.notificationAppsEnabled, state.notificationAppsTotal),
+                        pluralStringResource(R.plurals.settings_notification_apps_count, state.notificationAppsTotal, state.notificationAppsEnabled, state.notificationAppsTotal),
                         BridgeyIcons.Notifications, Tint.PURPLE, onClick = actions.openNotificationApps,
                     ) { Chevron() }
                 }

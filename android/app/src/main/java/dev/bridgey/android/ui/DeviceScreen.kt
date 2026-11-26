@@ -1,5 +1,12 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -310,7 +317,10 @@ private fun DeviceHeader(state: DeviceState) {
                             tint = colors.onSurfaceVariant,
                             modifier = Modifier.size(16.dp),
                         )
-                        Text("${battery.level}%", style = BridgeyType.itemBody, color = colors.onSurfaceVariant)
+                        Text(
+                            java.text.NumberFormat.getPercentInstance(LocalConfiguration.current.locales[0]).format(battery.level / 100.0),
+                            style = BridgeyType.itemBody, color = colors.onSurfaceVariant, modifier = Modifier.clearAndSetSemantics {},
+                        )
                     }
                 }
             }
@@ -334,13 +344,23 @@ private fun QuickActionGroup(state: DeviceState, actions: DeviceActions, modifie
             Action(stringResource(R.string.action_find), BridgeyIcons.MyLocation, findOn, actions.find)
         },
     )
-    Row(modifier.fillMaxWidth().padding(horizontal = 16.dp).height(48.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        items.forEachIndexed { index, item ->
-            val shape = when (index) {
-                0 -> RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp, topEnd = 6.dp, bottomEnd = 6.dp)
-                items.lastIndex -> RoundedCornerShape(topStart = 6.dp, bottomStart = 6.dp, topEnd = 24.dp, bottomEnd = 24.dp)
-                else -> RoundedCornerShape(6.dp)
-            }
+    // One row of four; with large text two rows of two, so every label stays whole.
+    val large = largeText()
+    val lines = if (large) items.chunked(2) else listOf(items)
+    Column(modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      lines.forEachIndexed { line, lineItems ->
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        lineItems.forEachIndexed { index, item ->
+            val first = index == 0
+            val last = index == lineItems.lastIndex
+            val top = line == 0
+            val bottom = line == lines.lastIndex
+            val shape = RoundedCornerShape(
+                topStart = if (first && top) 24.dp else 6.dp,
+                topEnd = if (last && top) 24.dp else 6.dp,
+                bottomStart = if (first && bottom) 24.dp else 6.dp,
+                bottomEnd = if (last && bottom) 24.dp else 6.dp,
+            )
             Row(
                 Modifier
                     .weight(1f)
@@ -353,9 +373,14 @@ private fun QuickActionGroup(state: DeviceState, actions: DeviceActions, modifie
             ) {
                 val alpha = if (item.enabled) 1f else 0.38f
                 Icon(item.icon, null, tint = colors.onTintBlue.copy(alpha = alpha), modifier = Modifier.size(18.dp))
-                Text(item.label, style = BridgeyType.label, color = colors.onSurface.copy(alpha = alpha), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    item.label, style = BridgeyType.label, color = colors.onSurface.copy(alpha = alpha), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(vertical = if (large) 8.dp else 0.dp),
+                )
             }
         }
+        }
+      }
     }
 }
 
@@ -417,7 +442,7 @@ private fun ScreenShareEntry(state: DeviceState, actions: DeviceActions, modifie
             val detail = when {
                 screen.phase != dev.bridgey.android.screen.ScreenShareState.Phase.SHARING -> stringResource(R.string.screen_entry_starting, state.ring.name)
                 stats != null -> stringResource(R.string.screen_entry_sharing, state.ring.name) + "\n" +
-                    stringResource(R.string.screen_entry_stats, stats.latencyMs.toInt(), screenBitrateText(stats.sentBitrate), stats.fps)
+                    stringResource(R.string.screen_entry_stats, stats.latencyMs.toInt(), screenBitrateText(LocalContext.current, stats.sentBitrate), stats.fps)
                 else -> stringResource(R.string.screen_entry_sharing, state.ring.name)
             }
             ListRow(
@@ -435,15 +460,20 @@ private fun ScreenShareEntry(state: DeviceState, actions: DeviceActions, modifie
     }
 }
 
-/** 2.1 Mb/s, 850 kb/s. */
-internal fun screenBitrateText(bitsPerSecond: Long): String =
-    if (bitsPerSecond >= 1_000_000) String.format(java.util.Locale.US, "%.1f Mb/s", bitsPerSecond / 1_000_000.0)
-    else "${bitsPerSecond / 1000} kb/s"
+/** 2.1 Mb/s, 850 kb/s (2,1 Мбит/с in Russian): the phone's language and decimal mark. */
+internal fun screenBitrateText(context: android.content.Context, bitsPerSecond: Long): String =
+    if (bitsPerSecond >= 1_000_000) {
+        val number = java.text.NumberFormat.getNumberInstance(context.resources.configuration.locales[0]).apply { maximumFractionDigits = 1; minimumFractionDigits = 1 }
+        context.getString(R.string.screen_bitrate_mbps, number.format(bitsPerSecond / 1_000_000.0))
+    } else {
+        context.getString(R.string.screen_bitrate_kbps, (bitsPerSecond / 1000).toInt())
+    }
 
 @Composable
 private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
-    Box(modifier.fillMaxWidth().height(48.dp)) {
+    // 48 dp, taller when large text wraps a label.
+    Box(modifier.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 48.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
             DeviceTab.entries.forEach { entry ->
                 val selected = entry == tab
@@ -459,8 +489,11 @@ private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Mod
                                 DeviceTab.CONNECTION -> R.string.device_tab_connection
                             },
                         ),
-                        style = BridgeyType.label,
+                        // Large text in a narrow tab: break long words with a hyphen.
+                        style = BridgeyType.label.copy(hyphens = Hyphens.Auto),
                         color = if (selected) colors.onSurface else colors.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
                     )
                 }
             }

@@ -161,12 +161,12 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, onBack: () -> Un
     val placeholder = stringResource(R.string.settings_search_placeholder)
     LaunchedEffect(Unit) { if (autofocus) focus.requestFocus() }
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(start = 4.dp, end = 12.dp),
+        Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 56.dp).padding(start = 4.dp, end = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BarIconButton(BridgeyIcons.ArrowBack, stringResource(R.string.action_back), onBack)
         Row(
-            Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(22.dp)).background(colors.surface2).padding(start = 14.dp, end = 2.dp),
+            Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(colors.surface2).padding(start = 14.dp, end = 0.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(BridgeyIcons.Search, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp))
@@ -185,7 +185,7 @@ private fun SearchBar(query: String, onQuery: (String) -> Unit, onBack: () -> Un
                 )
             }
             if (query.isNotEmpty()) {
-                BarIconButton(BridgeyIcons.Close, stringResource(R.string.settings_search_clear), { onQuery(""); focus.requestFocus() }, size = 40.dp)
+                BarIconButton(BridgeyIcons.Close, stringResource(R.string.settings_search_clear), { onQuery(""); focus.requestFocus() })
             }
         }
     }

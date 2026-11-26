@@ -101,7 +101,7 @@ fun AttachSheetContent(state: AttachState, actions: AttachActions, modifier: Mod
             Modifier.fillMaxWidth().heightIn(max = 180.dp).padding(horizontal = 16.dp, vertical = 8.dp),
             enabled = !state.submitting,
         )
-        if (state.extraSelectionCount > 0) Text(stringResource(R.string.attach_browsed_count, state.extraSelectionCount),
+        if (state.extraSelectionCount > 0) Text(pluralStringResource(R.plurals.attach_browsed_count, state.extraSelectionCount, state.extraSelectionCount),
             style = BridgeyType.small, color = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
         AttachTabs(state.tab, actions.selectTab)
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -184,7 +184,7 @@ private fun TabChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(Modifier.heightIn(min = 48.dp).selectable(selected = selected, role = Role.Tab, onClick = onClick), contentAlignment = Alignment.Center) {
         Row(
             Modifier
-                .height(32.dp)
+                .heightIn(min = 32.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .then(if (selected) Modifier.background(colors.tintBlue) else Modifier.border(1.dp, colors.outline, RoundedCornerShape(10.dp)))
                 .padding(horizontal = 12.dp)

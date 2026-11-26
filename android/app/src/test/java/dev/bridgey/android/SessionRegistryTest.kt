@@ -235,14 +235,25 @@ class SessionRegistryTest {
 
     @Test
     fun notificationStatusCountsDevices() {
+        // The English text, as values/strings*.xml has it.
+        val english = mapOf(
+            R.string.settings_status_connected to "Connected to %1\$s",
+            R.string.settings_status_connected_many to "Connected to %1\$d devices",
+            R.string.service_status_confirm to "Pairing confirmation required",
+            R.string.service_status_confirm_with to "%1\$s · pairing confirmation required",
+            R.string.settings_status_connecting to "Connecting to %1\$s",
+            R.string.service_status_waiting to "Not connected · waiting for a paired device",
+        )
+        fun status(connections: List<DeviceConnection>, pairing: PairingState) =
+            connectionStatus(connections, pairing) { id, args -> english.getValue(id).format(*args.toTypedArray()) }
         val one = listOf(DeviceConnection(personalMac, "Personal Mac", DeviceLinkState()))
         val two = one + DeviceConnection(workMac, "Work Mac", DeviceLinkState())
-        assertEquals("Connected to Personal Mac", connectionStatus(one, PairingState.Idle))
-        assertEquals("Connected to 2 devices", connectionStatus(two, PairingState.Idle))
-        assertEquals("Connected to Personal Mac · pairing confirmation required", connectionStatus(one, PairingState.Verification("Work Mac", "123456")))
-        assertEquals("Pairing confirmation required", connectionStatus(emptyList(), PairingState.Verification("Work Mac", "123456")))
-        assertEquals("Connecting to Work Mac…", connectionStatus(emptyList(), PairingState.Connecting("Work Mac")))
-        assertEquals("Not connected · waiting for paired device", connectionStatus(emptyList(), PairingState.Idle))
+        assertEquals("Connected to Personal Mac", status(one, PairingState.Idle))
+        assertEquals("Connected to 2 devices", status(two, PairingState.Idle))
+        assertEquals("Connected to Personal Mac · pairing confirmation required", status(one, PairingState.Verification("Work Mac", "123456")))
+        assertEquals("Pairing confirmation required", status(emptyList(), PairingState.Verification("Work Mac", "123456")))
+        assertEquals("Connecting to Work Mac", status(emptyList(), PairingState.Connecting("Work Mac")))
+        assertEquals("Not connected · waiting for a paired device", status(emptyList(), PairingState.Idle))
     }
 
     /**

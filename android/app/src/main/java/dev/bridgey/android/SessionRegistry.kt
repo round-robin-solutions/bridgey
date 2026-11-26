@@ -255,20 +255,23 @@ internal class SessionRegistry<S : Any>(private val localDeviceId: String) {
     }
 }
 
-/** The foreground notification's status line: how many devices are connected, or the pairing step. */
-internal fun connectionStatus(connections: List<DeviceConnection>, pairing: PairingState): String = when {
+/**
+ * The foreground notification's status line: how many devices are connected, or the pairing step. [text] is
+ * Context.getString (a string resource and its arguments), so the line is in the phone's language.
+ */
+internal fun connectionStatus(connections: List<DeviceConnection>, pairing: PairingState, text: (Int, List<Any>) -> String): String = when {
     pairing is PairingState.Verification -> if (connections.isEmpty()) {
-        "Pairing confirmation required"
+        text(R.string.service_status_confirm, emptyList())
     } else {
-        "${connectedSummary(connections)} · pairing confirmation required"
+        text(R.string.service_status_confirm_with, listOf(connectedSummary(connections, text)))
     }
-    connections.size == 1 -> "Connected to ${connections.single().peerName}"
-    connections.size > 1 -> connectedSummary(connections)
-    pairing is PairingState.Connecting -> "Connecting to ${pairing.peerName}…"
-    pairing is PairingState.WaitingForAllow -> "Waiting for ${pairing.peerName} to allow pairing"
-    pairing is PairingState.Failed -> "Not connected"
-    else -> "Not connected · waiting for paired device"
+    connections.isNotEmpty() -> connectedSummary(connections, text)
+    pairing is PairingState.Connecting -> text(R.string.settings_status_connecting, listOf(pairing.peerName))
+    pairing is PairingState.WaitingForAllow -> text(R.string.service_status_waiting_allow, listOf(pairing.peerName))
+    pairing is PairingState.Failed -> text(R.string.settings_status_not_connected, emptyList())
+    else -> text(R.string.service_status_waiting, emptyList())
 }
 
-private fun connectedSummary(connections: List<DeviceConnection>): String =
-    if (connections.size == 1) "Connected to ${connections.single().peerName}" else "Connected to ${connections.size} devices"
+private fun connectedSummary(connections: List<DeviceConnection>, text: (Int, List<Any>) -> String): String =
+    if (connections.size == 1) text(R.string.settings_status_connected, listOf(connections.single().peerName))
+    else text(R.string.settings_status_connected_many, listOf(connections.size))

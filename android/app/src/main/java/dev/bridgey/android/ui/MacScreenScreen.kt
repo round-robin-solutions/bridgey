@@ -1,5 +1,6 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
@@ -109,7 +110,7 @@ fun MacScreenScreen(
 private fun MacScreenBar(state: DisplayViewState, actions: MacScreenActions) {
     val colors = BridgeyTheme.colors
     Row(
-        Modifier.fillMaxWidth().height(64.dp).padding(start = 4.dp, end = 8.dp),
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 4.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BarIconButton(BridgeyIcons.ArrowBack, stringResource(R.string.action_back), actions.back)
@@ -118,7 +119,7 @@ private fun MacScreenBar(state: DisplayViewState, actions: MacScreenActions) {
             val (line, dot) = statusLine(state)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
-                Text(line, style = BridgeyType.small, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(line, style = BridgeyType.small, color = colors.onSurfaceVariant, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (state.phase in setOf(DisplayViewState.Phase.ASKING, DisplayViewState.Phase.WAITING, DisplayViewState.Phase.STREAMING)) {
@@ -374,9 +375,10 @@ private fun MacKeysRow(actions: MacScreenActions, modifier: Modifier = Modifier)
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    Modifier.height(40.dp).clip(RoundedCornerShape(12.dp)).background(colors.surface2).padding(horizontal = 12.dp),
+                    Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp)).background(colors.surface2).padding(horizontal = 12.dp),
                     contentAlignment = Alignment.Center,
-                ) { Text(label, style = BridgeyType.label, color = colors.onSurface, maxLines = 1) }
+                    // The key's description is its label: read once.
+                ) { Text(label, style = BridgeyType.label, color = colors.onSurface, maxLines = 1, modifier = Modifier.clearAndSetSemantics {}) }
             }
         }
     }

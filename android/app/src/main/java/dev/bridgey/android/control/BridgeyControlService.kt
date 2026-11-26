@@ -366,11 +366,11 @@ class BridgeyControlService : AccessibilityService(), ControlService, dev.bridge
                 // A screenshot share's bar sits above the navigation bar, clear of app bars, Back and quick settings.
                 gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                 y = (systemBar("navigation_bar_height") ?: dp(48)) + dp(12)
-                title = "Bridgey viewing"
+                title = getString(R.string.control_window_viewing)
             } else {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 y = (systemBar("status_bar_height") ?: dp(24)) + dp(8)
-                title = "Bridgey control"
+                title = getString(R.string.control_service_label)
             }
         }
         manager.addView(bar, params)
@@ -462,7 +462,7 @@ class BridgeyControlService : AccessibilityService(), ControlService, dev.bridge
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             y = statusBar + dp(8)
-            title = "Bridgey control request"
+            title = getString(R.string.control_window_request)
         }
         manager.addView(card, params)
         prompt = card

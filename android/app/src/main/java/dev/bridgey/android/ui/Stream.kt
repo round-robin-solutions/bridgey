@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -492,7 +493,9 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .padding(bottom = if (row.last) 0.dp else 8.dp)
-            .height(80.dp)
+            // 80 dp, taller when large text wraps; the rail and the card stretch to the row.
+            .height(IntrinsicSize.Min)
+            .heightIn(min = 80.dp)
             .semantics(mergeDescendants = true) {},
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -505,16 +508,17 @@ private fun StreamItemRow(row: StreamRow.Item, device: String, now: Long, first:
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            val large = largeText()
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(title, style = BridgeyType.itemTitle, maxLines = if (item.kind.isClipOffer || item.kind.isFolder) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(title, style = BridgeyType.itemTitle, maxLines = if (large) 3 else if (item.kind.isClipOffer || item.kind.isFolder) 2 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                     Text(time, style = BridgeyType.small, color = colors.onSurfaceVariant, maxLines = 1)
                 }
                 Text(
                     detail,
                     style = BridgeyType.itemBody,
                     color = if (quote != null && states == null && !item.sensitive) colors.onSurface else colors.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = if (large) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp),
                 )
@@ -620,7 +624,7 @@ internal fun CardActions(content: @Composable () -> Unit) {
 
 @Composable
 private fun TransferCardContent(transfer: FileTransferState, cancelAll: Boolean, actions: LiveActions) {
-    CardText(transfer.name, compactTransferStatus(transfer))
+    CardText(transfer.name, compactTransferStatus(transfer, stringResource(R.string.file_status_preparing)))
     val percent = transfer.progressPercent
     if (transfer.active && transfer.queued) {
         CardActions {
@@ -661,10 +665,10 @@ private fun TransferCardContent(transfer: FileTransferState, cancelAll: Boolean,
 }
 
 /** Status line without the file name the card already shows. */
-internal fun compactTransferStatus(transfer: FileTransferState): String = transfer.status
+internal fun compactTransferStatus(transfer: FileTransferState, preparing: String): String = transfer.status
     .substringAfter(": ", transfer.status)
     .replace(Regex("^(Sending|Receiving)\\s+${Regex.escape(transfer.name)}:?\\s*"), "")
-    .ifBlank { if (transfer.active) "Preparing…" else transfer.status }
+    .ifBlank { if (transfer.active) preparing else transfer.status }
 
 @Composable
 private fun MediaCardContent(card: LiveCard.Media, actions: LiveActions) {
@@ -679,6 +683,7 @@ private fun MediaCardContent(card: LiveCard.Media, actions: LiveActions) {
             val title = media.title.ifBlank { stringResource(R.string.media_title, player) }
             val detail = when {
                 media.detail.isNotEmpty() -> media.detail
+                media.player.isBlank() -> stringResource(R.string.media_choose_player)
                 media.title.isBlank() -> media.artist
                 media.artist.isBlank() -> stringResource(R.string.media_in_player, player)
                 else -> stringResource(R.string.media_artist_in_player, media.artist, player)

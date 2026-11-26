@@ -1,5 +1,6 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import android.text.format.DateUtils
 import android.text.format.Formatter
 import androidx.compose.foundation.background
@@ -353,7 +354,7 @@ private fun SearchField(open: () -> Unit, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Icon(BridgeyIcons.Search, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(22.dp))
-        Text(label, style = BridgeyType.bodyText, color = colors.onSurfaceVariant)
+        Text(label, style = BridgeyType.bodyText, color = colors.onSurfaceVariant, modifier = Modifier.clearAndSetSemantics {})
     }
 }
 
@@ -429,7 +430,7 @@ internal fun ThisPhoneCard(state: SettingsState, onRename: () -> Unit, modifier:
                 state.connectionStatus,
                 style = BridgeyType.itemBody,
                 color = if (state.connected) colors.onTintGreen else colors.onSurfaceVariant,
-                maxLines = 1,
+                maxLines = if (largeText()) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 1.dp),
             )
@@ -900,18 +901,22 @@ const val RELEASES_URL = "https://github.com/round-robin-solutions/bridgey/relea
 private fun ChannelPicker(selected: UpdateChannel, onSelect: (UpdateChannel) -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
     val channels = UpdateChannel.entries
-    Row(modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        channels.forEachIndexed { index, channel ->
+    // Three across; with large text one under another, so each name stays whole.
+    val stacked = largeText()
+    @Composable
+    fun option(index: Int, channel: UpdateChannel, sizing: Modifier) {
             val on = channel == selected
-            val shape = when (index) {
+            val first = index == 0
+            val last = index == channels.lastIndex
+            val shape = if (stacked) {
+                RoundedCornerShape(topStart = if (first) 24.dp else 8.dp, topEnd = if (first) 24.dp else 8.dp, bottomStart = if (last) 24.dp else 8.dp, bottomEnd = if (last) 24.dp else 8.dp)
+            } else when (index) {
                 0 -> RoundedCornerShape(topStart = 24.dp, bottomStart = 24.dp, topEnd = 8.dp, bottomEnd = 8.dp)
                 channels.lastIndex -> RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 24.dp, bottomEnd = 24.dp)
                 else -> RoundedCornerShape(8.dp)
             }
             Row(
-                Modifier
-                    .weight(1f)
-                    .fillMaxSize()
+                sizing
                     .clip(shape)
                     .background(if (on) colors.primary else colors.surface2)
                     .selectable(selected = on, role = Role.RadioButton) { onSelect(channel) },
@@ -921,6 +926,14 @@ private fun ChannelPicker(selected: UpdateChannel, onSelect: (UpdateChannel) -> 
                 if (on) Icon(BridgeyIcons.Check, null, tint = colors.onPrimary, modifier = Modifier.size(18.dp))
                 Text(channelTitle(channel), style = BridgeyType.label, color = if (on) colors.onPrimary else colors.onSurface, maxLines = 1)
             }
+    }
+    if (stacked) {
+        Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            channels.forEachIndexed { index, channel -> option(index, channel, Modifier.fillMaxWidth().heightIn(min = 48.dp)) }
+        }
+    } else {
+        Row(modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            channels.forEachIndexed { index, channel -> option(index, channel, Modifier.weight(1f).fillMaxSize()) }
         }
     }
 }

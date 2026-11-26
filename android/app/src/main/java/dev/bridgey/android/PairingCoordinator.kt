@@ -1,5 +1,6 @@
 package dev.bridgey.android
 
+import dev.bridgey.android.ui.FolderText
 import dev.bridgey.android.routing.*
 
 import android.content.Context
@@ -1607,9 +1608,9 @@ class PairingCoordinator(
         sendCopiedItem(readClipTimestamp(appContext), deviceId, sendClipboard = {
             if (clip == null || clip == LocalClip.Own) {
                 mutableClipboardStatus.value = if (clip == LocalClip.Own) {
-                    "This clip came from your Mac"
+                    appContext.getString(R.string.clip_status_own)
                 } else {
-                    "Clipboard unavailable. Copy text, return to Bridgey, and try again."
+                    appContext.getString(R.string.clip_status_unavailable)
                 }
             } else {
                 sendClip(clip, deviceId = deviceId)
@@ -1665,7 +1666,7 @@ class PairingCoordinator(
     fun sendClip(clip: LocalClip, deviceId: String? = null, onResult: (ClipboardSendResult) -> Unit = {}) {
         val target = sessionFor(deviceId)
         if (target == null) {
-            mutableClipboardStatus.value = "Not connected, so the clip was not sent"
+            mutableClipboardStatus.value = appContext.getString(R.string.clip_status_not_sent)
             onResult(ClipboardSendResult.NOT_CONNECTED)
             return
         }
@@ -1680,7 +1681,7 @@ class PairingCoordinator(
             is LocalClip.Items -> if (clipboardOffersAvailable(id)) {
                 sendClipOffer(clip, automatic = false, targets = listOf(target), onResult = onResult)
             } else {
-                mutableClipboardStatus.value = "Images and files need Bridgey by Round Robin on your Mac, with Copy images and files on"
+                mutableClipboardStatus.value = appContext.getString(R.string.clip_status_needs_mac)
                 onResult(ClipboardSendResult.DISABLED)
             }
         }
@@ -1736,7 +1737,7 @@ class PairingCoordinator(
                     offerTargets += current
                 }
                 ClipboardAutoDecision.SKIP_TOO_LARGE ->
-                    mutableClipboardStatus.value = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+                    mutableClipboardStatus.value = appContext.getString(R.string.clip_status_too_large)
                 ClipboardAutoDecision.SKIP_SENSITIVE, ClipboardAutoDecision.SKIP_EMPTY -> invalidate = true
                 else -> Unit
             }
@@ -1774,7 +1775,7 @@ class PairingCoordinator(
     /** Offers [clip] to [targets] (one offer, the same id for each), then pushes small items straight away. */
     private fun sendClipOffer(clip: LocalClip, automatic: Boolean, targets: List<Session>, onResult: (ClipboardSendResult) -> Unit = {}) {
         if (targets.none(registry::isActive)) {
-            mutableClipboardStatus.value = "Not connected, so the clip was not sent"
+            mutableClipboardStatus.value = appContext.getString(R.string.clip_status_not_sent)
             onResult(ClipboardSendResult.NOT_CONNECTED)
             return
         }
@@ -1785,7 +1786,7 @@ class PairingCoordinator(
                 return@launch
             }
             val (offer, sources) = buildClipOffer(clip) ?: run {
-                mutableClipboardStatus.value = "Clipboard is empty"
+                mutableClipboardStatus.value = appContext.getString(R.string.clip_status_empty)
                 onResult(ClipboardSendResult.EMPTY)
                 return@launch
             }
@@ -1826,7 +1827,7 @@ class PairingCoordinator(
             }
             if (sent.isEmpty()) {
                 if (reported.compareAndSet(false, true)) onResult(ClipboardSendResult.CONNECTION_LOST)
-                mutableClipboardStatus.value = "Connection lost"
+                mutableClipboardStatus.value = appContext.getString(R.string.status_connection_lost)
                 return@launch
             }
             clipboardOutbox.publish(
@@ -1835,11 +1836,11 @@ class PairingCoordinator(
                 settings.state.value.clipboardEagerLimit,
             )
             diagnostics.record("clipboard", "offer_sent")
-            if (!automatic) mutableClipboardStatus.value = "Sending…"
+            if (!automatic) mutableClipboardStatus.value = appContext.getString(R.string.status_sending)
             delay(6_000)
             messageIds.forEach { messageId ->
                 takePendingClip(messageId)?.let { callback ->
-                    if (!automatic) mutableClipboardStatus.value = "No delivery acknowledgement"
+                    if (!automatic) mutableClipboardStatus.value = appContext.getString(R.string.status_no_ack)
                     callback(ClipboardSendResult.NO_ACKNOWLEDGEMENT)
                 }
             }
@@ -1978,29 +1979,29 @@ class PairingCoordinator(
             onResult(result)
         }
         if (!isFeatureAvailable(BridgeyFeature.CLIPBOARD, target.remoteDeviceId)) {
-            mutableClipboardStatus.value = "Clipboard is turned off on one of your devices"
+            mutableClipboardStatus.value = appContext.getString(R.string.clip_status_off_somewhere)
             finish(ClipboardSendResult.DISABLED)
             return
         }
         if (text.isEmpty()) {
-            mutableClipboardStatus.value = "Clipboard is empty"
+            mutableClipboardStatus.value = appContext.getString(R.string.clip_status_empty)
             finish(ClipboardSendResult.EMPTY)
             return
         }
         if (!clipboardTextFits(text)) {
-            mutableClipboardStatus.value = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+            mutableClipboardStatus.value = appContext.getString(R.string.clip_status_too_large)
             finish(ClipboardSendResult.TOO_LARGE)
             return
         }
         if (!registry.isActive(target)) {
-            mutableClipboardStatus.value = "Not connected, so the clipboard was not sent"
+            mutableClipboardStatus.value = appContext.getString(R.string.clip_status_clipboard_not_sent)
             finish(ClipboardSendResult.NOT_CONNECTED)
             return
         }
         scope.launch {
             val current = target
             if (!registry.isActive(current)) {
-                mutableClipboardStatus.value = "Not connected, so the clipboard was not sent"
+                mutableClipboardStatus.value = appContext.getString(R.string.clip_status_clipboard_not_sent)
                 finish(ClipboardSendResult.NOT_CONNECTED)
                 return@launch
             }
@@ -2024,23 +2025,23 @@ class PairingCoordinator(
             )
             if (!current.send(message)) {
                 takePendingClip(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
-                mutableClipboardStatus.value = "Connection lost"
+                mutableClipboardStatus.value = appContext.getString(R.string.status_connection_lost)
                 current.close()
                 return@launch
             }
-            mutableClipboardStatus.value = "Sending…"
+            mutableClipboardStatus.value = appContext.getString(R.string.status_sending)
             BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "sent", text.takeUnless { sensitive }))
             delay(3_000)
             if (pendingClipboardSends.containsKey(messageId) && registry.isActive(current) && isFeatureAvailable(BridgeyFeature.CLIPBOARD, current.remoteDeviceId)) {
                 if (!current.send(message)) {
                     takePendingClip(messageId)?.invoke(ClipboardSendResult.CONNECTION_LOST)
-                    mutableClipboardStatus.value = "Connection lost"
+                    mutableClipboardStatus.value = appContext.getString(R.string.status_connection_lost)
                     current.close()
                     return@launch
                 }
                 delay(3_000)
                 takePendingClip(messageId)?.let { callback ->
-                    mutableClipboardStatus.value = "No delivery acknowledgement"
+                    mutableClipboardStatus.value = appContext.getString(R.string.status_no_ack)
                     callback(ClipboardSendResult.NO_ACKNOWLEDGEMENT)
                 }
             }
@@ -2367,28 +2368,28 @@ class PairingCoordinator(
     fun sendPing(deviceId: String? = null) {
         val current = sessionFor(deviceId)
         if (current == null) {
-            mutablePingStatus.value = "Mac is not connected"
+            mutablePingStatus.value = appContext.getString(R.string.ping_status_not_connected)
             return
         }
         if (!isFeatureAvailable(BridgeyFeature.PING, current.remoteDeviceId)) {
-            mutablePingStatus.value = "Ping requires Bridgey 0.6 on both devices"
+            mutablePingStatus.value = appContext.getString(R.string.ping_status_old)
             return
         }
         val messageId = UUID.randomUUID().toString()
         pendingPing = current.remoteDeviceId to messageId
-        mutablePingStatus.value = "Pinging ${current.peerName}…"
+        mutablePingStatus.value = appContext.getString(R.string.ping_status_pinging, current.peerName)
         scope.launch {
             if (!sendEncrypted(current, "ping.request", JSONObject().put("version", 1).toString().toByteArray(), messageId)) {
                 if (pendingPing?.second == messageId) {
                     pendingPing = null
-                    mutablePingStatus.value = "Ping could not be sent"
+                    mutablePingStatus.value = appContext.getString(R.string.ping_status_failed)
                 }
                 return@launch
             }
             delay(5_000)
             if (pendingPing?.second == messageId) {
                 pendingPing = null
-                mutablePingStatus.value = "${current.peerName} did not acknowledge the ping"
+                mutablePingStatus.value = appContext.getString(R.string.ping_status_no_ack, current.peerName)
             }
         }
     }
@@ -2415,7 +2416,7 @@ class PairingCoordinator(
             return
         }
         Handler(Looper.getMainLooper()).post {
-            android.widget.Toast.makeText(appContext, "Ping from ${current.peerName}", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(appContext, appContext.getString(R.string.ping_received, current.peerName), android.widget.Toast.LENGTH_SHORT).show()
             RingtoneManager.getRingtone(appContext, RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))?.play()
         }
         current.send(Message(kind = "ping.ack", sessionId = current.id, messageId = messageId))
@@ -3297,12 +3298,12 @@ class PairingCoordinator(
         if (uris.isEmpty()) return null
         val connectedSession = sessionFor(deviceId)
         if (connectedSession == null) {
-            mutableFileTransferStatus.value = "Not connected — file was not sent"
+            mutableFileTransferStatus.value = appContext.getString(R.string.file_status_not_connected)
             return null
         }
         val target = connectedSession.remoteDeviceId
         if (!isFeatureAvailable(BridgeyFeature.FILES, target)) {
-            mutableFileTransferStatus.value = "File transfer is turned off on one of your devices"
+            mutableFileTransferStatus.value = appContext.getString(R.string.file_status_off_somewhere)
             return null
         }
         val queuedAt = System.currentTimeMillis()
@@ -3356,7 +3357,7 @@ class PairingCoordinator(
         val queue = fileSendQueues[deviceId] ?: return
         if (registry.session(deviceId) == null) return
         if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
-            stopFileQueue(deviceId, "File transfer is turned off on one of your devices")
+            stopFileQueue(deviceId, appContext.getString(R.string.file_status_off_somewhere))
             return
         }
         val (transferId, uri) = queue.startNext() ?: return
@@ -3369,22 +3370,20 @@ class PairingCoordinator(
     }
 
     /** Ends every file of [deviceId] that has not started yet with the given status. They remain retryable. */
-    private fun stopFileQueue(deviceId: String, status: String) {
-        fileSendQueues[deviceId]?.removeAllPending()?.forEach {
-            removeFileTransfer(it, status, if (status.contains("cancel", ignoreCase = true)) TransferEnd.CANCELLED else TransferEnd.FAILED)
-        }
+    private fun stopFileQueue(deviceId: String, status: String, outcome: TransferEnd = TransferEnd.FAILED) {
+        fileSendQueues[deviceId]?.removeAllPending()?.forEach { removeFileTransfer(it, status, outcome) }
     }
 
     private fun startFile(transferId: String, uri: Uri, deviceId: String) {
         val connectedSession = registry.session(deviceId)
         if (connectedSession == null) {
-            removeFileTransfer(transferId, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED)
+            removeFileTransfer(transferId, appContext.getString(R.string.file_status_interrupted_retry), TransferEnd.INTERRUPTED)
             finishQueuedFile(transferId)
             return
         }
         val peer = connectedSession.peerName
         diagnostics.record("transfer", "send_started")
-        updateFileTransfer(transferId, mutableFileTransfers.value[transferId]?.name ?: "Selected file", "Preparing…", true)
+        updateFileTransfer(transferId, mutableFileTransfers.value[transferId]?.name ?: appContext.getString(R.string.file_selected_name), appContext.getString(R.string.file_status_preparing), true)
         val job = scope.launch {
             val resolver = appContext.contentResolver
             val metadata = runCatching {
@@ -3398,28 +3397,28 @@ class PairingCoordinator(
                 }
                 Triple(name.take(255), resolver.getType(uri) ?: "application/octet-stream", size)
             }.getOrElse {
-                updateFileTransfer(transferId, "Selected file", "Could not read the selected file", false)
+                updateFileTransfer(transferId, appContext.getString(R.string.file_selected_name), appContext.getString(R.string.file_status_unreadable), false)
                 return@launch
             }
             if (metadata.third < 0) {
-                mutableFileTransferStatus.value = "This file provider did not report a file size"
+                mutableFileTransferStatus.value = appContext.getString(R.string.file_status_no_size)
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
             if (metadata.third > MAX_FILE_SIZE) {
-                mutableFileTransferStatus.value = "File is larger than 10 GB"
+                mutableFileTransferStatus.value = appContext.getString(R.string.file_status_too_large)
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
 
-            updateFileTransfer(transferId, metadata.first, "Preparing ${metadata.first}…", true)
+            updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_preparing_name, metadata.first), true)
             // The SHA-256 at every 1 MiB from the same pass, so a files.resume is checked without reading the file again.
             val hashed = runCatching {
                 resolver.openInputStream(uri)?.use { input ->
                     RunningHash.of(input, ByteArray(FILE_CHUNK_SIZE)) { coroutineContext.ensureActive() }
                 } ?: error("File unavailable")
             }.getOrElse {
-                mutableFileTransferStatus.value = "Could not read the selected file"
+                mutableFileTransferStatus.value = appContext.getString(R.string.file_status_unreadable)
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
@@ -3437,7 +3436,7 @@ class PairingCoordinator(
             // The row says "waiting" before the offer leaves: an answer can arrive (and end the file) at once, and a
             // later "waiting" would leave the row active after the file had already ended.
             offeredFiles += transferId
-            updateFileTransfer(transferId, metadata.first, "Waiting for $peer…", true)
+            updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_waiting, peer), true)
             if (!registry.isActive(connectedSession) || !connectedSession.send(Message(
                     kind = "files.offer",
                     sessionId = connectedSession.id,
@@ -3447,7 +3446,7 @@ class PairingCoordinator(
                     ciphertext = offer.ciphertext,
                 ))) {
                 pendingFileAccepts.remove(transferId)
-                mutableFileTransferStatus.value = "Connection lost — file was not sent"
+                mutableFileTransferStatus.value = appContext.getString(R.string.file_status_connection_lost)
                 updateFileTransfer(transferId, metadata.first, mutableFileTransferStatus.value!!, false)
                 return@launch
             }
@@ -3466,7 +3465,7 @@ class PairingCoordinator(
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
                 // A late accept would leave the other end holding a transfer nobody sends: tell it to let go.
                 abandonOffered(transferId)
-                updateFileTransfer(transferId, metadata.first, "$peer did not accept the file", false)
+                updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_refused, peer), false)
                 return@launch
             }
 
@@ -3492,7 +3491,7 @@ class PairingCoordinator(
                             val buffer = ByteArray(pacer.chunkSize)
                             var total = startAt
                             var sequence = 0L
-                            val progress = TransferProgress(metadata.third, startAt)
+                            val progress = TransferProgress(appContext, metadata.third, startAt)
                             while (true) {
                                 coroutineContext.ensureActive()
                                 val count = input.readFully(buffer)
@@ -3502,7 +3501,7 @@ class PairingCoordinator(
                                 check(connectedSession.sendFast(FastFrame.CHUNK_KIND, transferId, sequence++, buffer, count))
                                 total += count
                                 progress.status((total - pacer.unacknowledgedBytes).coerceAtLeast(0))?.let {
-                                    updateFileTransfer(transferId, metadata.first, "Sending ${metadata.first}: $it", true)
+                                    updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_sending, metadata.first, it), true)
                                 }
                             }
                             check(pacer.waitForAll { job?.isActive == false })
@@ -3514,7 +3513,7 @@ class PairingCoordinator(
                         val buffer = ByteArray(FILE_CHUNK_SIZE)
                         var total = startAt
                         var sequence = 0L
-                        val progress = TransferProgress(metadata.third, startAt)
+                        val progress = TransferProgress(appContext, metadata.third, startAt)
                         while (true) {
                             coroutineContext.ensureActive()
                             val count = input.read(buffer)
@@ -3531,11 +3530,11 @@ class PairingCoordinator(
                             )))
                             total += count
                             progress.status(total)?.let {
-                                updateFileTransfer(transferId, metadata.first, "Sending ${metadata.first}: $it", true)
+                                updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_sending, metadata.first, it), true)
                             }
                         }
                     }
-                    updateFileTransfer(transferId, metadata.first, "Verifying ${metadata.first} on $peer…", true)
+                    updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_verifying, metadata.first, peer), true)
                 }
                 val completionPayload = Crypto.encrypt(
                     connectedSession.pairingKey!!,
@@ -3561,24 +3560,24 @@ class PairingCoordinator(
                     // session, so no files.cancel, which would delete it. It goes again on reconnect, or with Retry.
                     markTransferCancelled(transferId)
                     if (deviceId in resumePeers) interruptedFiles[transferId] = InterruptedFile(deviceId, System.currentTimeMillis())
-                    removeFileTransfer(transferId, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED)
+                    removeFileTransfer(transferId, appContext.getString(R.string.file_status_interrupted_retry), TransferEnd.INTERRUPTED)
                     return@launch
                 }
                 // The other end accepted this file and is waiting for the rest: tell it the transfer is over.
                 abandonOffered(transferId)
-                updateFileTransfer(transferId, metadata.first, "File transfer failed", false)
+                updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_failed), false)
                 return@launch
             }
             if (withTimeoutOrNull(15_000) { completed.await() } == true) {
                 outgoingFileSources.remove(transferId)
                 outgoingOwnershipChanged()
                 if (cameraTransfers.containsKey(transferId)) cameraTransferSent.add(transferId)
-                updateFileTransfer(transferId, metadata.first, "${metadata.first} saved on $peer", false, TransferEnd.SENT)
+                updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_saved_on, metadata.first, peer), false, TransferEnd.SENT)
                 diagnostics.record("transfer", "send_completed")
             } else {
                 pendingFileCompletions.remove(transferId)
                 if (transferId in cancelledTransferIds || outgoingFileJobs[transferId] == null) return@launch
-                updateFileTransfer(transferId, metadata.first, "$peer did not confirm the saved file", false)
+                updateFileTransfer(transferId, metadata.first, appContext.getString(R.string.file_status_unconfirmed, peer), false)
             }
         }
         outgoingFileJobs[transferId] = job
@@ -3683,7 +3682,7 @@ class PairingCoordinator(
         }
         val queueDevice = transferDevices[transferId]
         if (queueDevice != null && fileSendQueues[queueDevice]?.removePending(transferId) == true) {
-            removeFileTransfer(transferId, "Transfer cancelled")
+            removeFileTransfer(transferId, appContext.getString(R.string.file_status_cancelled))
             diagnostics.record("transfer", "cancelled")
             return
         }
@@ -3702,12 +3701,12 @@ class PairingCoordinator(
         pendingFileAccepts.remove(transferId)?.complete(false)
         pendingFileCompletions.remove(transferId)?.complete(false)
         interruptedFiles.remove(transferId)
-        removeFileTransfer(transferId, "Transfer cancelled")
+        removeFileTransfer(transferId, appContext.getString(R.string.file_status_cancelled))
         diagnostics.record("transfer", "cancelled")
     }
 
     fun cancelFileTransfer() {
-        fileSendQueues.keys.forEach { stopFileQueue(it, "Transfer cancelled") }
+        fileSendQueues.keys.forEach { stopFileQueue(it, appContext.getString(R.string.file_status_cancelled), TransferEnd.CANCELLED) }
         mutableFileTransfers.value.values.filter { it.active }.forEach { cancelFileTransfer(it.id) }
     }
 
@@ -3721,11 +3720,11 @@ class PairingCoordinator(
             val uri = outgoingFileSources[transferId] ?: return@launch
             val deviceId = transferDevices[transferId] ?: mutableFileTransfers.value[transferId]?.deviceId
             if (deviceId == null || registry.session(deviceId) == null) {
-                removeFileTransfer(transferId, "Reconnect before retrying", TransferEnd.FAILED)
+                removeFileTransfer(transferId, appContext.getString(R.string.file_status_reconnect), TransferEnd.FAILED)
                 return@launch
             }
             if (!isFeatureAvailable(BridgeyFeature.FILES, deviceId)) {
-                removeFileTransfer(transferId, "File transfer is turned off on one of your devices", TransferEnd.FAILED)
+                removeFileTransfer(transferId, appContext.getString(R.string.file_status_off_somewhere), TransferEnd.FAILED)
                 return@launch
             }
             // Keep F1's source until its read lease has moved to F2, before F2 can start.
@@ -3829,8 +3828,8 @@ class PairingCoordinator(
         interruptFileQueue()
         outgoingFileJobs.values.forEach(Job::cancel)
         outgoingFileJobs.clear()
-        mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value)
-        refreshFileTransferSummary("File transfer interrupted")
+        mutableFileTransfers.value = recoverInterruptedTransfers(mutableFileTransfers.value, appContext.getString(R.string.file_status_interrupted_retry))
+        refreshFileTransferSummary(appContext.getString(R.string.file_status_interrupted))
         mutablePairingFlow.value = PairingState.Idle
         publish()
     }
@@ -4454,7 +4453,7 @@ class PairingCoordinator(
             "clipboard.ack" -> {
                 val messageId = message.messageId ?: return
                 takePendingClip(messageId, current.remoteDeviceId)?.let { callback ->
-                    mutableClipboardStatus.value = "Delivered"
+                    mutableClipboardStatus.value = appContext.getString(R.string.status_delivered)
                     callback(ClipboardSendResult.DELIVERED)
                     BridgeyLogging.line(LogLines.clipboard(BridgeyLogging.policy, "acknowledged"))
                 }
@@ -4462,7 +4461,7 @@ class PairingCoordinator(
             "clipboard.rejected" -> {
                 val messageId = message.messageId ?: return
                 takePendingClip(messageId, current.remoteDeviceId)?.let { callback ->
-                    mutableClipboardStatus.value = "Clipboard is turned off on ${current.peerName}"
+                    mutableClipboardStatus.value = appContext.getString(R.string.clip_status_off_on, current.peerName)
                     callback(ClipboardSendResult.DISABLED)
                 }
             }
@@ -4515,7 +4514,7 @@ class PairingCoordinator(
                 val messageId = message.messageId ?: return
                 if (pendingPing == (current.remoteDeviceId to messageId)) {
                     pendingPing = null
-                    mutablePingStatus.value = "Ping delivered"
+                    mutablePingStatus.value = appContext.getString(R.string.ping_status_delivered)
                     activityListener?.invoke(PeerEvent(PeerActivity.PING_SENT, current.remoteDeviceId, current.peerName))
                 }
             }
@@ -4576,10 +4575,10 @@ class PairingCoordinator(
                 if (folderSender.ownsFile(transferId)) return folderSender.handleOuter(current.remoteDeviceId, message.kind, transferId, null).let { }
                 if (clipboardOutbox.handles(transferId)) return clipboardOutbox.onCancelled(transferId)
                 if (!ownsTransfer(current, transferId)) return
-                stopFileQueue(current.remoteDeviceId, "File transfer is turned off on ${current.peerName}")
+                stopFileQueue(current.remoteDeviceId, appContext.getString(R.string.file_status_off_on, current.peerName))
                 pendingFileAccepts.remove(transferId)?.complete(false)
                 outgoingFileJobs.remove(transferId)?.cancel()
-                removeFileTransfer(transferId, "File transfer is turned off on ${current.peerName}", TransferEnd.FAILED)
+                removeFileTransfer(transferId, appContext.getString(R.string.file_status_off_on, current.peerName), TransferEnd.FAILED)
             }
             // Once an offer has been accepted, let that transfer finish even if the
             // setting changes. Disabling Files blocks the next offer instead.
@@ -4611,7 +4610,7 @@ class PairingCoordinator(
             "files.cancel.ack" -> message.transferId?.let {
                 if (folderSender.ownsFile(it)) return@let
                 // Only a row still running: an answer to a cancel this phone sent must not rewrite why it ended.
-                if (ownsTransfer(current, it) && mutableFileTransfers.value[it]?.active == true) removeFileTransfer(it, "Transfer cancelled")
+                if (ownsTransfer(current, it) && mutableFileTransfers.value[it]?.active == true) removeFileTransfer(it, appContext.getString(R.string.file_status_cancelled))
             }
             dev.bridgey.android.folders.FolderKinds.PLACES_LIST, dev.bridgey.android.folders.FolderKinds.PLACES_BROWSE,
             dev.bridgey.android.folders.FolderKinds.PLACES_CREATE_FOLDER, dev.bridgey.android.folders.FolderKinds.OFFER,
@@ -4712,7 +4711,7 @@ class PairingCoordinator(
                 // A resumable file's record follows it every 64 MiB, once its bytes are synced (files_resume_draft1).
                 appended.getOrNull()?.let { saveResumeRecord(transfer.record(it)) }
                 transfer.progress.status(transfer.receivedSize)?.let {
-                    updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
+                    updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_receiving, transfer.displayName, it), true)
                 }
                 acknowledge()
             }
@@ -5067,7 +5066,7 @@ class PairingCoordinator(
             BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "checking kept part", transferId, transfer.displayName, "size=$size"))
             return
         }
-        updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
+        updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_receiving, transfer.displayName, transfer.progress.status(0, force = true)), true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "accepted", transferId, transfer.displayName, "size=$size"))
     }
@@ -5124,16 +5123,16 @@ class PairingCoordinator(
         if (transfer.propose(result)) {
             val offset = transfer.proposed ?: return
             transfer.progress.status(offset, force = true)?.let {
-                updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
+                updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_receiving, transfer.displayName, it), true)
             }
             sendEncrypted(current, "files.resume", FileResume.resumePayload(transferId, offset, result!!.second), transferId = transferId)
             BridgeyLogging.i(LogCategory.FILES, "FILE resume proposed transfer=${transferId.take(8)} offset=$offset")
             return
         }
         // Damaged, changed or unreadable: emptied, and the file comes from byte zero as without the key.
-        if (!transfer.restart()) return dropIncoming(current, transfer, "Could not write the file")
+        if (!transfer.restart()) return dropIncoming(current, transfer, appContext.getString(R.string.file_status_write_failed))
         saveResumeRecord(transfer.startRecord())
-        updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
+        updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_receiving, transfer.displayName, transfer.progress.status(0, force = true)), true)
         current.send(Message(kind = "files.accept", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, "FILE kept part did not check out transfer=${transferId.take(8)}")
     }
@@ -5258,7 +5257,7 @@ class PairingCoordinator(
             pendingFileAccepts.remove(transferId)?.complete(false)
             abandonOffered(transferId)
             outgoingFileJobs.remove(transferId)?.cancel()
-            mutableFileTransfers.value[transferId]?.let { updateFileTransfer(transferId, it.name, "File transfer failed", false) }
+            mutableFileTransfers.value[transferId]?.let { updateFileTransfer(transferId, it.name, appContext.getString(R.string.file_status_failed), false) }
             return
         }
         if (resume.answer != null) return
@@ -5285,12 +5284,12 @@ class PairingCoordinator(
         val transfer = incomingFiles[transferId] ?: return
         val proposed = transfer.proposed
         when (proposed?.let { FileResume.parseAck(plaintext, transferId, it) }) {
-            null -> dropIncoming(current, transfer, "File transfer failed")
+            null -> dropIncoming(current, transfer, appContext.getString(R.string.file_status_failed))
             proposed -> transfer.agreed()
             else -> {
-                if (!transfer.restart()) return dropIncoming(current, transfer, "Could not write the file")
+                if (!transfer.restart()) return dropIncoming(current, transfer, appContext.getString(R.string.file_status_write_failed))
                 saveResumeRecord(transfer.startRecord())
-                updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: ${transfer.progress.status(0, force = true)}", true)
+                updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_receiving, transfer.displayName, transfer.progress.status(0, force = true)), true)
             }
         }
     }
@@ -5317,7 +5316,7 @@ class PairingCoordinator(
         }
         appended.getOrNull()?.let { saveResumeRecord(transfer.record(it)) }
         transfer.progress.status(transfer.receivedSize)?.let {
-            updateFileTransfer(transferId, transfer.displayName, "Receiving ${transfer.displayName}: $it", true)
+            updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_receiving, transfer.displayName, it), true)
         }
         current.send(
             Message(
@@ -5352,10 +5351,10 @@ class PairingCoordinator(
         if (transfer.resumable) releaseResume(transfer.uri.toString(), keep = false)
         if (savedUri == null) {
             transfer.cancel()
-            mutableFileTransferStatus.value = "File verification failed"
+            mutableFileTransferStatus.value = appContext.getString(R.string.file_status_verify_failed)
             return fail(current, "File verification failed")
         }
-        updateFileTransfer(transferId, transfer.displayName, "${transfer.displayName} saved to Download/Bridgey", false, TransferEnd.RECEIVED)
+        updateFileTransfer(transferId, transfer.displayName, appContext.getString(R.string.file_status_saved, transfer.displayName), false, TransferEnd.RECEIVED)
         if (current.agent) {
             agents.record(
                 current.remoteDeviceId, dev.bridgey.android.agents.AuditAction.FILES_RECEIVE, dev.bridgey.android.agents.AuditOutcome.DELIVERED,
@@ -5375,7 +5374,7 @@ class PairingCoordinator(
         outgoingFileJobs.remove(transferId)?.cancel()
         pendingFileAccepts.remove(transferId)?.complete(false)
         pendingFileCompletions.remove(transferId)?.complete(false)
-        removeFileTransfer(transferId, "Transfer cancelled by ${current.peerName}")
+        removeFileTransfer(transferId, appContext.getString(R.string.file_status_cancelled_by, current.peerName))
         current.send(Message(kind = "files.cancel.ack", sessionId = current.id, transferId = transferId))
         BridgeyLogging.i(LogCategory.FILES, LogLines.file(BridgeyLogging.policy, "cancellation received", transferId))
     }
@@ -5414,7 +5413,7 @@ class PairingCoordinator(
     /** Ends the current and waiting outgoing files of [deviceId] (null: all) after the session is lost. They remain retryable. */
     private fun interruptFileQueue(deviceId: String? = null) {
         val queues = if (deviceId == null) fileSendQueues.values.toList() else listOfNotNull(fileSendQueues[deviceId])
-        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, TRANSFER_INTERRUPTED_STATUS, TransferEnd.INTERRUPTED) }
+        queues.flatMap { it.removeAll() }.forEach { removeFileTransfer(it, appContext.getString(R.string.file_status_interrupted_retry), TransferEnd.INTERRUPTED) }
     }
 
     private fun markTransferCancelled(transferId: String) {
@@ -5920,7 +5919,7 @@ class PairingCoordinator(
         }
         presenceChanged()
         if (!clipboardOffersAvailable(deviceId)) clipboardOutbox.disconnected(deviceId)
-        if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, "File transfer is turned off on ${current.peerName}")
+        if (received[BridgeyFeature.FILES] == false) stopFileQueue(deviceId, appContext.getString(R.string.file_status_off_on, current.peerName))
         if (received[BridgeyFeature.FIND_DEVICE] == false && phoneRingingFrom == deviceId) stopPhoneRinging()
         val isTarget = registry.target(selectedDeviceId) == deviceId
         scope.launch(Dispatchers.Main.immediate) { callQuietHub.peersChanged() }
@@ -6772,10 +6771,10 @@ class PairingCoordinator(
             pendingFileCompletions.remove(id)
         }
         val (affected, others) = mutableFileTransfers.value.entries.partition { mine(it.key) }
-        mutableFileTransfers.value = recoverInterruptedTransfers(affected.associate { it.key to it.value }) +
+        mutableFileTransfers.value = recoverInterruptedTransfers(affected.associate { it.key to it.value }, appContext.getString(R.string.file_status_interrupted_retry)) +
             others.associate { it.key to it.value }
         pruneTransferHistory()
-        refreshFileTransferSummary(if (hadActiveTransfers) "File transfer interrupted" else null)
+        refreshFileTransferSummary(if (hadActiveTransfers) appContext.getString(R.string.file_status_interrupted) else null)
         if (hadActiveTransfers) diagnostics.record("transfer", "interrupted", "retry_available")
     }
 
@@ -7080,7 +7079,8 @@ class PairingCoordinator(
     }
 }
 
-private class TransferProgress(private val totalBytes: Long, startBytes: Long = 0L) {
+/** "45% · 812 MB of 2.3 GB · 12 MB/s · 2 min left", in the phone's language and number format (FolderText's pieces). */
+private class TransferProgress(private val context: Context, private val totalBytes: Long, startBytes: Long = 0L) {
     private var lastUpdateAt = SystemClock.elapsedRealtime()
     private var lastBytes = startBytes
     private var smoothedBytesPerSecond = 0.0
@@ -7103,28 +7103,15 @@ private class TransferProgress(private val totalBytes: Long, startBytes: Long = 
         lastBytes = transferred
         val percent = if (totalBytes == 0L) 100 else ((transferred * 100) / totalBytes).coerceIn(0, 100)
         val remaining = (totalBytes - transferred).coerceAtLeast(0)
-        val eta = if (smoothedBytesPerSecond >= 1 && remaining > 0) formatDuration((remaining / smoothedBytesPerSecond).toLong()) else "calculating…"
-        return "$percent% · ${formatBytes(transferred)} / ${formatBytes(totalBytes)} · ${formatBytes(smoothedBytesPerSecond.toLong())}/s · $eta left"
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        if (bytes < 1024) return "$bytes B"
-        val units = arrayOf("KB", "MB", "GB", "TB")
-        var value = bytes.toDouble()
-        var unit = -1
-        while (value >= 1024 && unit < units.lastIndex) {
-            value /= 1024
-            unit++
+        val eta = if (smoothedBytesPerSecond >= 1 && remaining > 0) {
+            context.getString(R.string.folder_time_left, FolderText.duration(context, (remaining / smoothedBytesPerSecond).toLong()))
+        } else {
+            context.getString(R.string.file_status_estimating)
         }
-        return if (value >= 10) "%.0f %s".format(java.util.Locale.US, value, units[unit])
-        else "%.1f %s".format(java.util.Locale.US, value, units[unit])
-    }
-
-    private fun formatDuration(seconds: Long): String = when {
-        seconds < 1 -> "<1 sec"
-        seconds < 60 -> "$seconds sec"
-        seconds < 3600 -> "${seconds / 60} min ${seconds % 60} sec"
-        else -> "${seconds / 3600} h ${(seconds % 3600) / 60} min"
+        val bytes = context.getString(R.string.folder_bytes_progress, FolderText.size(context, transferred), FolderText.size(context, totalBytes))
+        val speed = context.getString(R.string.folder_speed, FolderText.size(context, smoothedBytesPerSecond.toLong()))
+        // The percentage leads and stays "45%": updateFileTransfer reads it back for the bar.
+        return "$percent% · $bytes · $speed · $eta"
     }
 }
 
@@ -7168,7 +7155,7 @@ private class IncomingFileTransfer private constructor(
     val deviceId: String,
     phase: IncomingPhase,
 ) {
-    val progress = TransferProgress(expectedSize)
+    val progress = TransferProgress(context, expectedSize)
     private val resolver = context.contentResolver
     private val channel: java.nio.channels.FileChannel? = (stream as? java.io.FileOutputStream)?.channel
     private var hash = RunningHash(keepAll = false)

@@ -56,8 +56,8 @@ internal class RemoteCallRequest(private val context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return RemoteCallResult.REJECTED
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Call requests", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Calls requested from a trusted Bridgey device"
+            NotificationChannel(CHANNEL_ID, context.getString(R.string.channel_calls), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = context.getString(R.string.channel_calls_detail)
             },
         )
         val dialIntent = Intent()
@@ -73,14 +73,14 @@ internal class RemoteCallRequest(private val context: Context) {
         )
         val notification = android.app.Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-            .setContentTitle("Call requested from Mac")
+            .setContentTitle(context.getString(R.string.call_request_title))
             .setContentText(normalized)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .addAction(
                 android.app.Notification.Action.Builder(
                     android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.sym_action_call),
-                    "Open dialer",
+                    context.getString(R.string.call_request_open),
                     pendingIntent,
                 ).build(),
             )
@@ -111,7 +111,7 @@ class ConfirmCallActivity : android.app.Activity() {
         val number = intent.getStringExtra("number")?.let(::normalizedPhoneNumber)
         if (number != null) {
             runCatching { startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null))) }
-                .onFailure { android.widget.Toast.makeText(this, "No dialer available", android.widget.Toast.LENGTH_SHORT).show() }
+                .onFailure { android.widget.Toast.makeText(this, R.string.call_request_no_dialer, android.widget.Toast.LENGTH_SHORT).show() }
         }
         finish()
     }

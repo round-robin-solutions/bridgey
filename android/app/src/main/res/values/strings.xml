@@ -203,7 +203,11 @@
         <item quantity="other">%1$d devices</item>
     </plurals>
     <string name="settings_notification_apps">Notification apps</string>
-    <string name="settings_notification_apps_count">%1$d of %2$d apps</string>
+    <!-- Counted by the total: "1 of 1 app", "12 of 48 apps". -->
+    <plurals name="settings_notification_apps_count">
+        <item quantity="one">%1$d of %2$d app</item>
+        <item quantity="other">%1$d of %2$d apps</item>
+    </plurals>
     <string name="settings_forwarding">Notification forwarding</string>
     <string name="settings_forwarding_on">Android notifications appear on your other devices</string>
     <string name="settings_forwarding_off">Needs notification access</string>
@@ -1232,7 +1236,10 @@
     <string name="screen_destination_note">Choose a Mac. Android will ask for screen capture permission next.</string>
     <string name="screen_destination_continue">Continue</string>
     <string name="smart_routing_change">Change</string>
-    <string name="attach_browsed_count">%1$d items selected from Browse · choose a device and tap Send</string>
+    <plurals name="attach_browsed_count">
+        <item quantity="one">%1$d item selected from Browse · choose a device and tap Send</item>
+        <item quantity="other">%1$d items selected from Browse · choose a device and tap Send</item>
+    </plurals>
     <string name="smart_routing_none_option">None</string>
     <string name="destination_idle">Idle</string>
     <string name="destination_locked">Locked</string>

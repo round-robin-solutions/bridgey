@@ -42,7 +42,12 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.bridgey.android.BridgeyFeature
@@ -296,7 +301,7 @@ fun FeatureCard(
             if (header != null) row { shape -> CardHeaderRow(shape, header) }
             rows()
             if (moreRows.isNotEmpty()) {
-                row { shape -> MoreOptionsRow(shape, shown) { tapped = true; expanded = !shown } }
+                row { shape -> MoreOptionsRow(shape, shown, header?.title) { tapped = true; expanded = !shown } }
                 if (shown) moreRows.forEach { content -> row { shape -> Revealed(tapped) { content(shape) } } }
             }
         }
@@ -316,7 +321,11 @@ private fun CardHeaderRow(shape: Shape, header: CardHeader) {
         tint = if (on) header.tint else Tint.NEUTRAL,
         synced = switch?.synced == true,
         titleStyle = BridgeyType.rowTitle.copy(fontSize = 17.sp, lineHeight = 22.sp),
-        modifier = Modifier.semantics(mergeDescendants = true) { heading() },
+        // The switch inside has no click of its own, so the header says whether it is on.
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            heading()
+            if (switch != null) toggleableState = ToggleableState(switch.checked)
+        },
         onClick = switch?.takeIf { it.enabled }?.let { { it.onChange(!it.checked) } },
         role = if (switch != null) Role.Switch else null,
         // The header is the feature's switch for search; a header without one is a title only.
@@ -326,9 +335,9 @@ private fun CardHeaderRow(shape: Shape, header: CardHeader) {
     }
 }
 
-/** More options: a chevron that turns, and the rows below it. */
+/** More options: a chevron that turns, and the rows below it. Screen readers hear which card's options they are. */
 @Composable
-private fun MoreOptionsRow(shape: Shape, expanded: Boolean, onToggle: () -> Unit) {
+private fun MoreOptionsRow(shape: Shape, expanded: Boolean, card: String?, onToggle: () -> Unit) {
     val colors = BridgeyTheme.colors
     val motion = LocalMotion.current
     val turn by animateFloatAsState(
@@ -337,6 +346,7 @@ private fun MoreOptionsRow(shape: Shape, expanded: Boolean, onToggle: () -> Unit
         label = "moreOptions",
     )
     val state = stringResource(if (expanded) R.string.settings_expanded else R.string.settings_collapsed)
+    val label = card?.let { stringResource(R.string.settings_more_options_for, it) } ?: stringResource(R.string.settings_more_options)
     Row(
         Modifier
             .fillMaxWidth()
@@ -344,13 +354,16 @@ private fun MoreOptionsRow(shape: Shape, expanded: Boolean, onToggle: () -> Unit
             .clip(shape)
             .background(colors.surface1)
             .clickable(role = Role.Button, onClick = onToggle)
-            .semantics { stateDescription = state }
+            .semantics {
+                contentDescription = label
+                stateDescription = state
+            }
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(BridgeyIcons.ChevronRight, null, tint = colors.onSurfaceVariant, modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = turn })
-        Text(stringResource(R.string.settings_more_options), style = BridgeyType.label, color = colors.onSurfaceVariant)
+        Text(stringResource(R.string.settings_more_options), style = BridgeyType.label, color = colors.onSurfaceVariant, modifier = Modifier.clearAndSetSemantics {})
     }
 }
 
@@ -413,6 +426,8 @@ private fun DeviceChipView(chip: DeviceChip, anchor: String) {
     val content = if (!chip.enabled) colors.onSurfaceVariant.copy(alpha = 0.6f) else if (chip.checked) colors.onTintBlue else colors.onSurface
     Row(
         Modifier
+            // Drawn 40 dp tall; the touch target is 48 dp.
+            .minimumInteractiveComponentSize()
             .heightIn(min = 40.dp)
             .clip(shape)
             .background(if (chip.checked) colors.tintBlue else colors.surface1)
@@ -425,6 +440,7 @@ private fun DeviceChipView(chip: DeviceChip, anchor: String) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         if (chip.checked) Icon(BridgeyIcons.Check, null, tint = content, modifier = Modifier.size(16.dp))
-        Text(chip.name, style = BridgeyType.label, color = content, maxLines = 1)
+        // The chip's description already says the name; the label is not read a second time.
+        Text(chip.name, style = BridgeyType.label, color = content, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clearAndSetSemantics {})
     }
 }

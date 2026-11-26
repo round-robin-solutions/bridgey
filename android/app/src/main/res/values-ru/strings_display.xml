@@ -4,7 +4,7 @@
     <string name="feature_screen_control">Экран Mac</string>
     <string name="settings_screen_control_detail">Экран Mac на этом телефоне и управление им, если Mac это разрешает</string>
     <string name="feature_screen_control_detail">Экран %1$s, если он разрешает этому телефону</string>
-    <string name="display_entry_title">Показать экран</string>
+    <string name="display_entry_title">Смотреть экран</string>
     <string name="display_entry_detail">Экран %1$s на этом телефоне</string>
     <string name="display_picture">Экран %1$s</string>
     <string name="display_status_asking">Запрос к Mac…</string>
