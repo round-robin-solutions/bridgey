@@ -42,15 +42,18 @@ class UnattendedShareTest {
         var now = 10_000L
         assertEquals("the first one at once", 0L, pacer.nextDelay(now))
         var frames = 0
-        while (now < 20_000L) {
-            now += pacer.nextDelay(now)
+        // Screenshots asked for in the 10 seconds from 10,000 ms, each answering 25 ms later.
+        while (true) {
+            val at = now + pacer.nextDelay(now)
+            if (at >= 20_000L) break
+            now = at
             pacer.requested(now)
             assertTrue(pacer.inFlight)
-            now += 25 // the screenshot's own time
+            now += 25
             pacer.succeeded()
             frames++
         }
-        assertTrue("about 3 a second over 10 seconds, was $frames", frames in 28..30)
+        assertEquals("one every 340 ms: about 3 a second", 30, frames)
         pacer.requested(now)
         pacer.succeeded()
         assertEquals("one interval after the last request, not after its answer", StillFrameRates.INTERVAL_MILLIS, pacer.nextDelay(now))
