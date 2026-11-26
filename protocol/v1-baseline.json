@@ -2,7 +2,15 @@
  "description": "Bridgey Protocol v1 freeze baseline (docs/protocol-v1.md): every v1 core, extension and deprecated entry of protocol/messages.json and a hash of each vector case that pins one, as recorded by protocol/tools/v1_freeze.py --write-baseline. Proposal: report only while frozen is false.",
  "frozen": false,
  "contractVersion": 1,
- "amendments": [],
+ "amendments": [
+  {
+   "date": "2026-11-26",
+   "reason": "Rahul, 26 Nov 2026, approving the split: fast transfers (files_fast_draft1) are core for every v1 build; maps may omit the key (upstream and pre-v1 peers), missing means false",
+   "changes": [
+    "feature files_fast_draft1: v1 extension became core"
+   ]
+  }
+ ],
  "transport": {
   "framing": "UTF-8 JSON object per line, terminated by LF; a CR before LF is ignored",
   "maxFrameBytes": 65536,
@@ -310,7 +318,7 @@
    }
   },
   "files_fast_draft1": {
-   "v1": "extension",
+   "v1": "core",
    "shape": {
     "key": "files_fast_draft1",
     "requiredInMap": false,

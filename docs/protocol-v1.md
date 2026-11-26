@@ -15,7 +15,7 @@ freezes, why, and how the freeze is kept afterwards.
 
 | | Core | Extension | Draft | Deprecated |
 | --- | --- | --- | --- | --- |
-| Feature keys (46) | 5 | 29 (4 upstream, 25 edition) | 12 | 0 |
+| Feature keys (46) | 6 | 28 (4 upstream, 24 edition) | 12 | 0 |
 | Message kinds (202) | 30 | 130 (9 upstream, 121 edition) | 42 | 0 |
 
 The notable calls:
@@ -25,8 +25,10 @@ The notable calls:
   upstream Bridgey or in every edition build since 0.10 Beta 11, and every platform speaks it (the CLI advertises
   `notifications` false).
 - **Update all is frozen** (`updates_draft1`), so any two v1 builds can always update each other.
-- **Fast transfers are frozen** (`files_fast_draft1`, the binary frames), because every transfer between current builds
-  uses them.
+- **Fast transfers are core** (`files_fast_draft1`, the binary frames; Rahul, 26 November): every v1 build advertises
+  and speaks them. The key stays out of the keys every map must carry, because upstream Bridgey and pre-v1 builds never
+  send it: a map without it marks such a peer, which keeps getting JSON chunks. The speed test kinds the same key gates
+  stay optional extensions.
 - **Connect anywhere is frozen for the parts both peers must agree on**; the control service's own protocol (node
   auth, relay credentials) is versioned with the service, and the designed in-band ICE kinds stay draft.
 - **Agent devices are frozen** (the `bridgey` CLI on servers updates on its own schedule, so mixed versions are normal).
@@ -99,7 +101,7 @@ Beta 2). The iOS app runs the same client but its first slice enables only pairi
 | `focus_sync_draft1` | extension | 0.9 Beta 1, 27 Oct | Android, Mac | 1 of 1 | |
 | `camera_draft1` | extension | 0.9 Beta 1, 27 Oct | Android, Mac | 2 of 2 | |
 | `updates_draft1` | extension | 0.10 Beta 4, 27 Oct | Android, Mac | 3 of 3 | Update all must keep working between any two v1 builds |
-| `files_fast_draft1` | extension | 0.10 Beta 15, 30 Oct | Android, Mac, Windows | 9 of 9 | Every transfer between current builds |
+| `files_fast_draft1` | core | 0.10 Beta 15, 30 Oct | Android, Mac, Windows, iOS (rust/client); CLI not yet | 9 of 9 | Core by Rahul's call (26 Nov); missing in a map means a pre-v1 or upstream peer |
 | `sms_draft1` | extension | 0.10 Beta 6, 27 Oct | Android, Mac | 18 of 18 | No change since 28 Oct (Beta 9 added the last kinds) |
 | `settings_sync_draft1` | extension | 0.10 Beta 12, 29 Oct | Android, Mac | 4 of 4 | Last shape change 30 Oct; unknown settings keys are skipped, so new settings need no key |
 | `connect_draft1` | extension | 0.10 Beta 13, 30 Oct | Android, Mac, Windows, CLI | 3 of 3 built kinds | Peer parts only ([open question 5](#open-questions-for-rahul)) |
@@ -158,7 +160,7 @@ today:
   fields are ignored.
 - **Replay.** Encrypted messages with a `messageId` go through one per-session window of the last 256 accepted IDs.
   Streams use a per-feature sequence high-water mark instead. Each feature's rule is frozen with that feature.
-- **Binary frames** (`files_fast_draft1`, extension): marker 0xB1, kind, length; an AES-GCM body under
+- **Binary frames** (`files_fast_draft1`, core for v1 builds): marker 0xB1, kind, length; an AES-GCM body under
   HMAC-SHA-256(session key, `bridgey-fast-frame-key-v2`); only on protocol 2 sessions and only to a peer that shows the
   key. Unknown binary kinds are skipped once their tag verifies.
 - **Feature negotiation.** Each peer sends an encrypted `features.update` (`version` 1, a complete map of booleans)
@@ -394,12 +396,19 @@ sends or receives the kind):
   fields of `clipboard.error` and `settings.ack` than Android; the Mac reads `version` `1.0` or `true` as 1 on `codes.*`,
   where `rust/client` refuses both. None changes what a conforming sender gets.
 
+### Before the flip: the CLI and fast transfers
+
+With `files_fast_draft1` core, every v1 implementation must advertise and speak binary frames. Android, the Mac and
+`rust/client` (Windows and iOS) do. The `bridgey` CLI does not yet: it never advertises the key and refuses binary
+frames, so its file transfers use JSON chunks. The CLI needs binary frames (it can reuse `rust/client`'s frame code)
+before the freeze is switched on.
+
 ## Open questions for Rahul
 
 Each has a recommendation; answering "as recommended" approves the proposal as written.
 
-1. **Approve the split?** Core 5 keys and 30 kinds, extension 29 and 130, draft 11 and 42, nothing deprecated.
-   *Recommendation: approve.*
+1. **Approve the split?** Core 6 keys and 30 kinds, extension 28 and 130, draft 12 and 42, nothing deprecated.
+   *Answered 26 November: approved, with fast transfers moved to core (Rahul: "Fast transfers is core").*
 2. **Deprecation window.** How long a deprecated entry keeps working. *Recommendation: at least 12 months after the
    first Stable release that stops sending it, and never while the upgrade policy supports a build that needs it.*
 3. **Protocol 1 reconnects** for upstream Bridgey and pre-0.10 pairs. *Recommendation: keep them, accept-only and never
