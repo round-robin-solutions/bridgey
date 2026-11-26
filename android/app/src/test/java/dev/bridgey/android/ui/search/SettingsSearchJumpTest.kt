@@ -61,7 +61,10 @@ class SettingsSearchJumpTest {
                     }
                 }
             }
-            repeat(12) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250)) }
+            // Up to 15 s of the main looper's clock: the full motion waits for the page, then animates the scroll, and a
+            // slow CI worker takes more steps to get there.
+            var steps = 0
+            while (host.arrived != token && steps++ < 60) shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(250))
             assertEquals("the row was found and the highlight started", token, host.arrived)
         }
         return host to list
