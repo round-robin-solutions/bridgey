@@ -291,6 +291,10 @@ class SettingsSearchDriftTest {
         val entries = SettingsSearchRegistry.resolve(context, developerMenu = false, sync = SyncUiState(), devices = devices)
         val hits = topIds("build-server", entries)
         assertEquals("device.agent1", hits.first())
+        // A Mac's name leads to its page, then to its rows on Calls and Remote control.
+        val mac = topIds("work macbook", entries)
+        assertEquals("device.work", mac.first())
+        assertTrue("calls.mac.work" in mac && "remote.mac.work" in mac)
         val work = SettingsSearch.search("work clipboard", entries.map { it.doc }).map { entries[it.index] }
         assertEquals(Route.Device("work"), work.first().route)
         assertEquals(context.getString(R.string.feature_clipboard), work.first().rowTitle)

@@ -427,8 +427,9 @@ object SettingsSearchRegistry {
                 fallbackTitle = entry.revealedBy?.let(context::getString),
             )
         }
-        out += devices.filterNot { it.isAgent }.flatMap { macRows(context, it) }
+        // A device's own page first: on equal scores its name leads to it, then to its rows elsewhere.
         out += devices.flatMap { deviceEntries(context, it) }
+        out += devices.filterNot { it.isAgent }.flatMap { macRows(context, it) }
         return out
     }
 
