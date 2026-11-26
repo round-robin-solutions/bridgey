@@ -2,6 +2,10 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 11 (1.0.0-beta.11), 26 November 2026
+
+- Settings are easier to find: six groups (Devices, Sharing, Phone, Control, Privacy and App) replace the long list. Each feature has one card with its main switch, the settings you use most and your devices as chips; the rest sits under More options, and search still takes you to the exact row.
+
 ## 1.0 Beta 10 (1.0.0-beta.10), 26 November 2026
 
 - Your own devices can now see and control each other's screens without asking. Unattended access is on by default in Settings > Remote control, and you can set any device to Off, Ask each time or Allow without asking. Servers and agents never get it. The device being viewed always shows who is connected, with Stop.
