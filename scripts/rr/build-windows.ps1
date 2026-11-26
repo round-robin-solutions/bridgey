@@ -4,7 +4,8 @@
   Builds and tests Bridgey by Round Robin for Windows: the RR CI windows lane (hosted windows-latest) runs this.
 
 .DESCRIPTION
-  1. bridgey_core.dll (rust/client) for x64 and Arm64, and its Rust tests.
+  1. bridgey_core.dll (rust/client) and bridgey-browser-host.exe (rust/browser-host, the browser extension's native
+     messaging helper) for x64 and Arm64, and their Rust tests.
   2. The C# unit tests (interop, view models, settings) against the x64 DLL.
   3. The app (WinUI 3, NativeAOT, self-contained, unpackaged) for each architecture, zipped.
   4. The UI tests on this desktop (x64): screenshots in light and dark, and pairing with a scripted peer.
@@ -101,12 +102,16 @@ try {
         }
     }
     Invoke-Logged -Log 'cargo-test.log' -Exe 'cargo' -Arguments @('test', '-p', 'bridgey-client', '--locked', '--manifest-path', $manifest)
+    Invoke-Logged -Log 'cargo-test-browser-host.log' -Exe 'cargo' -Arguments @('test', '-p', 'bridgey-browser-host', '--locked', '--manifest-path', $manifest)
     $native = @{}
     foreach ($arch in $Architectures) {
         $target = $rustTargets[$arch]
         Invoke-Logged -Log "cargo-$arch.log" -Exe 'cargo' -Arguments @('build', '-p', 'bridgey-client', '--lib', '--release', '--locked', '--target', $target, '--manifest-path', $manifest)
         $native[$arch] = Join-Path $Root "rust/target/$target/release"
         if (-not (Test-Path (Join-Path $native[$arch] 'bridgey_core.dll'))) { throw "bridgey_core.dll for $arch was not built" }
+        # Next to bridgey_core.dll, where Bridgey.App.csproj picks it up (docs/browser-extensions.md).
+        Invoke-Logged -Log "cargo-browser-host-$arch.log" -Exe 'cargo' -Arguments @('build', '-p', 'bridgey-browser-host', '--release', '--locked', '--target', $target, '--manifest-path', $manifest)
+        if (-not (Test-Path (Join-Path $native[$arch] 'bridgey-browser-host.exe'))) { throw "bridgey-browser-host.exe for $arch was not built" }
     }
     Invoke-Logged -Log 'cargo-peer.log' -Exe 'cargo' -Arguments @('build', '-p', 'bridgey-client', '--example', 'peer', '--release', '--locked', '--manifest-path', $manifest)
     $peer = Join-Path $Root 'rust/target/release/examples/peer.exe'
@@ -126,7 +131,7 @@ try {
             Invoke-Logged -Log "publish-$arch.log" -Exe 'dotnet' -Arguments @(
                 'publish', 'src/Bridgey.App/Bridgey.App.csproj', '-c', 'Release', '-r', "win-$arch", "-p:Platform=$platform",
                 "-p:BridgeyNativeDir=$($native[$arch])", '-o', $dest)
-            foreach ($file in @('Bridgey.exe', 'bridgey_core.dll', 'Assets/Bridgey.ico')) {
+            foreach ($file in @('Bridgey.exe', 'bridgey_core.dll', 'bridgey-browser-host.exe', 'native-host.json', 'Assets/Bridgey.ico')) {
                 if (-not (Test-Path (Join-Path $dest $file))) { throw "$file is missing from the $arch build" }
             }
             # The app's compiled XAML and resources: without its .pri, App.xaml cannot load and the app exits at start.

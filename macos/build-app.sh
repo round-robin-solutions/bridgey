@@ -112,6 +112,15 @@ if [ -x "$CARGO_BIN" ]; then
   CONNECT_DYLIB="$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
   cp "../rust/target/$CARGO_PROFILE/libbridgey_connect.dylib" "$CONNECT_DYLIB"
   install_name_tool -id "@rpath/libbridgey_connect.dylib" "$CONNECT_DYLIB"
+  # Browser support (rust/browser-host, docs/browser-extensions.md): the native messaging helper browsers start,
+  # and the extension IDs it and Settings > Media and actions > Browser extensions allow. Without cargo the setting
+  # says "not available".
+  set -- build -p bridgey-browser-host --manifest-path ../rust/Cargo.toml --locked
+  if [ "$CONFIGURATION" = release ]; then set -- "$@" --release; fi
+  "$CARGO_BIN" "$@"
+  mkdir -p "$APP_PATH/Contents/Helpers"
+  cp "../rust/target/$CARGO_PROFILE/bridgey-browser-host" "$APP_PATH/Contents/Helpers/bridgey-browser-host"
+  cp ../extensions/browser/native-host.json "$APP_PATH/Contents/Resources/native-host.json"
 elif { [ "$CONFIGURATION" = release ] || [ "${CI:-}" = 1 ]; } && [ "${BRIDGEY_CONNECT_CORE:-}" != skip ]; then
   # A release must never ship without the core; scripts/rr/rust-toolchain.sh mac installs cargo.
   echo "error: cargo not found; release and CI builds need the Connect anywhere core (or BRIDGEY_CONNECT_CORE=skip)" >&2
@@ -249,6 +258,9 @@ sign_code "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 sign_code "$APP_PATH/Contents/Frameworks/llama.framework"
 if [ -f "$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib" ]; then
   sign_code "$APP_PATH/Contents/Frameworks/libbridgey_connect.dylib"
+fi
+if [ -f "$APP_PATH/Contents/Helpers/bridgey-browser-host" ]; then
+  sign_code --identifier "$EDITION_APP_ID.browser-host" "$APP_PATH/Contents/Helpers/bridgey-browser-host"
 fi
 sign_code --entitlements ShareExtension/Share.entitlements "$APPEX"
 if [ -n "$APP_REQUIREMENT" ]; then

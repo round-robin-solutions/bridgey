@@ -46,6 +46,7 @@ struct BridgeyApp: App {
         // `BridgeyMac --handoff` is served from here.
         HandoffTakeover.shared.start()
         pairing.localAgentCodes.start()
+        pairing.browserSupport.start()
         let settingsWindow = SettingsWindowController(discovery: discovery, pairing: pairing, settings: settings, updater: updater)
         self.settingsWindow = settingsWindow
         pairing.openSettingsPane = { [weak settingsWindow] pane in settingsWindow?.show(pane: pane) }

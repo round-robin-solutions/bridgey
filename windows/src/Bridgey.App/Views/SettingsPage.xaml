@@ -391,6 +391,19 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Browser extensions" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="{x:Bind Settings.BrowserSupportStatus, Mode=OneWay}" Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" AutomationProperties.AutomationId="BrowserSupportStatus" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.BrowserSupport, Mode=TwoWay}" AutomationProperties.Name="Browser extensions" AutomationProperties.AutomationId="BrowserSupport" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
                                 <TextBlock Text="Media controls" Style="{StaticResource BrandBody}" />
                                 <TextBlock Text="Your phone can play, pause, skip and seek what's playing on this PC, and shows what it is." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
                             </StackPanel>

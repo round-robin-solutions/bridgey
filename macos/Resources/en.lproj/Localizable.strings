@@ -1953,3 +1953,15 @@
 "phonecontrol.note.timeout" = "Control stopped: no answer from %@";
 "phonecontrol.note.localStop" = "Control stopped on %@";
 "phonecontrol.note.failed" = "Control stopped";
+
+/* Media and actions > Browser extensions (BrowserSupport.swift) */
+"browser.support" = "Browser extensions";
+"browser.support.detail" = "Send pages and links to your devices from Chrome, Edge, Firefox, Brave and Arc";
+"browser.support.unavailable" = "Not available in this build";
+"browser.support.translocated" = "Move Bridgey to Applications, open it again, then install";
+"browser.support.noBrowser" = "No supported browser found. Install one, then choose Install again.";
+"browser.support.notListening" = "Could not start. Quit and reopen Bridgey.";
+"browser.support.installed" = "Installed for %@. Add the extension in each browser.";
+"browser.support.guide" = "Get the extension";
+"browser.support.remove" = "Remove";
+"browser.support.install" = "Install";

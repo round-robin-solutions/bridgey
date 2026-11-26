@@ -47,6 +47,8 @@ when they are newer, and Nightly gets everything. The apps check and install upd
   show as a Copy code card.
 - Files: send files and folders either way, browse the phone's photos and folders from the Mac, and
   copy or download them Optimised or Original.
+- Browser: send the page you are on, or a link, from Chrome, Edge, Firefox, Brave or Arc with Bridgey's
+  [browser extension](docs/browser-extensions.md).
 - Control: use the phone as a touchpad, keyboard or slide clicker for the Mac, see the phone's screen
   on the Mac, run Mac actions and control whatever is playing.
 - Away from home: phone and Mac stay connected on different networks through an encrypted relay (the
@@ -226,7 +228,8 @@ stress runs do not close real-Wi-Fi, large-library and long-running acceptance. 
 - [x] Add locally configured actions for lock, sleep, screensaver, volume, and launching an app
 - [x] Permit custom automation only through a local allowlist; never expose a remote shell
 - [x] Add Android Device Controls/widgets, link handoff and Mac Shortcuts/Siri actions
-- [ ] Package browser extensions for link handoff
+- [x] Package browser extensions for link handoff (Chrome, Edge, Firefox, Brave and Arc, through the Mac and
+      Windows apps; [browser extensions](docs/browser-extensions.md))
 - [x] Add a privacy-preserving connection health and diagnostics view
 - [x] Prototype explicitly confirmed, view-only phone-to-Mac screen sharing
 - [x] Add Mac-to-phone screen sharing and separately consented phone control

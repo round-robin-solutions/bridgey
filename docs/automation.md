@@ -78,10 +78,10 @@ process argument, never through a shell. No input is passed. A run is stopped af
   Current Safari (or Chrome) Tab. A fixed AppleScript asks the browser used last for the front
   tab's address. macOS asks for Automation access to that browser the first time it is used, never
   before.
-- **Future: a browser extension.** A small Safari Web Extension and a Chrome extension could offer
-  "Send to device" in the toolbar and the page menu without the Automation prompt, and could also
-  catch links the phone sends. They would talk to the app through native messaging (Chrome) or the
-  containing app (Safari), and need packaging and store review, so they are not built yet.
+- **Browser extension:** Chrome, Edge, Firefox, Brave and Arc send the page or a link to a chosen
+  device from the toolbar, the page and link menus or a shortcut, without the Automation prompt. The
+  extension talks to the Mac or Windows app through native messaging; Safari waits for Developer ID
+  signing. See [browser-extensions.md](browser-extensions.md).
 
 ## Connection health
 

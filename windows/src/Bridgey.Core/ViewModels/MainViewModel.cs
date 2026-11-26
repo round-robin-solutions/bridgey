@@ -487,6 +487,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 }
                 break;
             case BridgeyEventKind.LinkSent:
+                BrowserLinkAnswered(e);
                 if (_linksOut.Remove(e.Id, out var linkRow))
                     linkRow.Status = (SendStatus)e.Status switch
                     {
