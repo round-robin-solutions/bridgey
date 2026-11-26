@@ -1828,7 +1828,7 @@ final class PairingCoordinator: ObservableObject {
               let messageID = message.messageId, current.acceptMessageID(messageID),
               let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
-              let fetch = (try? JSONDecoder().decode(ClipboardFetchPayload.self, from: plaintext))?.validated(),
+              let fetch = ClipboardFetchPayload.received(plaintext),
               message.transferId == nil || message.transferId == fetch.transferId else { return }
         guard clipboardOutbox.current?.includes(current.remoteDeviceID) == true else {
             if let data = try? JSONEncoder().encode(ClipboardErrorPayload(offerId: fetch.offerId, index: fetch.index, transferId: fetch.transferId, code: .expired)) {
@@ -1845,8 +1845,7 @@ final class PairingCoordinator: ObservableObject {
               let messageID = message.messageId, current.acceptMessageID(messageID),
               let nonce = message.nonce, let ciphertext = message.ciphertext, let key = current.pairingKey,
               let plaintext = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
-              let payload = try? JSONDecoder().decode(ClipboardErrorPayload.self, from: plaintext),
-              payload.version == 1,
+              let payload = ClipboardErrorPayload.received(plaintext),
               clipboardInbox.isTransfer(payload.transferId, from: current.remoteDeviceID) else { return }
         clipboardInbox.handleError(payload)
     }
@@ -4930,7 +4929,7 @@ final class PairingCoordinator: ObservableObject {
             current.connectContribution = nil
             let secret = ConnectCrypto.pairSecret(local: own, remote: setup.contribution, localID: deviceID, remoteID: phoneID)
             connect.store.setPairSecret(secret, for: phoneID)
-            _ = sendQuickPayload(kind: "connect.setup.ack", payload: ["version": 1], to: current)
+            _ = sendQuickPayload(kind: "connect.setup.ack", payload: ConnectSetup.ackPayload, to: current)
             BridgeyLog.transport.notice("connect pair secret set peer=\(shortDeviceID(phoneID), privacy: .public) rotate=\(setup.rotate, privacy: .public)")
             connectSync()
         default:
@@ -5731,9 +5730,8 @@ final class PairingCoordinator: ObservableObject {
         guard registry.isActive(current), message.sessionId == current.id,
               let key = current.pairingKey, let id = message.messageId, current.acceptMessageID(id),
               let nonce = message.nonce, let ciphertext = message.ciphertext,
-              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key), data.count <= 1024,
-              let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              payload["version"] as? Int == 1 else { return }
+              let data = try? decrypt(nonce: nonce, ciphertext: ciphertext, key: key),
+              let payload = CodesWire.payload(data) else { return }
         let phoneID = current.remoteDeviceID
         switch message.kind {
         case "codes.status":
@@ -5762,7 +5760,7 @@ final class PairingCoordinator: ObservableObject {
                 _ = self.sendQuickPayload(kind: "codes.advertise_result", payload: reply, to: current)
             }
         case "codes.advertise_stop":
-            guard let raw = payload["serviceUuid"] as? String, let uuid = UUID(uuidString: raw) else { return }
+            guard let uuid = CodesWire.advertiseStop(payload) else { return }
             companionAdvertiser.stop(uuid: uuid)
             // Linked, cancelled or failed: the phone shows what happened; the row goes back to the status.
             codeLinkStatus = nil

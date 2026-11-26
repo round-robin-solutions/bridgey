@@ -1,5 +1,5 @@
 {
- "description": "Agents mirror, phone to Mac (docs/protocol.md, 'Messages between the phone and the Mac'). Written by hand for the Mac decoder; expect 'reject' means drop the message and keep the previous state. codesOn: an agent has Codes on at 'now', so the Mac sends codes.found to that phone.",
+ "description": "Agents mirror, phone to Mac (docs/protocol.md, 'Messages between the phone and the Mac'). Written by hand for the Mac decoder; expect 'reject' means drop the message and keep the previous state. codesOn: an agent has Codes on at 'now', so the Mac sends codes.found to that phone. 'write': true means the phone writes exactly that plaintext (AgentHub's agentsStatePayload); the phone also writes every accepted codesRead plaintext without the fields the Mac skips.",
  "now": 1798001000000,
  "agentsState": [
   {
@@ -459,6 +459,294 @@
     "agents": {}
    },
    "expect": "reject"
+  },
+  {
+   "name": "as the phone writes it: every grant, in order",
+   "write": true,
+   "plaintext": {
+    "version": 1,
+    "agents": [
+     {
+      "deviceId": "agent-id",
+      "name": "Contabo Europe",
+      "platform": "cli",
+      "app": "bridgey 0.3.0",
+      "os": "linux x86_64",
+      "pairedAt": 1797990000000,
+      "online": true,
+      "lastSeenAt": 1798000500000,
+      "route": "relay",
+      "grants": [
+       {
+        "key": "files",
+        "state": "on",
+        "window": "forever",
+        "grantedAt": 1798000000000,
+        "scope": "Download/Bridgey/Contabo Europe"
+       },
+       {
+        "key": "clipboard",
+        "state": "off"
+       },
+       {
+        "key": "clipboard_request",
+        "state": "off"
+       },
+       {
+        "key": "notify",
+        "state": "on",
+        "window": "1h",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798003600000
+       },
+       {
+        "key": "ask",
+        "state": "waiting"
+       },
+       {
+        "key": "ring",
+        "state": "off"
+       },
+       {
+        "key": "battery",
+        "state": "on",
+        "window": "today",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798070400000
+       },
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "7d",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798604800000
+       },
+       {
+        "key": "codes_detect",
+        "state": "off"
+       },
+       {
+        "key": "notifications",
+        "state": "off"
+       }
+      ],
+      "activity": [
+       {
+        "at": 1798000400000,
+        "action": "codes.read",
+        "outcome": "delivered",
+        "detail": "HDFC Bank, 1"
+       },
+       {
+        "at": 1798000300000,
+        "action": "notify",
+        "outcome": "delivered",
+        "detail": "Nightly passed"
+       },
+       {
+        "at": 1797990000000,
+        "action": "pair",
+        "outcome": "ok"
+       }
+      ]
+     },
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "",
+      "os": "",
+      "pairedAt": 0,
+      "online": false,
+      "grants": [
+       {
+        "key": "files",
+        "state": "off"
+       },
+       {
+        "key": "clipboard",
+        "state": "off"
+       },
+       {
+        "key": "clipboard_request",
+        "state": "off"
+       },
+       {
+        "key": "notify",
+        "state": "off"
+       },
+       {
+        "key": "ask",
+        "state": "off"
+       },
+       {
+        "key": "ring",
+        "state": "off"
+       },
+       {
+        "key": "battery",
+        "state": "off"
+       },
+       {
+        "key": "codes",
+        "state": "off"
+       },
+       {
+        "key": "codes_detect",
+        "state": "off"
+       },
+       {
+        "key": "notifications",
+        "state": "off"
+       }
+      ],
+      "activity": []
+     }
+    ]
+   },
+   "expect": {
+    "agents": [
+     {
+      "deviceId": "agent-id",
+      "name": "Contabo Europe",
+      "platform": "cli",
+      "app": "bridgey 0.3.0",
+      "os": "linux x86_64",
+      "pairedAt": 1797990000000,
+      "online": true,
+      "lastSeenAt": 1798000500000,
+      "route": "relay",
+      "grants": [
+       {
+        "key": "files",
+        "state": "on",
+        "window": "forever",
+        "grantedAt": 1798000000000,
+        "scope": "Download/Bridgey/Contabo Europe"
+       },
+       {
+        "key": "clipboard",
+        "state": "off"
+       },
+       {
+        "key": "clipboard_request",
+        "state": "off"
+       },
+       {
+        "key": "notify",
+        "state": "on",
+        "window": "1h",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798003600000
+       },
+       {
+        "key": "ask",
+        "state": "waiting"
+       },
+       {
+        "key": "ring",
+        "state": "off"
+       },
+       {
+        "key": "battery",
+        "state": "on",
+        "window": "today",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798070400000
+       },
+       {
+        "key": "codes",
+        "state": "on",
+        "window": "7d",
+        "grantedAt": 1798000000000,
+        "expiresAt": 1798604800000
+       },
+       {
+        "key": "codes_detect",
+        "state": "off"
+       },
+       {
+        "key": "notifications",
+        "state": "off"
+       }
+      ],
+      "activity": [
+       {
+        "at": 1798000400000,
+        "action": "codes.read",
+        "outcome": "delivered",
+        "detail": "HDFC Bank, 1"
+       },
+       {
+        "at": 1798000300000,
+        "action": "notify",
+        "outcome": "delivered",
+        "detail": "Nightly passed"
+       },
+       {
+        "at": 1797990000000,
+        "action": "pair",
+        "outcome": "ok"
+       }
+      ],
+      "codesOn": true
+     },
+     {
+      "deviceId": "agent-2",
+      "name": "rr-dev-1",
+      "platform": "cli",
+      "app": "",
+      "os": "",
+      "pairedAt": 0,
+      "online": false,
+      "grants": [
+       {
+        "key": "files",
+        "state": "off"
+       },
+       {
+        "key": "clipboard",
+        "state": "off"
+       },
+       {
+        "key": "clipboard_request",
+        "state": "off"
+       },
+       {
+        "key": "notify",
+        "state": "off"
+       },
+       {
+        "key": "ask",
+        "state": "off"
+       },
+       {
+        "key": "ring",
+        "state": "off"
+       },
+       {
+        "key": "battery",
+        "state": "off"
+       },
+       {
+        "key": "codes",
+        "state": "off"
+       },
+       {
+        "key": "codes_detect",
+        "state": "off"
+       },
+       {
+        "key": "notifications",
+        "state": "off"
+       }
+      ],
+      "activity": [],
+      "codesOn": false
+     }
+    ]
+   },
+   "sendsCodesFound": true
   }
  ],
  "codesRead": [

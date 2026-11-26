@@ -597,7 +597,7 @@ impl Daemon {
                 drop(st);
                 log(&format!("session with {} authenticated", short(&peer.device_id)));
                 handle.send_json("features.update", &self.own_features());
-                handle.send_json("agent.hello", &json!({"version": 1, "platform": "cli", "app": format!("bridgey {VERSION}"), "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)}));
+                handle.send_json("agent.hello", &crate::payloads::hello(&format!("bridgey {VERSION}"), &format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)));
                 self.sync_peers();
                 self.changed.notify_waiters();
             }
@@ -745,25 +745,8 @@ impl Daemon {
                 return;
             }
             "agent.grants" => {
-                if let Some(p) = payload.filter(|p| p["version"] == 1 && p["grants"].is_array()) {
-                    // Known grant names and fields only, bounded: the phone's words are shown, never trusted.
-                    let grants: Vec<Value> = p["grants"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .filter(|g| g["key"].as_str().is_some_and(|k| GRANTS.iter().any(|x| x.0 == k)))
-                        .take(GRANTS.len())
-                        .map(|g| {
-                            let state = match g["state"].as_str() { Some("on") => "on", Some("waiting") => "waiting", _ => "off" };
-                            let mut o = json!({"key": g["key"], "state": state});
-                            for k in ["grantedAt", "expiresAt"] {
-                                if let Some(v) = g[k].as_u64() { o[k] = json!(v); }
-                            }
-                            if let Some(w) = g["window"].as_str().filter(|w| ["1h", "today", "7d", "forever"].contains(w)) { o["window"] = json!(w); }
-                            if let Some(s) = g["scope"].as_str() { o["scope"] = json!(crate::session::printable(s, 200)); }
-                            o
-                        })
-                        .collect();
+                // Known grant names and fields only, bounded: the phone's words are shown, never trusted.
+                if let Some(grants) = payload.as_ref().and_then(crate::payloads::grants) {
                     let mut st = self.st.lock().unwrap();
                     let mut changed = false;
                     if let Some(rec) = st.trust.peers.get_mut(peer) {
@@ -781,23 +764,38 @@ impl Daemon {
             }
             _ => {}
         }
-        // Answers to requests: route by the IDs the request registered.
+        // Answers to requests: route by the IDs the request registered. The agent kinds are read as the vectors say
+        // (payloads.rs); one the contract calls invalid is dropped, and the request waits for its timeout.
         let p = payload.clone().unwrap_or(Value::Null);
-        let key = match m.kind.as_str() {
-            "ping.ack" | "clipboard.ack" | "clipboard.rejected" => m.message_id.as_ref().map(|i| format!("msg:{i}")),
-            "agent.request_result" => p["ref"].as_str().map(|r| format!("msg:{r}")),
-            "notify.result" => p["notifyId"].as_str().map(|i| format!("notify:{i}")),
+        let (key, payload) = match m.kind.as_str() {
+            "ping.ack" | "clipboard.ack" | "clipboard.rejected" => (m.message_id.as_ref().map(|i| format!("msg:{i}")), payload),
+            "agent.request_result" => match crate::payloads::request_result(&p) {
+                Some(r) => (r["ref"].as_str().map(|r| format!("msg:{r}")), Some(r)),
+                None => return,
+            },
+            "notify.result" => match crate::payloads::notify_result(&p) {
+                Some(r) => (r["notifyId"].as_str().map(|i| format!("notify:{i}")), Some(r)),
+                None => return,
+            },
             "ask.posted" | "ask.answer" | "ask.dismissed" | "ask.expired" | "ask.cancelled" => {
-                let id = p["askId"].as_str().unwrap_or("").to_string();
-                self.update_ask(&id, peer, &m.kind, &p);
-                Some(format!("ask:{id}"))
+                let read = if m.kind == "ask.answer" { crate::payloads::ask_answer(&p) } else { crate::payloads::ask_ref_of(&p).map(|id| json!({"askId": id})) };
+                let Some(r) = read else { return };
+                let id = r["askId"].as_str().unwrap_or("").to_string();
+                self.update_ask(&id, peer, &m.kind, &r);
+                (Some(format!("ask:{id}")), Some(r))
             }
-            "find.started" | "find.stopped" => p["alertId"].as_str().map(|i| format!("find:{i}")),
-            "clipboard.response" => p["requestId"].as_str().map(|i| format!("cliprq:{i}")),
-            "codes.result" => p["queryId"].as_str().map(|i| format!("codes:{i}")),
-            "agent.notifications.result" => p["queryId"].as_str().map(|i| format!("notifications:{i}")),
-            k if k.starts_with("files.") => m.transfer_id.as_ref().map(|t| format!("xfer:{t}")),
-            _ => None,
+            "find.started" | "find.stopped" => (p["alertId"].as_str().map(|i| format!("find:{i}")), payload),
+            "clipboard.response" => match crate::payloads::clipboard_response(&p) {
+                Some(r) => (r["requestId"].as_str().map(|i| format!("cliprq:{i}")), Some(r)),
+                None => return,
+            },
+            "codes.result" => match crate::payloads::codes_result(&p) {
+                Some(r) => (r["queryId"].as_str().map(|i| format!("codes:{i}")), Some(r)),
+                None => return,
+            },
+            "agent.notifications.result" => (p["queryId"].as_str().map(|i| format!("notifications:{i}")), payload),
+            k if k.starts_with("files.") => (m.transfer_id.as_ref().map(|t| format!("xfer:{t}")), payload),
+            _ => (None, payload),
         };
         let Some(key) = key.map(|k| format!("{peer}|{k}")) else { return };
         let tx = self.st.lock().unwrap().waiters.get(&key).cloned();
@@ -834,7 +832,7 @@ impl Daemon {
             }
             .into();
             if kind == "ask.answer" {
-                a.answer = Some(json!({"option": p["option"].as_str().map(|o| crate::session::printable(o, 32)), "text": p["text"].as_str().map(|x| x.chars().take(1000).collect::<String>()), "answeredAt": p["answeredAt"].as_u64()}));
+                a.answer = Some(json!({"option": p["option"].as_str().map(|o| crate::session::printable(o, 32)), "text": p["text"], "answeredAt": p["answeredAt"]}));
             }
         }
         drop(st);

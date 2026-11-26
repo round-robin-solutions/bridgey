@@ -179,5 +179,116 @@ vectors = {
     ],
 }
 
+# The other agent kinds (docs/protocol-v1.md, Gaps). 'write': true means the sender writes exactly that plaintext: the
+# CLI for agentHello, agentGrantRequest, clipboardRequest, agentNotificationsQuery and codesCancel, the phone for
+# agentRequestResult, notifyResult and agentNotificationsResult, and both for askRef. The receiver keeps expect, or
+# drops a reject. Where a group above has no 'write', every case it accepts is what its sender writes.
+M = "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a"
+
+
+def w(name, plaintext, expect, **extra):
+    return case(name, plaintext, expect, write=True, **extra)
+
+
+grants_all = ["files", "clipboard", "clipboard_request", "notify", "ask", "ring", "battery", "codes", "codes_detect", "notifications"]
+notification = {"id": "0|com.example.ci|1|null|10123", "packageName": "com.example.ci", "applicationName": "RR CI", "title": "Nightly passed",
+                "text": "bridgey 0.3.0\nall lanes green", "postedAt": T}
+notification2 = {"id": "0|com.example.mail|4|null|10123", "packageName": "com.example.mail", "applicationName": "Mail", "title": "Rahul",
+                 "text": "Lunch?", "postedAt": T - 60000}
+vectors.update({
+    "agentHello": [
+        w("bridgey on Linux", {"version": 1, "platform": "cli", "app": "bridgey 0.3.0", "os": "linux x86_64"}, {"platform": "cli", "app": "bridgey 0.3.0", "os": "linux x86_64"}),
+        w("bridgey on a Mac", {"version": 1, "platform": "cli", "app": "bridgey 0.3.0", "os": "macos aarch64"}, {"platform": "cli", "app": "bridgey 0.3.0", "os": "macos aarch64"}),
+        case("control and bidi characters are removed", {"version": 1, "platform": "cli", "app": "bridgey\u0007 0.3.0", "os": "linux\u202e x86_64"},
+             {"platform": "cli", "app": "bridgey 0.3.0", "os": "linux x86_64"}),
+        case("unknown fields are ignored", {"version": 1, "platform": "cli", "app": "bridgey 0.3.0", "os": "linux x86_64", "future": 1},
+             {"platform": "cli", "app": "bridgey 0.3.0", "os": "linux x86_64"}),
+        case("app of 65 characters", {"version": 1, "platform": "cli", "app": "a" * 65, "os": "linux x86_64"}, "reject"),
+        case("no platform", {"version": 1, "app": "bridgey 0.3.0", "os": "linux x86_64"}, "reject"),
+        case("empty platform", {"version": 1, "platform": "", "app": "bridgey 0.3.0", "os": "linux x86_64"}, "reject"),
+        case("no os", {"version": 1, "platform": "cli", "app": "bridgey 0.3.0"}, "reject"),
+        case("version 2", {"version": 2, "platform": "cli", "app": "bridgey 0.3.0", "os": "linux x86_64"}, "reject"),
+    ],
+    "agentGrantRequest": [
+        w("two grants with a note", {"version": 1, "requestId": U, "keys": ["codes", "notify"], "note": "For the nightly build"},
+          {"requestId": U, "keys": ["codes", "notify"], "note": "For the nightly build"}),
+        w("every grant", {"version": 1, "requestId": U, "keys": grants_all}, {"requestId": U, "keys": grants_all}),
+        case("unknown names are skipped", {"version": 1, "requestId": U, "keys": ["codes", "teleport"]}, {"requestId": U, "keys": ["codes"]}),
+        case("a name twice is kept once", {"version": 1, "requestId": U, "keys": ["codes", "codes"]}, {"requestId": U, "keys": ["codes"]}),
+        case("no keys", {"version": 1, "requestId": U, "keys": []}, "reject"),
+        case("11 keys", {"version": 1, "requestId": U, "keys": grants_all + ["codes"]}, "reject"),
+        case("only unknown names", {"version": 1, "requestId": U, "keys": ["teleport"]}, "reject"),
+        case("a key that is not a string", {"version": 1, "requestId": U, "keys": ["codes", 5]}, "reject"),
+        case("note of 121 characters", {"version": 1, "requestId": U, "keys": ["codes"], "note": "n" * 121}, "reject"),
+        case("requestId not a UUID", {"version": 1, "requestId": "r1", "keys": ["codes"]}, "reject"),
+    ],
+    "agentRequestResult": [
+        w("ok", {"version": 1, "ref": M, "requestKind": "notify.post", "status": "ok"}, {"ref": M, "requestKind": "notify.post", "status": "ok"}),
+        w("not granted names the grant", {"version": 1, "ref": M, "requestKind": "codes.query", "status": "not_granted", "grant": "codes"},
+          {"ref": M, "requestKind": "codes.query", "status": "not_granted", "grant": "codes"}),
+        w("rate limited says when to retry", {"version": 1, "ref": M, "requestKind": "ask.request", "status": "rate_limited", "retryAfterMs": 120000},
+          {"ref": M, "requestKind": "ask.request", "status": "rate_limited", "retryAfterMs": 120000}),
+        w("invalid", {"version": 1, "ref": M, "requestKind": "notify.post", "status": "invalid"}, {"ref": M, "requestKind": "notify.post", "status": "invalid"}),
+        case("an unknown status is kept", {"version": 1, "ref": M, "requestKind": "notify.post", "status": "later"}, {"ref": M, "requestKind": "notify.post", "status": "later"}),
+        case("no ref", {"version": 1, "requestKind": "notify.post", "status": "ok"}, "reject"),
+        case("status not a string", {"version": 1, "ref": M, "requestKind": "notify.post", "status": 1}, "reject"),
+        case("version 2", {"version": 2, "ref": M, "requestKind": "notify.post", "status": "ok"}, "reject"),
+    ],
+    "notifyResult": [
+        w("posted", {"version": 1, "notifyId": U, "status": "posted"}, {"notifyId": U, "status": "posted"}),
+        case("no notifyId", {"version": 1, "status": "posted"}, "reject"),
+        case("notifyId not a UUID", {"version": 1, "notifyId": "n1", "status": "posted"}, "reject"),
+        case("version 2", {"version": 2, "notifyId": U, "status": "posted"}, "reject"),
+    ],
+    # ask.posted, ask.dismissed, ask.expired and ask.cancelled from the phone, ask.cancel and ask.status from the agent.
+    "askRef": [
+        w("an ask", {"version": 1, "askId": U}, {"askId": U}),
+        case("unknown fields are ignored", {"version": 1, "askId": U, "future": True}, {"askId": U}),
+        case("askId not a UUID", {"version": 1, "askId": "a1"}, "reject"),
+        case("no askId", {"version": 1}, "reject"),
+        case("version 2", {"version": 2, "askId": U}, "reject"),
+    ],
+    "clipboardRequest": [
+        w("two minutes", {"version": 1, "requestId": U, "expiresAt": T + 120000}, {"requestId": U, "expiresAt": T + 120000}, now=T),
+        w("ten minutes, the longest", {"version": 1, "requestId": U, "expiresAt": T + 600000}, {"requestId": U, "expiresAt": T + 600000}, now=T),
+        case("expiry now", {"version": 1, "requestId": U, "expiresAt": T}, "reject", now=T),
+        case("over ten minutes ahead", {"version": 1, "requestId": U, "expiresAt": T + 600001}, "reject", now=T),
+        case("expiresAt a string", {"version": 1, "requestId": U, "expiresAt": "soon"}, "reject", now=T),
+        case("requestId not a UUID", {"version": 1, "requestId": "r1", "expiresAt": T + 120000}, "reject", now=T),
+    ],
+    "agentNotificationsQuery": [
+        w("limit 5", {"version": 1, "queryId": U, "limit": 5}, {"queryId": U, "limit": 5}),
+        w("limit 20", {"version": 1, "queryId": U, "limit": 20}, {"queryId": U, "limit": 20}),
+        case("no limit reads as 20", {"version": 1, "queryId": U}, {"queryId": U, "limit": 20}),
+        case("limit 0", {"version": 1, "queryId": U, "limit": 0}, "reject"),
+        case("limit 21", {"version": 1, "queryId": U, "limit": 21}, "reject"),
+        case("limit a string", {"version": 1, "queryId": U, "limit": "5"}, "reject"),
+        case("queryId not a UUID", {"version": 1, "queryId": "q1", "limit": 5}, "reject"),
+    ],
+    # 'limit' is what the agent asked for; expect keeps the snapshot, or reject.
+    "agentNotificationsResult": [
+        w("two notifications", {"version": 1, "queryId": U, "status": "ok", "notifications": [notification, notification2], "truncated": False},
+          {"queryId": U, "status": "ok", "notifications": [notification, notification2], "truncated": False}, limit=20),
+        w("more on the phone than fit", {"version": 1, "queryId": U, "status": "ok", "notifications": [notification], "truncated": True},
+          {"queryId": U, "status": "ok", "notifications": [notification], "truncated": True}, limit=1),
+        w("none", {"version": 1, "queryId": U, "status": "ok", "notifications": [], "truncated": False},
+          {"queryId": U, "status": "ok", "notifications": [], "truncated": False}, limit=20),
+        w("unavailable", {"version": 1, "queryId": U, "status": "unavailable", "notifications": [], "truncated": False},
+          {"queryId": U, "status": "unavailable", "notifications": [], "truncated": False}, limit=20),
+        case("more than asked", {"version": 1, "queryId": U, "status": "ok", "notifications": [notification, notification2], "truncated": False}, "reject", limit=1),
+        case("another query", {"version": 1, "queryId": U2, "status": "ok", "notifications": [], "truncated": False}, "reject", limit=20),
+        case("text of 2,049 characters", {"version": 1, "queryId": U, "status": "ok", "notifications": [{**notification, "text": "t" * 2049}], "truncated": False}, "reject", limit=20),
+        case("postedAt negative", {"version": 1, "queryId": U, "status": "ok", "notifications": [{**notification, "postedAt": -1}], "truncated": False}, "reject", limit=20),
+        case("unknown status", {"version": 1, "queryId": U, "status": "later", "notifications": [], "truncated": False}, "reject", limit=20),
+        case("truncated missing", {"version": 1, "queryId": U, "status": "ok", "notifications": []}, "reject", limit=20),
+        case("version 2", {"version": 2, "queryId": U, "status": "ok", "notifications": [], "truncated": False}, "reject", limit=20),
+    ],
+    "codesCancel": [
+        w("a held query", {"version": 1, "queryId": U}, {"queryId": U}),
+        case("queryId not a UUID", {"version": 1, "queryId": "q1"}, "reject"),
+        case("version 2", {"version": 2, "queryId": U}, "reject"),
+    ],
+})
+
 OUT.write_text(json.dumps(vectors, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
 print(f"wrote {OUT}")

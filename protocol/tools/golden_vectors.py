@@ -133,6 +133,12 @@ cr("empty", {"number":""}, "reject")
 cr("spaces only", {"number":"   "}, "reject")
 cr("unknown fields are ignored", {"number":"12345","extra":True}, "12345")
 cr("number missing", {}, "reject")
+# The number is a JSON string only (docs/protocol.md, Calls from Mac). A phone's org.json used to turn a JSON number into
+# text; every platform now refuses any other type, as the JVM test library always did.
+cr("number as a JSON number", {"number":79991234567}, "reject")
+cr("number as a boolean", {"number":True}, "reject")
+cr("number null", {"number":None}, "reject")
+cr("number as an array", {"number":["12345"]}, "reject")
 
 feat = []
 def fe(name, plaintext, expect, raw=False):
@@ -218,6 +224,18 @@ fe("unknown keys are ignored, even non-boolean", {"version":1,"features":{**lega
    {"features":{**legacy,"ping":False,"links":False,"media":False,"calls":False,"remote_input_draft1":False},"drafts":drafts_none})
 fe("draft key that is not a boolean counts as false", {"version":1,"features":{**legacy,"sms_codes_draft1":1}},
    {"features":{**legacy,"ping":False,"links":False,"media":False,"calls":False,"remote_input_draft1":False},"drafts":drafts_none})
+# How many keys a receiver keeps (docs/protocol.md, Session negotiation): a map carries at most 128 keys of at most 64
+# bytes; every receiver reads every key it knows, whatever else the map holds. Contract keys outside the drafts list are
+# read with decodeFeatureFlag, so they are in the maps but not in expect.
+others_known = {"screen_control_draft1":True,"phone_control_draft1":True,"lan_first_draft1":True,"lan_first_draft2":True,
+                "agent_notifications_draft1":True,"handoff_takeover_draft1":True}
+drafts_all = {k: True for k in drafts_none}
+known_map = {**features_all, **drafts_all, **others_known}
+full = {**known_map, **{f"future_{i:03d}_draft1": True for i in range(128 - len(known_map))}}
+assert len(full) == 128
+fe("a map of 128 keys is read in full", {"version":1,"features":full}, {"features":features_all,"drafts":drafts_all})
+crowded = {**{f"aaa_{i:03d}": True for i in range(240)}, **{("b" * 65) + str(i): True for i in range(4)}, **known_map}
+fe("over 128 keys, every known key is still read", {"version":1,"features":crowded}, {"features":features_all,"drafts":drafts_all})
 fe("missing original key closes", {"version":1,"features":{"clipboard":True,"files":True,"notifications":True,"battery":True}}, "invalid")
 fe("non-boolean known key closes", {"version":1,"features":{**legacy,"ping":"true"}}, "invalid")
 fe("null known key closes", {"version":1,"features":{**legacy,"clipboard":None}}, "invalid")
@@ -1218,6 +1236,204 @@ out = {
   "connectSetup": setup,
   "connectAddresses": addresses,
 }
+
+# Edition extension kinds that had no vector (docs/protocol-v1.md, Gaps). Each plaintext is what the sending platform's
+# encoder writes ('write': true means every sender of the kind writes exactly that plaintext); expect is what every
+# receiver keeps, or reject.
+def group():
+    cases = []
+    def add(name, p, expect, raw=False, write=False):
+        v = {"name": name, ("plaintextString" if raw else "plaintext"): p, "expect": expect}
+        if write: v["write"] = True
+        cases.append(v)
+    return cases, add
+
+OFFER = "6f1e2d3c-4b5a-4968-8776-5a4b3c2d1e0f"
+XFER = "7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d"
+# clipboard.fetch (either way): Android and the Mac write and read it.
+clipfetch, cf = group()
+cf("first item", {"version":1,"offerId":OFFER,"index":0,"transferId":XFER}, {"offerId":OFFER,"index":0,"transferId":XFER}, write=True)
+cf("index 99", {"version":1,"offerId":OFFER,"index":99,"transferId":XFER}, {"offerId":OFFER,"index":99,"transferId":XFER}, write=True)
+cf("unknown fields are ignored", {"version":1,"offerId":OFFER,"index":2,"transferId":XFER,"future":True}, {"offerId":OFFER,"index":2,"transferId":XFER})
+cf("index 100", {"version":1,"offerId":OFFER,"index":100,"transferId":XFER}, "reject")
+cf("index -1", {"version":1,"offerId":OFFER,"index":-1,"transferId":XFER}, "reject")
+cf("index as a string", {"version":1,"offerId":OFFER,"index":"3","transferId":XFER}, "reject")
+cf("index missing", {"version":1,"offerId":OFFER,"transferId":XFER}, "reject")
+cf("offerId not a UUID", {"version":1,"offerId":"offer-1","index":0,"transferId":XFER}, "reject")
+cf("transferId not a UUID", {"version":1,"offerId":OFFER,"index":0,"transferId":"t1"}, "reject")
+cf("transferId missing", {"version":1,"offerId":OFFER,"index":0}, "reject")
+cf("version 2", {"version":2,"offerId":OFFER,"index":0,"transferId":XFER}, "reject")
+cf("version missing", {"offerId":OFFER,"index":0,"transferId":XFER}, "reject")
+
+# clipboard.error (either way): Android and the Mac write and read it. A missing or unknown code reads as unavailable on
+# both (the Mac dropped such an error until the v1 gaps work), so a code added later still ends the paste at once. Not
+# pinned: a bad offerId or index, which only the phone checks.
+cliperr, ce = group()
+for i, code in enumerate(["expired", "changed", "too_large", "unavailable", "disabled", "busy"]):
+    ce(code, {"version":1,"offerId":OFFER,"index":i,"transferId":XFER,"code":code}, {"offerId":OFFER,"index":i,"transferId":XFER,"code":code}, write=True)
+ce("unknown fields are ignored", {"version":1,"offerId":OFFER,"index":0,"transferId":XFER,"code":"busy","future":[1]}, {"offerId":OFFER,"index":0,"transferId":XFER,"code":"busy"})
+ce("version 2", {"version":2,"offerId":OFFER,"index":0,"transferId":XFER,"code":"busy"}, "reject")
+ce("transferId missing", {"version":1,"offerId":OFFER,"index":0,"code":"busy"}, "reject")
+ce("index missing", {"version":1,"offerId":OFFER,"transferId":XFER,"code":"busy"}, "reject")
+ce("index as a string", {"version":1,"offerId":OFFER,"index":"0","transferId":XFER,"code":"busy"}, "reject")
+ce("an unknown code reads as unavailable", {"version":1,"offerId":OFFER,"index":0,"transferId":XFER,"code":"melted"}, {"offerId":OFFER,"index":0,"transferId":XFER,"code":"unavailable"})
+ce("no code reads as unavailable", {"version":1,"offerId":OFFER,"index":0,"transferId":XFER}, {"offerId":OFFER,"index":0,"transferId":XFER,"code":"unavailable"})
+
+# codes.advertise_stop (phone to Mac): the phone writes it; the Mac and rust/client read it. The Mac keeps only the UUID.
+SVC = "8d7c6b5a-4f3e-4d2c-9b1a-0f9e8d7c6b5a"
+advstop, cs = group()
+cs("linked", {"version":1,"serviceUuid":SVC,"linked":True}, {"serviceUuid":SVC,"linked":True}, write=True)
+cs("not linked", {"version":1,"serviceUuid":SVC,"linked":False}, {"serviceUuid":SVC,"linked":False}, write=True)
+cs("linked missing", {"version":1,"serviceUuid":SVC}, {"serviceUuid":SVC,"linked":None})
+cs("linked not a boolean reads as missing", {"version":1,"serviceUuid":SVC,"linked":"yes"}, {"serviceUuid":SVC,"linked":None})
+cs("uppercase UUID reads lowercased", {"version":1,"serviceUuid":SVC.upper(),"linked":True}, {"serviceUuid":SVC,"linked":True})
+cs("unknown fields are ignored", {"version":1,"serviceUuid":SVC,"linked":True,"future":{}}, {"serviceUuid":SVC,"linked":True})
+cs("serviceUuid not a UUID", {"version":1,"serviceUuid":"svc","linked":True}, "reject")
+cs("serviceUuid missing", {"version":1,"linked":True}, "reject")
+cs("serviceUuid as a number", {"version":1,"serviceUuid":7,"linked":True}, "reject")
+cs("version 2", {"version":2,"serviceUuid":SVC,"linked":True}, "reject")
+cs("version missing", {"serviceUuid":SVC,"linked":True}, "reject")
+cs("version as a string", {"version":"1","serviceUuid":SVC,"linked":True}, "reject")
+
+# input.session.started (host to controller): the Mac writes it, the phone reads it. expect heartbeatSeconds is what the
+# phone uses: 1 to 30, otherwise 2.
+ISID = "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f"
+started, iss = group()
+def isp(seq, **kw): return {"version":1,"inputSessionId":ISID,"sequence":seq,"heartbeatSeconds":2,"idleSeconds":6,"limits":{"motion":120,"discrete":20,"text":256}, **kw}
+iss("first reply", isp(1), {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":2}, write=True)
+iss("a later sequence", isp(7), {"inputSessionId":ISID,"sequence":7,"heartbeatSeconds":2}, write=True)
+iss("uppercase session ID reads lowercased", {**isp(1), "inputSessionId":ISID.upper()}, {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":2})
+iss("heartbeat missing reads as 2", {"version":1,"inputSessionId":ISID,"sequence":1}, {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":2})
+iss("heartbeat 30", {**isp(1), "heartbeatSeconds":30}, {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":30})
+iss("heartbeat 31 reads as 2", {**isp(1), "heartbeatSeconds":31}, {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":2})
+iss("heartbeat 0 reads as 2", {**isp(1), "heartbeatSeconds":0}, {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":2})
+iss("unknown fields are ignored", isp(1, future=True), {"inputSessionId":ISID,"sequence":1,"heartbeatSeconds":2})
+iss("version 2", {**isp(1), "version":2}, "reject")
+iss("inputSessionId not a UUID", {**isp(1), "inputSessionId":"session-1"}, "reject")
+iss("inputSessionId missing", {k: v for k, v in isp(1).items() if k != "inputSessionId"}, "reject")
+iss("sequence 0", isp(0), "reject")
+iss("sequence missing", {k: v for k, v in isp(1).items() if k != "sequence"}, "reject")
+iss("sequence as a string", {**isp(1), "sequence":"1"}, "reject")
+iss("over 2,048 bytes", sized('{"version":1,"inputSessionId":"%s","sequence":1,"pad":"' % ISID, 2049), "reject", raw=True)
+
+# Text messages, phone to Mac: the phone writes them, the Mac reads them. Absent optionals expect null.
+smschanged, sc = group()
+sc("new message", {"version":1,"cursor":{"sms":1201,"mms":45}}, {"cursor":{"sms":1201,"mms":45}}, write=True)
+sc("empty tables", {"version":1,"cursor":{"sms":0,"mms":0}}, {"cursor":{"sms":0,"mms":0}}, write=True)
+sc("unknown fields are ignored", {"version":1,"cursor":{"sms":3,"mms":4,"rcs":5},"future":1}, {"cursor":{"sms":3,"mms":4}})
+sc("cursor missing", {"version":1}, "reject")
+sc("negative sms", {"version":1,"cursor":{"sms":-1,"mms":0}}, "reject")
+sc("mms as a string", {"version":1,"cursor":{"sms":1,"mms":"2"}}, "reject")
+sc("version 2", {"version":2,"cursor":{"sms":1,"mms":2}}, "reject")
+sc("over 256 bytes", sized('{"version":1,"cursor":{"sms":1,"mms":2},"pad":"', 257), "reject", raw=True)
+
+TT = 1793091600000
+threadspage, stp = group()
+def th(tid, parts, snippet, date, unread, sub=None):
+    t = {"threadId":tid,"participants":parts,"snippet":snippet,"date":date,"unread":unread}
+    if sub is not None: t["subId"] = sub
+    return t
+def thx(tid, parts, snippet, date, unread, sub=None):
+    return {"threadId":tid,"participants":[{"address":p["address"],"name":p.get("name")} for p in parts],"snippet":snippet,"date":date,"unread":unread,"subId":sub}
+ONE = [{"address":"+919812345678","name":"Asha"}]
+GROUP = [{"address":"+919800000001"},{"address":"+919800000002","name":"Ravi"}]
+stp("two threads, one a group", {"version":1,"requestId":R2,"threads":[th(12,ONE,"See you at 6",TT,2,1),th(7,GROUP,"Ok",TT-1000,0)],"more":True},
+    {"requestId":R2,"threads":[thx(12,ONE,"See you at 6",TT,2,1),thx(7,GROUP,"Ok",TT-1000,0)],"more":True,"error":None}, write=True)
+stp("last page", {"version":1,"requestId":R2,"threads":[th(3,ONE,"Hi",TT,0)],"more":False},
+    {"requestId":R2,"threads":[thx(3,ONE,"Hi",TT,0)],"more":False,"error":None}, write=True)
+stp("disabled on the phone", {"version":1,"requestId":R2,"error":"disabled","threads":[],"more":False}, {"requestId":R2,"threads":[],"more":False,"error":"disabled"}, write=True)
+stp("no permission", {"version":1,"requestId":R2,"error":"permission","threads":[],"more":False}, {"requestId":R2,"threads":[],"more":False,"error":"permission"}, write=True)
+stp("uppercase request ID reads lowercased", {"version":1,"requestId":R2.upper(),"threads":[],"more":False}, {"requestId":R2,"threads":[],"more":False,"error":None})
+stp("invalid threads are dropped", {"version":1,"requestId":R2,"threads":[th(0,ONE,"x",TT,0),th(5,[],"x",TT,0),th(6,[{"address":"1"*65}],"x",TT,0),th(8,ONE,"Kept",TT,1)],"more":False},
+    {"requestId":R2,"threads":[thx(8,ONE,"Kept",TT,1)],"more":False,"error":None})
+stp("unknown fields are ignored", {"version":1,"requestId":R2,"threads":[{**th(3,ONE,"Hi",TT,0),"future":1}],"more":False,"future":True},
+    {"requestId":R2,"threads":[thx(3,ONE,"Hi",TT,0)],"more":False,"error":None})
+stp("requestId not a UUID", {"version":1,"requestId":"r1","threads":[],"more":False}, "reject")
+stp("threads missing", {"version":1,"requestId":R2,"more":False}, "reject")
+stp("threads not an array", {"version":1,"requestId":R2,"threads":{},"more":False}, "reject")
+stp("version 2", {"version":2,"requestId":R2,"threads":[],"more":False}, "reject")
+
+JPEG = base64.b64encode(bytes([0xFF, 0xD8, 0xFF, 0xE0]) + bytes(range(60)) + bytes([0xFF, 0xD9])).decode()
+attach, sa = group()
+sa("image", {"version":1,"requestId":R2,"partId":"p42","mimeType":"image/jpeg","width":640,"height":480,"data":JPEG},
+   {"requestId":R2,"partId":"p42","data":JPEG,"width":640,"height":480,"error":None}, write=True)
+for reason in ["not_found", "unsupported", "permission"]:
+    sa(reason, {"version":1,"requestId":R2,"partId":"p42","error":reason}, {"requestId":R2,"partId":"p42","data":None,"width":0,"height":0,"error":reason}, write=True)
+sa("size missing reads as 0", {"version":1,"requestId":R2,"partId":"p9","mimeType":"image/jpeg","data":JPEG}, {"requestId":R2,"partId":"p9","data":JPEG,"width":0,"height":0,"error":None})
+sa("partId not a part", {"version":1,"requestId":R2,"partId":"s42","mimeType":"image/jpeg","width":1,"height":1,"data":JPEG}, "reject")
+sa("requestId not a UUID", {"version":1,"requestId":"r1","partId":"p42","error":"not_found"}, "reject")
+sa("data missing", {"version":1,"requestId":R2,"partId":"p42","mimeType":"image/jpeg","width":1,"height":1}, "reject")
+sa("data empty", {"version":1,"requestId":R2,"partId":"p42","mimeType":"image/jpeg","width":1,"height":1,"data":""}, "reject")
+sa("data not base64", {"version":1,"requestId":R2,"partId":"p42","mimeType":"image/jpeg","width":1,"height":1,"data":"@@@@"}, "reject")
+sa("image over 28,672 bytes", {"version":1,"requestId":R2,"partId":"p42","mimeType":"image/jpeg","width":1,"height":1,"data":base64.b64encode(bytes(28673)).decode()}, "reject")
+sa("version 2", {"version":2,"requestId":R2,"partId":"p42","error":"not_found"}, "reject")
+
+contacts, sk = group()
+def ct(name, address, label=None):
+    c = {"name":name,"address":address}
+    if label is not None: c["label"] = label
+    return c
+def ctx(name, address, label=None): return {"name":name,"address":address,"label":label}
+sk("two matches", {"version":1,"requestId":R2,"contacts":[ct("Asha Rao","+919812345678","Mobile"),ct("Asha Office","+911140000000")]},
+   {"requestId":R2,"contacts":[ctx("Asha Rao","+919812345678","Mobile"),ctx("Asha Office","+911140000000")],"error":None}, write=True)
+sk("no matches", {"version":1,"requestId":R2,"contacts":[]}, {"requestId":R2,"contacts":[],"error":None}, write=True)
+sk("no permission", {"version":1,"requestId":R2,"contacts":[],"error":"permission"}, {"requestId":R2,"contacts":[],"error":"permission"}, write=True)
+sk("invalid entries are skipped", {"version":1,"requestId":R2,"contacts":[ct("A",""),ct("n"*129,"+1"),ct("B","2"*65),5,ct("Kept","+3","l"*33)]},
+   {"requestId":R2,"contacts":[ctx("Kept","+3")],"error":None})
+sk("at most 20 are kept", {"version":1,"requestId":R2,"contacts":[ct("C%d" % n,"+9100%d" % n) for n in range(21)]},
+   {"requestId":R2,"contacts":[ctx("C%d" % n,"+9100%d" % n) for n in range(20)],"error":None})
+sk("uppercase request ID reads lowercased", {"version":1,"requestId":R2.upper(),"contacts":[]}, {"requestId":R2,"contacts":[],"error":None})
+sk("requestId missing", {"version":1,"contacts":[]}, "reject")
+sk("version 2", {"version":2,"requestId":R2,"contacts":[]}, "reject")
+sk("over 16,384 bytes", sized('{"version":1,"requestId":"%s","contacts":[],"pad":"' % R2, 16385), "reject", raw=True)
+
+# connect.setup.ack (either way): informational; every receiver ignores the payload, so only the senders are checked.
+setupack, sq = group()
+sq("as every platform writes it", {"version":1}, {}, write=True)
+
+# settings.ack and settings.error (either way): Android and the Mac write and read them. The Mac does not read kept.
+# Not pinned: an empty or over-long ackOf, and an empty code, which only the phone refuses.
+sack, sak = group()
+sak("applied and kept", {"schema":1,"ackOf":M,"applied":["files.folder_destination","feature.clipboard"],"kept":["activity.previews"]},
+    {"ackOf":M,"applied":["files.folder_destination","feature.clipboard"],"kept":["activity.previews"]}, write=True)
+sak("nothing applied", {"schema":1,"ackOf":M,"applied":[],"kept":[]}, {"ackOf":M,"applied":[],"kept":[]}, write=True)
+sak("unknown keys are skipped", {"schema":1,"ackOf":M,"applied":["feature.clipboard","feature.teleport"],"kept":["future.key"]}, {"ackOf":M,"applied":["feature.clipboard"],"kept":[]})
+sak("entries that are not strings are skipped", {"schema":1,"ackOf":M,"applied":[5,"feature.files",None],"kept":[True]}, {"ackOf":M,"applied":["feature.files"],"kept":[]})
+sak("applied and kept missing read as none", {"schema":1,"ackOf":M}, {"ackOf":M,"applied":[],"kept":[]})
+sak("ackOf missing", {"schema":1,"applied":[],"kept":[]}, "reject")
+sak("ackOf as a number", {"schema":1,"ackOf":5,"applied":[],"kept":[]}, "reject")
+sak("not an object", "[]", "reject", raw=True)
+sak("lenient JSON", "{schema:1,ackOf:'%s'}" % M, "reject", raw=True)
+sak("over 8,192 bytes", sized('{"schema":1,"ackOf":"%s","pad":"' % M, 8193), "reject", raw=True)
+
+serr, ser = group()
+for code in ["unsupported_schema", "invalid_message", "rate_limited"]:
+    ser(code, {"schema":1,"code":code,"maxSchema":1}, {"code":code}, write=True)
+ser("unknown code is kept", {"schema":1,"code":"too_fast","maxSchema":1}, {"code":"too_fast"})
+ser("code of 64 bytes", {"schema":1,"code":"c"*64,"maxSchema":1}, {"code":"c"*64})
+ser("code of 65 bytes", {"schema":1,"code":"c"*65,"maxSchema":1}, "reject")
+ser("code missing", {"schema":1,"maxSchema":1}, "reject")
+ser("code as a number", {"schema":1,"code":1,"maxSchema":1}, "reject")
+ser("not an object", '"rate_limited"', "reject", raw=True)
+ser("over 8,192 bytes", sized('{"schema":1,"code":"rate_limited","pad":"', 8193), "reject", raw=True)
+
+out.update({
+  "clipboardFetch": clipfetch,
+  "clipboardError": cliperr,
+  "codesAdvertiseStop": advstop,
+  "inputSessionStarted": started,
+  "smsChanged": smschanged,
+  "smsThreadsPage": threadspage,
+  "smsAttachmentData": attach,
+  "smsContactsResult": contacts,
+  "connectSetupAck": setupack,
+  "settingsAck": sack,
+  "settingsError": serr,
+})
+out["description"] += (" Extension kinds (v1 gaps): clipboardFetch, clipboardError, codesAdvertiseStop, inputSessionStarted, smsChanged,"
+  " smsThreadsPage, smsAttachmentData, smsContactsResult, connectSetupAck, settingsAck and settingsError carry one kind each;"
+  " expect is what every receiver of the kind keeps (null for an absent optional), or reject, and 'write': true means every"
+  " sender writes exactly that plaintext.")
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
 print(len(frames), len(feat), len(batt), len(rich), len(calls), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
       len(screq), len(scstat), len(sstream), len(sframe),

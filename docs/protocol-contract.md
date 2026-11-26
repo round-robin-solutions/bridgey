@@ -86,8 +86,12 @@ the tables at the end of this page are generated from it with
 - `protocol/messages.json` lists every message kind. On Android, `ProtocolContractTest` and on macOS
   `ProtocolContractTests` scan the app sources for every kind the code sends or handles and fail when
   one is missing from the file, or when the file says a platform implements a kind its code never
-  mentions. They also check that every feature key the app advertises is listed. Adding a message
+  mentions. They also check that every feature key the app advertises is listed. `rust/client`
+  (`contract_lists_the_kinds_this_client_uses`) and the `bridgey` command (`rust/cli/src/contract_tests.rs`, which also
+  checks that each kind's direction fits an agent and that its feature keys are listed) do the same. Adding a message
   without documenting it fails the build's tests.
+- `contract.py` fails when a `features.update` map could break the size rule (more than 128 listed keys, or a key over
+  64 bytes) and when app sources on any platform name a `_draftN` key the file does not list.
 - `python3 -m unittest discover -s scripts/rr/tests` runs `test_protocol_contract.py`, which validates
   the file and fails when the tables on this page are stale.
 - Golden vectors in [`protocol/test-vectors/protocol-v1.json`](../protocol/test-vectors/protocol-v1.json)
@@ -109,6 +113,8 @@ the tables at the end of this page are generated from it with
   (`settingsPayload`: records kept, entries skipped one by one, the first-connect flags, invalid messages, unsupported
   schemas), pick the same winner between two records (`settingsMerge`), treat a snapshot record alike (`settingsSnapshot`),
   pick the same device to ask on a first connect (`settingsAsker`) and stamp a local edit alike (`settingsStamp`).
+  Extension kinds that had no vector until the v1 gaps work (`clipboardFetch` to `settingsError`) are checked by every
+  platform that writes or reads each kind (`ExtensionVectorsTest`, `ExtensionVectorsTests`, `rust/client`).
 - The Mac controls the phone (`phone_control_draft1`): [`protocol/test-vectors/phone-control-v1.json`](../protocol/test-vectors/phone-control-v1.json)
   (written by `protocol/tools/phone_control_vectors.py`) pins the `control` object of `screen.start`, `screen.geometry` and both forms of
   `screen.control`, each side's capabilities and their negotiation, and where a position lands on the phone's display. Android
@@ -119,6 +125,14 @@ the tables at the end of this page are generated from it with
   rules. `rust/client`, Android (`FileResumeVectorTest`) and the Mac (`FileResumeVectorTests`) check every vector, and
   [`session-client-resume-v1.json`](../protocol/test-vectors/session-client-resume-v1.json), a resume recorded between
   two session clients, is opened frame by frame by `SessionClientResumeVectorTest` and `SessionClientResumeVectorTests`.
+- Agent devices: [`protocol/test-vectors/agent-v1.json`](../protocol/test-vectors/agent-v1.json) (written by
+  `protocol/tools/agent_vectors.py`) pins every agent kind; the phone (`AgentVectorsTest`) and the `bridgey` command
+  (`payloads.rs`, `detect.rs`, `invite.rs`) check each group they write or read, the Mac (`AgentsMirrorTests`) the grants
+  and its mirror kinds. [`agents-mirror-v1.json`](../protocol/test-vectors/agents-mirror-v1.json) pins `agents.state`
+  and `codes.read`, written by the phone and read by the Mac.
+- Phone files: [`protocol/test-vectors/browse-v1.json`](../protocol/test-vectors/browse-v1.json) (written by
+  `protocol/tools/browse_vectors.py`) pins the listing pages, download, thumbnail, preview and range answers and the
+  media requests; Android (`BrowseVectorsTest`) and the Mac (`BrowseVectorsTests`) check it.
 - Sessions recorded between two `rust/client` peers (`session-client-*.json`) are opened frame by frame on
   Android and the Mac; they cover pairing, `features.update`, clipboard, files, battery, find device,
   notifications, `codes.*`, `quick.*` and `media.state`.
@@ -146,7 +160,7 @@ the tables at the end of this page are generated from it with
 
 <!-- BEGIN GENERATED: protocol/tools/contract.py --write -->
 
-Proposed v1 statuses ([protocol-v1.md](protocol-v1.md), not frozen yet): feature keys 5 core, 29 extension, 11 draft; message kinds 30 core, 130 extension, 42 draft.
+Proposed v1 statuses ([protocol-v1.md](protocol-v1.md), not frozen yet): feature keys 5 core, 29 extension, 12 draft; message kinds 30 core, 130 extension, 42 draft.
 
 ### Feature keys
 
@@ -197,6 +211,7 @@ Proposed v1 statuses ([protocol-v1.md](protocol-v1.md), not frozen yet): feature
 | `device_presence_draft1` | edition-draft | draft | no | false |
 | `share_receive_draft1` | edition-draft | draft | no | false |
 | `notification_routing_draft1` | edition-draft | draft | no | false |
+| `handoff_takeover_draft1` | edition-draft | draft | no | false |
 
 ### Envelope fields
 
@@ -383,7 +398,7 @@ Explicit Android share only. Requires Clipboard grants at both ends. Copies with
 | `files.complete` | upstream-v1 | core | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli, client |
 | `files.complete.ack` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
 | `files.cancel` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
-| `files.cancel.ack` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.cancel.ack` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, client |
 | `files.resume` | edition-draft | draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, client |
 | `files.resume.ack` | edition-draft | draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, client |
 | `files.resume.wait` | edition-draft | draft | either | files_resume_draft1 | no | none | frame | sessionId, transferId | android, macos, client |

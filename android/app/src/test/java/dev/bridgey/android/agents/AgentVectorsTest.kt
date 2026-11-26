@@ -14,10 +14,12 @@ import java.util.Base64
 
 /**
  * protocol/test-vectors/agent-v1.json (generator protocol/tools/agent_vectors.py): what this phone decodes from agents
- * and Macs, and the encodings it sends. The CLI and the Mac check the same file.
+ * and Macs, and the encodings it sends. The CLI and the Mac check the same file. agents-mirror-v1.json: what this phone
+ * writes to a Mac ("agentsState", "codesRead"), which the Mac decodes.
  */
 class AgentVectorsTest {
     private val vectors = JSONObject(File(File(System.getProperty("bridgey.repoRoot") ?: "../.."), "protocol/test-vectors/agent-v1.json").readText())
+    private val mirror = JSONObject(File(File(System.getProperty("bridgey.repoRoot") ?: "../.."), "protocol/test-vectors/agents-mirror-v1.json").readText())
     private val control = "wss://connect.roundrobin.in/v1/ws"
     private val now = 1_798_000_000_000L
 
@@ -254,6 +256,143 @@ class AgentVectorsTest {
             }
             val encoded = codesResultPayload(plaintext.getString("queryId"), codes, plaintext.getInt("readers"), plaintext.getBoolean("timedOut"))
             assertJson(plaintext, encoded, case.getString("name"))
+        }
+    }
+
+    // MARK: the other agent kinds (docs/protocol-v1.md, Gaps)
+
+    private fun written(case: JSONObject) = case.optBoolean("write")
+
+    private fun JSONObject.optText(name: String): String? = if (has(name) && opt(name) is String) getString(name) else null
+
+    @Test fun agentHello() {
+        cases("agentHello").forEach { case ->
+            val decoded = decodeAgentHello(bytes(case))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            val hello = decoded ?: error("${case.getString("name")} was refused")
+            assertEquals(case.getString("name"), plain(case.getJSONObject("expect")),
+                plain(JSONObject().put("platform", hello.platform).put("app", hello.app).put("os", hello.os)))
+        }
+    }
+
+    @Test fun agentGrantRequest() {
+        cases("agentGrantRequest").forEach { case ->
+            val decoded = decodeGrantRequest(bytes(case))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            val request = decoded ?: error("${case.getString("name")} was refused")
+            val actual = JSONObject().put("requestId", request.requestId).put("keys", JSONArray(request.grants.map { it.key }))
+                .apply { request.note?.let { put("note", it) } }
+            assertEquals(case.getString("name"), plain(case.getJSONObject("expect")), plain(actual))
+        }
+    }
+
+    @Test fun agentRequestResultEncoding() {
+        cases("agentRequestResult").filter(::written).forEach { case ->
+            val p = case.getJSONObject("plaintext")
+            val encoded = requestResultPayload(
+                p.getString("ref"), p.getString("requestKind"), p.getString("status"),
+                p.optLong("retryAfterMs").takeIf { p.has("retryAfterMs") },
+                p.optText("grant")?.let { AgentGrant.of(it)!! },
+            )
+            assertJson(p, encoded, case.getString("name"))
+        }
+    }
+
+    @Test fun notifyResultEncoding() {
+        cases("notifyResult").filter(::written).forEach { case ->
+            val p = case.getJSONObject("plaintext")
+            assertJson(p, notifyResultPayload(p.getString("notifyId")), case.getString("name"))
+        }
+    }
+
+    /** ask.cancel and ask.status from an agent; ask.posted, ask.dismissed, ask.expired and ask.cancelled written here. */
+    @Test fun askRef() {
+        cases("askRef").forEach { case ->
+            val decoded = decodeAskRef(bytes(case))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            assertEquals(case.getString("name"), case.getJSONObject("expect").getString("askId"), decoded)
+            if (written(case)) assertJson(case.getJSONObject("plaintext"), askRefPayload(decoded!!), case.getString("name"))
+        }
+    }
+
+    @Test fun clipboardRequest() {
+        cases("clipboardRequest").forEach { case ->
+            val decoded = decodeClipboardRequest(bytes(case), case.getLong("now"))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            val request = decoded ?: error("${case.getString("name")} was refused")
+            assertEquals(case.getString("name"), plain(case.getJSONObject("expect")),
+                plain(JSONObject().put("requestId", request.requestId).put("expiresAt", request.expiresAt)))
+        }
+    }
+
+    @Test fun agentNotificationsQuery() {
+        cases("agentNotificationsQuery").forEach { case ->
+            val decoded = decodeAgentNotificationsQuery(bytes(case))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            val query = decoded ?: error("${case.getString("name")} was refused")
+            assertEquals(case.getString("name"), plain(case.getJSONObject("expect")),
+                plain(JSONObject().put("queryId", query.queryId).put("limit", query.limit)))
+        }
+    }
+
+    @Test fun agentNotificationsResultEncoding() {
+        cases("agentNotificationsResult").filter(::written).forEach { case ->
+            val p = case.getJSONObject("plaintext")
+            val list = p.getJSONArray("notifications")
+            val items = (0 until list.length()).map(list::getJSONObject).map {
+                AgentNotification(it.getString("id"), it.getString("packageName"), it.getString("applicationName"), it.getString("title"), it.getString("text"), it.getLong("postedAt"))
+            }
+            val snapshot = AgentNotificationsSnapshot(p.getString("status") == "ok", items, p.getBoolean("truncated"))
+            assertJson(p, agentNotificationsResultPayload(p.getString("queryId"), snapshot, case.getInt("limit")), case.getString("name"))
+        }
+    }
+
+    @Test fun codesCancel() {
+        cases("codesCancel").forEach { case ->
+            val decoded = decodeCodesCancel(bytes(case))
+            if (rejects(case)) return@forEach assertNull(case.getString("name"), decoded)
+            assertEquals(case.getString("name"), case.getJSONObject("expect").getString("queryId"), decoded)
+        }
+    }
+
+    // MARK: what the phone writes to a Mac (agents-mirror-v1.json)
+
+    private fun mirrorCases(name: String): List<JSONObject> = mirror.getJSONArray(name).let { list -> (0 until list.length()).map(list::getJSONObject) }
+
+    @Test fun agentsStateEncoding() {
+        val written = mirrorCases("agentsState").filter(::written)
+        assertTrue("agentsState has a case the phone writes", written.isNotEmpty())
+        written.forEach { case ->
+            val p = case.getJSONObject("plaintext")
+            val list = p.getJSONArray("agents")
+            val agents = (0 until list.length()).map(list::getJSONObject).map { a ->
+                val grants = a.getJSONArray("grants").let { g -> (0 until g.length()).map(g::getJSONObject) }.map { g ->
+                    GrantView(
+                        AgentGrant.of(g.getString("key"))!!, GrantShown.entries.first { it.wire == g.getString("state") },
+                        GrantWindow.of(g.optText("window")), g.optLong("grantedAt").takeIf { g.has("grantedAt") },
+                        g.optLong("expiresAt").takeIf { g.has("expiresAt") }, g.optText("scope"),
+                    )
+                }
+                val activity = a.getJSONArray("activity").let { e -> (0 until e.length()).map(e::getJSONObject) }.map { e ->
+                    AuditEntry(e.getLong("at"), e.getString("action"), e.getString("outcome"), e.optText("detail"))
+                }
+                val info = AgentInfo(a.getString("app").ifEmpty { null }, a.getString("os").ifEmpty { null },
+                    a.getLong("pairedAt").takeIf { it > 0 }, a.optLong("lastSeenAt").takeIf { a.has("lastSeenAt") })
+                AgentState(a.getString("deviceId"), a.getString("name"), info, a.getBoolean("online"), a.optText("route"), grants, activity)
+            }
+            assertJson(p, agentsStatePayload(agents, AgentHub.AGENTS_STATE_MAX_BYTES), case.getString("name"))
+        }
+    }
+
+    /** The phone writes codes.read only after an answer with codes (AgentHub.answerQuery), so its count is at least 1. */
+    @Test fun codesReadEncoding() {
+        mirrorCases("codesRead").forEach { case ->
+            val p = case.getJSONObject("plaintext")
+            val source = CodeSource.of(p.getString("source"))
+            if (rejects(case)) return@forEach assertTrue(case.getString("name"), source == null || p.getInt("count") < 1)
+            val e = case.getJSONObject("expect")
+            val encoded = codesReadPayload(e.getString("deviceId"), e.getString("deviceName"), e.getString("service"), source!!, e.getString("app"), e.getLong("at"), e.getInt("count"))
+            assertJson(JSONObject(e.toString()).put("version", 1), encoded, case.getString("name"))
         }
     }
 }

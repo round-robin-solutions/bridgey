@@ -1,5 +1,6 @@
 package dev.bridgey.android.browse
 
+import dev.bridgey.android.folders.DownloadTicket
 import dev.bridgey.android.folders.FolderLimits
 import dev.bridgey.android.folders.FolderPaths
 import dev.bridgey.android.folders.isPlaceId
@@ -112,3 +113,30 @@ object BrowseRefs {
 fun requestIdOf(json: JSONObject): String? = json.string("requestId")?.takeIf(::isWireId)
 
 fun JSONObject.versionIsOne(): Boolean = (opt("version") as? Number)?.toLong() == 1L
+
+/** A media.list request as the server reads it: [kind] as sent (default media), [limit] within 1 to 200 (default 100), [cursor] cut to 64 characters. */
+data class MediaListRequest(val kind: String, val limit: Int, val cursor: String?) {
+    companion object {
+        fun parse(json: JSONObject): MediaListRequest = MediaListRequest(
+            (json.opt("kind") as? String) ?: "media",
+            ((json.opt("limit") as? Number)?.toInt() ?: BrowseLimits.MEDIA_PAGE_DEFAULT).coerceIn(1, BrowseLimits.MEDIA_PAGE_MAX),
+            (json.opt("cursor") as? String)?.take(64),
+        )
+    }
+}
+
+/** places.download_started: the folder transfer a download became. */
+fun downloadStartedJson(requestId: String, ticket: DownloadTicket): JSONObject = JSONObject().put("version", 1).put("requestId", requestId)
+    .put("folderTransferId", ticket.folderTransferId).put("rootName", ticket.rootName).put("fileCount", ticket.fileCount)
+    .put("folderCount", ticket.folderCount).put("totalSize", ticket.totalSize)
+
+/** One media.preview_part of [image]: [part] is part [index] of [count]. */
+fun previewPartJson(requestId: String, index: Int, count: Int, image: EncodedImage, part: ByteArray): JSONObject = JSONObject()
+    .put("version", 1).put("requestId", requestId).put("index", index).put("count", count).put("mimeType", image.mimeType)
+    .put("width", image.width).put("height", image.height).put("tint", image.tint?.let(::tintHex) ?: JSONObject.NULL)
+    .put("data", java.util.Base64.getEncoder().encodeToString(part))
+
+/** One media.range_part: [data] read at [offset] of a file of [fileSize] bytes, [last] at the end of the range or file. */
+fun rangePartJson(requestId: String, offset: Long, fileSize: Long, modified: Long?, data: ByteArray, last: Boolean): JSONObject = JSONObject()
+    .put("version", 1).put("requestId", requestId).put("offset", offset).put("fileSize", fileSize)
+    .put("modified", modified ?: JSONObject.NULL).put("data", java.util.Base64.getEncoder().encodeToString(data)).put("last", last)

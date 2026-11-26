@@ -24,6 +24,28 @@ class ProtocolContractTest(unittest.TestCase):
     def test_every_kind_in_the_sources_is_listed(self):
         self.assertEqual(contract.coverage_problems(self.data), [])
 
+    def test_every_feature_key_in_the_sources_is_listed(self):
+        self.assertEqual(contract.feature_key_problems(self.data), [])
+
+    def test_feature_maps_fit_the_size_rule(self):
+        broken = contract.load()
+        broken["features"] += [dict(broken["features"][-1], key=f"k{i}_draft1") for i in range(contract.MAX_FEATURE_KEYS)]
+        broken["features"].append(dict(broken["features"][-1], key="x" * 60 + "_draft1"))
+        problems = "\n".join(contract.validate(broken))
+        self.assertIn("carries at most 128", problems)
+        self.assertIn("a key is 1 to 64 bytes", problems)
+
+    def test_feature_key_scan(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            pathlib.Path(tmp, "main").mkdir()
+            pathlib.Path(tmp, "main", "A.kt").write_text('features["sms_draft1"] = true\nput("mystery_draft2", true)\n')
+            pathlib.Path(tmp, "test").mkdir()
+            pathlib.Path(tmp, "test", "B.kt").write_text('put("only_in_tests_draft1", true)\n')
+            found = contract.feature_key_problems(self.data, [(pathlib.Path(tmp), ".kt")])
+        self.assertEqual(len(found), 1)
+        self.assertIn("mystery_draft2", found[0])
+
     def test_agent_ingress_uses_the_complete_protocol_role_gate(self):
         # Dispatch must use the same set as admission, so a newly allowed request cannot be
         # silently dropped between the authenticated session and the Hub.

@@ -15,7 +15,7 @@ freezes, why, and how the freeze is kept afterwards.
 
 | | Core | Extension | Draft | Deprecated |
 | --- | --- | --- | --- | --- |
-| Feature keys (45) | 5 | 29 (4 upstream, 25 edition) | 11 | 0 |
+| Feature keys (46) | 5 | 29 (4 upstream, 25 edition) | 12 | 0 |
 | Message kinds (202) | 30 | 130 (9 upstream, 121 edition) | 42 | 0 |
 
 The notable calls:
@@ -29,8 +29,9 @@ The notable calls:
   uses them.
 - **Connect anywhere is frozen for the parts both peers must agree on**; the control service's own protocol (node
   auth, relay credentials) is versioned with the service, and the designed in-band ICE kinds stay draft.
-- **Agent devices are frozen** (the `bridgey` CLI on servers updates on its own schedule, so mixed versions are normal),
-  on condition that the CLI reads the agent vectors before the switch flips ([open question 4](#open-questions-for-rahul)).
+- **Agent devices are frozen** (the `bridgey` CLI on servers updates on its own schedule, so mixed versions are normal).
+  The condition in [open question 4](#open-questions-for-rahul) is met: the CLI checks every agent vector it writes or
+  reads, and a contract test ties its code to `protocol/messages.json`.
 - **Recent or unfinished work stays draft:** screen sharing both ways and phone control, file resume, LAN first, the
   Calls window, call media quieting, smart notification routing and the share flow's two keys. Each shipped in the
   last 14 days, is labelled a prototype, or has acceptance outstanding.
@@ -85,13 +86,13 @@ Beta 2). The iOS app runs the same client but its first slice enables only pairi
 | `links` | extension | upstream 0.6 | Android, Mac, Windows, iOS | 2 of 2 | Upstream, optional |
 | `media` | extension | upstream 0.6 | Android, Mac, Windows | 3 of 3 | Upstream, optional |
 | `calls` | extension | upstream 0.5 | Android, Mac | 4 of 4 | Upstream, optional |
-| `clipboard_files_draft1` | extension | 0.6 Beta 5, 25 Oct | Android, Mac | 1 of 3 | No change since the contract file began (27 Oct) |
-| `remote_input_draft1` | extension | 0.6 Beta 9, 26 Oct | Android, Mac | 10 of 11 | No change since 27 Oct; keeps its quirk: a non-boolean value closes the session |
-| `sms_codes_draft1` | extension | 0.6 Beta 13, 26 Oct | Android, Mac, Windows | 4 of 5 | Three implementations |
+| `clipboard_files_draft1` | extension | 0.6 Beta 5, 25 Oct | Android, Mac | 3 of 3 | No change since the contract file began (27 Oct) |
+| `remote_input_draft1` | extension | 0.6 Beta 9, 26 Oct | Android, Mac | 11 of 11 | No change since 27 Oct; keeps its quirk: a non-boolean value closes the session |
+| `sms_codes_draft1` | extension | 0.6 Beta 13, 26 Oct | Android, Mac, Windows | 5 of 5 | Three implementations |
 | `email_codes_draft1` | extension | 0.10 Beta 18, 31 Oct | Android, Mac, Windows | fields only, none | Gates fields of `notifications.post`; more mail apps need no wire change |
 | `folders_draft1` | extension | 0.6 Beta 10, 26 Oct | Android, Mac | 12 of 12 | Files 2.0 |
 | `places_draft1` | extension | 0.6 Beta 10, 26 Oct | Android, Mac | 7 of 7 | Files 2.0 |
-| `files_browse_draft1` | extension | 0.8 Beta 1, 27 Oct | Android, Mac | 6 of 13 (refs only) | Files 2.0 |
+| `files_browse_draft1` | extension | 0.8 Beta 1, 27 Oct | Android, Mac | 13 of 13 | Files 2.0 |
 | `folders_receive_draft1` | extension | 0.8 Beta 1, 27 Oct | Android, Mac | shares `folders.*` | Files 2.0 |
 | `mac_actions_draft1` | extension | 0.9 Beta 1, 27 Oct | Android, Mac | 3 of 3 | |
 | `links_open_draft1` | extension | 0.9 Beta 1, 27 Oct | Mac, Windows (phones only send) | recorded session | Gates `open` and `opened` on `quick.*` |
@@ -99,17 +100,17 @@ Beta 2). The iOS app runs the same client but its first slice enables only pairi
 | `camera_draft1` | extension | 0.9 Beta 1, 27 Oct | Android, Mac | 2 of 2 | |
 | `updates_draft1` | extension | 0.10 Beta 4, 27 Oct | Android, Mac | 3 of 3 | Update all must keep working between any two v1 builds |
 | `files_fast_draft1` | extension | 0.10 Beta 15, 30 Oct | Android, Mac, Windows | 9 of 9 | Every transfer between current builds |
-| `sms_draft1` | extension | 0.10 Beta 6, 27 Oct | Android, Mac | 14 of 18 | No change since 28 Oct (Beta 9 added the last kinds) |
-| `settings_sync_draft1` | extension | 0.10 Beta 12, 29 Oct | Android, Mac | 2 of 4 | Last shape change 30 Oct; unknown settings keys are skipped, so new settings need no key |
-| `connect_draft1` | extension | 0.10 Beta 13, 30 Oct | Android, Mac, Windows, CLI | 2 of 3 built kinds | Peer parts only ([open question 5](#open-questions-for-rahul)) |
-| `agent_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | 1 of 4 | CLI updates on its own schedule |
-| `notify_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | phone only | |
-| `ask_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | phone only, 2 of 8 | |
-| `clipboard_request_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | phone only | |
-| `agent_codes_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | phone only | |
-| `agents_mirror_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, Mac | 2 of 4, 2 Mac only | |
+| `sms_draft1` | extension | 0.10 Beta 6, 27 Oct | Android, Mac | 18 of 18 | No change since 28 Oct (Beta 9 added the last kinds) |
+| `settings_sync_draft1` | extension | 0.10 Beta 12, 29 Oct | Android, Mac | 4 of 4 | Last shape change 30 Oct; unknown settings keys are skipped, so new settings need no key |
+| `connect_draft1` | extension | 0.10 Beta 13, 30 Oct | Android, Mac, Windows, CLI | 3 of 3 built kinds | Peer parts only ([open question 5](#open-questions-for-rahul)) |
+| `agent_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | 4 of 4 | CLI updates on its own schedule |
+| `notify_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | 2 of 2 | |
+| `ask_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | 8 of 8 | |
+| `clipboard_request_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | 2 of 2 | |
+| `agent_codes_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, CLI | 3 of 3 | |
+| `agents_mirror_draft1` | extension | 0.10 Beta 21, 4 Nov | Android, Mac | 4 of 4 | |
 | `codes_detect_draft1` | extension | 0.10 Beta 22, 4 Nov | Android, CLI | 2 of 2 | |
-| `agent_notifications_draft1` | extension | 0.10 Beta 26, 7 Nov | Android, CLI | none | |
+| `agent_notifications_draft1` | extension | 0.10 Beta 26, 7 Nov | Android, CLI | 2 of 2 | |
 | `screen_draft1` | draft | 0.10 Beta 6, 27 Oct | Android, Mac | stream vectors exist | Labelled a view-only prototype; `screen.start` changed 25 Nov; the next roadmap item reworks screen sharing on the shared Rust rules |
 | `screen_control_draft1` | draft | 1.0 Beta 5, 25 Nov | Android, Mac | `display-v1.json` | 1 day old |
 | `phone_control_draft1` | draft | 1.0 Beta 6, 25 Nov | Android, Mac | `phone-control-v1.json` | 1 day old |
@@ -121,6 +122,7 @@ Beta 2). The iOS app runs the same client but its first slice enables only pairi
 | `dialer_draft1` | draft | 0.11 Beta 3, 15 Nov | Android, Mac | `dialer-v1.json` | 11 days old; Windows M3 will add a third implementation |
 | `device_presence_draft1` | draft | 0.10 Beta 27, 11 Nov | Android, Mac, Windows | `device-presence-v1.json` | Its consumers, routing and the share flow, still have acceptance outstanding |
 | `share_receive_draft1` | draft | 0.10 Beta 27, 11 Nov | Android, Mac | none | Share flow live checks are blocked ([phone-share-flow.md](phone-share-flow.md)) |
+| `handoff_takeover_draft1` | draft | 0.10 Beta 19, 1 Nov | Mac (to other Macs) | no messages | Macs sent it before the contract listed it (found by the v1 gaps work); a new entry starts as draft |
 
 ### Message kinds
 
@@ -164,6 +166,10 @@ today:
   closes. The four upstream optional keys may be absent (false) but must be boolean when present. Edition keys read
   `true` only for JSON `true`, except `remote_input_draft1`, where a non-boolean closes the session (kept as shipped). A
   map with another `version` is ignored. A feature is on only when both latest maps show it `true`.
+- **Map size.** A map carries at most 128 keys of 1 to 64 bytes, and senders send only keys `messages.json` lists (46).
+  A receiver reads every key it knows from any map that fits in a frame, whatever else it holds, and never closes the
+  session because a map is larger; keys it does not know may be dropped. Pinned by two `featuresUpdate` vectors on
+  Android, the Mac and `rust/client`.
 
 ## Pairing and protocol 2 security (core)
 
@@ -279,8 +285,8 @@ transport):
 - the shape of every core, extension and deprecated feature key and kind: every field except `implemented`, the older
   `status` label (superseded by `v1`) and the fields listed in `v1DraftFields`. Notes count: they carry meaning;
 - a hash of each vector case that pins a frozen feature: the golden vector groups of those features, the crypto
-  vectors, the recorded sessions, the fast transfer, folder, agent and mirror vectors, and the peer parts of the Connect
-  vectors. Cases are hashed one by one, so new cases are additions; a changed or removed case is breaking. The vectors
+  vectors, the recorded sessions, the fast transfer, folder, Phone files, agent and mirror vectors, and the peer parts of
+  the Connect vectors. Cases are hashed one by one, so new cases are additions; a changed or removed case is breaking. The vectors
   are what the Kotlin, Swift and Rust suites already decode, so the baseline also pins what the code does.
 
 `python3 protocol/tools/v1_freeze.py --check` compares the tree with it and lists:
@@ -294,10 +300,11 @@ transport):
 `scripts/rr/tests/test_protocol_v1_freeze.py` runs the same check in the Python suite (RR CI's `python` task) and prints
 the report. It fails only when the freeze is enforced.
 
-There is no separate copy in the Kotlin, Swift or Rust suites on purpose. The Android, Mac and `rust/client` contract
-tests already fail when the code uses a kind that `messages.json` does not list for that platform, or the file lists
-one the code never uses (Android and the Mac also check the feature keys they advertise), and between them the suites
-decode every pinned vector. A second diff in three languages could only disagree with this one.
+There is no separate copy in the Kotlin, Swift or Rust suites on purpose. The Android, Mac, `rust/client` and `rust/cli`
+contract tests already fail when the code uses a kind that `messages.json` does not list for that platform, or the file
+lists one the code never uses (Android, the Mac and the CLI also check the feature keys they advertise, and
+`contract.py` fails on any `_draftN` key in app sources that the file does not list), and between them the suites decode
+every pinned vector. A second diff in three languages could only disagree with this one.
 
 ### Flipping it on
 
@@ -320,45 +327,72 @@ each amendment with its date, reason and changes, so a reviewer sees it in the d
 
 ## Gaps
 
-From `python3 protocol/tools/v1_freeze.py --coverage` on this branch. "Cross-platform" means a vector that at least two
-of the Kotlin, Swift and Rust suites decode.
+From `python3 protocol/tools/v1_freeze.py --coverage`. "Cross-platform" means a vector that at least two of the Kotlin,
+Swift and Rust suites decode (`rust/cli` counts as Rust).
 
 **Closed in this proposal** (vectors added to `protocol-v1.json`, decoded by Kotlin, Swift and Rust):
 
 - Core kinds that had no vector: `heartbeat.pong` (and a valid `heartbeat.ping`; before, only a rejected one),
   `clipboard.rejected`, `files.rejected`, `files.cancel`, `files.cancel.ack`, `find.stop`.
 - Upstream extension kinds that had none: `ping.request`, `calls.request`, `calls.started`,
-  `calls.confirmation_required`, `calls.rejected`, plus `callsRequest`: 16 `calls.request` payloads (the number each
+  `calls.confirmation_required`, `calls.rejected`, plus `callsRequest`: `calls.request` payloads (the number each
   platform reads, or reject), checked by Kotlin and Swift.
 - Unencrypted extension kinds, whose envelope is the whole message: `speed.ping`, `speed.pong`, `speed.ack`,
   `speed.cancel`, `folders.cancel.ack`.
 
-Every core and upstream kind now has a cross-platform vector.
+**Closed by the v1 gaps work** (each vector written by the sender's real encoder and checked by every platform that
+sends or receives the kind):
 
-**Still open** (edition extensions):
+- Every core and extension kind now has a cross-platform vector: `--coverage` lists none without one and none read by
+  one suite only.
+- The 32 extension kinds that had none: `clipboard.fetch`, `clipboard.error`, `codes.advertise_stop`,
+  `input.session.started`, `sms.changed`, `sms.threads_page`, `sms.attachment_data`, `sms.contacts_result`,
+  `connect.setup.ack`, `settings.ack` and `settings.error` (new groups in `protocol-v1.json`); the Phone files pages and
+  parts `places.files_page`, `places.download_started`, `media.list`, `media.thumbnails_batch`, `media.preview_part`,
+  `media.range_part` and `media.cancel` (new file `browse-v1.json`); and the agent kinds `agent.hello`,
+  `agent.grant_request`, `agent.request_result`, `notify.result`, the six `ask.*` kinds that carry only an `askId`,
+  `clipboard.request`, `agent.notifications.query`, `agent.notifications.result` and `codes.cancel` (new groups in
+  `agent-v1.json`).
+- The eight read by one side only: the CLI now checks what it writes for `notify.post`, `ask.request` and `codes.query`,
+  and what it reads for `ask.answer`, `clipboard.response` and `codes.result`; Android checks what it writes for
+  `agents.state` (a new case in `agents-mirror-v1.json`) and `codes.read`.
+- `rust/cli` has a contract test like the other platforms' (`src/contract_tests.rs`): every kind its code sends or
+  handles is listed for `cli` with a direction an agent may use, nothing else is listed for `cli`, and every key in its
+  `features.update` is in the contract. It also checks every `agent-v1.json` group it writes or reads
+  (`src/payloads.rs`), which is the condition in [open question 4](#open-questions-for-rahul).
+- How many `features.update` keys a receiver keeps, now written down ([above](#transport-and-envelope-core)).
+- The `calls.request` number: a JSON string only. Receivers are strict, so a number or any other type is answered
+  `calls.rejected` on a real phone as in the tests.
 
-- No vector at all (32 kinds): `clipboard.fetch`, `clipboard.error`, `codes.advertise_stop`, `input.session.started`,
-  `sms.changed`, `sms.threads_page`, `sms.attachment_data`, `sms.contacts_result`, `connect.setup.ack`,
-  `places.files_page`, `places.download_started`, `media.list`, `media.thumbnails_batch`, `media.preview_part`,
-  `media.range_part`, `media.cancel`, `settings.ack`, `settings.error`, `agent.hello`, `agent.grant_request`,
-  `agent.request_result`, `notify.result`, `ask.posted`, `ask.dismissed`, `ask.expired`, `ask.cancel`, `ask.cancelled`,
-  `ask.status`, `clipboard.request`, `agent.notifications.query`, `agent.notifications.result`, `codes.cancel`.
-- Read by one side only (8): `notify.post`, `ask.request`, `ask.answer`, `clipboard.response`, `codes.query` and
-  `codes.result` are checked by the phone but not by the CLI, which writes them; `agents.state` and `codes.read` only by
-  the Mac (`agents-mirror-v1.json`).
-- Partial: `browseRef` pins only the ref object inside the browse requests and `media.page`; `smsMessage` pins one
-  message object of `sms.messages_page` and `sms.sync_page`; `email_codes_draft1`'s fields on `notifications.post` are in
-  no wire vector (`email-codes-v1.json` pins the detection rules).
-- `rust/cli` has no contract scan: the `cli` entries in `implemented` are not checked against its code, as Android,
-  the Mac and `rust/client` are.
-- Not written down: `features.update` has no size limit beyond the frame, and `rust/client` keeps at most 128 keys from a
-  peer's map. With 45 keys today there is room, but the contract should say how many keys a receiver must keep.
-- Seen while adding the `calls.request` vectors: a real phone's `org.json` turns a non-string `number` into text, while
-  the JVM test library refuses it. Macs always send a string, so nothing breaks; the vectors leave that case out.
+**Disagreements found and resolved** (no wire change; each is pinned by vectors now):
 
-Suggested order: the CLI reads `agent-v1.json` (the condition in open question 4), then envelope and payload vectors for
-the `ask.*`, `settings.*` and Phone files kinds, then the rest during 1.x. The Android, Mac and Rust code paths for all of
-them already have unit tests; what is missing is a shared vector both ends decode.
+- `clipboard.error` without a known `code`: Android read it as `unavailable`, the Mac dropped the message and the paste
+  failed at its timeout. The Mac now reads it as `unavailable` too, so a code added later is a safe addition.
+- `calls.request` with a non-string `number`: a real phone's `org.json` dialled a JSON number, the JVM tests refused it.
+  The phone now checks the type itself; Macs always send a string.
+- `rust/client` kept the first 128 entries of a peer's map in name order, counting false and over-long ones, so a map
+  crowded with unknown keys could hide a known key that Android and the Mac read. It now reads every listed key first.
+- Macs advertised `handoff_takeover_draft1`, which `messages.json` did not list; it is listed now (draft), and
+  `contract.py` fails on any unlisted `_draftN` key in app sources.
+- `messages.json` said the CLI implements `files.cancel.ack`; it neither sends nor reads it (no peer waits for it).
+  The entry now leaves `cli` out.
+- The CLI sent a few things the phone refuses as `invalid`: a notification `tag` or `from` over 64 characters, a text hint
+  over 40, a `from` over 64 on a question, a service over 64 on a codes query, a zero timeout on `ask` and
+  `clip get`, and a request over 4,096 bytes once encoded. It now refuses them before sending. It also drops what the
+  contract calls invalid from the phone (for example an answer with neither option nor text), where it used to cut it
+  short or pass it through; no phone sends such messages.
+
+**Still open** (none blocks the flip):
+
+- Partial: `browseRef` pins only the ref object inside the browse requests (`places.files`, `places.download`,
+  `media.thumbnails`, `media.preview`, `media.range`) and `media.page`; `smsMessage` pins one message object of
+  `sms.messages_page` and `sms.sync_page` rather than whole pages;
+  `email_codes_draft1`'s fields on `notifications.post` are in no wire vector (`email-codes-v1.json` pins the detection
+  rules).
+- Receivers more lenient than senders, left out of the vectors so they are not frozen: the Mac skips the `version` check
+  on four Phone files answers, Android on `media.cancel`; Android clamps a `media.list` limit; the Mac checks fewer
+  fields of `clipboard.error` and `settings.ack` than Android; the Mac reads `version` `1.0` or `true` as 1 on `codes.*`,
+  where `rust/client` refuses both. None changes what a conforming sender gets.
 
 ## Open questions for Rahul
 
@@ -370,9 +404,8 @@ Each has a recommendation; answering "as recommended" approves the proposal as w
    first Stable release that stops sending it, and never while the upgrade policy supports a build that needs it.*
 3. **Protocol 1 reconnects** for upstream Bridgey and pre-0.10 pairs. *Recommendation: keep them, accept-only and never
    for a first pairing, until 12 months after Stable 1.0; offer protocol 2 to upstream meanwhile.*
-4. **Agent devices now?** The agent keys are frozen in this proposal, but the CLI does not yet check the agent vectors
-   it writes. *Recommendation: freeze them, and make the CLI read `agent-v1.json` before the switch flips; the CLI on
-   servers updates separately, so it gains most from a freeze.*
+4. **Agent devices now?** The agent keys are frozen in this proposal. The CLI now checks every agent vector it writes or
+   reads. *Recommendation: freeze them; the CLI on servers updates separately, so it gains most from a freeze.*
 5. **Connect anywhere scope.** *Recommendation: freeze the peer parts (`connect.setup`, `connect.setup.ack`,
    `connect.addresses`, the pair secret, sealed signals, the QUIC tunnel and `bridgey-auth-v2`); leave node auth and relay
    credentials to the control service's own versioning; keep in-band ICE draft under a new key when built.*
@@ -380,5 +413,5 @@ Each has a recommendation; answering "as recommended" approves the proposal as w
    for a whole deprecation window, for no gain on the wire.*
 7. **When to flip.** *Recommendation: as soon as you approve, so the remaining 1.0 betas are already held to it; do not
    wait for Stable.*
-8. **Gaps before the flip.** *Recommendation: flip once open question 4's CLI vectors are in; close the other extension
-   gaps during 1.x, and add vectors for any extension before its first change.*
+8. **Gaps before the flip.** The CLI vectors and every missing extension vector are in. *Recommendation: flip now; close
+   the partial items during 1.x, and add vectors for any extension before its first change.*

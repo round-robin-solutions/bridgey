@@ -742,33 +742,53 @@ class AgentHub(
     /** agents.state: every agent with its grants and newest activity, cut down to fit 44 KiB (one frame once sealed). */
     internal fun agentsStatePayload(): ByteArray {
         val online = transport.connectedAgents().toSet()
-        var activity = 50
-        while (true) {
-            val agents = JSONArray(transport.agentIds().map { id ->
-                val info = info(id)
-                JSONObject()
-                    .put("deviceId", id)
-                    .put("name", transport.deviceName(id))
-                    .put("platform", AGENT_PLATFORM)
-                    .put("app", info.app.orEmpty())
-                    .put("os", info.os.orEmpty())
-                    .put("pairedAt", info.pairedAt ?: 0)
-                    .put("online", id in online)
-                    .apply {
-                        info.lastSeenAt?.let { put("lastSeenAt", it) }
-                        transport.route(id)?.let { put("route", it) }
-                    }
-                    .put("grants", JSONArray(views(id).map(::grantJson)))
-                    .put("activity", JSONArray(audit.entries(id).take(activity).map(::auditJson)))
-            })
-            val bytes = JSONObject().put("version", 1).put("agents", agents).toString().toByteArray(Charsets.UTF_8)
-            if (bytes.size <= AGENTS_STATE_MAX_BYTES || activity == 0) return bytes
-            activity /= 2
-        }
+        return agentsStatePayload(transport.agentIds().map { id ->
+            AgentState(id, transport.deviceName(id), info(id), id in online, transport.route(id), views(id), audit.entries(id))
+        }, AGENTS_STATE_MAX_BYTES)
     }
 
     companion object {
         const val AGENTS_STATE_MAX_BYTES = 45_056
+    }
+}
+
+/** One agent as agents.state describes it to a Mac. [activity] is newest first. */
+internal data class AgentState(
+    val deviceId: String,
+    val name: String,
+    val info: AgentInfo,
+    val online: Boolean,
+    val route: String?,
+    val grants: List<GrantView>,
+    val activity: List<AuditEntry>,
+)
+
+/**
+ * agents.state (protocol/test-vectors/agents-mirror-v1.json): every agent with its grants and its newest 50 activity
+ * entries, halving the entries until the plaintext fits [maxBytes].
+ */
+internal fun agentsStatePayload(agents: List<AgentState>, maxBytes: Int): ByteArray {
+    var activity = 50
+    while (true) {
+        val list = JSONArray(agents.map { agent ->
+            JSONObject()
+                .put("deviceId", agent.deviceId)
+                .put("name", agent.name)
+                .put("platform", AGENT_PLATFORM)
+                .put("app", agent.info.app.orEmpty())
+                .put("os", agent.info.os.orEmpty())
+                .put("pairedAt", agent.info.pairedAt ?: 0)
+                .put("online", agent.online)
+                .apply {
+                    agent.info.lastSeenAt?.let { put("lastSeenAt", it) }
+                    agent.route?.let { put("route", it) }
+                }
+                .put("grants", JSONArray(agent.grants.map(::grantJson)))
+                .put("activity", JSONArray(agent.activity.take(activity).map(::auditJson)))
+        })
+        val bytes = JSONObject().put("version", 1).put("agents", list).toString().toByteArray(Charsets.UTF_8)
+        if (bytes.size <= maxBytes || activity == 0) return bytes
+        activity /= 2
     }
 }
 

@@ -938,3 +938,44 @@ mod resume {
         check(&record());
     }
 }
+
+/// Edition extension kinds in `protocol/test-vectors/protocol-v1.json` that had no vector (docs/protocol-v1.md, Gaps), as
+/// this client reads and writes them: it reads "codesAdvertiseStop" (as Windows does from the phone) and writes
+/// "connectSetupAck". Android and the Mac check the same groups from their side.
+mod extension {
+    use serde_json::Value;
+
+    fn cases(group: &str) -> Vec<Value> {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../protocol/test-vectors/protocol-v1.json")).unwrap();
+        let v: Value = serde_json::from_str(&text).unwrap();
+        let list = v[group].as_array().unwrap_or_else(|| panic!("{group} is missing")).clone();
+        assert!(!list.is_empty(), "{group}");
+        list
+    }
+
+    fn plaintext(case: &Value) -> Vec<u8> {
+        match case["plaintextString"].as_str() {
+            Some(raw) => raw.as_bytes().to_vec(),
+            None => case["plaintext"].to_string().into_bytes(),
+        }
+    }
+
+    #[test]
+    fn codes_advertise_stop_reads() {
+        for case in cases("codesAdvertiseStop") {
+            let got = match crate::notifications::decode_advertise(&plaintext(&case)) {
+                Some((uuid, linked)) => serde_json::json!({"serviceUuid": uuid, "linked": linked}),
+                None => Value::from("reject"),
+            };
+            assert_eq!(got, case["expect"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn connect_setup_ack_writes() {
+        let written: Value = serde_json::from_str(&crate::client::connect_setup_ack_payload()).unwrap();
+        for case in cases("connectSetupAck").iter().filter(|c| c["write"] == true) {
+            assert_eq!(written, case["plaintext"], "{}", case["name"]);
+        }
+    }
+}

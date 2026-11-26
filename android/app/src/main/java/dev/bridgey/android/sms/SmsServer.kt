@@ -183,13 +183,13 @@ class SmsServer(
     private fun threads(deviceId: String, request: SmsRequest.Threads) {
         val error = pageError(deviceId)
         if (error != null) {
-            send(deviceId, SmsKinds.THREADS_PAGE, pageBase(request.requestId, error).put("threads", JSONArray()).put("more", false))
+            send(deviceId, SmsKinds.THREADS_PAGE, smsThreadsPagePayload(request.requestId, emptyList(), more = false, error = error))
             return
         }
         val (threads, more) = provider.threads(request.before, request.limit)
-        val room = pageRoom(pageBase(request.requestId).put("threads", JSONArray()).put("more", true))
+        val room = pageRoom(smsThreadsPagePayload(request.requestId, emptyList(), more = true))
         val (kept, cut) = fitEntries(threads.map(SmsThread::toJson), room)
-        send(deviceId, SmsKinds.THREADS_PAGE, pageBase(request.requestId).put("threads", JSONArray(kept)).put("more", more || cut))
+        send(deviceId, SmsKinds.THREADS_PAGE, smsThreadsPagePayload(request.requestId, kept, more = more || cut))
     }
 
     private fun messages(deviceId: String, request: SmsRequest.Messages) {
@@ -235,29 +235,27 @@ class SmsServer(
     }
 
     private fun attachment(deviceId: String, request: SmsRequest.Attachment) {
-        val base = pageBase(request.requestId).put("partId", request.partId)
         if (!localEnabled(deviceId)) {
-            send(deviceId, SmsKinds.ATTACHMENT_DATA, base.put("error", "permission"))
+            send(deviceId, SmsKinds.ATTACHMENT_DATA, smsAttachmentErrorPayload(request.requestId, request.partId, "permission"))
             return
         }
         when (val image = provider.image(request.partId)) {
-            is SmsProvider.ImageResult.Error -> send(deviceId, SmsKinds.ATTACHMENT_DATA, base.put("error", image.reason))
+            is SmsProvider.ImageResult.Error -> send(deviceId, SmsKinds.ATTACHMENT_DATA, smsAttachmentErrorPayload(request.requestId, request.partId, image.reason))
             is SmsProvider.ImageResult.Image -> send(
                 deviceId, SmsKinds.ATTACHMENT_DATA,
-                base.put("mimeType", "image/jpeg").put("width", image.width).put("height", image.height).put("data", provider.imageData(image)),
+                smsAttachmentDataPayload(request.requestId, request.partId, image.width, image.height, provider.imageData(image)),
             )
         }
     }
 
     private fun contacts(deviceId: String, request: SmsRequest.Contacts) {
-        val base = pageBase(request.requestId)
         if (!localEnabled(deviceId) || !provider.canReadContacts) {
-            send(deviceId, SmsKinds.CONTACTS_RESULT, base.put("contacts", JSONArray()).put("error", "permission"))
+            send(deviceId, SmsKinds.CONTACTS_RESULT, smsContactsResultPayload(request.requestId, emptyList(), error = "permission"))
             return
         }
-        val room = pageRoom(pageBase(request.requestId).put("contacts", JSONArray()), SmsLimits.CONTACTS_RESULT_MAX_BYTES)
+        val room = pageRoom(smsContactsResultPayload(request.requestId, emptyList()), SmsLimits.CONTACTS_RESULT_MAX_BYTES)
         val (kept, _) = fitEntries(provider.contacts(request.query).map(SmsContact::toJson), room)
-        send(deviceId, SmsKinds.CONTACTS_RESULT, base.put("contacts", JSONArray(kept)))
+        send(deviceId, SmsKinds.CONTACTS_RESULT, smsContactsResultPayload(request.requestId, kept))
     }
 
     /**

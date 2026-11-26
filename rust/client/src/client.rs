@@ -48,6 +48,11 @@ const MAX_PENDING: usize = 16;
 /// Connect away from home's feature key (docs/protocol.md "Connect anywhere").
 pub const CONNECT_FEATURE: &str = "connect_draft1";
 
+/// `connect.setup.ack`: informational, the sender holds the new pair secret. Receivers read nothing from it.
+pub(crate) fn connect_setup_ack_payload() -> String {
+    json!({"version": 1}).to_string()
+}
+
 pub struct Config {
     pub device_name: String,
     /// `windows`, `linux`, `ios`: the DNS-SD `platform` value.
@@ -2292,7 +2297,7 @@ impl Inner {
             let _ = trust.save(self.storage.as_ref());
         }
         if let Ok((handle, _)) = self.feature_session(device_id, CONNECT_FEATURE) {
-            handle.send_encrypted("connect.setup.ack", json!({"version": 1}).to_string().into_bytes(), crate::crypto::uuid4());
+            handle.send_encrypted("connect.setup.ack", connect_setup_ack_payload().into_bytes(), crate::crypto::uuid4());
         }
         self.sync_peers();
     }
