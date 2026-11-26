@@ -534,6 +534,8 @@ final class PairingCoordinator: ObservableObject {
     /// and the codes.read log.
     let agentsMirror = AgentsMirror()
     let localAgentCodes = LocalAgentCodes()
+    /// Settings > Media and actions > Browsers: the extension's host manifests and socket (BrowserSupport.swift).
+    let browserSupport = BrowserSupport()
     /// Reads waiting for the engine, by notification request identifier.
     private var codeReads: [String: Task<Void, Never>] = [:]
     private var codeReadPermissions = CodeReadPermissionFence()
@@ -711,6 +713,7 @@ final class PairingCoordinator: ObservableObject {
         folders.loadJournals()
         folderReceiver.loadJournals()
         loadResumePartials()
+        browserSupport.host = self
         quickActions.available = { [weak self] in self?.isFeatureAvailable($0) == true }
         quickActions.availableFor = { [weak self] feature, id in self?.isFeatureAvailable(feature, for: id) == true }
         quickActions.send = { [weak self] in self?.sendQuickPayload(kind: $0, payload: $1) == true }
@@ -1452,30 +1455,35 @@ final class PairingCoordinator: ObservableObject {
 
     /// Asks on this Mac before a call another app started goes to the phone. Call with Don't ask again
     /// checked sets Settings > Calls to Call right away; Cancel never changes the setting.
-    private func confirmCall(_ number: String) -> Bool {
-        let alert = makeCallConfirmationAlert(number: number, phoneName: session?.peerName)
+    private func confirmCall(_ number: String, phoneName: String? = nil) -> Bool {
+        let alert = makeCallConfirmationAlert(number: number, phoneName: phoneName ?? session?.peerName)
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
         if alert.suppressionButton?.state == .on { settings.setOtherAppCallPolicy(.callNow) }
         return true
     }
 
-    func sendCall(_ value: String) {
+    /// Asks the selected phone, or `target` (a call from the browser extension), to place a call. False when nothing
+    /// was sent.
+    @discardableResult
+    func sendCall(_ value: String, to target: Session? = nil) -> Bool {
         callStatusClearWorkItem?.cancel()
         callStatusClearWorkItem = nil
-        guard isFeatureAvailable(.calls) else {
+        guard target.map({ isFeatureAvailable(.calls, for: $0.remoteDeviceID) }) ?? isFeatureAvailable(.calls) else {
             setTransientCallStatus("Calls are turned off or require Bridgey alpha.5 on both devices")
-            return
+            return false
         }
         guard let number = normalizedPhoneNumber(value) else {
             setTransientCallStatus("Clipboard does not contain a valid phone number")
-            return
+            return false
         }
-        guard let current = session, case .connected = state,
+        let connected: Bool
+        if let target { connected = registry.isActive(target) } else if case .connected = state { connected = true } else { connected = false }
+        guard let current = target ?? session, connected, let key = current.pairingKey,
               let plaintext = try? JSONEncoder().encode(CallRequestPayload(number: number)),
-              let encrypted = try? encrypt(plaintext, key: current.pairingKey!) else {
+              let encrypted = try? encrypt(plaintext, key: key) else {
             setTransientCallStatus("Android is not connected")
-            return
+            return false
         }
         let messageID = UUID().uuidString.lowercased()
         callRequestID = messageID
@@ -1495,6 +1503,7 @@ final class PairingCoordinator: ObservableObject {
         }
         callTimeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: timeout)
+        return true
     }
 
     private func clearCallStatus() {
@@ -3184,6 +3193,7 @@ final class PairingCoordinator: ObservableObject {
                     link.remoteDevicePresence = draftKeys[devicePresenceFeatureKey] == true
                     link.remoteNotificationRouting = draftKeys[notificationRoutingFeatureKey] == true
                     link.remoteCamera = draftKeys[cameraFeatureKey] == true
+                    link.remoteLinksOpen = draftKeys[linksOpenFeatureKey] == true
                     link.remoteUpdates = draftKeys[updatesFeatureKey] == true
                     if !link.remoteUpdates { link.updateStatus = nil }
                     link.remoteScreen = draftKeys[screenFeatureKey] == true
@@ -7742,6 +7752,71 @@ enum SmsPhoneDisplay: Equatable {
     case phoneOff(String)
     case waiting(String)
     case ready(String, SmsPhoneStatus)
+}
+
+// MARK: - Browser support (BrowserSupport.swift, docs/browser-extensions.md)
+
+extension PairingCoordinator: BrowserSupportHost {
+    /// Paired devices for the extension's list: name, platform hint and state only. Agent servers are left out.
+    func browserDevices() -> [BrowserDevice] {
+        trustedDevices.filter { !settings.isAgent($0.id) }.map { device in
+            let link = registry.state(for: device.id)
+            let connected = link != nil && registry.session(for: device.id).map(registry.isActive) == true
+            let platform = browserPlatform(device.id, link: link)
+            return BrowserDevice(
+                id: device.id, name: device.name, platform: platform, connected: connected,
+                links: connected && isFeatureAvailable(.links, for: device.id),
+                calls: connected && platform != "macos" && platform != "windows" && isFeatureAvailable(.calls, for: device.id)
+            )
+        }
+    }
+
+    /// Discovery's platform hint, else what the session showed: a Mac sends handoff_takeover_draft1, a phone its SMS
+    /// platform. Empty when unknown.
+    private func browserPlatform(_ id: String, link: PhoneLinkState?) -> String {
+        let hint = (lastPeers + tailnetPeers).first { $0.deviceIDHint?.lowercased() == id.lowercased() }?.platformHint ?? ""
+        if ["android", "macos", "windows", "ios", "linux"].contains(hint) { return hint }
+        if link?.remoteHandoffTakeover == true { return "macos" }
+        if let platform = link?.smsPlatform { return platform.rawValue }
+        return ""
+    }
+
+    /// Sends one checked address from the extension to one device with the paths Bridgey already has: links as
+    /// quick.request (open or offer), tel: as a call request from that phone under Settings > Calls > When another
+    /// app asks to call, and an email address as clipboard text.
+    func browserSend(_ address: BrowserAddress, to id: String, completion: @escaping (BrowserSendOutcome) -> Void) {
+        guard trustedDevices.contains(where: { $0.id == id }), !settings.isAgent(id) else { completion(.failed("unknown_device")); return }
+        guard let current = registry.session(for: id), registry.isActive(current) else { completion(.failed("not_connected")); return }
+        switch address {
+        case let .web(link):
+            guard isFeatureAvailable(.links, for: id) else { completion(.failed("links_off")); return }
+            let open = registry.state(for: id)?.remoteLinksOpen == true
+            quickActions.sendBrowserLink(link, to: id, open: open, send: { [weak self, weak current] payload in
+                guard let self, let current else { return false }
+                return self.sendQuickPayload(kind: "quick.request", payload: payload, to: current)
+            }, completion: completion)
+        case let .mailto(addresses):
+            guard isFeatureAvailable(.clipboard, for: id) else { completion(.failed("unsupported")); return }
+            completion(sendText(addresses, to: id) ? .copied : .failed("failed"))
+        case let .tel(number):
+            let platform = browserPlatform(id, link: registry.state(for: id))
+            guard platform != "macos", platform != "windows", isFeatureAvailable(.calls, for: id) else { completion(.failed("calls_off")); return }
+            switch otherAppCallDecision(source: .link, policy: settings.otherAppCallPolicy) {
+            case .refuse:
+                completion(.failed("calls_off"))
+            case .callNow:
+                completion(sendCall(number, to: current) ? .calling : .failed("not_connected"))
+            case .ask:
+                // Answer the browser first: the question is a modal alert on this Mac.
+                completion(.asking)
+                let name = current.peerName
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.confirmCall(number, phoneName: name), let target = self.registry.session(for: id) else { return }
+                    self.sendCall(number, to: target)
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Test instance control (debug builds with BridgeyTestInstance only)

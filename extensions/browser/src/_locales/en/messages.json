@@ -1,0 +1,202 @@
+{
+  "extName": {
+    "message": "Bridgey by Round Robin",
+    "description": "Extension name in the store and the browser"
+  },
+  "extShortName": {
+    "message": "Bridgey",
+    "description": "Short name"
+  },
+  "extDescription": {
+    "message": "Send the page you are on, or any link, to your phone or another computer with Bridgey.",
+    "description": "Store and browser description, at most 132 characters"
+  },
+  "actionTitle": {
+    "message": "Send with Bridgey",
+    "description": "Toolbar button tooltip"
+  },
+  "commandSendPage": {
+    "message": "Send this page to the device you used last",
+    "description": "Keyboard shortcut description"
+  },
+  "popupTitle": {
+    "message": "Send to device",
+    "description": "Popup heading"
+  },
+  "popupCantSend": {
+    "message": "Only web pages can be sent. Right-click a link to send it.",
+    "description": "Status line when the current tab is not a web page"
+  },
+  "popupCantSendShort": {
+    "message": "Not a web page",
+    "description": "Under the heading when the current tab is not a web page"
+  },
+  "send": {
+    "message": "Send",
+    "description": "Button"
+  },
+  "sending": {
+    "message": "Sending…",
+    "description": "Button while sending"
+  },
+  "stateConnected": {
+    "message": "Connected",
+    "description": "Device state"
+  },
+  "stateOffline": {
+    "message": "Not connected",
+    "description": "Device state"
+  },
+  "stateLinksOff": {
+    "message": "Links are off",
+    "description": "Device state: the Links setting is off on this computer or the device"
+  },
+  "resultOpened": {
+    "message": "Opened on $1",
+    "description": "$1 is the device name"
+  },
+  "resultWaiting": {
+    "message": "Waiting on $1 for you to open",
+    "description": "The device keeps the link until it is opened there. $1 is the device name"
+  },
+  "resultCalling": {
+    "message": "Calling from $1",
+    "description": "A tel: link: the phone places the call. $1 is the phone name"
+  },
+  "resultAsking": {
+    "message": "Confirm the call in Bridgey",
+    "description": "A tel: link: Bridgey asks before calling"
+  },
+  "resultCopied": {
+    "message": "Email address copied on $1",
+    "description": "A mailto: link: the address is on the device's clipboard. $1 is the device name"
+  },
+  "errorNotInstalled": {
+    "message": "Turn on browser support in Bridgey",
+    "description": "Heading when the native messaging host is not installed"
+  },
+  "errorNotInstalledDetail": {
+    "message": "In Bridgey's Settings, choose Install next to Browser extensions. Bridgey needs to be installed on this computer.",
+    "description": "Detail"
+  },
+  "errorAppNotRunning": {
+    "message": "Open Bridgey on this computer",
+    "description": "Heading when the app is not running"
+  },
+  "errorAppNotRunningDetail": {
+    "message": "The extension sends through Bridgey, so it needs to be running.",
+    "description": "Detail"
+  },
+  "errorUnsafe": {
+    "message": "Bridgey's connection on this computer looks wrong. Restart Bridgey.",
+    "description": "The local socket or pipe has the wrong owner or permissions"
+  },
+  "errorUnknownDevice": {
+    "message": "Bridgey no longer knows this device",
+    "description": "Error"
+  },
+  "errorNotConnected": {
+    "message": "$1 is not connected",
+    "description": "$1 is the device name"
+  },
+  "errorLinksOff": {
+    "message": "Links are off on $1 or on this computer",
+    "description": "$1 is the device name"
+  },
+  "errorCallsOff": {
+    "message": "Calls are off, or $1 cannot place calls",
+    "description": "$1 is the device name"
+  },
+  "errorBusy": {
+    "message": "Still waiting for $1 to answer",
+    "description": "$1 is the device name"
+  },
+  "errorDeclined": {
+    "message": "$1 declined. Another link may be waiting there.",
+    "description": "$1 is the device name"
+  },
+  "errorRateLimited": {
+    "message": "Too many at once. Try again in a few seconds.",
+    "description": "Error"
+  },
+  "errorUnsupported": {
+    "message": "$1 cannot take this kind of link",
+    "description": "$1 is the device name"
+  },
+  "errorBadUrl": {
+    "message": "This address cannot be sent",
+    "description": "Error"
+  },
+  "errorNoAnswer": {
+    "message": "$1 did not answer",
+    "description": "$1 is the device name"
+  },
+  "errorFailed": {
+    "message": "Could not send. Try again.",
+    "description": "Error"
+  },
+  "emptyNoDevices": {
+    "message": "No paired devices",
+    "description": "Heading"
+  },
+  "emptyNoDevicesDetail": {
+    "message": "Pair your phone or another computer in Bridgey first.",
+    "description": "Detail"
+  },
+  "recent": {
+    "message": "Recent",
+    "description": "Heading of the recent sends list"
+  },
+  "clear": {
+    "message": "Clear",
+    "description": "Clears the recent sends"
+  },
+  "retry": {
+    "message": "Try again",
+    "description": "Button"
+  },
+  "getBridgey": {
+    "message": "Get Bridgey",
+    "description": "Button that opens Bridgey's website"
+  },
+  "agoNow": {
+    "message": "just now",
+    "description": "Time"
+  },
+  "agoMinutes": {
+    "message": "$1 min ago",
+    "description": "Time, $1 is a number"
+  },
+  "agoHours": {
+    "message": "$1 h ago",
+    "description": "Time, $1 is a number"
+  },
+  "agoDays": {
+    "message": "$1 d ago",
+    "description": "Time, $1 is a number"
+  },
+  "menuSendPage": {
+    "message": "Send this page with Bridgey",
+    "description": "Page context menu"
+  },
+  "menuSendLink": {
+    "message": "Send link with Bridgey",
+    "description": "Link context menu"
+  },
+  "menuSendPageTo": {
+    "message": "Send this page to $1",
+    "description": "Page context menu, $1 is the device name"
+  },
+  "menuSendLinkTo": {
+    "message": "Send link to $1",
+    "description": "Link context menu, $1 is the device name"
+  },
+  "menuSendPageToOffline": {
+    "message": "Send this page to $1 (not connected)",
+    "description": "Page context menu, $1 is the device name"
+  },
+  "menuSendLinkToOffline": {
+    "message": "Send link to $1 (not connected)",
+    "description": "Link context menu, $1 is the device name"
+  }
+}

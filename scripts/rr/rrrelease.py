@@ -3,8 +3,8 @@
 
 Subcommands
   version   Print VERSION_NAME, BUILD_NUMBER, TAG and PRERELEASE for a channel (shell KEY=value lines).
-  assemble  Copy built artifacts (APK, Mac DMG and ZIP, Windows x64 and Arm64 zips) into <dist>/release with
-            release file names, write the CycloneDX SBOMs
+  assemble  Copy built artifacts (APK, Mac DMG and ZIP, Windows x64 and Arm64 zips, the browser extension zips) into
+            <dist>/release with release file names, write the CycloneDX SBOMs
             and <prefix>-<version>-provenance.json (see supplychain.py), write SHA256SUMS,
             <dist>/channels/<channel>.json and the merged, EdDSA-signed <dist>/channels/appcast.xml.
   verify    Validate every feed and appcast item in <dist>/channels against the files in <dist>/release,
@@ -347,6 +347,9 @@ def notes_html(version: str, notes: str) -> str:
 # ---------------------------------------------------------------- assemble
 
 
+BROWSER_EXTENSIONS = ("Chrome", "Edge", "Firefox")
+
+
 def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     channel = args.channel
     version = args.version
@@ -487,6 +490,16 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     elif previous_feed and previous_feed.get("windows"):
         print(f"note: no Windows build in this release; {channel}.json keeps Windows {previous_feed['windows'].get('version')}", file=sys.stderr)
         feed["windows"] = previous_feed["windows"]
+
+    # The browser extension zips (extensions/browser/build.py): release assets for installing by hand, listed in
+    # SHA256SUMS and the provenance, never in a channel feed (browsers do not update them from here).
+    if getattr(args, "browser_extensions", None):
+        for label in BROWSER_EXTENSIONS:
+            name = f"{prefix}-{version}-{label}.zip"
+            source = Path(args.browser_extensions) / name
+            if not source.is_file():
+                raise ReleaseError(f"no {name} in {args.browser_extensions}")
+            stage(str(source), name)
 
     validate_feed(feed, channel, app_id, asset_prefix)
     write_supply_chain(args, props, release_dir, sums, published, prefix)
@@ -733,6 +746,7 @@ def main(argv: list[str] | None = None) -> int:
     assemble_parser.add_argument("--windows-build", type=int, help="the build number the Windows zips carry, when another than --build")
     assemble_parser.add_argument("--windows-build-info", help="windows.build-info written by ci-release-windows.ps1")
     assemble_parser.add_argument("--windows-deps", help="windows-rust-dependencies.txt (cargo tree for the Windows target) from the Windows job")
+    assemble_parser.add_argument("--browser-extensions", help="folder with <prefix>-<version>-{Chrome,Edge,Firefox}.zip from extensions/browser/build.py")
     assemble_parser.add_argument("--repo-root", default=str(REPO_ROOT), help=argparse.SUPPRESS)
     previous = assemble_parser.add_mutually_exclusive_group()
     previous.add_argument("--previous-channels", help="directory with the currently published <channel>.json/appcast.xml")

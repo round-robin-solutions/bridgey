@@ -22,8 +22,9 @@
 #                        BRIDGEY_RR_BUMP_CASK=1 does the same). Needs GH_TOKEN with push access to the tap. A
 #                        failure only warns: the release stays published. See scripts/rr/bump-cask.py.
 #
-# Each release also carries a CycloneDX SBOM per platform and a provenance file (supplychain.py); all of
-# them are listed in SHA256SUMS. Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac
+# Each release also carries the browser extension zips for Chrome, Edge and Firefox (extensions/browser/build.py,
+# built here; docs/browser-extensions.md), a CycloneDX SBOM per platform and a provenance file (supplychain.py); all
+# of them are listed in SHA256SUMS. Runs on rr-dev-1 (Android build, Sparkle signing key) and drives the Mac
 # over ssh. See docs/rr-edition.md.
 set -eu
 . "$(dirname -- "$0")/common.sh"
@@ -112,6 +113,9 @@ if [ -n "$WIN_ARTIFACTS" ]; then
   [ ! -f "$WIN_ARTIFACTS/windows-rust-dependencies.txt" ] || set -- "$@" --windows-deps "$WIN_ARTIFACTS/windows-rust-dependencies.txt"
 fi
 [ -n "$NOTES_FILE" ] && set -- "$@" --notes-file "$NOTES_FILE"
+# The browser extension: one source, a zip per browser, standard-library Python only.
+python3 "$RR_ROOT/extensions/browser/build.py" --version "$VERSION_NAME" --out "$WORK/browser" >/dev/null
+set -- "$@" --browser-extensions "$WORK/browser"
 
 # The Sparkle key signs the Mac zip and the Windows zips (Ed25519; the Windows app checks it against SUPublicEDKey).
 if [ $SKIP_MAC = 0 ] || [ -n "$WIN_ARTIFACTS" ]; then set -- "$@" --ed-key "$ED_KEY"; fi

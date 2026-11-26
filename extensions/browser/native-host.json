@@ -1,0 +1,7 @@
+{
+  "name": "in.roundrobin.bridgey",
+  "description": "Bridgey by Round Robin: sends links from this browser to your devices",
+  "chromiumExtensionIds": ["aajelmcjgfjbhemgofnompobgbcdfcin"],
+  "firefoxExtensionIds": ["bridgey@roundrobin.in"],
+  "chromiumPublicKey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvNWR35nvv8n49XPJsWtaDt3L/B/ZoA6inhV6Hji1iCJrsnLB5fEJ5NKec6tzCvdMM6hCHrS/uEvAPae47DnCiJDFW5X7YVyGA5ukLWv17GpEN2qbjA3BKCHC0xb/0+WFvTpHpy9yyzrhaXitzZhic9Q6wJCe6C4QQWAglr5/rQvMQjFmYAA/GcBlDoX3K79ScK5uOAdfUa6hpWcKa20cPgU7MXydBLKuFLRrFcWlAoZD0TTdTP3X1BVkKuqwE+W5KKeWyAi2Cqfhk1ad/Yeh7I9YMgN3XXxuzU2AzKZ1SQ+a43/onWoNqPyF1fBeL8wJCDup5ndIz1aCphz29SjZQQIDAQAB"
+}

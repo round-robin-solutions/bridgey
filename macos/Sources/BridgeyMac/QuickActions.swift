@@ -22,6 +22,12 @@ func validatedWebLink(_ value: String) -> String? {
     return text
 }
 
+/// What a send from the browser extension did (BrowserSupport.swift). `failed` carries the code the extension shows.
+enum BrowserSendOutcome: Equatable {
+    case opened, waiting, calling, asking, copied
+    case failed(String)
+}
+
 @MainActor
 final class QuickActions: ObservableObject {
     @Published private(set) var receivedLink: String?
@@ -35,6 +41,8 @@ final class QuickActions: ObservableObject {
     var onActivity: (ActivityKind, String) -> Void = { _, _ in }
     private var receivedLinkDeviceID: String?
     private var pending: String?
+    /// Links from the browser extension, by request ID: one waiting per device, each answered by that device.
+    private var browserPending: [String: (deviceID: String, done: (BrowserSendOutcome) -> Void, timeout: Task<Void, Never>)] = [:]
     private var timeout: Task<Void, Never>?
     private var sequence = 0
 
@@ -67,6 +75,32 @@ final class QuickActions: ObservableObject {
         }
     }
 
+    /// A link from the browser extension to one device: `open` when it understands links_open_draft1 (it opens the
+    /// link at once if its own setting allows), else `offer`. `send` delivers the quick.request to that device; the
+    /// answer is that device's quick.result, or no_answer after 8 seconds.
+    func sendBrowserLink(_ link: String, to deviceID: String, open: Bool, send: ([String: Any]) -> Bool,
+                         completion: @escaping (BrowserSendOutcome) -> Void) {
+        guard let link = validatedWebLink(link) else { completion(.failed("bad_url")); return }
+        guard !browserPending.values.contains(where: { $0.deviceID == deviceID }) else { completion(.failed("busy")); return }
+        let id = UUID().uuidString.lowercased()
+        sequence += 1
+        guard send(["version": 1, "requestId": id, "feature": "links", "action": open ? "open" : "offer", "value": link, "sequence": sequence]) else {
+            completion(.failed("not_connected")); return
+        }
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.finishBrowserLink(id, .failed("no_answer"))
+        }
+        browserPending[id] = (deviceID, completion, timeout)
+    }
+
+    private func finishBrowserLink(_ id: String, _ outcome: BrowserSendOutcome) {
+        guard let entry = browserPending.removeValue(forKey: id) else { return }
+        entry.timeout.cancel()
+        entry.done(outcome)
+    }
+
     /// Settings > Media and actions > Open links from phones right away (links_open_draft1).
     var openRightAway: () -> Bool = { true }
     /// Opens a link in the default browser; tests replace it.
@@ -77,6 +111,16 @@ final class QuickActions: ObservableObject {
     func receive(_ kind: String, payload: [String: Any], from deviceID: String = "") {
         guard payload["version"] as? Int == 1,
               let id = payload["requestId"] as? String, UUID(uuidString: id) != nil else { return }
+        if kind == "quick.result", let entry = browserPending[id] {
+            // Only the device the browser's link went to answers it.
+            guard entry.deviceID == deviceID, payload["feature"] as? String == "links" else { return }
+            let accepted = payload["accepted"] as? Bool == true
+            if accepted { onActivity(.linkSent, deviceID) }
+            let reason = payload["reason"] as? String
+            finishBrowserLink(id, accepted ? (payload["opened"] as? Bool == true ? .opened : .waiting)
+                : .failed(reason == "rate_limited" ? "rate_limited" : reason == "links_disabled" ? "links_off" : "declined"))
+            return
+        }
         if kind == "quick.result" {
             guard id == pending, payload["feature"] as? String == "links" else { return }
             pending = nil; timeout?.cancel()
@@ -123,5 +167,8 @@ final class QuickActions: ObservableObject {
     func dismissLink() { receivedLink = nil; receivedLinkDeviceID = nil }
     /// A line for the panel from another quick action (the browser tab).
     func showStatus(_ text: String) { status = text }
-    func reset() { timeout?.cancel(); pending = nil; receivedLink = nil; receivedLinkDeviceID = nil; status = nil }
+    func reset() {
+        timeout?.cancel(); pending = nil; receivedLink = nil; receivedLinkDeviceID = nil; status = nil
+        for id in Array(browserPending.keys) { finishBrowserLink(id, .failed("not_connected")) }
+    }
 }

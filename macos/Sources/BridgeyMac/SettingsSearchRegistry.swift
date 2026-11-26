@@ -64,6 +64,8 @@ enum SettingsSearchRegistry {
     static let calls = ["phone", "dial", "звонок", "вызов"]
     static let files = ["send file", "airdrop", "share", "transfer", "folder", "файлы", "передача"]
     static let media = ["music", "spotify", "play", "pause", "volume", "музыка", "громкость"]
+    static let browsers = ["browser", "extension", "add-on", "chrome", "edge", "firefox", "brave", "arc", "native messaging",
+                           "браузер", "расширение", "дополнение"]
     static let find = ["ring", "lost", "locate", "найти"]
     static let ping = ["alert", "пинг"]
     static let battery = ["charge", "power", "low battery", "батарея", "заряд"]
@@ -292,6 +294,9 @@ enum SettingsSearchRegistry {
             feature(.ping, .media, section: quickActions, ping),
             feature(.findDevice, .media, section: quickActions, find),
             feature(.battery, .media, section: quickActions, battery),
+            row("media.browsers", .media, L10n.text("browser.support", fallback: "Browser extensions"),
+                L10n.text("browser.support.detail", fallback: "Send pages and links to your devices from Chrome, Edge, Firefox, Brave and Arc"),
+                browsers),
         ]
         entries.append(feature(.macActions, .media, section: macActionsCard, featureWords(.macActions)))
         entries += MacActionSwitch.allCases.map { item in

@@ -190,6 +190,8 @@ struct SettingsModel {
     var macActionsAudit: [MacActionAuditEntry] = []
     /// Media and actions > Open links from phones right away.
     var openLinksRightAway = true
+    /// Media and actions > Browsers (BrowserSupport.swift).
+    var browserSupport = BrowserSupportDisplay()
     /// Devices > [phone] > Connection health.
     var health: [String: ConnectionHealthSnapshot] = [:]
     /// Devices > [phone] > Battery alerts; a missing phone uses the defaults.
@@ -357,6 +359,9 @@ struct SettingsActions {
     var removeMacActionShortcut: (String) -> Void = { _ in }
     var clearMacActionsAudit: () -> Void = {}
     var setOpenLinksRightAway: (Bool) -> Void = { _ in }
+    var installBrowserSupport: () -> Void = {}
+    var removeBrowserSupport: () -> Void = {}
+    var openBrowserGuide: () -> Void = {}
     var setBatteryAlerts: (String, BatteryAlertThresholds) -> Void = { _, _ in }
     var setFocusSync: ((inout FocusSyncSettings) -> Void) -> Void = { _ in }
     var setCameraCopyToClipboard: (Bool) -> Void = { _ in }
@@ -1113,8 +1118,39 @@ private struct MediaActionsPane: View {
                 }
             }
         }
+        BrowserSupportCard(display: model.browserSupport, actions: actions)
         MacActionsCards(model: model, actions: actions)
         ShortcutsCard(model: model, actions: actions, only: [.link, .ping])
+    }
+}
+
+/// Media and actions > Browsers: install or remove browser support (docs/browser-extensions.md).
+struct BrowserSupportCard: View {
+    let display: BrowserSupportDisplay
+    let actions: SettingsActions
+
+    var body: some View {
+        SettingsCard {
+            SettingsRow(title: BrowserSupportText.title, subtitle: BrowserSupportText.subtitle(display),
+                        subtitleIsWarning: display.problem != nil && display.problem != .unavailable, divider: false) {
+                if display.problem != .unavailable && display.problem != .translocated {
+                    if display.enabled {
+                        if display.problem == .noBrowser {
+                            Button(L10n.text("browser.support.install", fallback: "Install"), action: actions.installBrowserSupport)
+                                .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                        } else {
+                            Button(L10n.text("browser.support.guide", fallback: "Get the extension"), action: actions.openBrowserGuide)
+                                .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                        }
+                        Button(L10n.text("browser.support.remove", fallback: "Remove"), action: actions.removeBrowserSupport)
+                            .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    } else {
+                        Button(L10n.text("browser.support.install", fallback: "Install"), action: actions.installBrowserSupport)
+                            .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1961,6 +1997,7 @@ struct LiveSettingsView: View {
     @ObservedObject var connect: ConnectAnywhere
     @ObservedObject var agentsMirror: AgentsMirror
     @ObservedObject var localAgentCodes: LocalAgentCodes
+    @ObservedObject var browserSupport: BrowserSupport
     @State private var pane: SettingsPane = .devices
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
@@ -1990,6 +2027,7 @@ struct LiveSettingsView: View {
         connect = pairing.connect
         agentsMirror = pairing.agentsMirror
         localAgentCodes = pairing.localAgentCodes
+        browserSupport = pairing.browserSupport
     }
 
     private var codeModelDisplay: CodeModelDisplay {
@@ -2084,6 +2122,7 @@ struct LiveSettingsView: View {
         model.codesEmail = settings.codesEmail
         model.codesFloat = settings.codesFloat
         model.localAgentCodeOptions = localAgentCodes.options
+        model.browserSupport = browserSupport.display
         model.localAgentCodesUnavailable = localAgentCodes.unavailable
         model.codesAvailable = CodeRelay.baseURL != nil
         model.codesEngine = settings.codesEngine
@@ -2288,6 +2327,9 @@ struct LiveSettingsView: View {
         actions.setCodesEmail = { settings.setCodesEmail($0) }
         actions.setCodesFloat = { settings.setCodesFloat($0) }
         actions.setLocalAgentCodes = { localAgentCodes.set($0) }
+        actions.installBrowserSupport = { browserSupport.install() }
+        actions.removeBrowserSupport = { browserSupport.remove() }
+        actions.openBrowserGuide = { NSWorkspace.shared.open(BrowserSupport.guideURL) }
         actions.setCodesEngine = { settings.setCodesEngine($0) }
         actions.acceptAndDownloadCodeModel = {
             guard let manifest = codeModel.manifest else { return }
