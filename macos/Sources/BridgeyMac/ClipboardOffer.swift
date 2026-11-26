@@ -228,6 +228,11 @@ struct ClipboardFetchPayload: Codable, Equatable {
               (0..<ClipboardOfferLimits.maximumItems).contains(index) else { return nil }
         return self
     }
+
+    /// A received clipboard.fetch plaintext, validated; nil when malformed.
+    static func received(_ data: Data) -> ClipboardFetchPayload? {
+        (try? JSONDecoder().decode(ClipboardFetchPayload.self, from: data))?.validated()
+    }
 }
 
 enum ClipboardErrorCode: String, Codable, Equatable {
@@ -241,6 +246,34 @@ struct ClipboardErrorPayload: Codable, Equatable {
     var index: Int
     var transferId: String
     var code: ClipboardErrorCode
+
+    /// A received clipboard.error plaintext of version 1; nil when malformed. A missing or unknown code reads as
+    /// unavailable, as on Android, so the paste ends at once instead of at its timeout.
+    static func received(_ data: Data) -> ClipboardErrorPayload? {
+        guard let payload = try? JSONDecoder().decode(Received.self, from: data), payload.version == 1 else { return nil }
+        return ClipboardErrorPayload(offerId: payload.offerId, index: payload.index, transferId: payload.transferId,
+                                     code: payload.code.flatMap(ClipboardErrorCode.init(rawValue:)) ?? .unavailable)
+    }
+
+    /// The wire form, with the code as any value.
+    private struct Received: Decodable {
+        let version: Int
+        let offerId: String
+        let index: Int
+        let transferId: String
+        let code: String?
+
+        enum CodingKeys: String, CodingKey { case version, offerId, index, transferId, code }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            version = try container.decode(Int.self, forKey: .version)
+            offerId = try container.decode(String.self, forKey: .offerId)
+            index = try container.decode(Int.self, forKey: .index)
+            transferId = try container.decode(String.self, forKey: .transferId)
+            code = try? container.decodeIfPresent(String.self, forKey: .code)
+        }
+    }
 }
 
 /// `files.offer` with `purpose: "clipboard"`. `sha256` is omitted when the sender hashes while

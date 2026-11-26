@@ -341,6 +341,14 @@ internal fun parseClipReference(bytes: ByteArray, outerTransferId: String?): Cli
     ClipFetchRequest(offerId.lowercase(), index, transferId)
 }.getOrNull()
 
+/** A clipboard.error: its reference, as [parseClipReference] reads it, and its code; a missing or unknown code reads as unavailable. */
+internal fun parseClipError(bytes: ByteArray, outerTransferId: String?): Pair<ClipFetchRequest, String>? {
+    val reference = parseClipReference(bytes, outerTransferId) ?: return null
+    val code = runCatching { JSONObject(bytes.toString(Charsets.UTF_8)).optString("code") }.getOrNull()
+        ?.takeIf { it in ClipErrorCode.all } ?: ClipErrorCode.UNAVAILABLE
+    return reference to code
+}
+
 /** The clipboard purpose fields of a decrypted files.offer, or null for an ordinary file. */
 internal data class ClipTransferOffer(
     val transferId: String,

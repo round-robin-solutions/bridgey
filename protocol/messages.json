@@ -123,7 +123,8 @@
     {"key": "dialer_draft1", "status": "edition-draft", "v1": "draft", "requiredInMap": false, "missingMeans": "false", "note": "Calls window: the Mac's keypad, contact search and recent calls, with calls placed through the phone and WhatsApp calls through the phone's WhatsApp. Protocol 2 only, never for agent devices. The phone sets it while its Calls window switch is on and that Mac is allowed (off until allowed); the Mac sets it while its own switch is on and that phone is allowed. Gates dialer.*"},
     {"key": "device_presence_draft1", "status": "edition-draft", "v1": "draft", "requiredInMap": false, "missingMeans": "false", "note": "Trusted protocol-2 phone subscription to coarse Mac input activity. Optional; off for agent/Mac peers. Mac opt-out in Notifications settings."},
     {"key": "share_receive_draft1", "status": "edition-draft", "v1": "draft", "requiredInMap": false, "missingMeans": "false", "note": "Mac accepts explicitly shared plain text on its clipboard and shows a small notification; requires Clipboard on for this phone."},
-    {"key": "notification_routing_draft1", "status": "edition-draft", "v1": "draft", "requiredInMap": false, "missingMeans": "false", "note": "The Mac honors notifications.post presentation alert|quiet across ordinary banners, code side effects and call alerts; quiet history and all-device call/media state remain. Alert recipient choice uses device_presence_draft1 activity."}
+    {"key": "notification_routing_draft1", "status": "edition-draft", "v1": "draft", "requiredInMap": false, "missingMeans": "false", "note": "The Mac honors notifications.post presentation alert|quiet across ordinary banners, code side effects and call alerts; quiet history and all-device call/media state remain. Alert recipient choice uses device_presence_draft1 activity."},
+    {"key": "handoff_takeover_draft1", "status": "edition-draft", "v1": "draft", "requiredInMap": false, "missingMeans": "false", "note": "Macs only, always true there: the Mac applies the handoff.takeover setting (Let Bridgey handle copy and paste), so settings sync sends it only to peers that show this key. No messages of its own; phones never send it."}
   ],
   "messages": [
     { "kind": "pairing.offer", "status": "upstream-v1", "v1": "core", "direction": "either", "feature": null, "encrypted": false,
@@ -229,7 +230,7 @@
       "implemented": ["android", "macos", "cli", "client"] },
     { "kind": "files.cancel.ack", "status": "upstream-v1", "v1": "core", "direction": "either", "feature": "files", "encrypted": false,
       "outer": ["sessionId", "transferId"],
-      "implemented": ["android", "macos", "cli", "client"] },
+      "implemented": ["android", "macos", "client"] },
     { "kind": "files.resume", "status": "edition-draft", "v1": "draft", "direction": "either", "feature": "files_resume_draft1", "encrypted": true, "replay": "messageId", "maxPlaintextBytes": 1024,
       "outer": ["sessionId", "messageId", "transferId", "nonce", "ciphertext"],
       "payload": { "version": "integer, 1", "transferId": "string, the offer's, exactly", "offset": "integer: a positive multiple of 1,048,576 not above the offer's size, or the size itself; the receiver's verified bytes", "prefixSha256": "string, base64 SHA-256 of the file's first offset bytes" },

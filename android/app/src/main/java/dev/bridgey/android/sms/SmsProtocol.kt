@@ -453,6 +453,22 @@ fun smsSendStatusPayload(requestId: String, state: SendState, reason: SendReason
 fun pageBase(requestId: String, error: String? = null): JSONObject =
     JSONObject().put("version", 1).put("requestId", requestId).apply { if (error != null) put("error", error) }
 
+/** sms.threads_page: [threads] are [SmsThread.toJson] entries that fit; with an [error] the page is empty. */
+fun smsThreadsPagePayload(requestId: String, threads: List<JSONObject>, more: Boolean, error: String? = null): JSONObject =
+    pageBase(requestId, error).put("threads", JSONArray(threads)).put("more", more)
+
+/** sms.attachment_data with an image: a JPEG scaled down on the phone, [data] in base64. */
+fun smsAttachmentDataPayload(requestId: String, partId: String, width: Int, height: Int, data: String): JSONObject =
+    pageBase(requestId).put("partId", partId).put("mimeType", "image/jpeg").put("width", width).put("height", height).put("data", data)
+
+/** sms.attachment_data without an image: not_found, unsupported or permission. */
+fun smsAttachmentErrorPayload(requestId: String, partId: String, error: String): JSONObject =
+    pageBase(requestId).put("partId", partId).put("error", error)
+
+/** sms.contacts_result: [contacts] are [SmsContact.toJson] entries that fit; with an [error] the list is empty. */
+fun smsContactsResultPayload(requestId: String, contacts: List<JSONObject>, error: String? = null): JSONObject =
+    pageBase(requestId).put("contacts", JSONArray(contacts)).apply { if (error != null) put("error", error) }
+
 /** What happened to one conversation of an sms.mark_read. */
 enum class MarkReadResult(val wire: String) {
     /** The messaging app's own Mark as read ran on its notification. */

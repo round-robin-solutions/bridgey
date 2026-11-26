@@ -71,8 +71,7 @@ class ProtocolGoldenVectorsTest {
 
     /** Calls (upstream v1): the number the phone dials from a calls.request, or reject; the Mac sends only numbers that read alike. */
     @Test fun callsRequest() = each("callsRequest") { vector ->
-        val number = runCatching { JSONObject(String(plaintext(vector), Charsets.UTF_8)).getString("number") }.getOrNull()
-        (number?.let(::normalizedPhoneNumber) ?: "reject") == vector.getString("expect")
+        (callRequestNumber(plaintext(vector)) ?: "reject") == vector.getString("expect")
     }
 
     @Test fun clipboardOffer() = each("clipboardOffer") { vector ->

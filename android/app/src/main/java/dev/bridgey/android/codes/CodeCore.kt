@@ -1,5 +1,7 @@
 package dev.bridgey.android.codes
 
+import org.json.JSONObject
+
 /*
  * Codes from messages (edition). The Mac reads codes; the phone marks SMS notifications, reports
  * whether Android hides their text from Bridgey, and makes the companion link that lifts the hiding.
@@ -11,6 +13,10 @@ package dev.bridgey.android.codes
 
 /** Draft, edition only: features.update key, `smsDefaultApp`/`redacted` fields and `codes.*` messages. */
 const val SMS_CODES_FEATURE_KEY = "sms_codes_draft1"
+
+/** codes.advertise_stop: the Mac stops advertising [serviceUuid]; [linked] says whether the companion link was made. */
+fun codesAdvertiseStopPayload(serviceUuid: java.util.UUID, linked: Boolean): ByteArray =
+    JSONObject().put("version", 1).put("serviceUuid", serviceUuid.toString()).put("linked", linked).toString().toByteArray()
 
 /** Android 15: the first release that hides code notifications from untrusted listeners. */
 const val SENSITIVE_REDACTION_SDK = 35

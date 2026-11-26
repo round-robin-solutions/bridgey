@@ -33,6 +33,9 @@ struct ConnectSetup: Equatable {
     }
 
     var payload: [String: Any] { ["version": 1, "contribution": contribution.base64EncodedString(), "rotate": rotate] }
+
+    /// connect.setup.ack: informational, the sender holds the new pair secret. Receivers read nothing from it.
+    static var ackPayload: [String: Any] { ["version": 1] }
 }
 
 /// One address in connect.addresses.

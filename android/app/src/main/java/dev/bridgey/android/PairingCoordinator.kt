@@ -4750,9 +4750,7 @@ class PairingCoordinator(
             nonce,
             ciphertext,
         ) ?: return fail(current, "Invalid encrypted call request")
-        val number = runCatching {
-            JSONObject(plaintext.toString(Charsets.UTF_8)).getString("number")
-        }.getOrNull()?.let(::normalizedPhoneNumber)
+        val number = callRequestNumber(plaintext)
         if (number == null) {
             current.send(Message(kind = "calls.rejected", sessionId = current.id, messageId = messageId))
             return
@@ -4895,9 +4893,7 @@ class PairingCoordinator(
 
     private fun receiveClipboardError(current: Session, message: Message) {
         val plaintext = clipboardPlaintext(current, message) ?: return
-        val reference = parseClipReference(plaintext, message.transferId) ?: return
-        val code = runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)).optString("code") }.getOrNull()
-            ?.takeIf { it in ClipErrorCode.all } ?: ClipErrorCode.UNAVAILABLE
+        val (reference, code) = parseClipError(plaintext, message.transferId) ?: return
         clipboardInbox.onError(reference.transferId, code)
     }
 
@@ -6645,7 +6641,7 @@ class PairingCoordinator(
     fun stopCompanionAdvertising(deviceId: String, serviceUuid: java.util.UUID, linked: Boolean) {
         pendingAdvertising.remove(serviceUuid.toString())
         val current = registry.session(deviceId) ?: return
-        val payload = JSONObject().put("version", 1).put("serviceUuid", serviceUuid.toString()).put("linked", linked).toString().toByteArray()
+        val payload = dev.bridgey.android.codes.codesAdvertiseStopPayload(serviceUuid, linked)
         scope.launch { sendEncrypted(current, "codes.advertise_stop", payload) }
     }
 

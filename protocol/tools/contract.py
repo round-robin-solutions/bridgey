@@ -16,6 +16,10 @@ BEGIN = "<!-- BEGIN GENERATED: protocol/tools/contract.py --write -->"
 END = "<!-- END GENERATED -->"
 KIND = re.compile(r"^[a-z][a-z0-9]*(\.[a-z0-9_]+)+$")
 PLATFORMS = {"android", "macos", "cli", "client"}
+# A features.update map carries at most this many keys, each at most this many bytes (docs/protocol.md, Session
+# negotiation). Senders send only listed keys, so the list itself must fit.
+MAX_FEATURE_KEYS = 128
+MAX_FEATURE_KEY_BYTES = 64
 # Proposed Bridgey Protocol v1 statuses (docs/protocol-v1.md), from the most to the least frozen.
 V1_STATUSES = ("core", "extension", "draft", "deprecated")
 _V1_RANK = {"core": 0, "extension": 1, "draft": 2}
@@ -36,6 +40,12 @@ def validate(contract):
     for f in contract["features"]:
         if f["status"] not in statuses:
             problems.append(f"feature {f['key']}: unknown status {f['status']}")
+        if not 1 <= len(f["key"].encode()) <= MAX_FEATURE_KEY_BYTES:
+            problems.append(f"feature {f['key']}: a key is 1 to {MAX_FEATURE_KEY_BYTES} bytes")
+    if len(features) > MAX_FEATURE_KEYS:
+        problems.append(f"{len(features)} feature keys: a features.update map carries at most {MAX_FEATURE_KEYS}")
+    if len(features) != len(contract["features"]):
+        problems.append("a feature key is listed twice")
     for m in contract["messages"]:
         kind = m["kind"]
         if kind in seen:
@@ -167,6 +177,36 @@ def coverage_problems(contract):
         for kind, m in sorted(listed.items()):
             if platform in m["implemented"] and kind not in found:
                 problems.append(f"{platform}: messages.json lists {kind} but the sources never use it")
+    return problems
+
+
+# Feature keys written as literals in the app sources (the edition's keys all end in _draftN). Every one must be listed,
+# so no build advertises a key the contract does not know.
+_FEATURE_KEY = re.compile(r'"([a-z][a-z0-9_]*_draft[0-9]+)"')
+FEATURE_SOURCES = [(ROOT / "android", ".kt"), (ROOT / "macos" / "Sources", ".swift"), (ROOT / "rust", ".rs"),
+                   (ROOT / "windows" / "src", ".cs"), (ROOT / "ios", ".swift")]
+
+
+def _app_source(path):
+    parts = path.parts
+    return "build" not in parts and "target" not in parts and not any(p in ("test", "tests", "Tests") or p.endswith("Tests")
+                                                                         for p in parts)
+
+
+def feature_key_problems(contract, sources=None):
+    listed = {f["key"] for f in contract["features"]}
+    problems = []
+    for root, suffix in sources or FEATURE_SOURCES:
+        for path in sorted(pathlib.Path(root).rglob("*" + suffix)):
+            if not _app_source(path.relative_to(root)):
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if suffix == ".rs":
+                text = text.split("\n#[cfg(test)]\nmod ")[0]
+            for key in sorted(set(_FEATURE_KEY.findall(text))):
+                if key not in listed:
+                    where = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+                    problems.append(f"{where}: feature key {key} is not in protocol/messages.json")
     return problems
 
 

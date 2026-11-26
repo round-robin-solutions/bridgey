@@ -1149,5 +1149,897 @@
     "window": "1h"
    }
   }
+ ],
+ "agentHello": [
+  {
+   "name": "bridgey on Linux",
+   "plaintext": {
+    "version": 1,
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   },
+   "expect": {
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   },
+   "write": true
+  },
+  {
+   "name": "bridgey on a Mac",
+   "plaintext": {
+    "version": 1,
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "macos aarch64"
+   },
+   "expect": {
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "macos aarch64"
+   },
+   "write": true
+  },
+  {
+   "name": "control and bidi characters are removed",
+   "plaintext": {
+    "version": 1,
+    "platform": "cli",
+    "app": "bridgey\u0007 0.3.0",
+    "os": "linux‮ x86_64"
+   },
+   "expect": {
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   }
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64",
+    "future": 1
+   },
+   "expect": {
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   }
+  },
+  {
+   "name": "app of 65 characters",
+   "plaintext": {
+    "version": 1,
+    "platform": "cli",
+    "app": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "os": "linux x86_64"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "no platform",
+   "plaintext": {
+    "version": 1,
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "empty platform",
+   "plaintext": {
+    "version": 1,
+    "platform": "",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "no os",
+   "plaintext": {
+    "version": 1,
+    "platform": "cli",
+    "app": "bridgey 0.3.0"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "platform": "cli",
+    "app": "bridgey 0.3.0",
+    "os": "linux x86_64"
+   },
+   "expect": "reject"
+  }
+ ],
+ "agentGrantRequest": [
+  {
+   "name": "two grants with a note",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes",
+     "notify"
+    ],
+    "note": "For the nightly build"
+   },
+   "expect": {
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes",
+     "notify"
+    ],
+    "note": "For the nightly build"
+   },
+   "write": true
+  },
+  {
+   "name": "every grant",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "files",
+     "clipboard",
+     "clipboard_request",
+     "notify",
+     "ask",
+     "ring",
+     "battery",
+     "codes",
+     "codes_detect",
+     "notifications"
+    ]
+   },
+   "expect": {
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "files",
+     "clipboard",
+     "clipboard_request",
+     "notify",
+     "ask",
+     "ring",
+     "battery",
+     "codes",
+     "codes_detect",
+     "notifications"
+    ]
+   },
+   "write": true
+  },
+  {
+   "name": "unknown names are skipped",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes",
+     "teleport"
+    ]
+   },
+   "expect": {
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes"
+    ]
+   }
+  },
+  {
+   "name": "a name twice is kept once",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes",
+     "codes"
+    ]
+   },
+   "expect": {
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes"
+    ]
+   }
+  },
+  {
+   "name": "no keys",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": []
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "11 keys",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "files",
+     "clipboard",
+     "clipboard_request",
+     "notify",
+     "ask",
+     "ring",
+     "battery",
+     "codes",
+     "codes_detect",
+     "notifications",
+     "codes"
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "only unknown names",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "teleport"
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "a key that is not a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes",
+     5
+    ]
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "note of 121 characters",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "keys": [
+     "codes"
+    ],
+    "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "r1",
+    "keys": [
+     "codes"
+    ]
+   },
+   "expect": "reject"
+  }
+ ],
+ "agentRequestResult": [
+  {
+   "name": "ok",
+   "plaintext": {
+    "version": 1,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "ok"
+   },
+   "expect": {
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "ok"
+   },
+   "write": true
+  },
+  {
+   "name": "not granted names the grant",
+   "plaintext": {
+    "version": 1,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "codes.query",
+    "status": "not_granted",
+    "grant": "codes"
+   },
+   "expect": {
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "codes.query",
+    "status": "not_granted",
+    "grant": "codes"
+   },
+   "write": true
+  },
+  {
+   "name": "rate limited says when to retry",
+   "plaintext": {
+    "version": 1,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "ask.request",
+    "status": "rate_limited",
+    "retryAfterMs": 120000
+   },
+   "expect": {
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "ask.request",
+    "status": "rate_limited",
+    "retryAfterMs": 120000
+   },
+   "write": true
+  },
+  {
+   "name": "invalid",
+   "plaintext": {
+    "version": 1,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "invalid"
+   },
+   "expect": {
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "invalid"
+   },
+   "write": true
+  },
+  {
+   "name": "an unknown status is kept",
+   "plaintext": {
+    "version": 1,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "later"
+   },
+   "expect": {
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "later"
+   }
+  },
+  {
+   "name": "no ref",
+   "plaintext": {
+    "version": 1,
+    "requestKind": "notify.post",
+    "status": "ok"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "status not a string",
+   "plaintext": {
+    "version": 1,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "ref": "0d9c8b7a-6f5e-4d3c-2b1a-0f9e8d7c6b5a",
+    "requestKind": "notify.post",
+    "status": "ok"
+   },
+   "expect": "reject"
+  }
+ ],
+ "notifyResult": [
+  {
+   "name": "posted",
+   "plaintext": {
+    "version": 1,
+    "notifyId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "posted"
+   },
+   "expect": {
+    "notifyId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "posted"
+   },
+   "write": true
+  },
+  {
+   "name": "no notifyId",
+   "plaintext": {
+    "version": 1,
+    "status": "posted"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "notifyId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "notifyId": "n1",
+    "status": "posted"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "notifyId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "posted"
+   },
+   "expect": "reject"
+  }
+ ],
+ "askRef": [
+  {
+   "name": "an ask",
+   "plaintext": {
+    "version": 1,
+    "askId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "expect": {
+    "askId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "write": true
+  },
+  {
+   "name": "unknown fields are ignored",
+   "plaintext": {
+    "version": 1,
+    "askId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "future": true
+   },
+   "expect": {
+    "askId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   }
+  },
+  {
+   "name": "askId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "askId": "a1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "no askId",
+   "plaintext": {
+    "version": 1
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "askId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "expect": "reject"
+  }
+ ],
+ "clipboardRequest": [
+  {
+   "name": "two minutes",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": 1798000120000
+   },
+   "expect": {
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": 1798000120000
+   },
+   "write": true,
+   "now": 1798000000000
+  },
+  {
+   "name": "ten minutes, the longest",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": 1798000600000
+   },
+   "expect": {
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": 1798000600000
+   },
+   "write": true,
+   "now": 1798000000000
+  },
+  {
+   "name": "expiry now",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": 1798000000000
+   },
+   "expect": "reject",
+   "now": 1798000000000
+  },
+  {
+   "name": "over ten minutes ahead",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": 1798000600001
+   },
+   "expect": "reject",
+   "now": 1798000000000
+  },
+  {
+   "name": "expiresAt a string",
+   "plaintext": {
+    "version": 1,
+    "requestId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "expiresAt": "soon"
+   },
+   "expect": "reject",
+   "now": 1798000000000
+  },
+  {
+   "name": "requestId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "requestId": "r1",
+    "expiresAt": 1798000120000
+   },
+   "expect": "reject",
+   "now": 1798000000000
+  }
+ ],
+ "agentNotificationsQuery": [
+  {
+   "name": "limit 5",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 5
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 5
+   },
+   "write": true
+  },
+  {
+   "name": "limit 20",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 20
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 20
+   },
+   "write": true
+  },
+  {
+   "name": "no limit reads as 20",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 20
+   }
+  },
+  {
+   "name": "limit 0",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 0
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "limit 21",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": 21
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "limit a string",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "limit": "5"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "queryId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "queryId": "q1",
+    "limit": 5
+   },
+   "expect": "reject"
+  }
+ ],
+ "agentNotificationsResult": [
+  {
+   "name": "two notifications",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "bridgey 0.3.0\nall lanes green",
+      "postedAt": 1798000000000
+     },
+     {
+      "id": "0|com.example.mail|4|null|10123",
+      "packageName": "com.example.mail",
+      "applicationName": "Mail",
+      "title": "Rahul",
+      "text": "Lunch?",
+      "postedAt": 1797999940000
+     }
+    ],
+    "truncated": false
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "bridgey 0.3.0\nall lanes green",
+      "postedAt": 1798000000000
+     },
+     {
+      "id": "0|com.example.mail|4|null|10123",
+      "packageName": "com.example.mail",
+      "applicationName": "Mail",
+      "title": "Rahul",
+      "text": "Lunch?",
+      "postedAt": 1797999940000
+     }
+    ],
+    "truncated": false
+   },
+   "write": true,
+   "limit": 20
+  },
+  {
+   "name": "more on the phone than fit",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "bridgey 0.3.0\nall lanes green",
+      "postedAt": 1798000000000
+     }
+    ],
+    "truncated": true
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "bridgey 0.3.0\nall lanes green",
+      "postedAt": 1798000000000
+     }
+    ],
+    "truncated": true
+   },
+   "write": true,
+   "limit": 1
+  },
+  {
+   "name": "none",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [],
+    "truncated": false
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [],
+    "truncated": false
+   },
+   "write": true,
+   "limit": 20
+  },
+  {
+   "name": "unavailable",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "unavailable",
+    "notifications": [],
+    "truncated": false
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "unavailable",
+    "notifications": [],
+    "truncated": false
+   },
+   "write": true,
+   "limit": 20
+  },
+  {
+   "name": "more than asked",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "bridgey 0.3.0\nall lanes green",
+      "postedAt": 1798000000000
+     },
+     {
+      "id": "0|com.example.mail|4|null|10123",
+      "packageName": "com.example.mail",
+      "applicationName": "Mail",
+      "title": "Rahul",
+      "text": "Lunch?",
+      "postedAt": 1797999940000
+     }
+    ],
+    "truncated": false
+   },
+   "expect": "reject",
+   "limit": 1
+  },
+  {
+   "name": "another query",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d22",
+    "status": "ok",
+    "notifications": [],
+    "truncated": false
+   },
+   "expect": "reject",
+   "limit": 20
+  },
+  {
+   "name": "text of 2,049 characters",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+      "postedAt": 1798000000000
+     }
+    ],
+    "truncated": false
+   },
+   "expect": "reject",
+   "limit": 20
+  },
+  {
+   "name": "postedAt negative",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [
+     {
+      "id": "0|com.example.ci|1|null|10123",
+      "packageName": "com.example.ci",
+      "applicationName": "RR CI",
+      "title": "Nightly passed",
+      "text": "bridgey 0.3.0\nall lanes green",
+      "postedAt": -1
+     }
+    ],
+    "truncated": false
+   },
+   "expect": "reject",
+   "limit": 20
+  },
+  {
+   "name": "unknown status",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "later",
+    "notifications": [],
+    "truncated": false
+   },
+   "expect": "reject",
+   "limit": 20
+  },
+  {
+   "name": "truncated missing",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": []
+   },
+   "expect": "reject",
+   "limit": 20
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21",
+    "status": "ok",
+    "notifications": [],
+    "truncated": false
+   },
+   "expect": "reject",
+   "limit": 20
+  }
+ ],
+ "codesCancel": [
+  {
+   "name": "a held query",
+   "plaintext": {
+    "version": 1,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "expect": {
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "write": true
+  },
+  {
+   "name": "queryId not a UUID",
+   "plaintext": {
+    "version": 1,
+    "queryId": "q1"
+   },
+   "expect": "reject"
+  },
+  {
+   "name": "version 2",
+   "plaintext": {
+    "version": 2,
+    "queryId": "01934f3e-8a7c-7b1e-9d1a-2f6c0b8e4d21"
+   },
+   "expect": "reject"
+  }
  ]
 }

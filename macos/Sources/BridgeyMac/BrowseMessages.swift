@@ -186,6 +186,14 @@ struct PlacesFilesPagePayload: Codable, Equatable {
         return PhoneFilesPage(entries: items, folderCount: folderCount ?? items.filter(\.isDirectory).count,
                               fileCount: fileCount ?? items.filter { !$0.isDirectory }.count, nextCursor: nextCursor, writable: writable ?? false)
     }
+
+    /// The page answering a listing of `placeId` and `path`, or nil (the listing fails as invalid_message).
+    static func page(from data: Data, placeId: String, path: String) -> PhoneFilesPage? {
+        guard let payload = try? JSONDecoder().decode(PlacesFilesPagePayload.self, from: data), payload.placeId == placeId, payload.path == path else {
+            return nil
+        }
+        return payload.page()
+    }
 }
 
 struct MediaListPayload: Codable, Equatable {
@@ -260,6 +268,13 @@ struct ThumbPayload: Codable, Equatable {
     let height: Int
     let tint: String?
     let data: String
+
+    /// The thumbnail, or nil when this Mac counts it as missing: not base64, over 24 KiB, no size, or not an image.
+    var image: PhoneImage? {
+        guard let bytes = Data(base64Encoded: data), bytes.count <= BrowseLimits.maxThumbnailBytes, width > 0, height > 0,
+              mimeType.hasPrefix("image/") else { return nil }
+        return PhoneImage(data: bytes, mimeType: mimeType, width: width, height: height, tint: BrowseColor.tint(tint))
+    }
 }
 
 struct MediaThumbnailsBatchPayload: Codable, Equatable {
@@ -268,6 +283,11 @@ struct MediaThumbnailsBatchPayload: Codable, Equatable {
     let thumbs: [ThumbPayload]
     let missing: [String]?
     let done: Bool
+
+    /// Nil when the batch cannot be read: every key it was asked for then counts as missing.
+    static func parse(_ data: Data) -> MediaThumbnailsBatchPayload? {
+        try? JSONDecoder().decode(MediaThumbnailsBatchPayload.self, from: data)
+    }
 }
 
 struct MediaPreviewPayload: Codable, Equatable {
@@ -288,6 +308,15 @@ struct MediaPreviewPartPayload: Codable, Equatable {
     let height: Int
     let tint: String?
     let data: String
+
+    /// One part and its bytes, or nil: not base64, a count outside 1 to 33, or over 32 KiB of data. Where the part
+    /// falls in the preview is checked by the asker.
+    static func parse(_ data: Data) -> (part: MediaPreviewPartPayload, bytes: Data)? {
+        guard let part = try? JSONDecoder().decode(MediaPreviewPartPayload.self, from: data), let bytes = Data(base64Encoded: part.data),
+              part.count >= 1, part.count <= BrowseLimits.maxPreviewBytes / BrowseLimits.maxPartData + 1,
+              bytes.count <= BrowseLimits.maxPartData else { return nil }
+        return (part, bytes)
+    }
 }
 
 struct MediaRangePayload: Codable, Equatable {
@@ -307,6 +336,14 @@ struct MediaRangePartPayload: Codable, Equatable {
     let modified: Int64?
     let data: String
     let last: Bool
+
+    /// One part and its bytes, or nil: not base64, or over 32 KiB of data. Where the part falls in the range is checked
+    /// by the asker.
+    static func parse(_ data: Data) -> (part: MediaRangePartPayload, bytes: Data)? {
+        guard let part = try? JSONDecoder().decode(MediaRangePartPayload.self, from: data), let bytes = Data(base64Encoded: part.data),
+              bytes.count <= BrowseLimits.maxPartData else { return nil }
+        return (part, bytes)
+    }
 }
 
 struct MediaCancelPayload: Codable, Equatable {
@@ -328,6 +365,14 @@ struct PlacesDownloadStartedPayload: Codable, Equatable {
     let fileCount: Int
     let folderCount: Int
     let totalSize: Int64
+
+    /// The answer to places.download, or nil when it does not name a folder transfer.
+    static func parse(_ data: Data) -> PlacesDownloadStartedPayload? {
+        guard let started = try? JSONDecoder().decode(PlacesDownloadStartedPayload.self, from: data), FolderJSON.isWireID(started.folderTransferId) else {
+            return nil
+        }
+        return started
+    }
 }
 
 enum BrowseTime {

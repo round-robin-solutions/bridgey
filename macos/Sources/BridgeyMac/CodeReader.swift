@@ -465,3 +465,21 @@ enum CodeAccessStatus: String, Equatable {
         self.init(rawValue: wire)
     }
 }
+
+/// The codes.* messages a phone sends this Mac (sms_codes_draft1).
+enum CodesWire {
+    static let maximumBytes = 1_024
+
+    /// A codes.* plaintext: at most 1,024 bytes, a JSON object of version 1; nil otherwise.
+    static func payload(_ data: Data) -> [String: Any]? {
+        guard data.count <= maximumBytes, let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              payload["version"] as? Int == 1 else { return nil }
+        return payload
+    }
+
+    /// codes.advertise_stop: the advertised service to stop. `linked` is for the phone's own screen; this Mac does not read it.
+    static func advertiseStop(_ payload: [String: Any]) -> UUID? {
+        guard let raw = payload["serviceUuid"] as? String else { return nil }
+        return UUID(uuidString: raw)
+    }
+}

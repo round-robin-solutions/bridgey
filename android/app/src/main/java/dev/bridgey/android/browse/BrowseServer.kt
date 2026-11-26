@@ -241,9 +241,7 @@ class BrowseServer(
         val nodes = refs.map { ref -> resolveNode(ref) ?: return error(requestId, FolderCodes.NOT_FOUND) }
         val answer = try {
             val ticket = env.download(requestId, nodes)
-            BrowseKinds.PLACES_DOWNLOAD_STARTED to JSONObject().put("version", 1).put("requestId", requestId)
-                .put("folderTransferId", ticket.folderTransferId).put("rootName", ticket.rootName).put("fileCount", ticket.fileCount)
-                .put("folderCount", ticket.folderCount).put("totalSize", ticket.totalSize)
+            BrowseKinds.PLACES_DOWNLOAD_STARTED to downloadStartedJson(requestId, ticket)
         } catch (refused: DownloadRefused) {
             dev.bridgey.android.folders.FolderKinds.PLACES_ERROR to placesErrorJson(requestId, refused.code)
         }
@@ -256,9 +254,7 @@ class BrowseServer(
     }
 
     private fun mediaList(requestId: String, json: JSONObject) {
-        val kind = (json.opt("kind") as? String) ?: "media"
-        val limit = ((json.opt("limit") as? Number)?.toInt() ?: BrowseLimits.MEDIA_PAGE_DEFAULT).coerceIn(1, BrowseLimits.MEDIA_PAGE_MAX)
-        val cursor = (json.opt("cursor") as? String)?.take(64)
+        val (kind, limit, cursor) = MediaListRequest.parse(json)
         val media = env.media()
         val documents = env.documents()
         val access = runCatching { media.access() }.getOrDefault(MediaAccess.NONE)
@@ -438,12 +434,7 @@ class BrowseServer(
             if (flag.cancelled) return
             val from = index * BrowseLimits.PART_BYTES
             val part = image.bytes.copyOfRange(from, minOf(image.bytes.size, from + BrowseLimits.PART_BYTES))
-            sendLow(
-                BrowseKinds.MEDIA_PREVIEW_PART,
-                JSONObject().put("version", 1).put("requestId", requestId).put("index", index).put("count", count).put("mimeType", image.mimeType)
-                    .put("width", image.width).put("height", image.height).put("tint", image.tint?.let(::tintHex) ?: JSONObject.NULL)
-                    .put("data", java.util.Base64.getEncoder().encodeToString(part)),
-            )
+            sendLow(BrowseKinds.MEDIA_PREVIEW_PART, previewPartJson(requestId, index, count, image, part))
         }
     }
 
@@ -454,11 +445,8 @@ class BrowseServer(
         val resolved = resolve(ref) ?: return error(requestId, FolderCodes.NOT_FOUND)
         if (resolved.node.isDirectory) return error(requestId, FolderCodes.UNSUPPORTED)
         val fileSize = resolved.size
-        fun part(at: Long, data: ByteArray, last: Boolean) = sendLow(
-            BrowseKinds.MEDIA_RANGE_PART,
-            JSONObject().put("version", 1).put("requestId", requestId).put("offset", at).put("fileSize", fileSize)
-                .put("modified", resolved.modified ?: JSONObject.NULL).put("data", java.util.Base64.getEncoder().encodeToString(data)).put("last", last),
-        )
+        fun part(at: Long, data: ByteArray, last: Boolean) =
+            sendLow(BrowseKinds.MEDIA_RANGE_PART, rangePartJson(requestId, at, fileSize, resolved.modified, data, last))
         if (offset >= fileSize) return part(offset, ByteArray(0), true)
         resolved.open().use { input ->
             var skipped = 0L

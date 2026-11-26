@@ -12,6 +12,7 @@ import android.os.Build
 import android.telecom.TelecomManager
 import android.telephony.PhoneNumberUtils
 import android.telephony.TelephonyManager
+import org.json.JSONObject
 
 internal enum class RemoteCallResult(val wireKind: String) {
     STARTED("calls.started"),
@@ -30,6 +31,14 @@ internal fun normalizedPhoneNumber(value: String): String? {
     val digits = normalized.count { it in '0'..'9' }
     return normalized.takeIf { digits in 3..15 }
 }
+
+/**
+ * The number a calls.request payload asks to dial, or null (answered `calls.rejected`). `number` must be a JSON string:
+ * org.json on a phone would turn a JSON number into text, which the contract does not allow and the JVM tests could
+ * not see, so the type is checked here.
+ */
+internal fun callRequestNumber(plaintext: ByteArray): String? =
+    (runCatching { JSONObject(plaintext.toString(Charsets.UTF_8)) }.getOrNull()?.opt("number") as? String)?.let(::normalizedPhoneNumber)
 
 internal class RemoteCallRequest(private val context: Context) {
     fun execute(number: String, directEnabled: Boolean): RemoteCallResult {

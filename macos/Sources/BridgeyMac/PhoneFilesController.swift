@@ -301,8 +301,7 @@ final class PhoneFilesController: PhoneFilesService {
         let payload = PlacesFilesPayload(requestId: id, placeId: placeId, path: path, cursor: cursor, sort: sort.rawValue, descending: descending)
         browse(phoneID, kind: BrowseKind.placesFiles, id: id, payload: encode(payload), answer: { kind, data in
             guard kind == BrowseKind.placesFilesPage else { return false }
-            if let page = try? JSONDecoder().decode(PlacesFilesPagePayload.self, from: data), page.placeId == placeId, page.path == path,
-               let result = page.page() {
+            if let result = PlacesFilesPagePayload.page(from: data, placeId: placeId, path: path) {
                 completion(.success(result))
             } else {
                 completion(.failure(.code(FolderCode.invalidMessage)))
@@ -404,20 +403,18 @@ final class PhoneFilesController: PhoneFilesService {
                   answer: { [weak self, weak job] kind, data in
                       guard kind == BrowseKind.mediaThumbnailsBatch else { return false }
                       guard let job, !job.ended else { return true }
-                      guard let batch = try? JSONDecoder().decode(MediaThumbnailsBatchPayload.self, from: data) else {
+                      guard let batch = MediaThumbnailsBatchPayload.parse(data) else {
                           byKey.values.forEach { job.missing.append($0) }
                           self?.chunkDone(job, laneKey: laneKey)
                           return true
                       }
                       for thumb in batch.thumbs {
                           guard let entry = byKey.removeValue(forKey: thumb.key) else { continue }
-                          guard let bytes = Data(base64Encoded: thumb.data), bytes.count <= BrowseLimits.maxThumbnailBytes,
-                                thumb.width > 0, thumb.height > 0, thumb.mimeType.hasPrefix("image/") else {
+                          guard let image = thumb.image else {
                               job.missing.append(entry)
                               continue
                           }
-                          job.deliver(entry, PhoneImage(data: bytes, mimeType: thumb.mimeType, width: thumb.width, height: thumb.height,
-                                                        tint: BrowseColor.tint(thumb.tint)))
+                          job.deliver(entry, image)
                       }
                       for key in batch.missing ?? [] {
                           if let entry = byKey.removeValue(forKey: key) { job.missing.append(entry) }
@@ -478,13 +475,13 @@ final class PhoneFilesController: PhoneFilesService {
               payload: encode(MediaPreviewPayload(requestId: id, ref: WireRef(entry.ref), size: pixels, replaces: nil)), urgent: urgent,
               answer: { kind, data in
                   guard kind == BrowseKind.mediaPreviewPart else { return false }
-                  guard let part = try? JSONDecoder().decode(MediaPreviewPartPayload.self, from: data), let bytes = Data(base64Encoded: part.data),
-                        part.index == parts.count, part.count >= 1, part.count <= BrowseLimits.maxPreviewBytes / BrowseLimits.maxPartData + 1,
-                        bytes.count <= BrowseLimits.maxPartData, total + bytes.count <= BrowseLimits.maxPreviewBytes,
-                        head == nil || head?.count == part.count else {
+                  guard let parsed = MediaPreviewPartPayload.parse(data), parsed.part.index == parts.count,
+                        total + parsed.bytes.count <= BrowseLimits.maxPreviewBytes, head == nil || head?.count == parsed.part.count else {
                       complete(.failure(.code(FolderCode.invalidMessage)))
                       return true
                   }
+                  let part = parsed.part
+                  let bytes = parsed.bytes
                   if head == nil { head = part }
                   parts.append(bytes)
                   total += bytes.count
@@ -530,12 +527,13 @@ final class PhoneFilesController: PhoneFilesService {
                   payload: encode(MediaRangePayload(requestId: id, ref: WireRef(entry.ref), offset: start, length: piece, replaces: nil)),
                   answer: { kind, data in
                       guard kind == BrowseKind.mediaRangePart else { return false }
-                      guard let part = try? JSONDecoder().decode(MediaRangePartPayload.self, from: data), let bytes = Data(base64Encoded: part.data),
-                            part.offset == expectedOffset, bytes.count <= BrowseLimits.maxPartData,
-                            Int64(bytes.count) <= start + piece - expectedOffset else {
+                      guard let parsed = MediaRangePartPayload.parse(data), parsed.part.offset == expectedOffset,
+                            Int64(parsed.bytes.count) <= start + piece - expectedOffset else {
                           complete(.failure(.code(FolderCode.invalidMessage)))
                           return true
                       }
+                      let part = parsed.part
+                      let bytes = parsed.bytes
                       if let expectedSize, part.fileSize != expectedSize {
                           complete(.failure(.code(FolderCode.sourceChanged)))
                           return true
@@ -588,7 +586,7 @@ final class PhoneFilesController: PhoneFilesService {
         browse(phoneID, kind: BrowseKind.placesDownload, id: id, payload: encode(PlacesDownloadPayload(requestId: id, items: refs.map(WireRef.init))),
                answer: { [weak self] kind, data in
                    guard kind == BrowseKind.placesDownloadStarted else { return false }
-                   guard let started = try? JSONDecoder().decode(PlacesDownloadStartedPayload.self, from: data), FolderJSON.isWireID(started.folderTransferId) else {
+                   guard let started = PlacesDownloadStartedPayload.parse(data) else {
                        expected.finish(.failure(.code(FolderCode.invalidMessage)))
                        return true
                    }

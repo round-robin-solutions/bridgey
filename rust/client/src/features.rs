@@ -9,9 +9,21 @@ use std::collections::BTreeMap;
 pub const REQUIRED: [&str; 5] = ["clipboard", "files", "notifications", "battery", "find_device"];
 /// Later upstream keys: missing means false, but a present value must be a boolean.
 pub const OPTIONAL: [&str; 4] = ["ping", "links", "media", "calls"];
-/// The longest key this client keeps from a peer's map.
+/// Every other key in protocol/messages.json. Each is read from any map, whatever else it holds, as Android and the
+/// Mac read the keys they know (docs/protocol.md "Session negotiation"); a test keeps the list complete.
+pub const EDITION: [&str; 37] = [
+    "clipboard_files_draft1", "remote_input_draft1", "sms_codes_draft1", "email_codes_draft1", "folders_draft1",
+    "places_draft1", "files_browse_draft1", "folders_receive_draft1", "mac_actions_draft1", "links_open_draft1",
+    "focus_sync_draft1", "camera_draft1", "updates_draft1", "screen_draft1", "screen_control_draft1",
+    "phone_control_draft1", "files_fast_draft1", "files_resume_draft1", "sms_draft1", "settings_sync_draft1",
+    "connect_draft1", "lan_first_draft1", "lan_first_draft2", "agent_draft1", "notify_draft1", "ask_draft1",
+    "clipboard_request_draft1", "agent_codes_draft1", "agents_mirror_draft1", "codes_detect_draft1",
+    "agent_notifications_draft1", "call_quiet_draft1", "dialer_draft1", "device_presence_draft1",
+    "share_receive_draft1", "notification_routing_draft1", "handoff_takeover_draft1",
+];
+/// The longest key a map may carry; longer unknown keys are ignored.
 const MAX_KEY: usize = 64;
-/// At most this many keys are kept from a peer's map.
+/// A map carries at most this many keys. Unknown keys are kept, for the host app, until the map holds this many.
 const MAX_KEYS: usize = 128;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -111,8 +123,17 @@ pub fn decode(plaintext: &[u8]) -> Decoded {
             Some(_) => return Decoded::Invalid,
         }
     }
-    // Draft keys: true only when JSON true; anything else reads false.
-    for (key, value) in values.iter().filter(|(k, _)| !upstream(k)).take(MAX_KEYS) {
+    // Edition keys: true only when JSON true; anything else reads false. A known key is read wherever it is in the map;
+    // unknown ones fill what is left of the 128, so a crowded map never hides a known key.
+    for key in EDITION {
+        if values.get(key) == Some(&Value::Bool(true)) {
+            map.set(key, true);
+        }
+    }
+    for (key, value) in values.iter().filter(|(k, _)| !upstream(k) && !EDITION.contains(&k.as_str())) {
+        if map.values.len() >= MAX_KEYS {
+            break;
+        }
         if key.len() <= MAX_KEY && *value == Value::Bool(true) {
             map.set(key, true);
         }
@@ -163,6 +184,50 @@ mod tests {
         assert_eq!(decode(b"\xff"), Decoded::Invalid);
     }
 
+    /// protocol-v1.json featuresUpdate, as Android and the Mac read it: the same outcome, and every key their expect lists
+    /// reads the same here. The two size cases: a map of 128 keys is kept whole, and a crowded one still shows every
+    /// known key.
+    #[test]
+    fn golden_feature_maps() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../protocol/test-vectors/protocol-v1.json")).unwrap();
+        let doc: Value = serde_json::from_str(&text).unwrap();
+        for v in doc["featuresUpdate"].as_array().unwrap() {
+            let name = v["name"].as_str().unwrap();
+            let plain = match v.get("plaintextString") {
+                Some(s) => s.as_str().unwrap().as_bytes().to_vec(),
+                None => v["plaintext"].to_string().into_bytes(),
+            };
+            let decoded = decode(&plain);
+            match (&decoded, &v["expect"]) {
+                (Decoded::Invalid, e) if e == "invalid" => {}
+                (Decoded::Ignored, e) if e == "ignored" => {}
+                (Decoded::State(map), Value::Object(e)) => {
+                    for (key, on) in e["features"].as_object().unwrap().iter().chain(e["drafts"].as_object().unwrap()) {
+                        // remote_input_draft1: Android and the Mac close on a non-boolean; this client never offers remote
+                        // input, so it reads such a value as false and the vectors have no such case.
+                        assert_eq!(map.get(key), on.as_bool().unwrap(), "{name}: {key}");
+                    }
+                    if name == "a map of 128 keys is read in full" {
+                        let sent = v["plaintext"]["features"].as_object().unwrap();
+                        assert_eq!(sent.len(), MAX_KEYS);
+                        for (key, on) in sent {
+                            assert_eq!(map.get(key), on.as_bool().unwrap(), "{name}: {key}");
+                        }
+                    }
+                    if name == "over 128 keys, every known key is still read" {
+                        let sent = v["plaintext"]["features"].as_object().unwrap();
+                        assert!(sent.len() > MAX_KEYS);
+                        for key in EDITION.iter().filter(|k| sent.get(**k) == Some(&Value::Bool(true))) {
+                            assert!(map.get(key), "{name}: {key}");
+                        }
+                        assert_eq!(map.keys().count(), MAX_KEYS);
+                    }
+                }
+                (got, e) => panic!("{name}: decoded {got:?}, expected {e}"),
+            }
+        }
+    }
+
     /// Every feature key the contract lists decodes as the contract says.
     #[test]
     fn contract_feature_keys() {
@@ -181,5 +246,7 @@ mod tests {
         let mut ours: Vec<String> = REQUIRED.iter().map(|s| s.to_string()).collect();
         ours.sort();
         assert_eq!(required, ours);
+        let listed: Vec<&str> = contract["features"].as_array().unwrap().iter().map(|f| f["key"].as_str().unwrap()).filter(|k| !upstream(k)).collect();
+        assert_eq!(listed, EDITION, "EDITION lists every other key in protocol/messages.json, in its order");
     }
 }
