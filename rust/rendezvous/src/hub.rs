@@ -362,8 +362,13 @@ impl Hub {
             return None;
         }
         let Some((bytes, at)) = cf.usage.filter(|(_, at)| now.saturating_duration_since(*at) <= cf.max_age) else { return Some(0) };
+        // Counted from the reading: what credentials out can carry until the next one, plus the extra. A late reading
+        // (the analytics API failing) adds the time it is late and the next try (review of PR #67: adding the age to a
+        // full interval cut the budget towards the end of every interval).
         let age = now.saturating_duration_since(at);
-        let horizon = age + self.cf_poll_interval() + cf.budget_extra;
+        let interval = self.cf_poll_interval();
+        let to_next = if age < interval { interval } else { age + interval.min(Duration::from_secs(120)) };
+        let horizon = to_next + cf.budget_extra;
         let per_credential = cf.budget_bytes_per_s.saturating_mul(horizon.as_secs().max(1));
         Some(usize::try_from(cf.hard_bytes.saturating_sub(bytes) / per_credential).unwrap_or(usize::MAX))
     }
@@ -408,12 +413,14 @@ impl Hub {
         self.mints.push(job);
     }
 
-    /// At a reading, queues the revocation of the credentials the budget has no room for. In order: credentials a
-    /// node has replaced (a renewal, or a restart of the app, so most likely unused), then session credentials, the
-    /// oldest first; a node's current warm credential only if the budget still has no room, because sessions ride on
-    /// it (the core then moves to another relay). At the hard cap all of them go. Without a fresh reading nothing is
-    /// revoked (minting stops instead), and with the budget off nothing ever is. Revocations not yet confirmed are
-    /// tried again.
+    /// At every reading: credentials a node has replaced (its newest warm credential is another one) with more than an
+    /// hour left are revoked whatever the budget, since nothing uses them (an app restart, or a node that came back
+    /// with new ones) and they would otherwise hold budget slots for up to 12 hours; a renewal's predecessor, in its
+    /// last hour and possibly still under a session, is left to expire. Then, with a fresh reading, the credentials the
+    /// budget has no room for, in order: other replaced ones, session credentials, and a node's current warm
+    /// credential only if the budget still has no room, the newest first within each (long-held devices before fresh
+    /// keys); at the hard cap all of them. A stale reading stops minting and revokes nothing more, and with the budget
+    /// off nothing ever is. Failed revocations are tried again.
     fn plan_revocations(&mut self, now: Instant) {
         let Some(budget) = self.cf_budget(now) else { return };
         let inherited = self.cf_inherited(now);
@@ -426,27 +433,43 @@ impl Hub {
         let out: HashSet<&str> = cf.outstanding.iter().map(|c| c.username.as_str()).collect();
         let again: Vec<String> = retry.into_iter().filter(|u| out.contains(u.as_str())).collect();
         cf.revoke.extend(again);
-        let Some((bytes, _)) = cf.usage.filter(|(_, at)| now.saturating_duration_since(*at) <= cf.max_age) else { return };
-        let live = cf.outstanding.iter().filter(|c| !c.revoking).count();
-        let excess = if bytes >= cf.hard_bytes { live } else { (live + cf.in_flight + inherited).saturating_sub(budget).min(live) };
-        if excess == 0 {
+        // Each node's current warm credential is its newest, so this holds after a restart that loaded the state file.
+        let mut newest: HashMap<&str, u64> = HashMap::new();
+        for c in cf.outstanding.iter().filter(|c| c.warm) {
+            let at = newest.entry(c.node.as_str()).or_insert(0);
+            *at = (*at).max(c.minted_unix_s);
+        }
+        let current = |c: &CfCredential| c.warm && newest.get(c.node.as_str()) == Some(&c.minted_unix_s);
+        let unused: Vec<String> =
+            cf.outstanding.iter().filter(|c| !c.revoking && c.warm && !current(c) && c.expiry_unix_s > unix_s + 3_600).map(|c| c.username.clone()).collect();
+        let mut victims: HashSet<String> = unused.into_iter().collect();
+        if let Some((bytes, _)) = cf.usage.filter(|(_, at)| now.saturating_duration_since(*at) <= cf.max_age) {
+            let live = cf.outstanding.iter().filter(|c| !c.revoking && !victims.contains(&c.username)).count();
+            let excess = if bytes >= cf.hard_bytes { live } else { (live + cf.in_flight + inherited).saturating_sub(budget).min(live) };
+            // Lower sorts first: replaced, then session, then current warm; the newest first within each.
+            let rank = |c: &CfCredential| if !c.warm { 1 } else if current(c) { 2 } else { 0 };
+            let mut order: Vec<(u8, u64, String)> = cf
+                .outstanding
+                .iter()
+                .filter(|c| !c.revoking && !victims.contains(&c.username))
+                .map(|c| (rank(c), u64::MAX - c.minted_unix_s, c.username.clone()))
+                .collect();
+            order.sort();
+            victims.extend(order.into_iter().take(excess).map(|(_, _, username)| username));
+        }
+        if victims.is_empty() {
             return;
         }
-        let current: HashSet<&str> = cf.warm.values().map(|w| w.username.as_str()).collect();
-        // Lower sorts first: replaced, then session, then current warm; the oldest first within each.
-        let rank = |c: &CfCredential| if !c.warm { 1 } else if current.contains(c.username.as_str()) { 2 } else { 0 };
-        let mut order: Vec<(u8, u64, String)> =
-            cf.outstanding.iter().filter(|c| !c.revoking).map(|c| (rank(c), c.minted_unix_s, c.username.clone())).collect();
-        order.sort();
-        let victims: HashSet<String> = order.into_iter().take(excess).map(|(_, _, username)| username).collect();
         for credential in cf.outstanding.iter_mut().filter(|c| victims.contains(&c.username)) {
             credential.revoking = true;
         }
         // A reclaim never hands out a credential being revoked.
         cf.warm.retain(|_, w| !victims.contains(&w.username));
-        cf.revoke.extend(victims.iter().cloned());
+        let mut queued: Vec<String> = victims.into_iter().collect();
+        queued.sort();
+        self.counters.cf_revoking += queued.len() as u64;
+        cf.revoke.extend(queued);
         cf.dirty = true;
-        self.counters.cf_revoking += victims.len() as u64;
     }
 
     /// Usernames for the socket layer to revoke through Cloudflare's API.
@@ -1459,12 +1482,6 @@ penalty_ms = 10
         }
     }
 
-    fn revoking(hub: &Hub) -> Vec<String> {
-        let mut names: Vec<String> = hub.cf.as_ref().unwrap().outstanding.iter().filter(|c| c.revoking).map(|c| c.username.clone()).collect();
-        names.sort();
-        names
-    }
-
     #[test]
     fn cloudflare_credentials_out_stay_within_the_budget() {
         // Security review 1.0, C1: unpaired nodes with fresh keys used to get a 12-hour Cloudflare credential each,
@@ -1502,10 +1519,18 @@ penalty_ms = 10
         assert!(hub.cf.as_ref().unwrap().warm.is_empty());
     }
 
+    /// Sets when a credential was minted and when it expires (Unix seconds), for ordering tests.
+    fn cf_set(hub: &mut Hub, username: &str, minted: u64, expiry: u64) {
+        let c = hub.cf.as_mut().unwrap().outstanding.iter_mut().find(|c| c.username == username).unwrap();
+        c.minted_unix_s = minted;
+        c.expiry_unix_s = expiry;
+    }
+
     #[test]
     fn cloudflare_revokes_replaced_credentials_first_and_live_warm_ones_last() {
-        // Review of PR #67: a node's current warm credential carries its sessions; replaced ones (a renewal, an app
-        // restart) are most likely unused, so they go first, then session credentials, the current warm one last.
+        // Reviews of PR #67: a node's current warm credential carries its sessions, so it goes last, the newest first
+        // (fresh keys before long-held devices); replaced ones with hours left are unused and go at every reading.
+        let now_s = unix_ms() / 1_000;
         let mut hub = cf_hub(Some(0));
         let (tx, _rx) = mpsc::channel(64);
         let a = hub.join_with("node-a".into(), tx, &caps(true), None).unwrap();
@@ -1513,26 +1538,68 @@ penalty_ms = 10
         let b = hub.join_with("node-b".into(), tx_b, &caps(true), None).unwrap();
         hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
         hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
-        cf_warm_again(&mut hub, a, "w-old");
-        cf_warm_again(&mut hub, a, "w-current");
+        cf_warm_again(&mut hub, a, "a-restart");
+        cf_warm_again(&mut hub, a, "a-renewal");
+        cf_warm_again(&mut hub, a, "a-current");
+        cf_warm_again(&mut hub, b, "b-current");
         hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: SID.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
         for job in hub.take_mints() {
             let ok = Ok(Minted { urls: vec!["turn:turn.cloudflare.com:3478?transport=udp".into()], username: "session".into(), credential: "c".into() });
             hub.finish_mint(job, ok, Instant::now());
         }
-        assert_eq!(hub.cf_out(Instant::now()), 3);
-        // 941 GB: room for two (9 GB at 4.5 GB each); one over.
+        // A restart left one with 11 hours; a renewal left one in its last hour; b's device signed in after a's.
+        cf_set(&mut hub, "a-restart", now_s - 3_600, now_s + 11 * 3_600);
+        cf_set(&mut hub, "a-renewal", now_s - 2 * 3_600, now_s + 1_800);
+        cf_set(&mut hub, "a-current", now_s - 600, now_s + 42_000);
+        cf_set(&mut hub, "b-current", now_s - 60, now_s + 42_600);
+        assert_eq!(hub.cf_out(Instant::now()), 5);
+        // Any reading, plenty of room: the unused replaced credential goes; the renewal's predecessor is left to expire.
+        hub.set_cf_usage(Ok(0), Instant::now());
+        assert_eq!(hub.take_revocations(), vec!["a-restart".to_string()]);
+        // 936 GB: room for three (14 GB at 4.5 GB each), four live: the other replaced one goes first.
+        hub.set_cf_usage(Ok(936_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations(), vec!["a-renewal".to_string()]);
+        // 941 GB: room for two: the session credential.
         hub.set_cf_usage(Ok(941_000_000_000), Instant::now());
-        assert_eq!(hub.take_revocations(), vec!["w-old".to_string()]);
-        // 945 GB: room for one: the session credential goes next.
-        hub.set_cf_usage(Ok(945_000_000_000), Instant::now());
         assert_eq!(hub.take_revocations(), vec!["session".to_string()]);
-        assert_eq!(hub.cf.as_ref().unwrap().warm["node-a"].username, "w-current", "the live warm credential stays");
-        // 949 GB: no room at all: the current warm credential goes too, and the core moves to another relay.
+        // 945 GB: room for one: of the current warm credentials, the newest goes (b's), a's long-held one stays.
+        hub.set_cf_usage(Ok(945_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations(), vec!["b-current".to_string()]);
+        assert_eq!(hub.cf.as_ref().unwrap().warm["node-a"].username, "a-current");
+        // 949 GB: no room at all: a's goes too, and its core moves to another relay.
         hub.set_cf_usage(Ok(949_000_000_000), Instant::now());
-        assert_eq!(hub.take_revocations(), vec!["w-current".to_string()]);
-        assert!(!hub.cf.as_ref().unwrap().warm.contains_key("node-a"));
-        assert_eq!(revoking(&hub), vec!["session".to_string(), "w-current".to_string(), "w-old".to_string()]);
+        assert_eq!(hub.take_revocations(), vec!["a-current".to_string()]);
+    }
+
+    #[test]
+    fn cloudflare_current_warm_credentials_are_known_after_a_restart() {
+        // Review of PR #67: which credential is current lived only in memory, so after a restart every warm credential
+        // counted as replaced and live ones went first. The newest per node is current.
+        let now_s = unix_ms() / 1_000;
+        let mut first = cf_hub(Some(0));
+        let (tx, _rx) = mpsc::channel(64);
+        let a = first.join_with("node-a".into(), tx, &caps(true), None).unwrap();
+        cf_warm_again(&mut first, a, "old");
+        cf_warm_again(&mut first, a, "live");
+        cf_set(&mut first, "old", now_s - 3_600, now_s + 11 * 3_600);
+        cf_set(&mut first, "live", now_s - 60, now_s + 43_000);
+        let saved = first.cloudflare_to_save().unwrap();
+        let mut restarted = cf_hub(None);
+        restarted.restore_cloudflare(Some(saved), Instant::now());
+        assert!(restarted.cf.as_ref().unwrap().warm.is_empty(), "no credential is kept on disk, so no reclaim map");
+        restarted.set_cf_usage(Ok(0), Instant::now());
+        assert_eq!(restarted.take_revocations(), vec!["old".to_string()], "the live one stays");
+    }
+
+    #[test]
+    fn cloudflare_budget_holds_through_the_interval() {
+        // Review of PR #67: the reading's age was added to a full interval, cutting the budget late in each interval.
+        let start = Instant::now();
+        let hub = cf_hub(Some(0));
+        assert_eq!(hub.cf_budget(start), Some(63));
+        assert_eq!(hub.cf_budget(start + Duration::from_secs(890)), Some(63));
+        // Late (the next reading failed): the time it is late counts.
+        assert!(hub.cf_budget(start + Duration::from_secs(1_800)).unwrap() < 63);
     }
 
     #[test]

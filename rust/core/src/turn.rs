@@ -36,6 +36,8 @@ struct Auth {
 pub const MISMATCH: &str = "allocation mismatch (437)";
 /// Nothing came back from the relay (UDP blocked, or the relay is down).
 pub const NO_ANSWER: &str = "relay did not answer";
+/// The relay refused the request: the credentials (401 twice, revoked or expired), or anything else it forbids.
+pub const REFUSED: &str = "relay refused";
 
 /// A relay's realm and nonce from an earlier exchange: the next request can carry credentials at once
 /// instead of being refused first (one round trip less). A stale nonce costs that round trip back (438).
@@ -237,10 +239,10 @@ impl Allocation {
                         auth.key = stun::long_term_key(&self.username, &auth.realm, &self.password);
                     }
                 }
-                (_, code) => return Err(format!("relay refused ({code:?})")),
+                (_, code) => return Err(format!("{REFUSED} ({code:?})")),
             }
         }
-        Err("relay refused the credentials".into())
+        Err(format!("{REFUSED} the credentials"))
     }
 
     /// Refreshes the allocation; when that fails it is marked dead, so the node stops handing it to sessions and asks

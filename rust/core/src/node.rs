@@ -1540,6 +1540,20 @@ impl Node {
                     warm.allocating = true;
                     Err((e, None))
                 }
+                Err(e) if e.starts_with(turn::REFUSED) => {
+                    // The relay refuses these credentials (revoked, or a rotated secret): they are dropped and warm
+                    // credentials are asked for elsewhere at once. The relay is left out of this request only, so a
+                    // later renewal may get it again.
+                    // Unless new credentials arrived meanwhile.
+                    if warm.grant.as_ref().is_some_and(|(g, _)| g.username == grant.username) {
+                        warm.grant = None;
+                    }
+                    let mut exclude = warm.exclude.clone();
+                    if !exclude.contains(&grant.id) {
+                        exclude.push(grant.id.clone());
+                    }
+                    Err((e, Some(WarmRequest { rtts: Some(warm.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(exclude), reclaim: None })))
+                }
                 Err(e) => {
                     warm.failures += 1;
                     let mismatch = e == turn::MISMATCH;
@@ -1572,48 +1586,37 @@ impl Node {
                 }
                 self.log(&format!("warm relay {} failed: {e}", grant.id));
                 if let Some(request) = retry {
-                    self.rdv_send(Msg::RelayWarm { request });
+                    if self.rdv_connected.load(Ordering::Relaxed) {
+                        self.rdv_send(Msg::RelayWarm { request });
+                    } else {
+                        *self.rdv_shared.warm.lock().unwrap() = Some(request);
+                    }
                 }
             }
         }
     }
 
-    /// Allocations whose refresh failed are dropped. When one was made with the warm credentials (revoked, expired
-    /// or the relay gone), those go too and warm credentials are asked for on another relay; until they come,
-    /// sessions ask for their own grants (review of PR #67: a revoked warm credential used to stay in use for hours).
-    fn replace_dead_warm(self: &Arc<Self>) {
-        let dead: Vec<Arc<Allocation>> = {
+    /// Allocations whose refresh failed (a sleep or network change outlived them, the relay is gone, or their
+    /// credentials were revoked) are dropped, so no session gets them again. The warm credentials stay: ensure_warm
+    /// allocates again with them, and only when the relay refuses them does it ask for warm credentials elsewhere
+    /// (review of PR #67: dropping still-valid Cloudflare credentials churned them and held budget slots).
+    fn drop_dead_allocations(&self) {
+        let any = {
             let mut allocations = self.allocations.lock().unwrap();
-            let dead: Vec<Arc<Allocation>> = allocations.values().filter(|a| a.is_dead()).cloned().collect();
+            let before = allocations.len();
             allocations.retain(|_, a| !a.is_dead());
-            dead
+            allocations.len() != before
         };
-        if dead.is_empty() {
-            return;
-        }
-        let request = {
+        let warm_dead = {
             let mut warm = self.warm.lock().unwrap();
-            if warm.allocation.as_ref().is_some_and(|a| a.is_dead()) {
+            let dead = warm.allocation.as_ref().is_some_and(|a| a.is_dead());
+            if dead {
                 warm.allocation = None;
             }
-            // Only a session's allocation died: the warm credentials stay.
-            let grant_dead = warm.grant.as_ref().is_some_and(|(g, _)| dead.iter().any(|a| a.username() == g.username));
-            if !grant_dead {
-                return;
-            }
-            let (grant, _) = warm.grant.take().expect("checked above");
-            let mut exclude = warm.exclude.clone();
-            if !exclude.contains(&grant.id) {
-                exclude.push(grant.id.clone());
-            }
-            (grant.id, WarmRequest { rtts: Some(warm.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(exclude), reclaim: None })
+            dead
         };
-        let (relay, request) = request;
-        self.mark("relay.warm_dead", None, Some(&relay));
-        if self.rdv_connected.load(Ordering::Relaxed) {
-            self.rdv_send(Msg::RelayWarm { request });
-        } else {
-            *self.rdv_shared.warm.lock().unwrap() = Some(request);
+        if any && warm_dead {
+            self.mark("relay.warm_dead", None, None);
         }
     }
 
@@ -1679,7 +1682,7 @@ impl Node {
                     self.rdv_send(Msg::RelayWarm { request });
                 }
             }
-            self.replace_dead_warm();
+            self.drop_dead_allocations();
             self.ensure_warm().await;
             if since_state >= Duration::from_secs(240) {
                 since_state = Duration::ZERO;

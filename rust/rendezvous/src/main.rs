@@ -42,6 +42,8 @@ struct App {
     /// Where the Cloudflare credentials out are kept across restarts, and whether writing it has failed.
     state_file: Option<String>,
     state_failed: std::sync::atomic::AtomicBool,
+    /// One save at a time, taken and written in order, so an older list never lands after a newer one.
+    save_lock: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -166,6 +168,7 @@ async fn main() {
         cloudflare: cloudflare.clone(),
         state_file,
         state_failed: std::sync::atomic::AtomicBool::new(false),
+        save_lock: Mutex::new(()),
     });
     if let Some(client) = cloudflare.filter(|c| c.can_read_usage()) {
         tokio::spawn(watch_usage(app.clone(), client));
@@ -250,6 +253,7 @@ fn run_revocations(app: &Arc<App>, client: &cloudflare::Shared, usernames: Vec<S
 /// failure is logged once and the next start is cautious instead.
 fn save_cloudflare(app: &App) {
     let Some(path) = app.state_file.as_deref() else { return };
+    let _one = app.save_lock.lock().unwrap();
     let Some(list) = app.hub.lock().unwrap().cloudflare_to_save() else { return };
     let Ok(text) = serde_json::to_vec(&serde_json::json!({ "v": 1, "credentials": list })) else { return };
     if let Err(e) = write_private(path, &text) {
@@ -262,8 +266,8 @@ fn save_cloudflare(app: &App) {
 fn write_private(path: &str, data: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
-    let temporary = format!("{path}.tmp");
-    let _ = std::fs::remove_file(&temporary);
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temporary = format!("{path}.{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
     let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
     file.write_all(data)?;
     file.sync_all()?;
@@ -566,6 +570,7 @@ mod tests {
             cloudflare: None,
             state_file: None,
             state_failed: std::sync::atomic::AtomicBool::new(false),
+            save_lock: Mutex::new(()),
         }
     }
 
@@ -586,6 +591,28 @@ mod tests {
             caps: Some(vec![rdv::CAP_CLOUDFLARE.into()]),
         };
         b64::url_encode(serde_json::to_string(&hello).unwrap().as_bytes())
+    }
+
+    #[test]
+    fn the_state_file_is_written_whole_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("rdv-state-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cloudflare-credentials.json");
+        let path_text = path.to_string_lossy().into_owned();
+        // Saves from several tasks at once never interleave in one temporary file.
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let p = path_text.clone();
+                std::thread::spawn(move || write_private(&p, format!("{{\"v\":1,\"credentials\":[],\"n\":{i}}}").as_bytes()))
+            })
+            .collect();
+        let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        assert!(results.iter().any(|r| r.is_ok()));
+        assert_eq!(load_cloudflare(Some(&path_text)), Some(Vec::new()), "a whole file, whichever save won");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(load_cloudflare(None), None);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
