@@ -6,6 +6,7 @@ use crate::addrs::canonical;
 use crate::mux::{Mux, Path};
 use crate::stun::{self, Message};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -19,6 +20,9 @@ pub struct Allocation {
     pub relayed: SocketAddr,
     pub mapped: SocketAddr,
     pub lifetime: Duration,
+    /// A refresh failed (credentials revoked or expired, or the relay gone): the relay lets it lapse, so nothing new
+    /// may use it.
+    dead: AtomicBool,
 }
 
 #[derive(Clone, Default)]
@@ -32,6 +36,8 @@ struct Auth {
 pub const MISMATCH: &str = "allocation mismatch (437)";
 /// Nothing came back from the relay (UDP blocked, or the relay is down).
 pub const NO_ANSWER: &str = "relay did not answer";
+/// The relay refused the request: the credentials (401 twice, revoked or expired), or anything else it forbids.
+pub const REFUSED: &str = "relay refused";
 
 /// A relay's realm and nonce from an earlier exchange: the next request can carry credentials at once
 /// instead of being refused first (one round trip less). A stale nonce costs that round trip back (438).
@@ -100,6 +106,7 @@ pub async fn release_left_behind(mux: Arc<Mux>, server: SocketAddr, username: &s
         relayed: server,
         mapped: server,
         lifetime: Duration::ZERO,
+        dead: AtomicBool::new(false),
     };
     match probe.refresh(0).await {
         Ok(()) => Ok(true),
@@ -143,6 +150,7 @@ impl Allocation {
             relayed: server,
             mapped: server,
             lifetime: Duration::from_secs(600),
+            dead: AtomicBool::new(false),
         };
         let reply = partial
             .authed(|| {
@@ -166,7 +174,7 @@ impl Allocation {
             loop {
                 tokio::time::sleep(Duration::from_secs(240)).await;
                 let Some(allocation) = keeper.upgrade() else { break };
-                if allocation.refresh(600).await.is_err() {
+                if !allocation.refresh_or_die(600).await {
                     break;
                 }
                 let permitted = allocation.mux.permitted(allocation.server);
@@ -231,10 +239,25 @@ impl Allocation {
                         auth.key = stun::long_term_key(&self.username, &auth.realm, &self.password);
                     }
                 }
-                (_, code) => return Err(format!("relay refused ({code:?})")),
+                (_, code) => return Err(format!("{REFUSED} ({code:?})")),
             }
         }
-        Err("relay refused the credentials".into())
+        Err(format!("{REFUSED} the credentials"))
+    }
+
+    /// Refreshes the allocation; when that fails it is marked dead, so the node stops handing it to sessions and asks
+    /// for another relay (a revoked Cloudflare credential, review of PR #67). False when it died.
+    pub async fn refresh_or_die(&self, lifetime: u32) -> bool {
+        if self.refresh(lifetime).await.is_ok() {
+            return true;
+        }
+        self.dead.store(true, Ordering::Relaxed);
+        false
+    }
+
+    /// A refresh failed: it lapses on the relay and must not be used again.
+    pub fn is_dead(&self) -> bool {
+        self.dead.load(Ordering::Relaxed)
     }
 
     pub async fn refresh(&self, lifetime: u32) -> Result<(), String> {
@@ -285,6 +308,53 @@ pub async fn reflexive(mux: &Mux, server: SocketAddr) -> Option<(SocketAddr, Dur
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A relay on loopback that asks for credentials, allocates, and refuses every refresh (as for a revoked
+    /// credential).
+    fn refusing_relay() -> SocketAddr {
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let addr = socket.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 2048];
+            while let Ok((n, from)) = socket.recv_from(&mut buf) {
+                let Some(m) = Message::decode(&buf[..n]) else { continue };
+                let reply = match m.method {
+                    stun::ALLOCATE if !m.has(stun::ATTR_USERNAME) => {
+                        let mut r = Message::new(stun::ALLOCATE, stun::ERROR, m.txid);
+                        r.add(stun::ATTR_ERROR_CODE, vec![0, 0, 4, 1]);
+                        r.add(stun::ATTR_REALM, b"test".to_vec());
+                        r.add(stun::ATTR_NONCE, b"nonce".to_vec());
+                        r
+                    }
+                    stun::ALLOCATE => {
+                        let mut r = Message::new(stun::ALLOCATE, stun::SUCCESS, m.txid);
+                        r.add(stun::ATTR_XOR_RELAYED_ADDRESS, stun::encode_xor_address("192.0.2.10:50000".parse().unwrap(), &m.txid));
+                        r.add(stun::ATTR_XOR_MAPPED_ADDRESS, stun::encode_xor_address(from, &m.txid));
+                        r.add(stun::ATTR_LIFETIME, 600u32.to_be_bytes().to_vec());
+                        r
+                    }
+                    method => {
+                        let mut r = Message::new(method, stun::ERROR, m.txid);
+                        r.add(stun::ATTR_ERROR_CODE, vec![0, 0, 4, 3]);
+                        r
+                    }
+                };
+                let _ = socket.send_to(&reply.encode(None, true), from);
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn an_allocation_whose_refresh_fails_is_dead() {
+        // Review of PR #67: after a revoked credential the refresh task stopped but the allocation stayed in use.
+        let mux = Mux::bind(0).unwrap();
+        let relay = refusing_relay();
+        let allocation = Allocation::allocate_with(mux, relay, "cf", "user", "secret", None).await.expect("allocated");
+        assert!(!allocation.is_dead());
+        assert!(!allocation.refresh_or_die(600).await);
+        assert!(allocation.is_dead());
+    }
 
     #[test]
     fn urls() {

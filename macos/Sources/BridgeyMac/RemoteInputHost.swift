@@ -133,10 +133,13 @@ final class RemoteInputHost: ObservableObject {
         ]
         for (center, name, locked) in watch {
             let token = center.addObserver(forName: Notification.Name(name), object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.screenLockChanged(locked) }
+                // Any process can post "unlocked": the session's own state decides (security review 1.0).
+                MainActor.assumeIsolated { self?.screenLockChanged(locked || ConsoleSession.lockedNow()) }
             }
             lockObservers.append(token)
         }
+        // Started while locked or in a background user session (a relaunch after an update): no session until unlocked.
+        screenLockChanged(ConsoleSession.lockedNow())
     }
 
     func screenLockChanged(_ locked: Bool) {
@@ -375,4 +378,15 @@ enum AccessibilityAccess {
     }
 
     static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+}
+
+/// The login session as the window server sees it: the screen is locked, or this user is not the one at the console.
+/// Read at start and on every lock notification, because the notifications alone say nothing about the state at
+/// launch and any process can post them (security review 1.0).
+enum ConsoleSession {
+    static func lockedNow() -> Bool {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        if (session["CGSSessionScreenIsLocked"] as? Bool) == true { return true }
+        return (session[kCGSessionOnConsoleKey as String] as? Bool) == false
+    }
 }

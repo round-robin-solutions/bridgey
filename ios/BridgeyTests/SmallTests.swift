@@ -63,4 +63,21 @@ final class OutboxTests: XCTestCase {
         Outbox.remove(text)
         XCTAssertFalse(Outbox.items().contains { $0.id == text.id })
     }
+
+    /// Security review 1.0: a sharing app's suggested name could put the copy outside the item's folder.
+    func testSuggestedNamesStayInsideTheItemsFolder() throws {
+        XCTAssertEqual(Outbox.safeFileName("photo.jpg"), "photo.jpg")
+        XCTAssertEqual(Outbox.safeFileName("../../x.json"), "x.json")
+        XCTAssertEqual(Outbox.safeFileName("a/b/"), "file")
+        XCTAssertEqual(Outbox.safeFileName(".."), "file")
+        XCTAssertEqual(Outbox.safeFileName("../", fallback: "IMG_1.HEIC"), "IMG_1.HEIC")
+        XCTAssertEqual(Outbox.safeFileName("a:b\u{0}.txt"), "ab.txt")
+        XCTAssertEqual(Outbox.safeFileName(nil, fallback: "/tmp/x/../.."), "file")
+        let source = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).txt")
+        try Data("x".utf8).write(to: source)
+        defer { try? FileManager.default.removeItem(at: source) }
+        let escaping = OutboxItem(deviceID: "d", deviceName: "Mac", kind: .file, value: "../escape.txt")
+        XCTAssertThrowsError(try Outbox.add(escaping, file: source))
+        Outbox.remove(escaping)
+    }
 }

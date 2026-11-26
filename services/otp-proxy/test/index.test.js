@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import worker, { looksLikeOtpTraffic, parseModelAnswer, normalise } from "../src/index.js";
+import worker, { looksLikeOtpTraffic, parseModelAnswer, normalise, codeInText } from "../src/index.js";
 
 const samples = JSON.parse(
   readFileSync(new URL("../../../protocol/test-vectors/otp-samples.json", import.meta.url), "utf8"),
@@ -230,7 +230,7 @@ test("AI string answer with surrounding text", async () => {
   const env = makeEnv({
     AI: { run: async () => ({ response: 'Sure! Here it is: {"is_otp": true, "code": "591-047"} hope that helps {x}' }) },
   });
-  const { res, body } = await call(req(good), env);
+  const { res, body } = await call(req({ ...good, text: "Your code is 591-047. Do not share it." }), env);
   assert.equal(res.status, 200);
   assert.deepEqual(body, { is_otp: true, code: "591-047" });
 });
@@ -250,10 +250,56 @@ test("non-string and out-of-range code becomes null; non-boolean is_otp is false
     [{ is_otp: "true", code: "1234" }, { is_otp: false, code: null }],
   ]) {
     const env = makeEnv({ AI: { run: async () => ({ response: answer }) } });
-    const { res, body } = await call(req(good), env);
+    const { res, body } = await call(req({ ...good, text: `${OK_TEXT} Ref ${"9".repeat(24)}` }), env);
     assert.equal(res.status, 200);
     assert.deepEqual(body, expected);
   }
+});
+
+test("a code that is not in the message is never returned", async () => {
+  // Security review 0.10 F1: the worker now checks this itself, as the apps do.
+  const env = makeEnv({ AI: { run: async () => ({ response: { is_otp: true, code: "999999" } }) } });
+  const { res, body } = await call(req(good), env);
+  assert.equal(res.status, 200);
+  assert.deepEqual(body, { is_otp: true, code: null });
+});
+
+test("the server check is never stricter than the apps' CodeGuard", async () => {
+  // Review of PR #67: CodeGuard ignores letter case and accepts "482913" for "482 913" or "PP-482913".
+  assert.ok(codeInText("482913", "Your code is 482 913."));
+  assert.ok(codeInText("482-913", "Your code is 482 913."));
+  assert.ok(codeInText("ab12cd", "Use AB12CD to sign in"));
+  assert.ok(codeInText("G-482913", "G-482913 is your Google code"));
+  assert.ok(codeInText("301842", "PP-301842 is your code"));
+  assert.ok(!codeInText("999999", "Your code is 482913"));
+  assert.ok(!codeInText("--", "Your code is 482913"));
+  for (const sample of positives) {
+    for (const code of sample.code) assert.ok(codeInText(code, sample.body), `${sample.id}: ${code}`);
+  }
+  const env = makeEnv({ AI: { run: async () => ({ response: { is_otp: true, code: "482913" } }) } });
+  const { body } = await call(req({ ...good, text: "Your OTP is 482 913. Do not share it." }), env);
+  assert.deepEqual(body, { is_otp: true, code: "482913" });
+});
+
+test("a chunked body is read only up to the limit", async () => {
+  // Security review 0.10 F1: without Content-Length the whole body used to be read before the size check.
+  let pulls = 0;
+  const endless = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(1024).fill(0x20));
+    },
+  });
+  const r = new Request("https://proxy.test/v1/extract", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Bridgey-Install": INSTALL, "CF-Connecting-IP": "203.0.113.7" },
+    body: endless,
+    duplex: "half",
+  });
+  const { res, body } = await call(r);
+  assert.equal(res.status, 413);
+  assert.deepEqual(body, { error: "too_large" });
+  assert.ok(pulls <= 5, `read ${pulls} KiB`);
 });
 
 test("AI throws gives 502; unparseable gives 502", async () => {

@@ -50,6 +50,28 @@ impl Cloudflare {
         parse_ice_servers(&bytes)
     }
 
+    /// `POST {api_base}/turn/keys/{keyId}/credentials/{username}/revoke`: the credential stops working, so its
+    /// allocation can no longer be refreshed. Cloudflare answers 204; 404 means it is already gone.
+    pub async fn revoke(&self, username: &str) -> Result<(), String> {
+        if username.is_empty() || username.len() > 512 {
+            return Err("revoke: unexpected username".into());
+        }
+        // A path segment: anything but the unreserved characters is percent-encoded.
+        let segment: String = username
+            .bytes()
+            .map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+            .collect();
+        let url = format!("{}/turn/keys/{}/credentials/{segment}/revoke", self.settings.api_base.trim_end_matches('/'), self.secrets.key_id);
+        let auth = format!("Bearer {}", self.secrets.token);
+        let timeout = Duration::from_millis(self.settings.mint_timeout_ms.max(3_000));
+        let (status, _) = post(&url, &[("Authorization", &auth)], b"", timeout).await.map_err(|e| format!("revoke: {e}"))?;
+        if (200..300).contains(&status) || status == 404 {
+            Ok(())
+        } else {
+            Err(format!("revoke answered {status}"))
+        }
+    }
+
     /// Bytes counted against the free tier in the current window: TURN (and the SFU, which shares the free tier)
     /// egress, plus ingress if `count_ingress`.
     pub async fn usage(&self, now_unix_s: u64) -> Result<u64, String> {
@@ -209,8 +231,10 @@ async fn post_inner(url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<
     } else {
         Box::new(tcp)
     };
+    // No Content-Type without a body (the revoke call): Cloudflare's example sends none.
+    let content_type = if body.is_empty() { "" } else { "Content-Type: application/json\r\n" };
     let mut request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: bridgey-rendezvous\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+        "POST {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: bridgey-rendezvous\r\nAccept: application/json\r\n{content_type}Content-Length: {}\r\nConnection: close\r\n",
         body.len()
     );
     for (name, value) in headers {
@@ -293,7 +317,7 @@ fn dechunk(mut body: &[u8]) -> Result<Option<Vec<u8>>, String> {
         if size == 0 {
             return Ok(Some(out));
         }
-        if body.len() < size + 2 {
+        if body.len() < size.checked_add(2).ok_or("bad chunk size")? {
             return Ok(None);
         }
         out.extend_from_slice(&body[..size]);
@@ -382,6 +406,29 @@ mod tests {
         assert!(request.starts_with("POST /v1/turn/keys/KEYID/credentials/generate-ice-servers HTTP/1.1\r\n"));
         assert!(request.contains("Authorization: Bearer TOKEN\r\n"));
         assert!(request.ends_with("{\"ttl\":7200}"));
+    }
+
+    #[tokio::test]
+    async fn revokes_through_the_api() {
+        let (base, mut seen) = mock("HTTP/1.1 204 No Content\r\n\r\n", Duration::ZERO).await;
+        client(&format!("{base}/v1"), "", 2_000).revoke("abc/1 2").await.expect("revoked");
+        let request = seen.recv().await.unwrap();
+        assert!(request.starts_with("POST /v1/turn/keys/KEYID/credentials/abc%2F1%202/revoke HTTP/1.1\r\n"), "{request}");
+        assert!(request.contains("Authorization: Bearer TOKEN\r\n"));
+        assert!(!request.contains("Content-Type"), "no body, so no Content-Type: {request}");
+        assert!(request.contains("Content-Length: 0\r\n"));
+        // Already gone counts as revoked; anything else is a failure without secrets in it.
+        let (base, _) = mock("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n", Duration::ZERO).await;
+        assert!(client(&base, "", 2_000).revoke("u").await.is_ok());
+        let (base, _) = mock("HTTP/1.1 500 Oops\r\nContent-Length: 0\r\n\r\n", Duration::ZERO).await;
+        let err = client(&base, "", 2_000).revoke("u").await.unwrap_err();
+        assert!(err == "revoke answered 500", "{err}");
+        assert!(client(&base, "", 2_000).revoke("").await.is_err());
+    }
+
+    #[test]
+    fn huge_chunk_sizes_are_refused() {
+        assert!(parse_response(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nx", false).is_err());
     }
 
     #[tokio::test]

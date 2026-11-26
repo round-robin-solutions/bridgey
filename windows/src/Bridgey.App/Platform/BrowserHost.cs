@@ -9,8 +9,11 @@ namespace Bridgey.Platform;
 /// <summary>
 /// Settings > Media and actions > Browser extensions (docs/browser-extensions.md): the host manifests in the data
 /// folder, the per-user registry keys Chrome, Edge, Chromium, Brave and Firefox read, and the named pipe
-/// bridgey-browser-host.exe asks. The pipe is for this Windows user only (CurrentUserOnly); the helper also checks
-/// that the process serving it runs as the same user. A separate profile (BRIDGEY_DATA_DIR) never touches the registry.
+/// bridgey-browser-host.exe asks. The pipe is for this Windows user only (CurrentUserOnly), and each connection's
+/// user is checked again, because CurrentUserOnly only sets the DACL of a pipe this process creates first: another
+/// user who created the name before (pipe names are shared by every session) would otherwise reach these instances
+/// (security review 1.0). The helper also checks that the process serving it runs as the same user. A separate profile
+/// (BRIDGEY_DATA_DIR) never touches the registry.
 /// </summary>
 internal static class BrowserHost
 {
@@ -135,9 +138,37 @@ internal static class BrowserHost
         }
     }
 
+    /// <summary>
+    /// The connected client runs as this Windows user. The helper connects at identification level, which lets this
+    /// end read its token without acting as it; a client that allows less (anonymous) is refused.
+    /// </summary>
+    private static bool ClientIsThisUser(NamedPipeServerStream pipe)
+    {
+        var me = WindowsIdentity.GetCurrent().User;
+        SecurityIdentifier? client = null;
+        try
+        {
+            pipe.RunAsClient(() =>
+            {
+                using var identity = WindowsIdentity.GetCurrent(true);
+                client = identity?.User;
+            });
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException or InvalidOperationException)
+        {
+            return false;
+        }
+        return me is not null && client is not null && client.Equals(me);
+    }
+
     private static async Task Answer(NamedPipeServerStream pipe, Func<BrowserHostRequest, Task<byte[]>> handle, DispatcherQueue queue, CancellationToken token)
     {
         await using var _ = pipe;
+        if (!ClientIsThisUser(pipe))
+        {
+            App.Log("Browser pipe: a client of another user was refused");
+            return;
+        }
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         // A link waits up to 8 seconds for the device's answer.
         deadline.CancelAfter(TimeSpan.FromSeconds(12));

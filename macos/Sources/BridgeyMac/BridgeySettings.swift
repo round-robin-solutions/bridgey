@@ -277,7 +277,13 @@ final class BridgeySettings: ObservableObject {
         hasCompletedOnboarding = true
     }
 
+    /// True while a phone controls this Mac (the touchpad or screen control). Grants that let a device control or act
+    /// on this Mac cannot be turned on meanwhile, globally or for a device: the controlling phone could otherwise open
+    /// Settings and allow itself (security review 1.0). Turning them off always works.
+    var raisingBlocked: () -> Bool = { false }
+
     func setGlobal(_ feature: BridgeyFeature, enabled: Bool) {
+        if enabled, feature.needsDeviceGrant, globalFeatures[feature] != true, raisingBlocked() { return }
         defaults.set(enabled, forKey: "settings.global.\(feature.rawValue)")
         globalFeatures[feature] = enabled
     }
@@ -501,6 +507,7 @@ final class BridgeySettings: ObservableObject {
     }
 
     func setForDevice(_ deviceID: String, feature: BridgeyFeature, enabled: Bool) {
+        if enabled, feature.needsDeviceGrant, deviceFeatures[deviceID]?[feature] != true, raisingBlocked() { return }
         defaults.set(enabled, forKey: "settings.device.\(deviceID).\(feature.rawValue)")
         deviceFeatures[deviceID, default: [:]][feature] = enabled
     }

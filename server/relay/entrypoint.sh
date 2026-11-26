@@ -19,6 +19,10 @@ if [ -n "${LISTENING_IP:-}" ]; then
   echo "listening-ip=$LISTENING_IP" >> /run/coturn/turnserver.conf
   echo "relay-ip=$LISTENING_IP" >> /run/coturn/turnserver.conf
 fi
+# The relay's own public address stays allowed: two peers on the same relay reach each other through it, and the
+# core asks permission for every relay in the pool, its own included (coturn has no exception for itself and fails
+# the whole request). UDP services on the relay host are kept from relayed traffic by the host firewall instead
+# (docs/connect-anywhere-deploy.md, "Relay host firewall"; security review 1.0, C4).
 # Local tests only: let the relay reach its own tailnet address (relay to relay on one host).
 if [ -n "${ALLOWED_PEER_IP:-}" ]; then
   echo "allowed-peer-ip=$ALLOWED_PEER_IP" >> /run/coturn/turnserver.conf

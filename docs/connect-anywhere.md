@@ -527,7 +527,7 @@ Every frame on a new route travels inside QUIC, headers and acknowledgements inc
 | --- | --- | --- |
 | Relay (coturn or Cloudflare) | Both devices' public IP and port, timing and volume, a TURN username (`expiry:sid8.side`), QUIC packets (random connection IDs, encrypted packet numbers) | Names, device IDs, identity keys, plaintext, file names |
 | Control service | Each node's public key and IP while connected; the rendezvous IDs a node registers, and so which node keys share a pair while online; size and timing of sealed signalling; relay grants; optionally a coarse NAT class | Device names, device IDs, identity keys, candidate lists, certificate pins, any content |
-| Network observer on a relayed or direct path | Same as the relay | Same as the relay |
+| Network observer on a relayed or direct path | Same as the relay | Same as the relay (see open item C3 in `docs/security-review-1.0.md`) |
 | Peer device | Everything it is granted, as today | |
 
 ### 5.5 Keys and secrets
@@ -1217,20 +1217,40 @@ Relaying to the peer is UDP only, IPv4 only.
 `POST https://rtc.live.cloudflare.com/v1/turn/keys/{keyId}/credentials/generate-ice-servers` with
 `{"ttl":7200}` ([credentials](https://developers.cloudflare.com/realtime/turn/generate-credentials/)), or the warm
 lifetime (12 hours) for a node's own relay. The maximum lifetime is 48 hours. A grant ends early through
-`.../credentials/{username}/revoke` (not used yet). The answer lists a STUN entry and a TURN entry with
+`.../credentials/{username}/revoke`: since the 1.0 security review the service keeps every credential it minted
+until it expires and revokes those the usage no longer leaves room for (below). The answer lists a STUN entry and a TURN entry with
 `turn:...:3478?transport=udp`, `turn:...:3478?transport=tcp`, `turns:...:5349?transport=tcp`,
 `turn:...:443?transport=udp`, `turn:...:80?transport=tcp` and `turns:...:443?transport=tcp`; grants carry the UDP
 3478 and TLS 443 ones (the relay's `urls` in the settings file). The service keeps each node's current warm
 credential in memory, so that node alone can take it back after a crash (the reclaim, as on coturn). It talks to the
 API with its own small HTTPS client and the Web PKI roots built in, so the image stays `scratch`.
 
-**Usage and the cap.** Every 15 minutes (5 past the soft cap; 2 after a failed read) the service asks Cloudflare's
+**Usage and the cap.** Every 15 minutes (every minute past the soft cap; 2 after a failed read) the service asks Cloudflare's
 GraphQL API (`https://api.cloudflare.com/client/v4/graphql`, token with Account Analytics Read on the account) for
 the sum of `egressBytes` in `callsTurnUsageAdaptiveGroups` and `callsUsageAdaptiveGroups` (the SFU shares the free
 tier) since the start of the window. The window is the last 31 days (`cycle_day = 0`), which covers any billing
 month whatever day it starts; once the billing day is confirmed, `cycle_day` sets it. Both datasets allow 32 days.
 GB here is 10^9 bytes. No reading under an hour old means no Cloudflare grants. `/v1/status` shows the reading, the
 tier and the last mint error.
+
+**The budget (security review 1.0).** The tier alone did not hold the cap: anyone can sign in with a new node key and
+get a warm Cloudflare credential, and a credential keeps working until it expires, after usage has crossed the hard
+cap too. So the service counts every credential out (minted, not expired, revocation not confirmed) and mints another
+only while all of them, each at `budget_kbps` (100 Mbit/s, the top of Cloudflare's per-client rate, not the client's
+pace) until the next reading plus `budget_extra_s` (5 minutes: the analytics delay, about 30 seconds, and the time an
+allocation takes to stop once its credential is revoked), would still stay under `hard_gb`. Past the soft cap usage is
+read every minute. At every reading the warm credentials a node has replaced (its newest is another one) with more
+than an hour left are revoked whatever the budget: an app restart left them unused. With a fresh reading the
+credentials beyond the budget follow: other replaced ones, then session credentials, and a node's current warm
+credential only if the budget still has no room, since sessions ride on it, the newest first within each; at the hard
+cap all of them. A stale reading stops minting and revokes nothing more. Each address (an IPv4 address or an IPv6 /64) gets at most `mints_per_ip_hour` (30) Cloudflare
+credentials an hour. Over the budget or the address limit a grant goes to the own pool. With nothing used the budget is
+63 credentials; at 400 GB, 36; past the soft cap it shrinks towards zero. The list is kept in `state_file` across
+restarts (a volume keeps it across deploys); without it a start assumes the budget's worth is out, expiring evenly over
+the warm lifetime. Cloudflare does not limit allocations per credential, so a client that opens several can carry more
+than the budget assumes; the minute readings and the revocations stop it within the hard cap's 50 GB margin. In the
+core, an allocation whose refresh fails is dropped and the node allocates again with the same credentials; only when
+the relay refuses them does it ask for warm credentials on another relay. `/v1/status` shows `credentialsOut` and `budget`.
 
 **Billing direction.** Cloudflare bills "data sent from the Cloudflare edge to the TURN client";
 traffic from the relay to a peer that is not a TURN client is "not part of billing"

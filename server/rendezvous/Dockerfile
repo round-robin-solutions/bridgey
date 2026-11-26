@@ -15,11 +15,15 @@ RUN case "$TARGETARCH" in \
  && rustup target add "$target" \
  && cd rust \
  && cargo zigbuild --release --locked -p bridgey-rendezvous --target "$target" \
- && install -D "target/$target/release/bridgey-rendezvous" /out/bridgey-rendezvous
+ && install -D "target/$target/release/bridgey-rendezvous" /out/bridgey-rendezvous \
+ && mkdir -p /out/state
 
 FROM scratch
 COPY --from=build /out/bridgey-rendezvous /bridgey-rendezvous
 COPY server/rendezvous/bridgey-rendezvous.toml /etc/bridgey/bridgey-rendezvous.toml
+# The state file's folder (Cloudflare credentials out), writable by the service; mount a volume here to keep it
+# across deploys.
+COPY --from=build --chown=65534:65534 /out/state /var/lib/bridgey-rendezvous
 USER 65534:65534
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s CMD ["/bridgey-rendezvous", "--health"]

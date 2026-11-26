@@ -49,6 +49,14 @@ headers/acknowledgements are authenticated. A transport-wide authenticated
 envelope/sequence design and independent security review remain hardening work.
 Device/OEM acceptance is recorded separately in `testing-0.6.md`.
 
+## 1.0 review
+
+`docs/security-review-1.0.md` lists each finding with the test that guards it. New kinds of tests: the control
+service's Cloudflare budget and revocation against a fake clock and a local stand-in for Cloudflare's API; partial
+files swapped for links and hard links (Rust and Swift); injected events marked so they never press Allow; speed test,
+grant and reset limits on Android and the Mac; Windows file opening rules in the C# tests; and the codes worker's
+bounded body read in `node --test`.
+
 Future device-level dynamic coverage should extend the interoperability harness
 to run both UI applications, mutate authenticated protocol frames, and interrupt
 live file streams. It should run in isolated Android emulator and macOS runner

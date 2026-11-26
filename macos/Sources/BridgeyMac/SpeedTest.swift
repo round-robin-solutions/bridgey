@@ -29,6 +29,10 @@ enum SpeedLimits {
     static let stallTimeout: TimeInterval = 5
     /// Throughput counts from here on, so TCP and the window have warmed up.
     static let warmUp: TimeInterval = 1
+    /// Tests a phone may start here: at least this far apart and at most this many an hour (security review 1.0: any
+    /// paired phone could otherwise keep this Mac sending at full speed, over a relay too).
+    static let incomingSpacing: TimeInterval = 10
+    static let incomingPerHour = 6
 }
 
 /// One device's own view of its network for this test. No names, addresses or network names.
@@ -285,6 +289,8 @@ protocol SpeedTestHost: AnyObject {
     /// Nil when the phone is not connected or does not advertise files_fast_draft1.
     func speedLink(for phoneID: String) -> SpeedTestLink?
     var speedPhones: [(id: String, name: String)] { get }
+    /// A test from this phone may run here: Files is on for it.
+    func speedTestAllowed(from phoneID: String) -> Bool
 }
 
 /// Sends test bytes for `seconds` in a paced window and measures what the other side acknowledged.
@@ -415,8 +421,21 @@ final class SpeedTest: ObservableObject {
     }
 
     private var run: Run?
+    /// When each phone started tests here this hour, for [SpeedLimits.incomingPerHour].
+    private var incomingStarts: [String: [TimeInterval]] = [:]
+    var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
     var isRunning: Bool { run != nil }
+
+    private func incomingAllowed(_ phoneID: String) -> Bool {
+        let now = clock()
+        var starts = (incomingStarts[phoneID] ?? []).filter { now - $0 < 3_600 }
+        defer { incomingStarts[phoneID] = starts }
+        if starts.count >= SpeedLimits.incomingPerHour { return false }
+        if let last = starts.last, now - last < SpeedLimits.incomingSpacing { return false }
+        starts.append(now)
+        return true
+    }
 
     /// A test with this phone runs (LAN first never switches sessions under it).
     func isRunning(with phoneID: String) -> Bool { run?.phoneID == phoneID }
@@ -483,10 +502,23 @@ final class SpeedTest: ObservableObject {
         guard let plaintext, let payload = SpeedPayload.decode(kind: kind, plaintext: plaintext) else { return }
         switch payload {
         case let .start(testId, seconds, link):
-            guard run == nil, let reply = host?.speedLink(for: phoneID) else {
-                let status = run == nil ? "disabled" : "busy"
-                if let data = SpeedPayload.ready(testId: testId, status: status, link: nil).json {
-                    _ = host?.speedLink(for: phoneID)?.sendEncrypted(kind: SpeedKind.ready, payload: data)
+            // A start with no link to answer on is not counted against the phone's allowance.
+            let answerLink = host?.speedLink(for: phoneID)
+            var refusal: String?
+            if answerLink == nil {
+                refusal = "disabled"
+            } else if run != nil {
+                refusal = "busy"
+            } else if host?.speedTestAllowed(from: phoneID) != true {
+                refusal = "disabled"
+            } else if !incomingAllowed(phoneID) {
+                // The protocol has no word for a limit; busy is the nearest, and older apps understand it.
+                refusal = "busy"
+            }
+            guard refusal == nil, let reply = answerLink else {
+                // Nothing about this Mac's network goes with a refusal.
+                if let data = SpeedPayload.ready(testId: testId, status: refusal ?? "disabled", link: nil).json {
+                    _ = answerLink?.sendEncrypted(kind: SpeedKind.ready, payload: data)
                 }
                 return
             }

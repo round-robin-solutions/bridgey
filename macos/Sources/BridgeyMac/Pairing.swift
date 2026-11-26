@@ -6571,6 +6571,8 @@ private final class SessionSpeedLink: SpeedTestLink {
 }
 
 extension PairingCoordinator: SpeedTestHost {
+    func speedTestAllowed(from phoneID: String) -> Bool { settings.isEnabled(.files, for: phoneID) }
+
     func speedLink(for phoneID: String) -> SpeedTestLink? {
         guard let current = registry.session(for: phoneID), let key = current.pairingKey, !current.ended, current.fastTransfers else { return nil }
         return SessionSpeedLink(session: current, key: key)
@@ -7203,10 +7205,14 @@ func incomingFileAdmission(size: Int64, phoneActive: Int, totalActive: Int, free
 /// not lose its own name to its own partial.
 func uniqueReceivedFileURL(_ requested: URL, ownPart: URL? = nil) -> URL {
     let own = ownPart?.standardizedFileURL.path
+    // lstat: a link counts as taken even when it points nowhere (security review 1.0).
+    func exists(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0
+    }
     func isTaken(_ url: URL) -> Bool {
         let part = url.appendingPathExtension("bridgey-part")
-        return FileManager.default.fileExists(atPath: url.path) ||
-            (part.standardizedFileURL.path != own && FileManager.default.fileExists(atPath: part.path))
+        return exists(url) || (part.standardizedFileURL.path != own && exists(part))
     }
     guard isTaken(requested) else { return requested }
     let extensionPart = requested.pathExtension
@@ -7298,8 +7304,9 @@ final class IncomingFileTransfer {
         reservedURL = finalURL
         reservedFor = sanitized
         partialURL = finalURL.appendingPathExtension("bridgey-part")
-        guard FileManager.default.createFile(atPath: partialURL.path, contents: nil) else { throw PairingError.invalidMessage }
-        handle = try FileHandle(forUpdating: partialURL)
+        // A new file only: a name that exists in any form (a dangling link included) refuses the transfer.
+        guard let opened = try? ReceivedPartial.open(partialURL, create: true) else { throw PairingError.invalidMessage }
+        handle = opened
         hasher = ResumeHasher(keepBlocks: false)
     }
 
@@ -7320,7 +7327,8 @@ final class IncomingFileTransfer {
               let prefix = Data(base64Encoded: record.prefix), prefix.count == 32, record.length > 0, record.length <= offer.size else {
             throw PairingError.invalidMessage
         }
-        handle = try FileHandle(forUpdating: record.partURL)
+        // Not through a link, and only a plain file of this user with no other name (security review 1.0).
+        handle = try ReceivedPartial.open(record.partURL, create: false)
         hasher = ResumeHasher(keepBlocks: false)
         phase = .checking(length: record.length, prefix: prefix)
         checkpointAt = record.length
@@ -7413,11 +7421,18 @@ final class IncomingFileTransfer {
         }
     }
 
+    /// A copy of the open partial's descriptor, for reading it again off the main thread; -1 once closed.
+    func duplicateDescriptor() -> Int32 {
+        closed ? -1 : dup(handle.fileDescriptor)
+    }
+
     func finish(expectedHash completionHash: String) throws -> URL {
         let synced = (try? handle.synchronize()) != nil
+        // The part must still be the file written here, not a link put at its name meanwhile.
+        let samePart = ReceivedPartial.stillAt(partialURL, handle: handle)
         close()
         let actual = hasher.finalize().base64EncodedString()
-        guard synced,
+        guard synced, samePart,
               phase == .receiving,
               receivedSize == expectedSize,
               completionHash == expectedHash,
@@ -8001,6 +8016,7 @@ extension PairingCoordinator {
         macScreen.peerAdvertises = { [weak self] id in self?.registry.state(for: id)?.remoteScreenControl == true }
         macScreen.controlGrant = { [weak self] id in self?.settings.isEnabled(.remoteInput, for: id) == true }
         macScreen.touchpadController = { [weak self] in self?.remoteInput.active?.deviceID }
+        settings.raisingBlocked = { [weak self] in self?.macScreen.allowPossible == false }
         macScreen.onGrantsChange = { [weak self] in
             self?.sendFeatureState()
             self?.publish()
@@ -8190,7 +8206,7 @@ extension PairingCoordinator {
     /// Reads a kept partial again off the main thread, with files.resume.wait every 30 seconds meanwhile.
     fileprivate func checkKeptPartial(_ transferID: String, transfer: IncomingFileTransfer, length: Int64) {
         resumeChecks[transferID]?.cancel()
-        resumeChecks[transferID] = ResumeCheck(url: transfer.partialURL, length: length, waiting: { [weak self] in
+        resumeChecks[transferID] = ResumeCheck(descriptor: transfer.duplicateDescriptor(), length: length, waiting: { [weak self] in
             MainActor.assumeIsolated { self?.keptPartialStillChecking(transferID, transfer: transfer) }
         }, done: { [weak self] result in
             MainActor.assumeIsolated { self?.keptPartialChecked(transferID, transfer: transfer, result: result) }

@@ -11,7 +11,7 @@ down (steps below). Design: [connect-anywhere.md](connect-anywhere.md).
 | Relay `sin` | relay-sg.roundrobin.in (15.235.211.41), rb-vps | compose `bridgey-relay-sg` (`sPkcw4V_FcPmlFYpGF8Bw`) on deploy server `client-update-portal-vps` (`FJI1IAi5SEF9_fDNfSV8J`, user ubuntu, port 2222) | `rust/core/examples/turn_check.rs` from another host |
 | Relay `sxb` | relay-eu.roundrobin.in (109.123.243.231), rr-dev-1 | compose `bridgey-relay-eu` (`AUcFGMLUaVr3qgXixmTvn`) on deploy server `rr-dev-1-deploy` (`OJQHZTE0Gl8BYvaS7CcF9`, user `dokploy-deploy`) | same |
 | Relay `bom` | relay-in.roundrobin.in, oracle | not deployed (oracle is down); no DNS record yet; no secret in the control service, so nobody is sent there | see "oracle" below |
-| Relay `cf` | Cloudflare Realtime TURN, `turn.cloudflare.com` | prepared 2026-11-24 (TURN key `bridgey-relay`), not deployed: the control service needs the image from PR `rr/cloudflare-relay` and the four `CF_*` variables | see "Cloudflare relay" below |
+| Relay `cf` | Cloudflare Realtime TURN, `turn.cloudflare.com` | live since 2026-11-24 14:44 UTC: TURN key `bridgey-relay`, the four `CF_*` variables on the control service | `/v1/status` lists `cf` with a `cloudflare` object; see "Cloudflare relay" below |
 
 All three Dokploy entries follow branch `rr/connect-anywhere` with auto-deploy on push (control
 service: `rust/**`, `server/rendezvous/**`; relays: `server/relay/**`). **When the branch merges,
@@ -75,7 +75,7 @@ Not in phase 1: Cloudflare Realtime TURN (no key, no spend), TURN over TLS on 44
 and alerts, the relay agent's allowance caps. The pool runs on the three own relays only. Cloudflare and TURN over
 TLS on 443 (Cloudflare only) came on 2026-11-24, below.
 
-## Cloudflare relay (prepared 2026-11-24)
+## Cloudflare relay (live since 2026-11-24 14:44 UTC)
 
 Rahul, 2026-11-24: "we will use Cloudflare from now on", the own pool as the backup. Design:
 [connect-anywhere.md](connect-anywhere.md#cloudflare-first-2026-11-24-branch-rrcloudflare-relay), sections 9.3 and 9.4.
@@ -95,7 +95,8 @@ Keychain note "RR Social - all new logins and keys". The control service reads f
 Without the first two the `cf` relay is skipped; without the last two there is no usage reading, so no Cloudflare
 grants. Either way every client gets the own pool, as before.
 
-**How the control service runs now** (read 2026-11-24): Dokploy app `AWhUiERgwLozVUZrH6aAz` has source "docker",
+**How the control service ran before Cloudflare** (read 2026-11-24; the `CF_*` variables have been set since
+2026-11-24 14:44 UTC): Dokploy app `AWhUiERgwLozVUZrH6aAz` has source "docker",
 image `ghcr.io/round-robin-solutions/bridgey-rendezvous-bls5vl@sha256:3afcab44c5425e94df891b8e5418fd525ae82d70601926631d5d7a95bd061c4a`
 (tag `latest`, built 2026-11-07 18:13 UTC from rr/main `697637cd`, PR #14). RR CI pinned it there on 2026-11-14
 (builds-on-rr-ci), and its deploy policy for this app still follows the deleted branch `rr/connect-anywhere`, so no
@@ -137,6 +138,20 @@ runs on 2026-11-19 failed (the app shows "error"); the running service is health
    the container log shows `cloudflare: First (used ... GB in the window)`. With a 1.0.0-beta.1 app connected,
    `cfGrants` stays 0 for it and its route still names `bom`, `sin` or `sxb`. An app built from this branch shows
    "Relay (Cloudflare)" on the Mac (Android shows "Relay" until it maps `cf`).
+
+**Deploying the security review 1.0 changes** (PR #67: the Cloudflare credential budget and revocations, the state
+file, per-connection limits; after it is merged with green checks and the coordinator agrees):
+
+1. On the Dokploy app, mount a named volume (for example `bridgey-rendezvous-state`) at `/var/lib/bridgey-rendezvous`.
+   A new named volume takes the image folder's owner (65534), so the service can write
+   `cloudflare-credentials.json` there; a bind mount would not. Without the volume the file survives container
+   restarts but not deploys.
+2. Build, push and deploy the image as in steps 2 and 4 above (the `CF_*` variables stay as they are).
+3. Check `/v1/status`: `cloudflare` shows `credentialsOut` and `budget`, and the container log says either nothing
+   about the state file (it loaded) or, on the first start with the volume, "no saved credentials; assuming the
+   budget's worth is out". That first start, and any start without the file, brings Cloudflare back gradually over
+   12 hours (credentials the earlier run handed out are assumed out until they would have expired).
+4. The relays: at their next redeploy, add the host firewall rule in section 3.
 
 **Rollback.** In order of size:
 
@@ -227,9 +242,22 @@ line). Per host:
 | `sin` | rb-vps | deploy server | `EXTERNAL_IP` and `LISTENING_IP` `15.235.211.41`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=25000000` | 3478, 61000-62999 |
 | `sxb` | rr-dev-1 | deploy server (still the build server) | `EXTERNAL_IP` and `LISTENING_IP` `109.123.243.231`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=37500000`, `COTURN_CPUS=1.5` | 3478, 61000-62999 |
 
-The template denies relaying to private, carrier-NAT, tailnet, Docker and link-local ranges, has no
+The template denies relaying to private, carrier-NAT, tailnet, Docker, link-local and reserved ranges, has no
 TCP relay and no admin CLI. On rr-dev-1 also put the relay ports in the lowest `tc` class so builds
 and pushes always win (spec 9.10); that script is still to write.
+
+**Relay host firewall** (security review 1.0, C4; to apply at the next relay redeploy, not applied yet). coturn
+must be able to relay to its own public address (two peers on the same relay, and the core asks permission for every
+relay in the pool), so it cannot be told to refuse it. Relayed traffic to the host's own address leaves from a relay
+port, so the host keeps it away from everything but other relay ports. On each relay host, with its public IPv4 and
+relay range:
+
+```bash
+iptables -I INPUT -p udp -s <public IPv4> --sport 61000:62999 ! --dport 61000:62999 -j DROP
+```
+
+Make it persistent the way the host keeps its other rules, and check with `ss -ulpn` which UDP services listen on
+the public address.
 
 Check each relay from another host: a STUN binding to `relay-xx.roundrobin.in:3478` answers, and a probe
 pair (`rust/core/examples/probe.rs` with `--relay-only` and the production control URL) connects

@@ -45,7 +45,8 @@ this. First pairing with a protocol 1 device (Bridgey by Round Robin 0.9 and old
 and upstream Bridgey) is refused in both directions, with no fallback (Rahul,
 2026-10-27); the user is asked to update the other device. Pairs made earlier
 keep reconnecting. This is not a claim of independent cryptographic audit or a
-complete active-network-attacker defense.
+complete active-network-attacker defense. What changed before 1.0 (Connect anywhere, resume, screen control, browser
+extensions, the updaters, Windows and iOS), and what is still open, is in `docs/security-review-1.0.md`.
 
 The following items describe the target security design; in particular TLS,
 persistent replay handling, authenticated key rotation, and comprehensive

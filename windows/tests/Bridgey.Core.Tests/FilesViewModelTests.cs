@@ -216,3 +216,28 @@ public sealed class FilesViewModelTests
     [InlineData(2_500_000_000, "2.5 GB")]
     public void SizesReadPlainly(long bytes, string expected) => Assert.Equal(expected, ActivityItem.Size(bytes));
 }
+
+public sealed class ReceivedFilesTests
+{
+    [Theory]
+    [InlineData("photo.jpg", true)]
+    [InlineData("report.pdf", true)]
+    [InlineData("notes", true)]
+    [InlineData("setup.exe", false)]
+    [InlineData("SETUP.EXE", false)]
+    [InlineData("photo.jpg.exe", false)]
+    [InlineData("setup.exe. . ", false)]
+    [InlineData("run.bat", false)]
+    [InlineData("script.ps1", false)]
+    [InlineData("page.hta", false)]
+    [InlineData("link.lnk", false)]
+    [InlineData("site.url", false)]
+    [InlineData("installer.msi", false)]
+    [InlineData("disk.iso", false)]
+    [InlineData("a.txt:evil.exe", false)]
+    public void RunnableFilesAreShownNotOpened(string name, bool opens)
+    {
+        // Security review 1.0: a paired device chooses the name; one click on the toast must not run it.
+        Assert.Equal(opens, ReceivedFiles.OpensDirectly(Path.Combine(Path.GetTempPath(), name)));
+    }
+}

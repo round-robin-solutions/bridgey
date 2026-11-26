@@ -105,7 +105,7 @@ extension CGEventInjector: ScreenControlInjecting {
         event.post(tap: .cghidEventTap)
     }
 
-    private static let screenSource = CGEventSource(stateID: .hidSystemState)
+    private static let screenSource = InjectedEvents.source()
     private static var screenClicks = ScreenClickTracker()
 }
 

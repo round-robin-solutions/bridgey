@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -233,6 +233,24 @@ pub struct Node {
     cloudflare_relays: Mutex<HashSet<String>>,
     /// When foreground last asked for a fresh control connection.
     last_refresh: Mutex<Option<Instant>>,
+    /// Direct QUIC handshakes under way (incoming, not ICE), for [addrs::admit_incoming].
+    handshaking: AtomicUsize,
+}
+
+/// One direct handshake under way, counted until it ends however it ends.
+struct Handshake(Arc<Node>);
+
+impl Handshake {
+    fn start(node: Arc<Node>) -> Self {
+        node.handshaking.fetch_add(1, Ordering::Relaxed);
+        Handshake(node)
+    }
+}
+
+impl Drop for Handshake {
+    fn drop(&mut self) {
+        self.0.handshaking.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 fn now_ms() -> u64 {
@@ -304,6 +322,7 @@ impl Node {
             realms: Mutex::new(HashMap::new()),
             cloudflare_relays: Mutex::new(HashSet::new()),
             last_refresh: Mutex::new(None),
+            handshaking: AtomicUsize::new(0),
         });
         node.restore_state();
         tokio::spawn(node.clone().accept_loop());
@@ -774,19 +793,20 @@ impl Node {
         let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route), Mtu::Discover);
         let connecting = match self.endpoint.connect_with(config, addr, "bridgey") {
             Ok(c) => c,
-            Err(e) => {
-                self.mark("dial.error", Some(&peer), Some(&format!("{addr}: {e}")));
+            Err(_) => {
+                // The error can name the address, and timing events never carry one.
+                self.mark("dial.error", Some(&peer), Some(&format!("{} not_started", route.as_str())));
                 return;
             }
         };
         let conn = match tokio::time::timeout(Duration::from_secs(3), connecting).await {
             Ok(Ok(conn)) => conn,
             Ok(Err(e)) => {
-                self.mark("dial.error", Some(&peer), Some(&format!("{addr}: {e}")));
+                self.mark("dial.error", Some(&peer), Some(&format!("{} {}", route.as_str(), close_reason(&e))));
                 return;
             }
             Err(_) => {
-                self.mark("dial.timeout", Some(&peer), Some(&addr.to_string()));
+                self.mark("dial.timeout", Some(&peer), Some(route.as_str()));
                 return;
             }
         };
@@ -1131,7 +1151,7 @@ impl Node {
         match self.allocate_on(server, grant).await {
             Err(e) if e == turn::NO_ANSWER && grant.is_cloudflare() => {
                 let Some((host, port)) = grant.urls.iter().find_map(|u| turn::parse_tls_url(u)) else { return Err(e) };
-                let existing = self.allocations.lock().unwrap().values().find(|a| a.relay_id == grant.id && is_stream(a.server)).cloned();
+                let existing = self.allocations.lock().unwrap().values().find(|a| a.relay_id == grant.id && is_stream(a.server) && !a.is_dead()).cloned();
                 if let Some(existing) = existing {
                     return Ok(existing);
                 }
@@ -1180,7 +1200,8 @@ impl Node {
         if let Some(release) = pending {
             let _ = tokio::time::timeout(Duration::from_secs(3), release).await;
         }
-        if let Some(existing) = self.allocations.lock().unwrap().get(&server).cloned() {
+        // A dead allocation (its refresh failed) lapses on the relay: never handed out again.
+        if let Some(existing) = self.allocations.lock().unwrap().get(&server).cloned().filter(|a| !a.is_dead()) {
             return Ok(existing);
         }
         let cached = self.realms.lock().unwrap().get(&server).cloned();
@@ -1519,6 +1540,20 @@ impl Node {
                     warm.allocating = true;
                     Err((e, None))
                 }
+                Err(e) if e.starts_with(turn::REFUSED) => {
+                    // The relay refuses these credentials (revoked, or a rotated secret): they are dropped and warm
+                    // credentials are asked for elsewhere at once. The relay is left out of this request only, so a
+                    // later renewal may get it again.
+                    // Unless new credentials arrived meanwhile.
+                    if warm.grant.as_ref().is_some_and(|(g, _)| g.username == grant.username) {
+                        warm.grant = None;
+                    }
+                    let mut exclude = warm.exclude.clone();
+                    if !exclude.contains(&grant.id) {
+                        exclude.push(grant.id.clone());
+                    }
+                    Err((e, Some(WarmRequest { rtts: Some(warm.rtts.clone()).filter(|r| !r.is_empty()), exclude: Some(exclude), reclaim: None })))
+                }
                 Err(e) => {
                     warm.failures += 1;
                     let mismatch = e == turn::MISMATCH;
@@ -1551,9 +1586,37 @@ impl Node {
                 }
                 self.log(&format!("warm relay {} failed: {e}", grant.id));
                 if let Some(request) = retry {
-                    self.rdv_send(Msg::RelayWarm { request });
+                    if self.rdv_connected.load(Ordering::Relaxed) {
+                        self.rdv_send(Msg::RelayWarm { request });
+                    } else {
+                        *self.rdv_shared.warm.lock().unwrap() = Some(request);
+                    }
                 }
             }
+        }
+    }
+
+    /// Allocations whose refresh failed (a sleep or network change outlived them, the relay is gone, or their
+    /// credentials were revoked) are dropped, so no session gets them again. The warm credentials stay: ensure_warm
+    /// allocates again with them, and only when the relay refuses them does it ask for warm credentials elsewhere
+    /// (review of PR #67: dropping still-valid Cloudflare credentials churned them and held budget slots).
+    fn drop_dead_allocations(&self) {
+        let any = {
+            let mut allocations = self.allocations.lock().unwrap();
+            let before = allocations.len();
+            allocations.retain(|_, a| !a.is_dead());
+            allocations.len() != before
+        };
+        let warm_dead = {
+            let mut warm = self.warm.lock().unwrap();
+            let dead = warm.allocation.as_ref().is_some_and(|a| a.is_dead());
+            if dead {
+                warm.allocation = None;
+            }
+            dead
+        };
+        if any && warm_dead {
+            self.mark("relay.warm_dead", None, None);
         }
     }
 
@@ -1619,6 +1682,7 @@ impl Node {
                     self.rdv_send(Msg::RelayWarm { request });
                 }
             }
+            self.drop_dead_allocations();
             self.ensure_warm().await;
             if since_state >= Duration::from_secs(240) {
                 since_state = Duration::ZERO;
@@ -1682,15 +1746,15 @@ impl Node {
             // Caps before the handshake: tunnels the app has not authenticated yet, in all and per source
             // address (ICE tunnels come from virtual addresses and were set up through sealed signalling).
             let source = addrs::canonical(incoming.remote_address());
-            let (pending_total, pending_here) = {
+            let pending: Vec<_> = {
                 let tunnels = self.tunnels.lock().unwrap();
-                let pending: Vec<_> = tunnels.values().filter(|t| !t.authenticated.load(Ordering::Relaxed)).collect();
-                (pending.len(), pending.iter().filter(|t| t.remote_ip == Some(source.ip())).count())
+                tunnels.values().filter(|t| !t.authenticated.load(Ordering::Relaxed)).map(|t| t.remote_ip).collect()
             };
-            if pending_total >= 16 || (!is_virtual(source) && pending_here >= 3) {
+            if !addrs::admit_incoming(source.ip(), is_virtual(source), &pending, self.handshaking.load(Ordering::Relaxed)) {
                 incoming.refuse();
                 continue;
             }
+            let handshake = (!is_virtual(source)).then(|| Handshake::start(self.clone()));
             // A direct dial to one of our addresses may grow its datagrams; ICE tunnels (virtual sources) keep the
             // endpoint's 1,200 bytes (quic::Mtu).
             let connecting = if is_virtual(source) {
@@ -1705,14 +1769,15 @@ impl Node {
                     Ok(connecting) => tokio::time::timeout(Duration::from_secs(10), connecting).await,
                     Err(e) => Ok(Err(e)),
                 };
+                drop(handshake);
                 let conn = match accepted {
                     Ok(Ok(conn)) => conn,
                     Ok(Err(e)) => {
-                        node.mark("accept.error", None, Some(&format!("{source}: {e}")));
+                        node.mark("accept.error", None, Some(&close_reason(&e)));
                         return;
                     }
                     Err(_) => {
-                        node.mark("accept.timeout", None, Some(&source.to_string()));
+                        node.mark("accept.timeout", None, None);
                         return;
                     }
                 };

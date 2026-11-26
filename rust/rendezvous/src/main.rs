@@ -39,6 +39,11 @@ struct App {
     seen_hellos: Mutex<SeenHellos>,
     /// Cloudflare Realtime TURN, when its TURN key is in the environment.
     cloudflare: Option<cloudflare::Shared>,
+    /// Where the Cloudflare credentials out are kept across restarts, and whether writing it has failed.
+    state_file: Option<String>,
+    state_failed: std::sync::atomic::AtomicBool,
+    /// One save at a time, taken and written in order, so an older list never lands after a newer one.
+    save_lock: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -140,9 +145,16 @@ async fn main() {
         fail("server.public_host is required with trust_proxy");
     }
     let mut hub = Hub::new(config.clone(), secrets);
+    let state_file = config.server.state_file.clone().filter(|p| !p.is_empty());
     let cloudflare = cf.map(|(relay, secrets)| {
         let client = Arc::new(cloudflare::Cloudflare::new(relay.cloudflare.clone().unwrap_or_default(), secrets));
         hub.enable_cloudflare(relay);
+        // Credentials an earlier run handed out keep working: from the state file, or assumed out for a while.
+        let saved = load_cloudflare(state_file.as_deref());
+        if saved.is_none() {
+            eprintln!("cloudflare: no saved credentials; assuming the budget's worth is out, expiring over the warm grant lifetime");
+        }
+        hub.restore_cloudflare(saved, Instant::now());
         client
     });
     let app = Arc::new(App {
@@ -154,6 +166,9 @@ async fn main() {
         hub: Mutex::new(hub),
         per_ip: Mutex::new(HashMap::new()),
         cloudflare: cloudflare.clone(),
+        state_file,
+        state_failed: std::sync::atomic::AtomicBool::new(false),
+        save_lock: Mutex::new(()),
     });
     if let Some(client) = cloudflare.filter(|c| c.can_read_usage()) {
         tokio::spawn(watch_usage(app.clone(), client));
@@ -190,15 +205,20 @@ async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
     loop {
         let reading = client.usage(hub::unix_ms() / 1_000).await;
         let error = reading.as_ref().err().cloned();
-        let (wait, tier, used) = {
+        let (wait, tier, used, revoke) = {
             let mut hub = app.hub.lock().unwrap();
             let used = reading.as_ref().ok().copied();
             hub.set_cf_usage(reading, Instant::now());
-            (hub.cf_poll_interval(), hub.cf_tier(Instant::now(), &[]), used)
+            (hub.cf_poll_interval(), hub.cf_tier(Instant::now(), &[]), used, hub.take_revocations())
         };
         if let Some(e) = error {
             eprintln!("cloudflare: usage not read ({e})");
         }
+        if !revoke.is_empty() {
+            eprintln!("cloudflare: revoking {} credentials the usage leaves no room for", revoke.len());
+            run_revocations(&app, &client, revoke);
+        }
+        save_cloudflare(&app);
         if last_tier != Some(tier) {
             let used = used.map(|b| format!("{:.1} GB", cloudflare::gb(b))).unwrap_or_else(|| "unknown".into());
             eprintln!("cloudflare: {tier:?} (used {used} in the window)");
@@ -206,6 +226,60 @@ async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
         }
         tokio::time::sleep(wait).await;
     }
+}
+
+/// Revokes Cloudflare credentials one after another; a failed revocation still counts and is tried again after the
+/// next reading.
+fn run_revocations(app: &Arc<App>, client: &cloudflare::Shared, usernames: Vec<String>) {
+    let app = app.clone();
+    let client = client.clone();
+    tokio::spawn(async move {
+        let mut failed = None;
+        for username in usernames {
+            let revoked = client.revoke(&username).await;
+            if let Err(e) = &revoked {
+                failed = Some(e.clone());
+            }
+            app.hub.lock().unwrap().finish_revoke(&username, revoked.is_ok());
+        }
+        save_cloudflare(&app);
+        if let Some(e) = failed {
+            eprintln!("cloudflare: revocations failed ({e}); they still count and are tried again after the next reading");
+        }
+    });
+}
+
+/// Writes the Cloudflare credentials out to the state file, when there is one and they changed. Atomic, 0600; a
+/// failure is logged once and the next start is cautious instead.
+fn save_cloudflare(app: &App) {
+    let Some(path) = app.state_file.as_deref() else { return };
+    let _one = app.save_lock.lock().unwrap();
+    let Some(list) = app.hub.lock().unwrap().cloudflare_to_save() else { return };
+    let Ok(text) = serde_json::to_vec(&serde_json::json!({ "v": 1, "credentials": list })) else { return };
+    if let Err(e) = write_private(path, &text) {
+        if !app.state_failed.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("cloudflare: state file not written ({}); the next start assumes credentials are out", e.kind());
+        }
+    }
+}
+
+fn write_private(path: &str, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let temporary = format!("{path}.{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
+    file.write_all(data)?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, path)
+}
+
+/// The credentials the state file kept, or `None` (no file configured, none yet, or unreadable).
+fn load_cloudflare(path: Option<&str>) -> Option<Vec<hub::CfCredential>> {
+    let text = std::fs::read(path?).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&text).ok()?;
+    (value.get("v")? == 1).then_some(())?;
+    serde_json::from_value(value.get("credentials")?.clone()).ok()
 }
 
 /// Mints the credentials of queued Cloudflare grants, each on its own task; a failure becomes an own-pool grant.
@@ -225,6 +299,7 @@ fn run_mints(app: &Arc<App>, jobs: Vec<MintJob>) {
                 hub.finish_mint(job, minted, Instant::now());
                 hub.take_mints()
             };
+            save_cloudflare(&app);
             run_mints(&app, more);
         });
     }
@@ -269,12 +344,28 @@ async fn status(State(app): State<Arc<App>>) -> Json<serde_json::Value> {
     }))
 }
 
+/// The client's address: `X-Real-IP` when behind the proxy and the connection comes from it, else the peer.
+/// The proxy (the host nginx) reaches the container from loopback or a private Docker address; a connection from a
+/// public address bypassed it (a published port is reachable past the host firewall), so its header is not believed.
+fn client_ip(trust_proxy: bool, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+    if !trust_proxy || !from_proxy(peer) {
+        return peer;
+    }
+    headers.get("x-real-ip").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok()).unwrap_or(peer)
+}
+
+fn from_proxy(peer: IpAddr) -> bool {
+    match peer {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => from_proxy(IpAddr::V4(v4)),
+            None => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+        },
+    }
+}
+
 async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
-    let ip = if app.trust_proxy {
-        headers.get("x-real-ip").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok()).unwrap_or(peer.ip())
-    } else {
-        peer.ip()
-    };
+    let ip = client_ip(app.trust_proxy, peer.ip(), &headers);
     {
         let mut per_ip = app.per_ip.lock().unwrap();
         let count = per_ip.entry(ip).or_insert(0);
@@ -290,7 +381,7 @@ async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Soc
     let accepted = fast.is_some();
     let mut response = ws.max_message_size(rdv::MAX_FRAME_BYTES).max_frame_size(rdv::MAX_FRAME_BYTES).on_upgrade(move |socket| async move {
         let _slot = slot;
-        session(app.clone(), socket, fast).await;
+        session(app.clone(), socket, fast, ip).await;
     });
     if accepted {
         response.headers_mut().insert(rdv::WELCOME_HEADER, axum::http::HeaderValue::from_static("1"));
@@ -410,7 +501,7 @@ fn welcome(app: &App, node_id: &str, caps: &[String]) -> Msg {
     }
 }
 
-async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>) {
+async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>, ip: IpAddr) {
     let (node_id, keepalive, ids, warm, caps) = match fast {
         Some(f) => {
             if !send(&mut socket, welcome(&app, &f.node_id, &f.caps)).await {
@@ -424,7 +515,7 @@ async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>)
         }
     };
     let (tx, mut rx) = mpsc::channel::<String>(64);
-    let joined = app.hub.lock().unwrap().join_with(node_id, tx, &caps);
+    let joined = app.hub.lock().unwrap().join_with(node_id, tx, &caps, Some(ip));
     let Some(id) = joined else {
         send(&mut socket, Msg::Error { code: "server_busy".into(), retry_after_ms: Some(30_000) }).await;
         return;
@@ -477,6 +568,9 @@ mod tests {
             hub: Mutex::new(Hub::new(config, HashMap::new())),
             per_ip: Mutex::new(HashMap::new()),
             cloudflare: None,
+            state_file: None,
+            state_failed: std::sync::atomic::AtomicBool::new(false),
+            save_lock: Mutex::new(()),
         }
     }
 
@@ -497,6 +591,46 @@ mod tests {
             caps: Some(vec![rdv::CAP_CLOUDFLARE.into()]),
         };
         b64::url_encode(serde_json::to_string(&hello).unwrap().as_bytes())
+    }
+
+    #[test]
+    fn the_state_file_is_written_whole_and_read_back() {
+        let dir = std::env::temp_dir().join(format!("rdv-state-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cloudflare-credentials.json");
+        let path_text = path.to_string_lossy().into_owned();
+        // Saves from several tasks at once never interleave in one temporary file.
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let p = path_text.clone();
+                std::thread::spawn(move || write_private(&p, format!("{{\"v\":1,\"credentials\":[],\"n\":{i}}}").as_bytes()))
+            })
+            .collect();
+        let results: Vec<_> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        assert!(results.iter().any(|r| r.is_ok()));
+        assert_eq!(load_cloudflare(Some(&path_text)), Some(Vec::new()), "a whole file, whichever save won");
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(load_cloudflare(None), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn real_ip_only_from_the_proxy() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", "203.0.113.9".parse().unwrap());
+        let real: IpAddr = "203.0.113.9".parse().unwrap();
+        // From nginx on the host: loopback, or the Docker gateway on a private address.
+        for proxy in ["127.0.0.1", "172.18.0.1", "10.0.1.5", "::1", "::ffff:172.17.0.1"] {
+            assert_eq!(client_ip(true, proxy.parse().unwrap(), &headers), real, "{proxy}");
+        }
+        // A client that reached the published port directly cannot choose its address for the per-address limit.
+        let direct: IpAddr = "198.51.100.7".parse().unwrap();
+        assert_eq!(client_ip(true, direct, &headers), direct);
+        assert_eq!(client_ip(true, "2001:db8::1".parse().unwrap(), &headers), "2001:db8::1".parse::<IpAddr>().unwrap());
+        // Without trust_proxy the header is never read; a missing or bad header leaves the peer.
+        assert_eq!(client_ip(false, "127.0.0.1".parse().unwrap(), &headers), "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(client_ip(true, "127.0.0.1".parse().unwrap(), &HeaderMap::new()), "127.0.0.1".parse::<IpAddr>().unwrap());
     }
 
     #[test]

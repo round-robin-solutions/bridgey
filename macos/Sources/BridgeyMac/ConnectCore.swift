@@ -21,10 +21,13 @@ final class ConnectLibrary: @unchecked Sendable {
     private let stopFunction: StopFunction
     private let freeFunction: FreeFunction
 
-    /// Where the library is looked for: the environment override, then the app's Frameworks folder.
+    /// Where the library is looked for: the environment override (debug builds only: a release build never loads code
+    /// from a path in its environment, security review 1.0), then the app's Frameworks folder.
     static var candidatePaths: [String] {
         var paths: [String] = []
+        #if DEBUG
         if let override = ProcessInfo.processInfo.environment["BRIDGEY_CONNECT_DYLIB"], !override.isEmpty { paths.append(override) }
+        #endif
         if let frameworks = Bundle.main.privateFrameworksPath { paths.append((frameworks as NSString).appendingPathComponent("libbridgey_connect.dylib")) }
         return paths
     }

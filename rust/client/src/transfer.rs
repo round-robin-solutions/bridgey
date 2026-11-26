@@ -46,7 +46,8 @@ pub fn safe_name(name: &str) -> String {
     let cleaned: String = last.chars().filter(|c| !crate::session::invisible(*c) && !matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|')).collect();
     let trimmed = cleaned.trim().trim_start_matches('.').trim_end_matches(['.', ' ']).trim();
     let mut out = if trimmed.is_empty() || trimmed == ".." { "file".to_string() } else { trimmed.to_string() };
-    if reserved_on_windows(split_ext(&out).0) {
+    // Windows treats everything before the first dot as the device name: `NUL.tar.gz` is `NUL`.
+    if reserved_on_windows(out.split('.').next().unwrap_or(&out)) {
         out = format!("_{out}");
     }
     if out.len() > NAME_MAX {
@@ -92,7 +93,12 @@ pub fn numbered(name: &str, n: u32) -> String {
 }
 
 /// Moves a verified partial file to the first free name in `dir`, never over an existing file. Returns its path.
+/// A partial that is no longer a plain file (something replaced it with a link) is refused: linking it would put
+/// the link, not the received bytes, in the folder.
 pub fn place(part: &Path, dir: &Path, name: &str) -> io::Result<PathBuf> {
+    if !fs::symlink_metadata(part)?.file_type().is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "the partial is not a plain file"));
+    }
     for n in 1..10_000u32 {
         let target = dir.join(numbered(name, n));
         // A hard link fails when the name exists, so nothing is ever overwritten, even by a racing writer.
@@ -114,6 +120,93 @@ pub fn place(part: &Path, dir: &Path, name: &str) -> io::Result<PathBuf> {
     }
     Err(io::Error::new(io::ErrorKind::AlreadyExists, "no free name"))
 }
+
+/// Opens a kept partial to resume it, read and write, without following a link at its name, and only when it is a
+/// plain file of this user with no other name: anything with write access to the receive folder could otherwise
+/// swap the partial for a link to another file during the hours it waits, and the resume would cut that file and
+/// write into it (security review 1.0, F1). Every later read and write goes through this handle, never the path.
+pub fn open_partial(path: &Path) -> io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT: a symbolic link or junction is opened itself, and refused below.
+        options.custom_flags(0x0020_0000);
+    }
+    let file = options.open(path)?;
+    let meta = file.metadata()?;
+    let refused = |why: &str| Err(io::Error::new(io::ErrorKind::InvalidData, format!("partial refused: {why}")));
+    if !meta.file_type().is_file() {
+        return refused("not a plain file");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        // SAFETY: geteuid has no preconditions.
+        if meta.nlink() != 1 || meta.uid() != unsafe { libc::geteuid() } {
+            return refused("another name or owner");
+        }
+    }
+    Ok(file)
+}
+
+/// Marks a received file as from another device before it is placed (Windows' mark of the web, zone 3, in the
+/// `Zone.Identifier` stream), so SmartScreen, Office's Protected View and the attachment checks treat it as a
+/// download, as the Mac's quarantine attribute does (0.10 M3; security review 1.0, F2). Nothing on other systems,
+/// and nothing on volumes without streams (FAT).
+pub fn mark_from_elsewhere(part: &Path) {
+    #[cfg(windows)]
+    {
+        let mut stream = part.as_os_str().to_os_string();
+        stream.push(":Zone.Identifier");
+        let _ = fs::write(stream, b"[ZoneTransfer]\r\nZoneId=3\r\n");
+    }
+    #[cfg(not(windows))]
+    let _ = part;
+}
+
+/// Bytes free for this user on the volume holding `dir`, or `None` when the system does not say.
+pub fn free_space(dir: &Path) -> Option<u64> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+        // SAFETY: a zeroed statvfs is a valid out value and `path` is a NUL-terminated string that outlives the call.
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+            return None;
+        }
+        #[allow(clippy::unnecessary_cast)]
+        return Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetDiskFreeSpaceExW(directory: *const u16, free_to_caller: *mut u64, total: *mut u64, total_free: *mut u64) -> i32;
+        }
+        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let mut free = 0u64;
+        // SAFETY: `wide` is NUL-terminated and outlives the call; null is allowed for the totals.
+        let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) };
+        return (ok != 0).then_some(free);
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = dir;
+        None
+    }
+}
+
+/// Room kept free on the receiving volume beyond what the files arriving need (the Mac's rule, 0.10 M6).
+pub(crate) const FREE_SPACE_MARGIN: u64 = 64 * 1024 * 1024;
 
 /// The hidden partial file for a transfer, beside where the file will land.
 pub fn part_path(dir: &Path, transfer_id: &str) -> PathBuf {
@@ -204,6 +297,40 @@ mod tests {
         assert_eq!(safe_name("COM0.txt"), "COM0.txt");
         assert_eq!(safe_name("console.txt"), "console.txt");
         assert_eq!(safe_name("notes. . "), "notes");
+        // Security review 1.0, L: Windows takes the device name up to the first dot.
+        assert_eq!(safe_name("NUL.tar.gz"), "_NUL.tar.gz");
+        assert_eq!(safe_name("CON.txt.exe"), "_CON.txt.exe");
+        assert_eq!(safe_name("com1.a.b"), "_com1.a.b");
+        assert_eq!(safe_name("AUX .x.y"), "_AUX .x.y");
+        assert_eq!(safe_name("nullable.tar.gz"), "nullable.tar.gz");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_partial_swapped_for_a_link_is_never_written_through() {
+        // Security review 1.0, F1: a link put in place of a kept partial made the resume cut and overwrite its target.
+        let dir = std::env::temp_dir().join(format!("bridgey-partial-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim");
+        fs::write(&victim, b"keep me").unwrap();
+        let part = part_path(&dir, "00000000-0000-4000-8000-000000000000");
+        std::os::unix::fs::symlink(&victim, &part).unwrap();
+        assert!(open_partial(&part).is_err());
+        // A second name for the same file (a hard link) is refused too.
+        let hard = dir.join("hard.part");
+        fs::hard_link(&victim, &hard).unwrap();
+        assert!(open_partial(&hard).is_err());
+        // And place() never moves a link into the folder as if it were the received file.
+        assert!(place(&part, &dir, "photo.jpg").is_err());
+        assert!(!dir.join("photo.jpg").exists());
+        assert_eq!(fs::read(&victim).unwrap(), b"keep me");
+        // A plain partial of this user opens as before.
+        let plain = dir.join("plain.part");
+        fs::write(&plain, b"abc").unwrap();
+        assert!(open_partial(&plain).is_ok());
+        assert!(free_space(&dir).is_some_and(|f| f > 0));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

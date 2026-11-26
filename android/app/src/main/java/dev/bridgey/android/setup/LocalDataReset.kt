@@ -125,6 +125,9 @@ enum class ResetItem(val key: String, val targets: List<ResetTarget>) {
         "trusted",
         listOf(
             ResetTarget.Live(ResetHook.DISCONNECT), ResetTarget.Preferences("bridgey.trust"),
+            // Which Macs may control this phone, bound to their keys: kept, a Mac paired again after Everything would get
+            // its old grant back without being asked (security review 1.0).
+            ResetTarget.Path(ResetRoot.NO_BACKUP, dev.bridgey.android.control.PhoneControlGrants.FILE_NAME),
             // Settings sync's first-connect answers belong with the pairings: Reset > Settings keeps them.
             ResetTarget.Preferences(dev.bridgey.android.sync.SettingsSyncController.ANSWER_PREFERENCES),
         ),

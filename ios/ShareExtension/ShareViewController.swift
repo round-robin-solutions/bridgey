@@ -145,9 +145,10 @@ final class ShareModel: ObservableObject {
         return await withCheckedContinuation { continuation in
             _ = provider.loadFileRepresentation(forTypeIdentifier: type.identifier) { url, _ in
                 guard let url else { return continuation.resume(returning: nil) }
-                let name = provider.suggestedName.map { name in
+                let suggested = provider.suggestedName.map { name in
                     url.pathExtension.isEmpty || name.hasSuffix(".\(url.pathExtension)") ? name : "\(name).\(url.pathExtension)"
-                } ?? url.lastPathComponent
+                }
+                let name = Outbox.safeFileName(suggested, fallback: url.lastPathComponent)
                 let destination = folder.appendingPathComponent(name)
                 do {
                     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

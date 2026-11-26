@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 // Resuming a file from its last verified chunk (draft files_resume_draft1; docs/file-resume.md, docs/protocol.md
@@ -107,19 +108,64 @@ enum FileResume {
     }
 
     /// The SHA-256 of a file's first `length` bytes, read in 256 KiB pieces, and the hasher to continue from there.
-    /// Throws when the file is shorter.
+    /// Throws when the file is shorter. A link at `url` is not followed.
     static func hashPrefix(of url: URL, length: Int64) throws -> (hasher: SHA256, digest: Data) {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw CocoaError(.fileReadNoPermission) }
+        defer { Darwin.close(descriptor) }
+        return try hashPrefix(descriptor: descriptor, length: length)
+    }
+
+    /// The same through an open descriptor, from byte zero (`pread`, so the descriptor's offset does not move): the
+    /// receiver re-reads the very file it will write to, never whatever its path names by then.
+    static func hashPrefix(descriptor: Int32, length: Int64) throws -> (hasher: SHA256, digest: Data) {
         var hasher = SHA256()
-        var left = length
-        while left > 0 {
-            let want = Int(min(left, 256 * 1024))
-            guard let data = try handle.read(upToCount: want), !data.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
-            hasher.update(data: data)
-            left -= Int64(data.count)
+        var buffer = [UInt8](repeating: 0, count: 256 * 1024)
+        var offset: Int64 = 0
+        while offset < length {
+            let want = Int(min(length - offset, Int64(buffer.count)))
+            let count = buffer.withUnsafeMutableBytes { Darwin.pread(descriptor, $0.baseAddress, want, off_t(offset)) }
+            if count < 0 && errno == EINTR { continue }
+            guard count > 0 else { throw CocoaError(.fileReadCorruptFile) }
+            hasher.update(data: Data(buffer[0..<count]))
+            offset += Int64(count)
         }
         return (hasher, digest(hasher))
+    }
+}
+
+/// A received file's `.bridgey-part`, opened so that nothing else can be written through it (security review 1.0):
+/// anything that can write to the receive folder (a sandboxed app with access to Downloads, say) could otherwise put
+/// a link where a partial waits, for up to a day, and the resume would cut the link's target and write the incoming
+/// file into it; or plant a dangling link at a part's name before it is created.
+enum ReceivedPartial {
+    /// Opens `url` read and write without following a link at its name; `create` makes a new file and fails when the
+    /// name exists in any form, which already proves it is ours and fresh. A kept partial (not `create`) is taken
+    /// only as a plain file of this user with no other name. New files skip that check, so a receive folder on a
+    /// network volume that reports another owner keeps working (review of PR #67); only resuming there falls back to
+    /// starting from zero.
+    static func open(_ url: URL, create: Bool) throws -> FileHandle {
+        let flags = O_RDWR | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | (create ? O_CREAT | O_EXCL : 0)
+        let descriptor = Darwin.open(url.path, flags, 0o600)
+        guard descriptor >= 0 else { throw CocoaError(create ? .fileWriteFileExists : .fileReadNoPermission) }
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
+              create || (info.st_nlink == 1 && info.st_uid == geteuid()) else {
+            Darwin.close(descriptor)
+            throw CocoaError(.fileReadNoPermission)
+        }
+        // Reads and writes block as usual; O_NONBLOCK only kept a FIFO at the name from hanging the open.
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) & ~O_NONBLOCK)
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    }
+
+    /// `url` still names the file `handle` has open, as a plain file: checked before the part is moved into place,
+    /// so a link swapped in meanwhile is never published as the received file.
+    static func stillAt(_ url: URL, handle: FileHandle) -> Bool {
+        var opened = stat()
+        var named = stat()
+        guard fstat(handle.fileDescriptor, &opened) == 0, lstat(url.path, &named) == 0 else { return false }
+        return named.st_mode & S_IFMT == S_IFREG && named.st_dev == opened.st_dev && named.st_ino == opened.st_ino
     }
 }
 
@@ -445,8 +491,17 @@ final class ResumeCheck {
     private let lock = NSLock()
     private var finished = false
 
-    /// `waiting` and `done` run on the main queue. `held` holds the read back first (tests only).
-    init(url: URL, length: Int64, every: TimeInterval = FileResume.waitEvery, held: TimeInterval = 0,
+    /// Reads the partial `url` names (a link is not followed).
+    convenience init(url: URL, length: Int64, every: TimeInterval = FileResume.waitEvery, held: TimeInterval = 0,
+                     waiting: @escaping () -> Void, done: @escaping ((hasher: SHA256, digest: Data)?) -> Void) {
+        self.init(descriptor: Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC), length: length, every: every, held: held,
+                  waiting: waiting, done: done)
+    }
+
+    /// `waiting` and `done` run on the main queue. `held` holds the read back first (tests only). Takes `descriptor`
+    /// (closed when the read ends; -1 reads nothing): the app passes its own copy of the descriptor the transfer has
+    /// open (IncomingFileTransfer.duplicateDescriptor), so the bytes checked are the ones it will write after.
+    init(descriptor: Int32, length: Int64, every: TimeInterval = FileResume.waitEvery, held: TimeInterval = 0,
          waiting: @escaping () -> Void, done: @escaping ((hasher: SHA256, digest: Data)?) -> Void) {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + every, repeating: every)
@@ -458,7 +513,8 @@ final class ResumeCheck {
         timer.resume()
         DispatchQueue.global(qos: .utility).async { [weak self] in
             if held > 0 { Thread.sleep(forTimeInterval: held) }
-            let result = try? FileResume.hashPrefix(of: url, length: length)
+            let result = descriptor >= 0 ? try? FileResume.hashPrefix(descriptor: descriptor, length: length) : nil
+            if descriptor >= 0 { Darwin.close(descriptor) }
             DispatchQueue.main.async {
                 guard let self, self.finish() else { return }
                 done(result)

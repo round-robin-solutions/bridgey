@@ -11,10 +11,12 @@ name = "PER_INSTALL"
 namespace_id = "1001"
 simple = { limit = 10, period = 60 }
 
+# Well below GLOBAL, so one address cannot use up the relay for everyone (security review 0.10 F1). Many phones can
+# share one carrier address, so not lower.
 [[ratelimits]]
 name = "PER_IP"
 namespace_id = "1002"
-simple = { limit = 30, period = 60 }
+simple = { limit = 10, period = 60 }
 
 [[ratelimits]]
 name = "GLOBAL"
