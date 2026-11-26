@@ -44,6 +44,11 @@ import dev.bridgey.android.ui.DeviceScreen
 import dev.bridgey.android.ui.DeviceState
 import dev.bridgey.android.ui.DeviceSyncState
 import dev.bridgey.android.ui.DeviceTab
+import dev.bridgey.android.ui.DialerMac
+import dev.bridgey.android.ui.DialerSettingsState
+import dev.bridgey.android.ui.PhoneControlMac
+import dev.bridgey.android.ui.PhoneControlSettingsState
+import dev.bridgey.android.control.PhoneControlGrantMode
 import dev.bridgey.android.ui.DevicesSettingsActions
 import dev.bridgey.android.ui.DevicesSettingsScreen
 import dev.bridgey.android.ui.DevicesSettingsState
@@ -91,12 +96,12 @@ class SettingsSearchDriftTest {
         shadowOf(app.packageManager).addActivityIfNotPresent(ComponentName(app, ComponentActivity::class.java))
     }
 
-    private data class Drawn(val route: String?, val title: String, val searchable: Boolean)
+    private data class Drawn(val route: String?, val title: String, val searchable: Boolean, val scope: String? = null, val row: Any? = null)
 
     /** Every row [content] draws, with the route key it was drawn under. */
     private fun record(routeKey: String, content: @Composable () -> Unit): List<Drawn> {
         val drawn = mutableListOf<Drawn>()
-        val host = SettingsSearchHost().apply { recorder = { route, _, title, searchable -> drawn += Drawn(route, title, searchable) } }
+        val host = SettingsSearchHost().apply { recorder = { route, scope, title, searchable, row -> drawn += Drawn(route, title, searchable, scope, row) } }
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -123,6 +128,9 @@ class SettingsSearchDriftTest {
             messages = MessagesSettingsState(dualSim = true),
             setup = SetupSettingsState(oem = OemChecklist(OemVendor.ONEPLUS, listOf(OemStep(OemStepKind.AUTO_START, emptyList())))),
             connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 1),
+            // A paired Mac's own rows: Macs that can call, and control of this phone.
+            dialer = DialerSettingsState(macs = listOf(DialerMac(work.id, work.name, allowed = true))),
+            phoneControl = PhoneControlSettingsState(macs = listOf(PhoneControlMac(work.id, work.name, PhoneControlGrantMode.ASK, sharing = true))),
             // Sync on with status lines, so the lines are drawn (and must not count as settings).
             sync = SyncUiState(
                 switches = SyncSwitches(enabled = true),
@@ -206,6 +214,50 @@ class SettingsSearchDriftTest {
         assertTrue("only $total rows drawn", total >= 120)
     }
 
+    /** One row per title on a page: rows sharing a title would all highlight, and the scroll would pick either. */
+    @Test fun noPageDrawsATitleTwice() {
+        val problems = drawAll().flatMap { (key, drawn) ->
+            drawn.filter { it.searchable && it.route == key }.distinctBy { it.row }.groupingBy { it.scope to it.title }.eachCount()
+                .filter { it.value > 1 }.keys.map { (_, title) -> "$key draws \"$title\" more than once" }
+        }
+        assertTrue(problems.joinToString("\n"), problems.isEmpty())
+    }
+
+    /**
+     * With every feature off most option rows are hidden. A result for one of them must name the switch that shows
+     * it (the page highlights that instead), and that switch must be on the page in that state; otherwise the jump
+     * would land on nothing.
+     */
+    @Test fun hiddenRowsNameTheSwitchThatShowsThem() {
+        val off = sampleSettingsState(now).copy(
+            globalFeatures = BridgeyFeature.entries.associateWith { false },
+            autoClipboardEnabled = false,
+            developerMenu = true,
+            connect = ConnectSettingsState(on = false),
+        )
+        val pages = linkedMapOf<String, List<String>>()
+        SettingsSection.entries.filter { it != SettingsSection.THIS_PHONE && it != SettingsSection.DEVICES }.forEach { section ->
+            val key = settingsRoute(section).key
+            pages[key] = record(key) { SettingsScreen(state = off, actions = SettingsActions(), section = section) }
+                .filter { it.searchable && it.route == key }.map { it.title }
+        }
+        val entries = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = SyncUiState(), devices = emptyList())
+        val problems = mutableListOf<String>()
+        var hidden = 0
+        entries.filter { it.rowTitle != null && it.route.key in pages }.forEach { entry ->
+            val drawn = pages.getValue(entry.route.key)
+            if (entry.rowTitle in drawn) return@forEach
+            hidden++
+            when (val fallback = entry.fallbackTitle) {
+                null -> problems += "${entry.route.key}: ${entry.id} (\"${entry.rowTitle}\") is hidden with its feature off and names no revealedBy switch"
+                !in drawn -> problems += "${entry.route.key}: ${entry.id} falls back to \"$fallback\", which is not on the page either"
+            }
+        }
+        assertTrue(problems.joinToString("\n"), problems.isEmpty())
+        // The off state really hides the option rows (Files, Calls, Text messages...).
+        assertTrue("only $hidden rows hidden", hidden >= 30)
+    }
+
     @Test fun statusLinesAreNotOffered() {
         val clipboard = drawAll().getValue(settingsRoute(SettingsSection.CLIPBOARD).key)
         val waiting = context.getString(R.string.settings_sync_waiting_here)
@@ -239,6 +291,10 @@ class SettingsSearchDriftTest {
         val entries = SettingsSearchRegistry.resolve(context, developerMenu = false, sync = SyncUiState(), devices = devices)
         val hits = topIds("build-server", entries)
         assertEquals("device.agent1", hits.first())
+        // A Mac's name leads to its page, then to its rows on Calls and Remote control.
+        val mac = topIds("work macbook", entries)
+        assertEquals("device.work", mac.first())
+        assertTrue("calls.mac.work" in mac && "remote.mac.work" in mac)
         val work = SettingsSearch.search("work clipboard", entries.map { it.doc }).map { entries[it.index] }
         assertEquals(Route.Device("work"), work.first().route)
         assertEquals(context.getString(R.string.feature_clipboard), work.first().rowTitle)

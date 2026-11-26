@@ -156,6 +156,9 @@ final class SettingsSearchRegistryTests: XCTestCase {
 
     private var models: [SettingsModel] { [fullModel, emptyModel] }
 
+    /// Anchors drawn twice in one render, by the last `recorded` call.
+    private var duplicates: [SearchAnchorID] = []
+
     /// The anchors a view draws.
     private func recorded<V: View>(_ view: V) -> [SearchAnchorID] {
         let recorder = SettingsSearchRecorder()
@@ -168,6 +171,7 @@ final class SettingsSearchRegistryTests: XCTestCase {
         let renderer = ImageRenderer(content: content)
         renderer.scale = 1
         _ = renderer.cgImage
+        duplicates = recorder.duplicates
         return recorder.rows
     }
 
@@ -214,6 +218,48 @@ final class SettingsSearchRegistryTests: XCTestCase {
             guard let id = Self.anchor(entry) else { continue }
             if drawn[entry.pane]?.contains(id) != true {
                 XCTFail("SettingsSearchRegistry entry \(entry.id) points at \u{201C}\(Self.describe(id))\u{201D}, which no sample state draws on \(entry.pane.rawValue)")
+            }
+        }
+    }
+
+    /// With every feature off, a row the pane hides must name the switch that shows it (the jump highlights that
+    /// switch instead), and that switch must be drawn; a row that names one must be drawn whenever it says it is shown.
+    func testHiddenRowsNameTheSwitchThatShowsThem() {
+        var revealed = 0
+        for model in models {
+            for pane in SettingsPane.allCases {
+                let rows = Set(recorded(pane, model))
+                for entry in SettingsSearchRegistry.staticEntries where entry.pane == pane && entry.visible(model) {
+                    guard let row = Self.anchor(entry) else { continue }
+                    guard let reveal = entry.revealedBy else {
+                        if model.globalFeatures.values.allSatisfy({ !$0 }), !rows.contains(row) {
+                            XCTFail("Settings > \(pane.rawValue): \(entry.id) (\u{201C}\(row.title)\u{201D}) is hidden with its feature off and names no revealedBy switch")
+                        }
+                        continue
+                    }
+                    let target = SearchAnchorID(scope: entry.scope, title: entry.anchorTitle(in: model) ?? "")
+                    if reveal.shown(model) {
+                        XCTAssertTrue(rows.contains(row), "\(entry.id) says it is shown, but \u{201C}\(row.title)\u{201D} is not drawn on \(pane.rawValue)")
+                    } else {
+                        revealed += 1
+                        XCTAssertFalse(rows.contains(row), "\(entry.id) says it is hidden, but \u{201C}\(row.title)\u{201D} is drawn on \(pane.rawValue)")
+                        XCTAssertTrue(rows.contains(target), "\(entry.id) falls back to \u{201C}\(target.title)\u{201D}, which is not drawn on \(pane.rawValue)")
+                    }
+                }
+            }
+        }
+        XCTAssertGreaterThanOrEqual(revealed, 6, "the off state hides the Calls window and text message options")
+    }
+
+    /// One anchor per row: a card that repeats its switch's anchor (the Calls window did) is highlighted twice, and the
+    /// scroll picks either.
+    func testNoPaneDrawsAnAnchorTwice() {
+        for model in models {
+            for pane in SettingsPane.allCases {
+                _ = recorded(SettingsPaneView(pane: pane, model: model, actions: SettingsActions()))
+                for id in Set(duplicates) {
+                    XCTFail("Settings > \(pane.rawValue) draws the anchor \u{201C}\(Self.describe(id))\u{201D} more than once")
+                }
             }
         }
     }

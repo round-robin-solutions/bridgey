@@ -28,10 +28,12 @@ struct SearchAnchorID: Hashable {
 /// Collects the rows a pane draws, for the registry's drift test. Nil in the app.
 final class SettingsSearchRecorder {
     private(set) var rows: [SearchAnchorID] = []
+    /// Anchors drawn more than once in one render: a jump would scroll to one of them and highlight both.
+    private(set) var duplicates: [SearchAnchorID] = []
     private var seen = Set<SearchAnchorID>()
 
     func record(_ id: SearchAnchorID) {
-        if seen.insert(id).inserted { rows.append(id) }
+        if seen.insert(id).inserted { rows.append(id) } else { duplicates.append(id) }
     }
 }
 
@@ -117,6 +119,19 @@ struct SearchPulse: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .task(id: token) { await run() }
+            #if DEBUG
+            .background {
+                if TestInstance.enabled {
+                    GeometryReader { geometry in
+                        let frame = geometry.frame(in: .global)
+                        Color.clear
+                            .onAppear { SettingsTestHooks.shared.pulse = frame }
+                            .onChange(of: frame) { SettingsTestHooks.shared.pulse = $0 }
+                            .onDisappear { SettingsTestHooks.shared.pulse = nil }
+                    }
+                }
+            }
+            #endif
     }
 
     @MainActor private func run() async {
@@ -305,10 +320,9 @@ struct SettingsSearchResultsList: View {
     private func heading(_ pane: SettingsPane) -> some View {
         HStack(spacing: 6) {
             Image(systemName: pane.sidebarPane.symbol)
-                .font(.system(size: 10, weight: .semibold))
-            Text(pane.sidebarPane.sidebarTitle.uppercased())
-                .font(BrandFont.body(10, .semibold))
-                .tracking(0.6)
+                .font(.system(size: 11, weight: .semibold))
+            Text(pane.sidebarPane.sidebarTitle)
+                .font(BrandFont.body(12, .semibold))
                 .lineLimit(1)
         }
         .foregroundStyle(c.on2)
@@ -327,9 +341,8 @@ struct SettingsSearchResultsList: View {
                 .padding(.horizontal, 10)
                 .padding(.top, 10)
             if !outcome.closest.isEmpty {
-                Text(L10n.text("settings.search.closest", fallback: "Closest matches").uppercased())
-                    .font(BrandFont.body(10, .semibold))
-                    .tracking(0.6)
+                Text(L10n.text("settings.search.closest", fallback: "Closest matches"))
+                    .font(BrandFont.body(12, .semibold))
                     .foregroundStyle(c.on2)
                     .padding(.horizontal, 10)
                     .padding(.top, 12)

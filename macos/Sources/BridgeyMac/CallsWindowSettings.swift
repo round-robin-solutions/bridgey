@@ -56,7 +56,6 @@ struct CallsWindowCard: View {
                 }
             }
         }
-        .settingsSearchAnchor(BridgeyFeature.dialer.title)
     }
 
     /// Paired phones and restricted devices are left out; a Mac cannot place calls.

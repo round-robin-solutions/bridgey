@@ -274,7 +274,8 @@ capability blocks v1.0. See [automation](docs/automation.md),
       and a jump/highlight to the setting
 - [x] Read SMS conversations directly from eligible paired phones instead of selecting a
       connected Mac as the source
-- [ ] Complete live Settings search checks on Android and Mac keyboard/scroll interactions
+- [x] Complete live Settings search checks on Android and Mac keyboard/scroll interactions
+      ([results](docs/rr-edition.md#settings-search), 2026-11-26)
 - [ ] Complete the v1.0 acceptance work below before freezing the protocol or declaring Stable
 
 Details: [edition](docs/rr-edition.md), [connect anywhere](docs/connect-anywhere.md),

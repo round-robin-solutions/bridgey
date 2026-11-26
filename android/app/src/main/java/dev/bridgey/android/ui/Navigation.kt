@@ -310,38 +310,35 @@ fun MotionNavHost(stack: BackStack, content: @Composable (Route) -> Unit) {
     val pages = shown
     val top = pages.last()
     val below = pages.getOrNull(pages.lastIndex - 1)
+    val p = progress.value
+    // The page behind only while a page is coming or going. Both layers come from this one loop, keyed by route, so a
+    // page that moves from behind to the top (back from a search result) keeps its composition and everything it
+    // remembers. With a separate call site per layer it was composed afresh in the same frame its old place was
+    // disposed, before that state was saved, and Settings search lost its query.
+    val layers = listOfNotNull(below?.takeIf { p < 1f || progress.isRunning || popping != null }, top)
     Box(Modifier.fillMaxSize()) {
-        val p = progress.value
-        if (below != null && (p < 1f || progress.isRunning || popping != null)) {
-            key(below.key) {
+        layers.forEach { page ->
+            key(page.key) {
+                val isTop = page == top
                 Box(
                     Modifier.fillMaxSize().graphicsLayer {
-                        if (motion.moves) {
-                            val s = 1f - (1f - motion.recedeScale) * p.coerceIn(0f, 1f)
+                        val v = progress.value.coerceIn(0f, 1f)
+                        if (isTop) {
+                            alpha = v
+                            if (motion.moves) translationX = (1f - progress.value) * size.width * motion.pageSlideFraction * (if (rtl) -1f else 1f)
+                        } else if (motion.moves) {
+                            val s = 1f - (1f - motion.recedeScale) * v
                             scaleX = s
                             scaleY = s
                         }
                     },
                 ) {
-                    holder.SaveableStateProvider(below.key) {
-                        CompositionLocalProvider(LocalPageBack provides pageBack(below.key), LocalSearchRoute provides below.key) { content(below) }
+                    holder.SaveableStateProvider(page.key) {
+                        CompositionLocalProvider(LocalPageBack provides pageBack(page.key), LocalSearchRoute provides page.key) { content(page) }
                     }
-                    if (motion.moves) {
-                        Box(Modifier.fillMaxSize().graphicsLayer { alpha = motion.recedeDim * p.coerceIn(0f, 1f) }.background(Color.Black))
+                    if (!isTop && motion.moves) {
+                        Box(Modifier.fillMaxSize().graphicsLayer { alpha = motion.recedeDim * progress.value.coerceIn(0f, 1f) }.background(Color.Black))
                     }
-                }
-            }
-        }
-        key(top.key) {
-            Box(
-                Modifier.fillMaxSize().graphicsLayer {
-                    val v = progress.value
-                    alpha = v.coerceIn(0f, 1f)
-                    if (motion.moves) translationX = (1f - v) * size.width * motion.pageSlideFraction * (if (rtl) -1f else 1f)
-                },
-            ) {
-                holder.SaveableStateProvider(top.key) {
-                    CompositionLocalProvider(LocalPageBack provides pageBack(top.key), LocalSearchRoute provides top.key) { content(top) }
                 }
             }
         }

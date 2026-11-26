@@ -107,4 +107,15 @@ class SettingsSearchTest {
         val same = listOf(SearchDoc("Alpha", keywords = listOf("shared")), SearchDoc("Beta", keywords = listOf("shared")))
         assertEquals(listOf(0, 1), SettingsSearch.search("shared", same).map { it.index })
     }
+
+    @Test fun aHiddenRowFallsBackToItsSwitchOnce() {
+        val host = SettingsSearchHost()
+        host.open("settings:files", "Resume interrupted files automatically", fallback = "Files")
+        val token = host.pending!!.token
+        assertTrue(host.useFallback(token))
+        assertEquals(SearchTarget("settings:files", "Files", null, token), host.pending)
+        assertTrue("no second fallback", !host.useFallback(token))
+        host.open("settings:files", "Files", fallback = "Files")
+        assertTrue("a row is not its own fallback", !host.useFallback(host.pending!!.token))
+    }
 }

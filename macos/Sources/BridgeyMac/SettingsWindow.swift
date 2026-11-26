@@ -476,6 +476,15 @@ struct SettingsWindowView: View {
         }
         .onChange(of: searchFocused) { keys.fieldFocused = $0 }
         .onReceive(keys.commands) { command in handle(command, outcome: outcome) }
+        #if DEBUG
+        .task(id: SettingsTestHooks.Probe(query: query, selected: selected, pane: pane.rawValue, target: target?.title,
+                                          fieldFocused: searchFocused, choosable: outcome.choosable.map(\.id))) {
+            if TestInstance.enabled {
+                SettingsTestHooks.shared.probe = SettingsTestHooks.Probe(query: query, selected: selected, pane: pane.rawValue, target: target?.title,
+                                                                         fieldFocused: searchFocused, choosable: outcome.choosable.map(\.id))
+            }
+        }
+        #endif
         .onAppear { if !snapshot { keys.install() } }
         .onDisappear { keys.remove() }
     }
@@ -504,7 +513,8 @@ struct SettingsWindowView: View {
     private func open(_ row: SettingsSearchRow) {
         let entry = row.entry
         withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = entry.pane }
-        target = SettingsSearchTarget(pane: entry.pane, scope: entry.scope, title: entry.anchorTitle)
+        // A row hidden until its switch is on (the Calls window's options) shows that switch instead.
+        target = SettingsSearchTarget(pane: entry.pane, scope: entry.scope, title: entry.anchorTitle(in: model))
     }
 
     /// Scrolls the found row to the middle once its pane has laid out; the row pulses by itself
@@ -520,6 +530,11 @@ struct SettingsWindowView: View {
                     proxy.scrollTo(id, anchor: .center)
                 } else {
                     withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(id, anchor: .center) }
+                    // An animation that cannot run (the window hidden behind the lock screen or another Space) leaves the
+                    // pane where it was: land on the row anyway once the animation would have ended.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        if target?.token == shown.token { proxy.scrollTo(id, anchor: .center) }
+                    }
                 }
             }
         }

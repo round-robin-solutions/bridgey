@@ -169,6 +169,8 @@ object BridgeyType {
     val cardTitle = heading.copy(fontSize = 20.sp, lineHeight = 26.sp)
     val brandSub = body.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.22.sp)
     val section = body.copy(fontSize = 13.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.52.sp)
+    /** A list's group heading ("Today", "Paired devices"): sentence case, untracked, as on the Mac's Settings cards. */
+    val listHeader = body.copy(fontSize = 13.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
     val rowTitle = body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
     val itemTitle = body.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
     val itemBody = body.copy(fontSize = 13.sp, lineHeight = 18.sp)

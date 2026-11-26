@@ -9,8 +9,8 @@ protocol 2 on both peers. See [pairing compatibility](compatibility.md#pairing-w
 ## What differs from upstream
 
 The [edition roadmap](../README.md#roadmap) records implemented features and remaining work.
-As of 2026-11-04, Beta 22 and CLI 0.2.0 are published; Settings search is merged and tagged
-for Beta 23, with release publication and the remaining live interaction checks pending.
+Settings search shipped in Beta 23 (2026-11-04); its live keyboard, scroll and jump checks on both apps were
+done on 2026-11-26 ([Settings search](#settings-search)).
 v0.10 is still stabilisation, before the v1.0 protocol freeze and wider device acceptance.
 
 | Area | Upstream | This edition |
@@ -43,7 +43,7 @@ v0.10 is still stabilisation, before the v1.0 protocol freeze and wider device a
 | Agent commands | none | Released `bridgey` CLI for Linux and macOS: pairing, files, clipboard, notifications, questions, device status and codes, gated by per-server permissions and audited on the phone ([setup](agent-cli-setup.md)) |
 | Codes without a Mac | none | Shared Rust reader on a server with Detect codes enabled, or separately enabled SMS-only cloud detection on the phone; the default CLI package omits local detection ([mesh-and-codes.md](mesh-and-codes.md#phase-2-2026-11-04)) |
 | Pairing over the tailnet | none | Mac–Mac, server–Mac and server–server by Tailscale address; new peers start restricted until explicitly trusted. Full mesh invites remain deferred ([mesh-and-codes.md](mesh-and-codes.md#pairing-over-the-tailnet)) |
-| Settings search | none | Merged for Beta 23 on Mac and Android: names, descriptions, synonyms, typo tolerance, grouped results, and jump/highlight. App release and remaining live interaction checks pending |
+| Settings search | none | Mac and Android since Beta 23: names, descriptions, synonyms, typo tolerance, grouped results, and jump/highlight. Live checks done 2026-11-26 ([Settings search](#settings-search)) |
 
 Unchanged on purpose: the Bonjour service type `_bridgey._tcp`, the default
 port 42458, and the Kotlin and Swift package names. Because the port is the
@@ -386,6 +386,37 @@ in [sms-call-policy.md](sms-call-policy.md).
   Names and numbers are never logged.
 - **Play build.** Keypad and SIM choice only (no contacts or call history), see the policy note.
 - Settings sync does not carry the Calls window switch: it needs each device's own permission anyway.
+
+### Settings search
+
+Command-F on the Mac, the search button on Android's Settings home. Results are grouped by page; choosing one
+opens the page scrolled to the row, which pulses (a steady tint with Reduce motion). The rows live in
+`SettingsSearchRegistry` on each app; drift tests render every page and fail when a drawn row has no entry, an
+entry is not drawn, a page draws one title twice, or a row hidden while its feature is off names no switch to
+show instead (`revealedBy`).
+
+Live check, 2026-11-26: the release-minified stress APK on the bridgey-api36 emulator, paired with a throwaway Mac
+test instance on the personal Mac. The Mac window was driven by the instance's own test hooks
+(`SettingsTestHooks.swift`: keys posted to the app's event queue, the window drawn to a PNG); the screen was locked,
+so no real keyboard or mouse was used. Screenshots are in PA `outputs/bridgey/settings-search/`.
+
+- **Queries.** Typos (clipbaord, notifcations, interupted, relya, contrl), synonyms (otp, 2fa, relay, hotspot,
+  dnd, vnc, remote desktop), Russian (одноразовый код, буфер обмена, экран, управление телефоном, продолжать,
+  расширение, сброс) and every row added since 4 November (resume, browser extensions, screen viewing and
+  control, the Calls window) found their rows. LAN first, the Transfers window and Cloudflare have no settings
+  of their own; Cloudflare finds the cloud code reader.
+- **Fixed.** Android: the page did not scroll to a row inside a partly visible group (Privacy > Clear logs);
+  back from a result lost the query; a hidden row's result landed on nothing (now its switch pulses); each
+  Mac's rows on Calls and Remote control had no entries, and its phone control rows all pulsed together. Mac:
+  rows below the fold stayed out of view when the scroll animation could not run; the Calls window switch
+  pulsed twice. Both: day and result headings were tracked capitals.
+- **Keyboard on the Mac.** Command-F takes the field back from anywhere in the window; Up and Down move
+  through results (clamped, the list follows on a 139-row result); Return opens the row centred in the pane, or
+  as far as the pane scrolls; Escape clears and keeps the field focused. With macOS keyboard navigation off,
+  Tab stays in the field, as no other text field is on the panes.
+- **Not checked.** TalkBack speech itself (the accessibility tree has the labels: the field, Back, Clear search,
+  and each result read as title and path); full keyboard access on the Mac; the animated scroll on an unlocked
+  Mac screen; a real phone.
 
 ### On-device code model
 

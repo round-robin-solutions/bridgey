@@ -24,15 +24,20 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.toSize
 import dev.bridgey.android.ui.motion.LocalMotion
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
-/** Where a search result points: a row titled [title] on the page whose route key is [routeKey]. */
-data class SearchTarget(val routeKey: String, val title: String, val scope: String? = null, val token: Long)
+/**
+ * Where a search result points: a row titled [title] on the page whose route key is [routeKey]. [fallback] is the
+ * switch to show instead when that row is hidden in the page's current state.
+ */
+data class SearchTarget(val routeKey: String, val title: String, val scope: String? = null, val token: Long, val fallback: String? = null)
 
 /**
  * Settings search across the app: the result that was chosen (the page scrolls to its row, which then
@@ -50,15 +55,27 @@ class SettingsSearchHost {
     /** The page has scrolled the row into place: the highlight may play (its token). */
     internal var arrived by mutableLongStateOf(0L)
 
-    /** Where the target's row is, in root coordinates, once drawn. */
+    /** Where the target's row is, in root coordinates, once drawn (unclipped: it may be below the visible part). */
     internal var rowBounds: Rect? = null
 
-    /** Tests: every row drawn, with its page (route key), scope, title and whether search offers it. */
-    var recorder: ((route: String?, scope: String?, title: String, searchable: Boolean) -> Unit)? = null
+    /**
+     * Tests: every row drawn, with its page (route key), scope, title, whether search offers it, and an object that
+     * stays the same while the row stays drawn (rows record again when they recompose).
+     */
+    var recorder: ((route: String?, scope: String?, title: String, searchable: Boolean, row: Any) -> Unit)? = null
 
-    fun open(routeKey: String, title: String, scope: String? = null) {
+    fun open(routeKey: String, title: String, scope: String? = null, fallback: String? = null) {
         rowBounds = null
-        pending = SearchTarget(routeKey, title, scope, nextToken++)
+        pending = SearchTarget(routeKey, title, scope, nextToken++, fallback?.takeIf { it != title })
+    }
+
+    /** The row is not on the page: point at its [SearchTarget.fallback] instead, keeping the token. */
+    internal fun useFallback(token: Long): Boolean {
+        val target = pending?.takeIf { it.token == token } ?: return false
+        val fallback = target.fallback ?: return false
+        rowBounds = null
+        pending = target.copy(title = fallback, fallback = null)
+        return true
     }
 
     internal fun finish(token: Long) {
@@ -94,7 +111,10 @@ fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Bo
     val host = LocalSettingsSearch.current ?: return@composed Modifier
     val route = LocalSearchRoute.current
     val scope = LocalSearchScope.current
-    host.recorder?.let { record -> SideEffect { record(route, scope, title, searchable) } }
+    host.recorder?.let { record ->
+        val row = remember { Any() }
+        SideEffect { record(route, scope, title, searchable, row) }
+    }
     val target = host.pending
     if (!searchable || target == null || target.routeKey != route || target.scope != scope || target.title != title) return@composed Modifier
     val motion = LocalMotion.current
@@ -117,7 +137,7 @@ fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Bo
         host.finish(target.token)
     }
     Modifier
-        .onGloballyPositioned { host.rowBounds = it.boundsInRoot() }
+        .onGloballyPositioned { host.rowBounds = it.unclippedBounds() }
         .drawBehind {
             val a = alpha.value
             if (a > 0f) {
@@ -129,8 +149,9 @@ fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Bo
 
 /**
  * A scrolling settings list's part in search: when the chosen result is on this page, finds its row (stepping
- * through items not drawn yet), centres it, then lets the highlight play. Attach the returned modifier to the
- * list. Scrolls without animation under reduced motion.
+ * through items not drawn yet; a hidden row's switch when it has one), centres it in the list, below the page bar,
+ * then lets the highlight play. Attach the returned modifier to the list. Scrolls without animation under reduced
+ * motion.
  */
 fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.composed {
     val host = LocalSettingsSearch.current ?: return@composed Modifier
@@ -147,13 +168,20 @@ fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.com
         // Let the page arrive first, so the scroll is seen.
         if (motion.moves) delay(280)
         withFrameNanos {}
-        if (host.located != target.token) {
+        suspend fun locate() {
+            if (host.located == target.token) return
             val count = listState.layoutInfo.totalItemsCount
             for (index in 0 until count) {
                 listState.scrollToItem(index)
                 withFrameNanos {}
-                if (host.located == target.token) break
+                if (host.located == target.token) return
             }
+        }
+        locate()
+        // Hidden while its feature is off (the folder options with Files off): show the switch that brings it back.
+        if (host.located != target.token && host.useFallback(target.token)) {
+            withFrameNanos {}
+            locate()
         }
         if (host.located != target.token) {
             // Not on the page in its current state (an option hidden while its switch is off).
@@ -169,5 +197,12 @@ fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.com
         }
         host.arrived = target.token
     }
-    Modifier.onGloballyPositioned { viewport[0] = it.boundsInRoot() }
+    Modifier.onGloballyPositioned { viewport[0] = it.unclippedBounds() }
 }
+
+/**
+ * Where a layout is in root coordinates, whether or not it is visible. boundsInRoot clips to the parents, so a row
+ * inside a list item that is only partly on screen (Privacy's Logging group) measured as an empty rectangle at the
+ * origin and the page never scrolled to it.
+ */
+private fun LayoutCoordinates.unclippedBounds(): Rect = Rect(positionInRoot(), size.toSize())
