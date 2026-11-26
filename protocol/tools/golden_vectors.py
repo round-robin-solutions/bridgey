@@ -82,6 +82,24 @@ f("frame of exactly 65,536 bytes", None, {"kind":"pairing.offer","sessionId":S,"
 f("frame of 65,537 bytes", None, "reject", padTo=65537)
 f("CRLF line ending", j({"kind":"ping.ack","sessionId":S}), {"kind":"ping.ack","sessionId":S}, lineEnding="\r\n")
 f("frame of 65,536 bytes with CRLF", None, {"kind":"pairing.offer","sessionId":S,"deviceName":"@PAD@"}, padTo=65536, lineEnding="\r\n")
+# Kinds proposed for v1 that had no vector (docs/protocol-v1.md, Gaps): the core and upstream ones, and the unencrypted
+# extension ones, whose envelope is the whole message. Each frame is as sent after a protocol 2 pairing and as Kotlin,
+# Swift and Rust read it.
+T = "3b0f5d2e-8c1a-4e7b-9f6d-1a2b3c4d5e6f"
+SPEED = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
+for kind, fields in [
+    ("heartbeat.ping", {"messageId":M}), ("heartbeat.pong", {"messageId":M}), ("clipboard.rejected", {"messageId":M}),
+    ("files.rejected", {"transferId":T}), ("files.cancel", {"transferId":T}), ("files.cancel.ack", {"transferId":T}),
+    ("find.stop", {"messageId":M,"nonce":"bm9uY2U=","ciphertext":"Y2lwaGVy"}),
+    ("ping.request", {"messageId":M,"nonce":"bm9uY2U=","ciphertext":"Y2lwaGVy"}),
+    ("calls.request", {"messageId":M,"nonce":"bm9uY2U=","ciphertext":"Y2lwaGVy"}),
+    ("calls.started", {"messageId":M}), ("calls.confirmation_required", {"messageId":M}), ("calls.rejected", {"messageId":M}),
+    ("speed.ping", {"transferId":SPEED,"sequence":3}), ("speed.pong", {"transferId":SPEED,"sequence":3}),
+    ("speed.ack", {"transferId":SPEED,"sequence":7}), ("speed.cancel", {"transferId":SPEED}),
+    ("folders.cancel.ack", {"transferId":T}),
+]:
+    frame = {"kind":kind,"sessionId":S, **fields, "tag":"dGFn"}
+    f(kind, j(frame), frame)
 
 features_all = {"clipboard":True,"files":True,"notifications":True,"battery":True,"find_device":True,"ping":True,"links":True,"media":True,"calls":True,"remote_input_draft1":False}
 drafts_none = {"device_presence_draft1":False,"share_receive_draft1":False,"clipboard_files_draft1":False,"folders_draft1":False,"places_draft1":False,"sms_codes_draft1":False,"folders_receive_draft1":False,"files_browse_draft1":False,
@@ -95,6 +113,27 @@ drafts_none = {"device_presence_draft1":False,"share_receive_draft1":False,"clip
                "codes_detect_draft1":False,"call_quiet_draft1":False,"notification_routing_draft1":False,
                # Calls window (docs/protocol.md "Draft: Calls window"), last.
                "dialer_draft1":False}
+# calls.request (calls, upstream v1): expect is the number the phone dials, or reject (it answers calls.rejected). The Mac
+# sends only numbers that read the same way. Both platforms run normalizedPhoneNumber on the payload's number string.
+calls = []
+def cr(name, p, expect): calls.append({"name":name, "plaintext":p, "expect":expect})
+cr("international with spaces and brackets", {"number":" +7 (999) 123-45-67 "}, "+79991234567")
+cr("digits only", {"number":"12345"}, "12345")
+cr("dots and hyphens", {"number":"+44.20-7946.0958"}, "+442079460958")
+cr("shortest, 3 digits", {"number":"123"}, "123")
+cr("longest, 15 digits", {"number":"+123456789012345"}, "+123456789012345")
+cr("16 digits", {"number":"1234567890123456"}, "reject")
+cr("2 digits", {"number":"12"}, "reject")
+cr("USSD code", {"number":"*100#"}, "reject")
+cr("letters", {"number":"+1 555 CALL-NOW"}, "reject")
+cr("plus not first", {"number":"7 +999 123"}, "reject")
+cr("two plus signs", {"number":"++7999123"}, "reject")
+cr("non-ASCII digits", {"number":"\u0661\u0662\u0663\u0664\u0665"}, "reject")
+cr("empty", {"number":""}, "reject")
+cr("spaces only", {"number":"   "}, "reject")
+cr("unknown fields are ignored", {"number":"12345","extra":True}, "12345")
+cr("number missing", {}, "reject")
+
 feat = []
 def fe(name, plaintext, expect, raw=False):
     feat.append({"name": name, ("plaintextString" if raw else "plaintext"): plaintext, "expect": expect})
@@ -1141,12 +1180,13 @@ ad("version 2", {"version":2,"port":42458,"addrs":[]}, "reject")
 ad("over 2048 bytes", sized('{"version":1,"port":42458,"addrs":[],"pad":"', 2049), "reject", raw=True)
 
 out = {
-  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own). Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent.",
+  "description": "Bridgey Protocol v1 golden vectors. Android (ProtocolGoldenVectorsTest) and macOS (ProtocolGoldenVectorsTests) decode every vector and must get the same expected result. Frames: 'line' is one frame without its line ending (default LF; 'lineEnding' overrides); 'lineBase64' gives raw bytes; 'nest': N builds {\"kind\":\"x.y\",\"sessionId\":S,\"x\":[[...]]} nested N deep (the outer object is 1); 'padTo': N builds a pairing.offer whose deviceName is 'a' repeated until the frame is N bytes, and '@PAD@' in expect stands for that name. Payload 'plaintext' is serialised by each platform's own JSON encoder; 'plaintextString' is used byte for byte. offerId values compare lowercased. browseRef: a Files 2.0 ref object; expect is the ref both platforms read, or reject. Automation (v0.9): focusState is decoded by both platforms; actionsCatalog, actionsResult and cameraRequest by the phone, actionsRun and cameraStatus by the Mac. 'android' or 'mac' on a vector says that platform also writes exactly that plaintext: android {action, value?, sequence?} for actionsRun (requestId and sequence from the plaintext), android <status> for cameraStatus; mac {switches, apps, shortcuts, accessibilityTrusted} for actionsCatalog (ids, blocked and the app and Shortcut titles; the volume comes from the output device), mac {outcome, reason?, volume?} for actionsResult, mac true for cameraRequest. Update all: updatesStatus, updatesStart and updatesResult are decoded by both platforms; absent optional values are null in expect (auto and retry: false), and 'write': true means both platforms also write exactly that plaintext from the expected value. Screen sharing (v0.9): screenRequest is decoded by the phone (mac true: the Mac writes it), screenStatus by the Mac (android <status>: the phone writes it). screenStream vectors carry 'kind' and 'decoder' (mac, android or both); expect lists every field, requestId null when absent, keyframe false when absent; 'android' or 'mac' true means that platform writes exactly that plaintext. screenFrame: 'plaintextHex' is the frame plaintext; 'padTo': N appends zero bytes until it is N bytes long; expect is the decoded header with payloadHex, or payloadLength for padded vectors, or reject; 'android' true means the phone's writer produces exactly those bytes. UUIDs compare lowercased. In actionsRun, value null is absent and 'other' is present but not an integer. Text messages (sms_draft1): smsRequest (each vector names its kind) and smsSend are decoded by the phone, smsStatus, smsMessage (one message object of a page), smsSendStatus, smsMarkReadResult and smsBlockedNumbersResult by the Mac (the phone also writes exactly the expected plaintext for each valid one); requestId values compare lowercased, absent optionals expect null, lengths count UTF-16 units. Settings sync (v0.10): settingsPayload is a settings.snapshot or settings.update plaintext as both platforms read it, expect {records, waiting, skipped}, 'invalid' or {unsupportedSchema}; settingsMerge says which of two records wins when an update arrives (local, remote or equal); settingsSnapshot says what a snapshot record does (adopt, different or same); settingsAsker says which side asks on a first connect (local, remote or none); settingsStamp is the record a local edit or Apply to all makes from current at now by device (value null: the new value is the edit's own). Connect anywhere (connect_draft1): connectSetup and connectAddresses are decoded by both platforms; addresses keep their order and vpn null means absent. Calls (calls, upstream v1): callsRequest is a calls.request payload; expect is the number both platforms read from it, or reject.",
   "sessionId": S,
   "frames": frames,
   "featuresUpdate": feat,
   "batteryUpdate": batt,
   "clipboardRich": rich,
+  "callsRequest": calls,
   "clipboardOffer": offers,
   "remoteInput": inp,
   "browseRef": refs,
@@ -1179,7 +1219,7 @@ out = {
   "connectAddresses": addresses,
 }
 open(OUT,'w').write(json.dumps(out, indent=1, ensure_ascii=False) + "\n")
-print(len(frames), len(feat), len(batt), len(rich), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
+print(len(frames), len(feat), len(batt), len(rich), len(calls), len(offers), len(inp), len(refs), len(focus), len(catalog), len(run), len(result), len(camreq), len(camstat), len(st), len(ustart), len(uresult),
       len(screq), len(scstat), len(sstream), len(sframe),
       len(smsreq), len(smssend), len(smsstatus), len(smsmsg), len(smssent), len(smsmark), len(smsblock),
       len(spay), len(smerge), len(ssnap), len(sasker), len(sstamp), len(setup), len(addresses))
