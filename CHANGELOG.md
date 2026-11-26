@@ -2,6 +2,14 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 9 (1.0.0-beta.9), 26 November 2026
+
+- A device controlling your Mac can no longer click Allow on the screen sharing prompt or raise its own access in Settings.
+- A resumed file can no longer be redirected to another place on your disk.
+- On Windows, received files are marked as downloaded from the internet, and Open shows programs and scripts in File Explorer instead of running them. Other accounts on the same PC can no longer reach Bridgey's browser connection.
+- Speed tests started from another device need Files turned on, and only a few run each hour.
+- Away from home, Bridgey moves to another relay by itself when one stops working.
+
 ## 1.0 Beta 8 (1.0.0-beta.8), 26 November 2026
 
 - Settings search finds everything added lately and lands on the right row, even ones a switch hides; on the phone, going back keeps your search.
