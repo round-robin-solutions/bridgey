@@ -49,7 +49,7 @@ Workers Rate Limiting bindings, each 60 second window:
 | Binding | Limit | Key | Why |
 | --- | --- | --- | --- |
 | `PER_INSTALL` | 10 | install id | one app cannot hammer the model |
-| `PER_IP` | 30 | `CF-Connecting-IP` | bounds a script that rotates install ids |
+| `PER_IP` | 10 | `CF-Connecting-IP` | bounds a script that rotates install ids, well below `GLOBAL` |
 | `GLOBAL` | 30 | constant `global` | caps total Workers AI spend |
 
 Install and IP limits are checked before the AI call, then the global one. The limits are per Cloudflare location and approximate, which is fine for abuse control.

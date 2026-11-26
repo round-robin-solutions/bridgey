@@ -103,6 +103,36 @@ function timeoutMs(env) {
   return Number.isFinite(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
 }
 
+/**
+ * The request body, read up to `max` bytes; null as soon as it is longer. A chunked body has no Content-Length, so the
+ * declared length alone does not bound what is read (security review 0.10 F1).
+ */
+export async function readCapped(request, max) {
+  if (!request.body) return new Uint8Array(0);
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      try {
+        await reader.cancel();
+      } catch {}
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
 async function limited(binding, key) {
   const out = await binding.limit({ key });
   return !out || out.success !== true;
@@ -117,8 +147,8 @@ async function handleExtract(request, env) {
 
   const declared = Number.parseInt(request.headers.get("Content-Length") || "", 10);
   if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return err(413, "too_large");
-  const raw = new Uint8Array(await request.arrayBuffer());
-  if (raw.byteLength > MAX_BODY_BYTES) return err(413, "too_large");
+  const raw = await readCapped(request, MAX_BODY_BYTES);
+  if (!raw) return err(413, "too_large");
 
   let body;
   try {
@@ -181,7 +211,10 @@ async function handleExtract(request, env) {
 
   const answer = parseModelAnswer(outcome.value);
   if (!answer) return err(502, "upstream");
-  return json(200, normalise(answer));
+  const out = normalise(answer);
+  // Only a code that appears in the message as written (the apps check this too; security review 0.10 F1).
+  if (out.code !== null && !text.includes(out.code)) out.code = null;
+  return json(200, out);
 }
 
 async function handle(request, env) {

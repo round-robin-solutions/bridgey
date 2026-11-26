@@ -230,7 +230,7 @@ test("AI string answer with surrounding text", async () => {
   const env = makeEnv({
     AI: { run: async () => ({ response: 'Sure! Here it is: {"is_otp": true, "code": "591-047"} hope that helps {x}' }) },
   });
-  const { res, body } = await call(req(good), env);
+  const { res, body } = await call(req({ ...good, text: "Your code is 591-047. Do not share it." }), env);
   assert.equal(res.status, 200);
   assert.deepEqual(body, { is_otp: true, code: "591-047" });
 });
@@ -250,10 +250,39 @@ test("non-string and out-of-range code becomes null; non-boolean is_otp is false
     [{ is_otp: "true", code: "1234" }, { is_otp: false, code: null }],
   ]) {
     const env = makeEnv({ AI: { run: async () => ({ response: answer }) } });
-    const { res, body } = await call(req(good), env);
+    const { res, body } = await call(req({ ...good, text: `${OK_TEXT} Ref ${"9".repeat(24)}` }), env);
     assert.equal(res.status, 200);
     assert.deepEqual(body, expected);
   }
+});
+
+test("a code that is not in the message is never returned", async () => {
+  // Security review 0.10 F1: the worker now checks this itself, as the apps do.
+  const env = makeEnv({ AI: { run: async () => ({ response: { is_otp: true, code: "999999" } }) } });
+  const { res, body } = await call(req(good), env);
+  assert.equal(res.status, 200);
+  assert.deepEqual(body, { is_otp: true, code: null });
+});
+
+test("a chunked body is read only up to the limit", async () => {
+  // Security review 0.10 F1: without Content-Length the whole body used to be read before the size check.
+  let pulls = 0;
+  const endless = new ReadableStream({
+    pull(controller) {
+      pulls += 1;
+      controller.enqueue(new Uint8Array(1024).fill(0x20));
+    },
+  });
+  const r = new Request("https://proxy.test/v1/extract", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Bridgey-Install": INSTALL, "CF-Connecting-IP": "203.0.113.7" },
+    body: endless,
+    duplex: "half",
+  });
+  const { res, body } = await call(r);
+  assert.equal(res.status, 413);
+  assert.deepEqual(body, { error: "too_large" });
+  assert.ok(pulls <= 5, `read ${pulls} KiB`);
 });
 
 test("AI throws gives 502; unparseable gives 502", async () => {
