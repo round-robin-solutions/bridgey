@@ -11,6 +11,7 @@ use crate::cloudflare::{self, Minted};
 use crate::config::{Config, Relay};
 use bridgey_connect_proto::rdv::{self, Msg, RelayGrant, RelayInfo, WarmRequest};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -21,8 +22,24 @@ pub struct Conn {
     pub tx: mpsc::Sender<String>,
     pub ids: HashSet<String>,
     signals: Window,
+    /// Every message, and how many were dropped past the limit in a row.
+    messages: Window,
+    dropped: u32,
     /// The client sent [rdv::CAP_CLOUDFLARE]: it can use Cloudflare grants.
     cloudflare: bool,
+    /// The client's address group ([ip_group]), in memory only: Cloudflare credentials are limited per address.
+    ip: Option<IpAddr>,
+}
+
+/// An IPv4 address, or the /64 an IPv6 address is in (one household or one server gets a whole /64).
+pub fn ip_group(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => IpAddr::V6(std::net::Ipv6Addr::from(u128::from(v6) & !((1u128 << 64) - 1))),
+        },
+        v4 => v4,
+    }
 }
 
 /// A fixed window counter.
@@ -53,6 +70,15 @@ impl Window {
     fn retry_after(&self, now: Instant) -> u64 {
         self.length.saturating_sub(now.duration_since(self.start)).as_millis() as u64
     }
+
+    /// One more event would be counted (without counting it).
+    fn room(&self, limit: u32, now: Instant) -> bool {
+        now.saturating_duration_since(self.start) >= self.length || self.count < limit
+    }
+
+    fn expired(&self, now: Instant) -> bool {
+        now.saturating_duration_since(self.start) >= self.length
+    }
 }
 
 struct PendingGrant {
@@ -78,6 +104,29 @@ struct Cf {
     /// Each node's current Cloudflare warm credentials (memory only), so that node alone can end an allocation a
     /// killed process left (the reclaim); coturn derives them from its secret instead.
     warm: HashMap<String, CfWarm>,
+    /// The budget ([Hub::cf_budget]): the rate one credential is assumed to carry, in bytes a second, and the time
+    /// added to the next reading.
+    budget_bytes_per_s: u64,
+    budget_extra: Duration,
+    mints_per_ip: u32,
+    /// Every credential minted and not yet expired or revoked, and the mints under way (memory only). A credential
+    /// keeps working until it expires unless it is revoked, so these count against the cap, not just new mints.
+    outstanding: Vec<CfCredential>,
+    in_flight: usize,
+    /// Credentials to revoke through Cloudflare's API, and those whose revocation failed (tried again later).
+    revoke: Vec<CfCredential>,
+    revoke_later: Vec<CfCredential>,
+    /// Cloudflare credentials minted per address group in the last hour.
+    per_ip: HashMap<IpAddr, Window>,
+}
+
+/// A Cloudflare credential that is out: Cloudflare's username, when it expires, whether it is a node's warm one.
+#[derive(Clone, Debug)]
+pub struct CfCredential {
+    pub username: String,
+    expiry_unix_s: u64,
+    warm: bool,
+    minted: Instant,
 }
 
 struct CfWarm {
@@ -115,6 +164,9 @@ pub struct MintJob {
     pub asked_unix_s: u64,
 }
 
+/// Expired entries (pending grants, rate windows, credentials) are swept at most this often, not on every message.
+const SWEEP_EVERY: Duration = Duration::from_secs(1);
+
 /// A failed mint keeps Cloudflare out of the choice for this long, doubling with each failure in a row up to the cap.
 const CF_PAUSE: Duration = Duration::from_secs(60);
 const CF_PAUSE_MAX: Duration = Duration::from_secs(900);
@@ -127,6 +179,7 @@ pub struct Hub {
     sockets_per_node: HashMap<String, usize>,
     grants_per_node: HashMap<String, Window>,
     pending: HashMap<(String, String), PendingGrant>,
+    swept_at: Instant,
     next_id: ConnId,
     cf: Option<Cf>,
     mints: Vec<MintJob>,
@@ -149,6 +202,12 @@ pub struct Counters {
     /// because the mint failed.
     pub cf_grants: u64,
     pub cf_fallbacks: u64,
+    /// Cloudflare grants that went to the own pool because the budget or the address limit was reached, and
+    /// Cloudflare credentials revoked because usage left no room for them.
+    pub cf_over_budget: u64,
+    pub cf_revoked: u64,
+    /// Messages dropped by the per-connection limit.
+    pub messages_dropped: u64,
 }
 
 /// What a connection must do after a message.
@@ -168,6 +227,7 @@ impl Hub {
             sockets_per_node: HashMap::new(),
             grants_per_node: HashMap::new(),
             pending: HashMap::new(),
+            swept_at: Instant::now(),
             next_id: 1,
             cf: None,
             mints: Vec::new(),
@@ -192,6 +252,14 @@ impl Hub {
             paused_until: None,
             last_error: None,
             warm: HashMap::new(),
+            budget_bytes_per_s: u64::from(settings.budget_kbps) * 1_000 / 8,
+            budget_extra: Duration::from_secs(settings.budget_extra_s),
+            mints_per_ip: settings.mints_per_ip_hour,
+            outstanding: Vec::new(),
+            in_flight: 0,
+            revoke: Vec::new(),
+            revoke_later: Vec::new(),
+            per_ip: HashMap::new(),
         });
     }
 
@@ -204,7 +272,8 @@ impl Hub {
         self.secrets.contains_key(relay) || self.is_cf(relay)
     }
 
-    /// Records a usage reading (or the error that stopped one).
+    /// Records a usage reading (or the error that stopped one), then queues the revocation of credentials the
+    /// usage no longer leaves room for ([Hub::take_revocations]).
     pub fn set_cf_usage(&mut self, reading: Result<u64, String>, now: Instant) {
         let Some(cf) = self.cf.as_mut() else { return };
         match reading {
@@ -213,6 +282,90 @@ impl Hub {
                 cf.usage_error = None;
             }
             Err(e) => cf.usage_error = Some(e),
+        }
+        self.plan_revocations(now);
+    }
+
+    /// How many Cloudflare credentials may be out at once, so that what they can carry before the next reading
+    /// (and the revocation it can trigger) stays under the hard cap: the room left under the cap divided by what one
+    /// credential can carry in that time. Every credential handed out keeps working until it expires or is revoked,
+    /// so this, not the tier alone, is what keeps the free tier from being exceeded. 0 without a fresh reading.
+    pub fn cf_budget(&self, now: Instant) -> usize {
+        let Some(cf) = &self.cf else { return 0 };
+        let Some((bytes, at)) = cf.usage else { return 0 };
+        let age = now.saturating_duration_since(at);
+        if age > cf.max_age {
+            return 0;
+        }
+        if cf.budget_bytes_per_s == 0 {
+            return usize::MAX;
+        }
+        let horizon = age + self.cf_poll_interval() + cf.budget_extra;
+        let per_credential = cf.budget_bytes_per_s.saturating_mul(horizon.as_secs().max(1));
+        usize::try_from(cf.hard_bytes.saturating_sub(bytes) / per_credential).unwrap_or(usize::MAX)
+    }
+
+    /// Credentials out now (unexpired and not revoked) plus mints under way.
+    fn cf_out(&self) -> usize {
+        let Some(cf) = &self.cf else { return 0 };
+        let unix_s = unix_ms() / 1_000;
+        cf.outstanding.iter().filter(|c| c.expiry_unix_s > unix_s).count() + cf.in_flight
+    }
+
+    /// One more Cloudflare credential fits the budget and this address's hourly allowance.
+    fn cf_room(&self, ip: Option<IpAddr>, now: Instant) -> bool {
+        let Some(cf) = &self.cf else { return false };
+        if self.cf_out() >= self.cf_budget(now) {
+            return false;
+        }
+        ip.map(ip_group).and_then(|g| cf.per_ip.get(&g)).is_none_or(|w| w.room(cf.mints_per_ip, now))
+    }
+
+    /// Queues a Cloudflare mint, counting it against the budget and the address at once.
+    fn queue_mint(&mut self, job: MintJob, ip: Option<IpAddr>, now: Instant) {
+        if let Some(cf) = self.cf.as_mut() {
+            cf.in_flight += 1;
+            if let Some(group) = ip.map(ip_group) {
+                let limit = cf.mints_per_ip;
+                cf.per_ip.entry(group).or_insert_with(|| Window::new(Duration::from_secs(3_600))).hit(limit, now);
+            }
+        }
+        self.mints.push(job);
+    }
+
+    /// Moves credentials the budget has no room for to the revocation queue: warm ones (a node's standby relay,
+    /// whose loss only slows its next connect) before session ones, the newest first. At the hard cap, or without a
+    /// fresh reading, that is all of them.
+    fn plan_revocations(&mut self, now: Instant) {
+        let budget = self.cf_budget(now);
+        let unix_s = unix_ms() / 1_000;
+        let Some(cf) = self.cf.as_mut() else { return };
+        let later = std::mem::take(&mut cf.revoke_later);
+        cf.revoke.extend(later.into_iter().filter(|c| c.expiry_unix_s > unix_s));
+        cf.outstanding.retain(|c| c.expiry_unix_s > unix_s);
+        let out = cf.outstanding.len() + cf.in_flight;
+        if out <= budget {
+            return;
+        }
+        let excess = (out - budget).min(cf.outstanding.len());
+        // Kept first: session credentials, then the oldest.
+        cf.outstanding.sort_by(|a, b| a.warm.cmp(&b.warm).then(a.minted.cmp(&b.minted)));
+        let victims = cf.outstanding.split_off(cf.outstanding.len() - excess);
+        let names: HashSet<&str> = victims.iter().map(|c| c.username.as_str()).collect();
+        cf.warm.retain(|_, w| !names.contains(w.username.as_str()));
+        self.counters.cf_revoked += victims.len() as u64;
+        cf.revoke.extend(victims);
+    }
+
+    /// Credentials for the socket layer to revoke through Cloudflare's API.
+    pub fn take_revocations(&mut self) -> Vec<CfCredential> {
+        self.cf.as_mut().map(|cf| std::mem::take(&mut cf.revoke)).unwrap_or_default()
+    }
+
+    /// A revocation's outcome: a failed one is tried again at the next usage reading.
+    pub fn finish_revoke(&mut self, credential: CfCredential, revoked: bool) {
+        if let Some(cf) = self.cf.as_mut().filter(|_| !revoked) {
+            cf.revoke_later.push(credential);
         }
     }
 
@@ -266,6 +419,8 @@ impl Hub {
             "mintFailuresInARow": cf.failures,
             "pausedSeconds": cf.paused_until.map(|until| until.saturating_duration_since(now).as_secs()).filter(|s| *s > 0),
             "lastMintError": cf.last_error,
+            "credentialsOut": self.cf_out(),
+            "budget": self.cf_budget(now).min(1_000_000),
         }))
     }
 
@@ -278,6 +433,7 @@ impl Hub {
     /// does (and Cloudflare is left out of the choice for a while).
     pub fn finish_mint(&mut self, job: MintJob, minted: Result<Minted, String>, now: Instant) {
         let Some(cf) = self.cf.as_mut() else { return };
+        cf.in_flight = cf.in_flight.saturating_sub(1);
         // Only the URLs the settings list go out: a grant with none of them left is a failure too.
         let minted = minted.and_then(|m| {
             let urls: Vec<String> = m.urls.into_iter().filter(|u| cf.relay.urls.contains(u)).collect();
@@ -302,6 +458,7 @@ impl Hub {
                     expires_at: expiry * 1_000,
                     max_kbps: cf.relay.max_kbps,
                 };
+                cf.outstanding.push(CfCredential { username: m.username.clone(), expiry_unix_s: expiry, warm: job.rdv.is_none(), minted: now });
                 if job.rdv.is_none() {
                     let unix_s = unix_ms() / 1_000;
                     cf.warm.retain(|_, w| w.expiry_unix_s > unix_s);
@@ -355,12 +512,12 @@ impl Hub {
     /// [Hub::join_with] for a client that sent no capabilities.
     #[cfg(test)]
     pub fn join(&mut self, node_id: String, tx: mpsc::Sender<String>) -> Option<ConnId> {
-        self.join_with(node_id, tx, &[])
+        self.join_with(node_id, tx, &[], None)
     }
 
-    /// Admits an authenticated node with the capabilities it sent in its hello, or `None` when it already holds its
-    /// socket allowance.
-    pub fn join_with(&mut self, node_id: String, tx: mpsc::Sender<String>, caps: &[String]) -> Option<ConnId> {
+    /// Admits an authenticated node with the capabilities it sent in its hello and the address it connected from, or
+    /// `None` when it already holds its socket allowance.
+    pub fn join_with(&mut self, node_id: String, tx: mpsc::Sender<String>, caps: &[String], ip: Option<IpAddr>) -> Option<ConnId> {
         let sockets = self.sockets_per_node.entry(node_id.clone()).or_insert(0);
         if *sockets >= self.config.limits.sockets_per_node || self.conns.len() >= self.config.limits.max_connections {
             if *sockets == 0 {
@@ -372,7 +529,19 @@ impl Hub {
         let id = self.next_id;
         self.next_id += 1;
         let cloudflare = caps.iter().any(|c| c == rdv::CAP_CLOUDFLARE);
-        self.conns.insert(id, Conn { node_id, tx, ids: HashSet::new(), signals: Window::new(Duration::from_secs(60)), cloudflare });
+        self.conns.insert(
+            id,
+            Conn {
+                node_id,
+                tx,
+                ids: HashSet::new(),
+                signals: Window::new(Duration::from_secs(60)),
+                messages: Window::new(Duration::from_secs(60)),
+                dropped: 0,
+                cloudflare,
+                ip: ip.map(ip_group),
+            },
+        );
         Some(id)
     }
 
@@ -392,7 +561,25 @@ impl Hub {
 
     pub fn handle(&mut self, id: ConnId, msg: Msg) -> Outcome {
         let now = Instant::now();
-        self.pending.retain(|_, grant| grant.expires > now);
+        if now.saturating_duration_since(self.swept_at) >= SWEEP_EVERY {
+            self.sweep(now);
+        }
+        // One lock serves every connection, so each message counts, whatever it is.
+        let limit = self.config.limits.messages_per_minute;
+        let Some(conn) = self.conns.get_mut(&id) else { return Outcome::Close };
+        if !conn.messages.hit(limit, now) {
+            conn.dropped = conn.dropped.saturating_add(1);
+            self.counters.messages_dropped += 1;
+            if conn.dropped > limit {
+                return Outcome::Close;
+            }
+            if conn.dropped == 1 {
+                let retry = conn.messages.retry_after(now);
+                self.send(id, Msg::Error { code: "rate_limited".into(), retry_after_ms: Some(retry) });
+            }
+            return Outcome::Continue;
+        }
+        conn.dropped = 0;
         match msg {
             Msg::Register { ids } => self.register(id, ids),
             Msg::Signal { rdv, side, sid, body } => self.signal(id, rdv, side, sid, body, now),
@@ -404,6 +591,19 @@ impl Hub {
                 self.send(id, Msg::Error { code: "bad_request".into(), retry_after_ms: None });
                 Outcome::Continue
             }
+        }
+    }
+
+    /// Drops what has expired: pending grants, rate windows of nodes that went quiet, per-address mint counts and
+    /// expired Cloudflare credentials.
+    fn sweep(&mut self, now: Instant) {
+        self.swept_at = now;
+        self.pending.retain(|_, grant| grant.expires > now);
+        self.grants_per_node.retain(|_, window| !window.expired(now));
+        if let Some(cf) = self.cf.as_mut() {
+            let unix_s = unix_ms() / 1_000;
+            cf.per_ip.retain(|_, window| !window.expired(now));
+            cf.outstanding.retain(|c| c.expiry_unix_s > unix_s);
         }
     }
 
@@ -441,8 +641,18 @@ impl Hub {
         }
         let Some(conn) = self.conns.get(&id) else { return Outcome::Close };
         let node = conn.node_id.clone();
-        let new: HashSet<String> = ids.into_iter().collect();
+        let mut new: HashSet<String> = ids.into_iter().collect();
         let old = conn.ids.clone();
+        // A pair is two nodes: more connections on one ID than two nodes can hold are refused, so a signal never
+        // fans out to an unbounded set.
+        let cap = self.config.limits.sockets_per_rdv;
+        let full: Vec<String> = new.difference(&old).filter(|r| self.by_rdv.get(*r).is_some_and(|set| set.len() >= cap)).cloned().collect();
+        if !full.is_empty() {
+            for refused in &full {
+                new.remove(refused);
+            }
+            self.send(id, Msg::Error { code: "too_many_ids".into(), retry_after_ms: None });
+        }
         for gone in old.difference(&new) {
             self.unlink(id, &node, gone);
         }
@@ -525,16 +735,17 @@ impl Hub {
         }
         let key = (rdv.clone(), sid.clone());
         let capable = self.conns[&id].cloudflare;
+        let ip = self.conns[&id].ip;
         // The service picks one relay per session for both sides (spec 9.3): a claim reuses it, unless it is Cloudflare
-        // and this client cannot use it, or Cloudflare has since gone off (the hard cap, a failed mint); then the own
-        // pool, as before Cloudflare. Cloudflare is chosen only when every node on the session can use it.
-        let pending = self.pending.get(&key).map(|grant| grant.relay.clone());
-        let reusable = |relay: &String| !self.is_cf(relay) || (capable && self.cf_tier(now, &exclude) != CfTier::Off);
+        // and this client cannot use it, or Cloudflare has since gone off (the hard cap, a failed mint, the budget);
+        // then the own pool, as before Cloudflare. Cloudflare is chosen only when every node on the session can use it.
+        let pending = self.pending.get(&key).filter(|grant| grant.expires > now).map(|grant| grant.relay.clone());
+        let reusable = |relay: &String| !self.is_cf(relay) || (capable && self.cf_tier(now, &exclude) != CfTier::Off && self.cf_room(ip, now));
         let chosen = match (claim, pending) {
             (true, Some(relay)) if !exclude.contains(&relay) && reusable(&relay) => Some(relay),
             _ => {
                 let both = capable && self.others_capable(id, &rdv);
-                self.choose(both, rtts.as_ref(), &exclude, now)
+                self.choose(both, ip, rtts.as_ref(), &exclude, now)
             }
         };
         let Some(relay_id) = chosen else {
@@ -542,11 +753,20 @@ impl Hub {
             self.send(id, Msg::RelayDenied { sid, code: "pool_exhausted".into(), retry_after_ms: 60_000 });
             return Outcome::Continue;
         };
+        if self.pending.len() >= self.config.limits.max_pending && !self.pending.contains_key(&key) {
+            self.sweep(now);
+            if self.pending.len() >= self.config.limits.max_pending {
+                self.counters.denied += 1;
+                self.send(id, Msg::RelayDenied { sid, code: "pool_exhausted".into(), retry_after_ms: 60_000 });
+                return Outcome::Continue;
+            }
+        }
         let lifetime = self.config.limits.grant_lifetime_s;
         self.pending.insert(key, PendingGrant { relay: relay_id.clone(), expires: now + Duration::from_secs(lifetime) });
         if self.is_cf(&relay_id) {
             let node = self.conns[&id].node_id.clone();
-            self.mints.push(MintJob { conn: id, node, sid, side, rdv: Some(rdv), rtts, exclude, ttl_s: lifetime, asked_unix_s: unix_ms() / 1_000 });
+            let job = MintJob { conn: id, node, sid, side, rdv: Some(rdv), rtts, exclude, ttl_s: lifetime, asked_unix_s: unix_ms() / 1_000 };
+            self.queue_mint(job, ip, now);
             return Outcome::Continue;
         }
         let relay = self.config.relays.iter().find(|r| r.id == relay_id).expect("chosen relay").clone();
@@ -636,14 +856,16 @@ impl Hub {
         }
         let exclude = request.exclude.unwrap_or_default();
         let capable = self.conns.get(&id).is_some_and(|c| c.cloudflare);
-        let Some(relay_id) = self.choose(capable, request.rtts.as_ref(), &exclude, now) else {
+        let ip = self.conns.get(&id).and_then(|c| c.ip);
+        let Some(relay_id) = self.choose(capable, ip, request.rtts.as_ref(), &exclude, now) else {
             self.counters.denied += 1;
             self.send(id, Msg::RelayDenied { sid: rdv::WARM_SID.into(), code: "pool_exhausted".into(), retry_after_ms: 60_000 });
             return Outcome::Continue;
         };
         if self.is_cf(&relay_id) {
             let ttl_s = self.config.limits.warm_grant_lifetime_s;
-            self.mints.push(MintJob { conn: id, node, sid: rdv::WARM_SID.into(), side: 0, rdv: None, rtts: request.rtts, exclude, ttl_s, asked_unix_s: unix_s });
+            let job = MintJob { conn: id, node, sid: rdv::WARM_SID.into(), side: 0, rdv: None, rtts: request.rtts, exclude, ttl_s, asked_unix_s: unix_s };
+            self.queue_mint(job, ip, now);
             return Outcome::Continue;
         }
         let relay = self.config.relays.iter().find(|r| r.id == relay_id).expect("chosen relay").clone();
@@ -653,9 +875,14 @@ impl Hub {
 
     /// Where a grant goes (spec 9.3): Cloudflare first when the client (and, for a session, the other side) can use it
     /// and it is under the soft cap; otherwise the own pool by round trip; Cloudflare between the soft and hard caps
-    /// only when no own relay can take it.
-    fn choose(&self, cloudflare: bool, rtts: Option<&BTreeMap<String, u32>>, exclude: &[String], now: Instant) -> Option<String> {
-        let tier = if cloudflare { self.cf_tier(now, exclude) } else { CfTier::Off };
+    /// only when no own relay can take it. Cloudflare also needs room in the budget and in the client's address
+    /// allowance; without it the grant goes to the own pool.
+    fn choose(&mut self, cloudflare: bool, ip: Option<IpAddr>, rtts: Option<&BTreeMap<String, u32>>, exclude: &[String], now: Instant) -> Option<String> {
+        let mut tier = if cloudflare { self.cf_tier(now, exclude) } else { CfTier::Off };
+        if tier != CfTier::Off && !self.cf_room(ip, now) {
+            self.counters.cf_over_budget += 1;
+            tier = CfTier::Off;
+        }
         let cf_id = || self.cf.as_ref().map(|cf| cf.relay.id.clone());
         if tier == CfTier::First {
             return cf_id();
@@ -880,8 +1107,8 @@ penalty_ms = 10
         let mut hub = cf_hub(Some(1));
         let (tx_new, mut rx_new) = mpsc::channel(16);
         let (tx_old, mut rx_old) = mpsc::channel(16);
-        let new = hub.join_with("node-new".into(), tx_new, &caps(true)).unwrap();
-        let old = hub.join_with("node-old".into(), tx_old, &caps(false)).unwrap();
+        let new = hub.join_with("node-new".into(), tx_new, &caps(true), None).unwrap();
+        let old = hub.join_with("node-old".into(), tx_old, &caps(false), None).unwrap();
         // An old client (no caps) gets exactly what it got before: the own pool, at once, and no Cloudflare in welcome.
         hub.handle(old, Msg::RelayWarm { request: warm_rtts() });
         let Some(Msg::RelayGrantMsg { sid, relay }) = drain(&mut rx_old).pop() else { panic!() };
@@ -917,8 +1144,8 @@ penalty_ms = 10
         let mut hub = cf_hub(Some(1));
         let (tx_a, mut rx_a) = mpsc::channel(16);
         let (tx_b, mut rx_b) = mpsc::channel(16);
-        let a = hub.join_with("node-a".into(), tx_a, &caps(true)).unwrap();
-        let b = hub.join_with("node-b".into(), tx_b, &caps(false)).unwrap();
+        let a = hub.join_with("node-a".into(), tx_a, &caps(true), None).unwrap();
+        let b = hub.join_with("node-b".into(), tx_b, &caps(false), None).unwrap();
         hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
         hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
         drain(&mut rx_a);
@@ -934,7 +1161,7 @@ penalty_ms = 10
         assert_eq!(relay.id, "sin");
         // Both sides can: Cloudflare for both, each with its own credentials.
         let (tx_c, mut rx_c) = mpsc::channel(16);
-        let c = hub.join_with("node-c".into(), tx_c, &caps(true)).unwrap();
+        let c = hub.join_with("node-c".into(), tx_c, &caps(true), None).unwrap();
         hub.leave(b);
         hub.handle(c, Msg::Register { ids: vec![RDV.into()] });
         drain(&mut rx_a);
@@ -960,7 +1187,7 @@ penalty_ms = 10
         hub.set_cf_usage(Ok(1_000_000_000), Instant::now());
         // An old client that claims a Cloudflare session (it came back on an older build) gets the own pool instead.
         let (tx_d, mut rx_d) = mpsc::channel(16);
-        let d = hub.join_with("node-d".into(), tx_d, &caps(false)).unwrap();
+        let d = hub.join_with("node-d".into(), tx_d, &caps(false), None).unwrap();
         hub.handle(d, Msg::Register { ids: vec![RDV.into()] });
         drain(&mut rx_d);
         hub.handle(d, Msg::RelayClaim { rdv: RDV.into(), sid: sid2.into(), side: 1 });
@@ -989,7 +1216,7 @@ penalty_ms = 10
 
         let warm = |hub: &mut Hub, exclude: Vec<String>| {
             let (tx, mut rx) = mpsc::channel(16);
-            let id = hub.join_with(format!("n{}", hub.connections()), tx, &caps(true)).unwrap();
+            let id = hub.join_with(format!("n{}", hub.connections()), tx, &caps(true), None).unwrap();
             hub.handle(id, Msg::RelayWarm { request: WarmRequest { exclude: Some(exclude), ..warm_rtts() } });
             let mint = !hub.take_mints().is_empty();
             let grant = drain(&mut rx).into_iter().find_map(|m| match m {
@@ -1012,8 +1239,8 @@ penalty_ms = 10
         let mut hub = cf_hub(Some(1));
         let (tx_a, mut rx_a) = mpsc::channel(16);
         let (tx_b, mut rx_b) = mpsc::channel(16);
-        let a = hub.join_with("node-a".into(), tx_a, &caps(true)).unwrap();
-        let b = hub.join_with("node-b".into(), tx_b, &caps(true)).unwrap();
+        let a = hub.join_with("node-a".into(), tx_a, &caps(true), None).unwrap();
+        let b = hub.join_with("node-b".into(), tx_b, &caps(true), None).unwrap();
         hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
         hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
         drain(&mut rx_a);
@@ -1047,6 +1274,153 @@ penalty_ms = 10
         let status = hub.cloudflare_status(now).unwrap();
         assert_eq!(status["mintFailuresInARow"], 2);
         assert!(!status.to_string().contains("cf-pass"));
+    }
+
+    /// A fresh node key per connection, with the capability: what anyone can make, no pairing needed.
+    fn cf_warm_mint(hub: &mut Hub, i: usize, ip: Option<IpAddr>) -> bool {
+        let (tx, mut rx) = mpsc::channel(4);
+        let id = hub.join_with(format!("node-{i}"), tx, &caps(true), ip).unwrap();
+        hub.handle(id, Msg::RelayWarm { request: WarmRequest::default() });
+        let mut cloudflare = false;
+        for job in hub.take_mints() {
+            let ok = Ok(Minted { urls: vec!["turn:turn.cloudflare.com:3478?transport=udp".into()], username: format!("u{i}"), credential: "c".into() });
+            hub.finish_mint(job, ok, Instant::now());
+        }
+        while let Ok(text) = rx.try_recv() {
+            cloudflare |= matches!(Msg::parse(&text), Some(Msg::RelayGrantMsg { relay, .. }) if relay.kind == "cloudflare");
+        }
+        hub.leave(id);
+        cloudflare
+    }
+
+    #[test]
+    fn cloudflare_credentials_out_stay_within_the_budget() {
+        // Security review 1.0, C1: unpaired nodes with fresh keys used to get a 12-hour Cloudflare credential each,
+        // without limit, and nothing ended them at the hard cap.
+        let mut hub = cf_hub(Some(0));
+        let budget = hub.cf_budget(Instant::now());
+        // 950 GB of room; 50 Mbit/s for 15 minutes to the next reading plus 15 minutes: 11.25 GB a credential.
+        assert_eq!(budget, 84);
+        let granted = (0..500).filter(|i| cf_warm_mint(&mut hub, *i, None)).count();
+        assert_eq!(granted, budget, "the rest go to the own pool");
+        assert_eq!(hub.counters.cf_over_budget, (500 - budget) as u64);
+        assert!(hub.take_revocations().is_empty(), "nothing over the budget is out");
+        // Usage grows: the budget shrinks and the newest credentials beyond it are revoked at the reading.
+        hub.set_cf_usage(Ok(900_000_000_000), Instant::now());
+        let shrunk = hub.cf_budget(Instant::now());
+        assert_eq!(shrunk, 6, "50 GB of room, 300 s to the next reading near the cap");
+        let revoked = hub.take_revocations();
+        assert_eq!(revoked.len(), budget - shrunk);
+        assert!(revoked.iter().all(|c| c.username.parse::<String>().is_ok()));
+        assert!(revoked.iter().any(|c| c.username == "u83") && !revoked.iter().any(|c| c.username == "u0"), "the newest go first");
+        // At the hard cap every credential still out is revoked, and none is minted.
+        hub.set_cf_usage(Ok(950_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations().len(), shrunk);
+        assert_eq!(hub.cf_out(), 0);
+        assert!(!cf_warm_mint(&mut hub, 1_000, None));
+        assert_eq!(hub.counters.cf_revoked, budget as u64);
+        // A revoked warm credential is not handed back by a reclaim.
+        assert!(hub.cf.as_ref().unwrap().warm.is_empty());
+    }
+
+    #[test]
+    fn cloudflare_credentials_are_revoked_when_readings_stop() {
+        let start = Instant::now();
+        let mut hub = cf_hub(Some(0));
+        assert!(cf_warm_mint(&mut hub, 0, None));
+        // The analytics API stops answering: the budget shrinks as the reading ages, then every credential goes.
+        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(600));
+        assert!(hub.take_revocations().is_empty());
+        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(3_601));
+        let revoked = hub.take_revocations();
+        assert_eq!(revoked.len(), 1);
+        // A revocation that fails is tried again after the next reading.
+        hub.finish_revoke(revoked[0].clone(), false);
+        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(3_700));
+        assert_eq!(hub.take_revocations().len(), 1);
+        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(3_800));
+        assert!(hub.take_revocations().is_empty());
+    }
+
+    #[test]
+    fn cloudflare_credentials_per_address() {
+        let mut hub = cf_hub(Some(0));
+        let home: IpAddr = "2001:db8:1:2:aaaa::1".parse().unwrap();
+        let same_64: IpAddr = "2001:db8:1:2:bbbb::9".parse().unwrap();
+        let other: IpAddr = "198.51.100.7".parse().unwrap();
+        // 30 an hour from one IPv4 address or one IPv6 /64; another address is not affected.
+        let from_home = (0..40).filter(|i| cf_warm_mint(&mut hub, *i, Some(if i % 2 == 0 { home } else { same_64 }))).count();
+        assert_eq!(from_home, 30);
+        assert!(cf_warm_mint(&mut hub, 100, Some(other)));
+        assert_eq!(ip_group(home), ip_group(same_64));
+        assert_eq!(ip_group("::ffff:198.51.100.7".parse().unwrap()), other);
+    }
+
+    #[test]
+    fn one_connection_cannot_hold_the_lock() {
+        // Security review 1.0, C2: every message swept every pending grant under the one lock, with no limit.
+        let mut hub = hub();
+        let (tx, mut rx) = mpsc::channel(1_024);
+        let a = hub.join("a".into(), tx).unwrap();
+        for _ in 0..600 {
+            assert_eq!(hub.handle(a, Msg::RelayRelease { sid: SID.into() }), Outcome::Continue);
+        }
+        assert_eq!(hub.handle(a, Msg::RelayRelease { sid: SID.into() }), Outcome::Continue);
+        assert!(matches!(drain(&mut rx).last(), Some(Msg::Error { code, .. }) if code == "rate_limited"));
+        let mut outcome = Outcome::Continue;
+        for _ in 0..600 {
+            outcome = hub.handle(a, Msg::RelayRelease { sid: SID.into() });
+        }
+        assert_eq!(outcome, Outcome::Close, "a client that keeps going past twice the limit is closed");
+        assert_eq!(hub.counters.messages_dropped, 601);
+    }
+
+    #[test]
+    fn quiet_nodes_and_expired_grants_are_forgotten() {
+        let mut hub = hub();
+        for i in 0..50 {
+            let (tx, _rx) = mpsc::channel(16);
+            let id = hub.join(format!("n{i}"), tx).unwrap();
+            hub.handle(id, Msg::Register { ids: vec![RDV.into()] });
+            hub.handle(id, Msg::RelayWarm { request: WarmRequest::default() });
+            hub.leave(id);
+        }
+        assert_eq!(hub.grants_per_node.len(), 50);
+        hub.sweep(Instant::now() + Duration::from_secs(3_601));
+        assert!(hub.grants_per_node.is_empty());
+        // Pending grants expire with their lifetime, and a full table refuses new grants instead of growing.
+        let mut hub = Hub::new(
+            Config::parse("[server]\nlisten='x'\n[limits]\nmax_pending=2\n[[relays]]\nid='bom'\nkind='coturn'\nurls=['turn:a:3478']\nsecret_env='A'\n").unwrap(),
+            HashMap::from([("bom".to_string(), b"s1".to_vec())]),
+        );
+        let (tx, mut rx) = mpsc::channel(16);
+        let a = hub.join("a".into(), tx).unwrap();
+        hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
+        for sid in ["AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB", "CCCCCCCCCCCCCCCCCCCCCC"] {
+            hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: sid.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+        }
+        assert!(matches!(drain(&mut rx).pop(), Some(Msg::RelayDenied { code, .. }) if code == "pool_exhausted"));
+        assert_eq!(hub.pending.len(), 2);
+        hub.sweep(Instant::now() + Duration::from_secs(7_201));
+        assert!(hub.pending.is_empty());
+    }
+
+    #[test]
+    fn a_rendezvous_id_holds_a_pair_not_a_crowd() {
+        let mut hub = hub();
+        let mut held = 0;
+        for i in 0..20 {
+            let (tx, mut rx) = mpsc::channel(64);
+            let id = hub.join(format!("n{i}"), tx).unwrap();
+            hub.handle(id, Msg::Register { ids: vec![RDV.into()] });
+            if drain(&mut rx).iter().any(|m| matches!(m, Msg::Error { code, .. } if code == "too_many_ids")) {
+                assert!(!hub.holds(id, RDV));
+            } else {
+                held += 1;
+            }
+        }
+        assert_eq!(held, 8);
+        assert_eq!(hub.by_rdv[RDV].len(), 8);
     }
 
     #[test]

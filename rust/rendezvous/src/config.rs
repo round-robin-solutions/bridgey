@@ -49,6 +49,13 @@ pub struct Limits {
     /// How long a node's warm relay credentials last (it re-asks before then).
     pub warm_grant_lifetime_s: u64,
     pub auth_timeout_s: u64,
+    /// Messages one connection may send a minute (signals have their own lower limit); past it they are dropped,
+    /// and past twice it the connection closes. Every message takes the hub's one lock.
+    pub messages_per_minute: u32,
+    /// Session grants remembered for the other side's claim, across all nodes; past it new grants are refused.
+    pub max_pending: usize,
+    /// Connections that may hold one rendezvous ID (a pair is two nodes of at most three sockets each).
+    pub sockets_per_rdv: usize,
 }
 
 impl Default for Limits {
@@ -64,6 +71,9 @@ impl Default for Limits {
             grant_lifetime_s: 7_200,
             warm_grant_lifetime_s: 43_200,
             auth_timeout_s: 10,
+            messages_per_minute: 600,
+            max_pending: 100_000,
+            sockets_per_rdv: 8,
         }
     }
 }
@@ -153,6 +163,15 @@ pub struct CloudflareSettings {
     pub count_ingress: bool,
     /// A mint that takes longer fails over to the own pool.
     pub mint_timeout_ms: u64,
+    /// The rate one credential is assumed to carry when the service works out how many may be out at once (a
+    /// client that ignores the 40 Mbit/s pace reaches Cloudflare's own per-allocation limit, 50 to 100 Mbit/s).
+    /// 0 turns the budget off.
+    pub budget_kbps: u32,
+    /// Added to the time until the next usage reading when working out that budget: the analytics delay plus the
+    /// life of an allocation after its credential is revoked (it can no longer refresh).
+    pub budget_extra_s: u64,
+    /// Cloudflare credentials one address (an IPv4 address or an IPv6 /64) may get an hour; past it, the own pool.
+    pub mints_per_ip_hour: u32,
 }
 
 impl Default for CloudflareSettings {
@@ -173,6 +192,9 @@ impl Default for CloudflareSettings {
             window_days: 31,
             count_ingress: false,
             mint_timeout_ms: 3_000,
+            budget_kbps: 50_000,
+            budget_extra_s: 900,
+            mints_per_ip_hour: 30,
         }
     }
 }

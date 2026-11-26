@@ -1217,7 +1217,8 @@ Relaying to the peer is UDP only, IPv4 only.
 `POST https://rtc.live.cloudflare.com/v1/turn/keys/{keyId}/credentials/generate-ice-servers` with
 `{"ttl":7200}` ([credentials](https://developers.cloudflare.com/realtime/turn/generate-credentials/)), or the warm
 lifetime (12 hours) for a node's own relay. The maximum lifetime is 48 hours. A grant ends early through
-`.../credentials/{username}/revoke` (not used yet). The answer lists a STUN entry and a TURN entry with
+`.../credentials/{username}/revoke`: since the 1.0 security review the service keeps every credential it minted
+until it expires and revokes those the usage no longer leaves room for (below). The answer lists a STUN entry and a TURN entry with
 `turn:...:3478?transport=udp`, `turn:...:3478?transport=tcp`, `turns:...:5349?transport=tcp`,
 `turn:...:443?transport=udp`, `turn:...:80?transport=tcp` and `turns:...:443?transport=tcp`; grants carry the UDP
 3478 and TLS 443 ones (the relay's `urls` in the settings file). The service keeps each node's current warm
@@ -1231,6 +1232,17 @@ tier) since the start of the window. The window is the last 31 days (`cycle_day 
 month whatever day it starts; once the billing day is confirmed, `cycle_day` sets it. Both datasets allow 32 days.
 GB here is 10^9 bytes. No reading under an hour old means no Cloudflare grants. `/v1/status` shows the reading, the
 tier and the last mint error.
+
+**The budget (security review 1.0).** The tier alone did not hold the cap: anyone can sign in with a new node key and
+get a warm Cloudflare credential, and a credential keeps working until it expires, after usage has crossed the hard
+cap too. So the service counts every credential out (minted, not expired, not revoked) and mints another only while
+all of them, each at `budget_kbps` (50 Mbit/s, Cloudflare's own per-allocation ceiling, not the client's pace) until
+the next reading plus `budget_extra_s` (15 minutes: the analytics delay and an allocation's life after its credential
+is revoked), would still stay under `hard_gb`. At each reading the newest credentials beyond the budget are revoked,
+warm ones first; at the hard cap, or once the reading is too old, all of them. Each address (an IPv4 address or an IPv6
+/64) gets at most `mints_per_ip_hour` (30) Cloudflare credentials an hour. Over the budget or the address limit a grant
+goes to the own pool, as before Cloudflare. With nothing used the budget is 84 credentials; at 400 GB, 48; past the
+soft cap it shrinks towards zero. `/v1/status` shows `credentialsOut` and `budget`.
 
 **Billing direction.** Cloudflare bills "data sent from the Cloudflare edge to the TURN client";
 traffic from the relay to a peer that is not a TURN client is "not part of billing"

@@ -24,6 +24,12 @@ grant_lifetime_s = 7200
 # A node's own (warm) relay credentials; it renews them in their last hour.
 warm_grant_lifetime_s = 43200
 auth_timeout_s = 10
+# Any message, per connection: past it they are dropped, past twice it the connection closes (one lock serves all).
+messages_per_minute = 600
+# Session grants waiting for the other side's claim, across all nodes.
+max_pending = 100000
+# Connections on one rendezvous ID (a pair is two nodes of at most three sockets each).
+sockets_per_rdv = 8
 
 # Relay pool (section 9.1). Cloudflare Realtime TURN comes first for clients that can use it (Rahul, 2026-11-24);
 # the own coturn relays are the backup, and the only relays older clients ever get. Among the own relays,
@@ -49,6 +55,12 @@ usage_max_age_s = 3600
 # 0: the last window_days days (covers any billing month); set the billing day here once it is confirmed.
 cycle_day = 0
 window_days = 31
+# Credentials out at once are budgeted so that, each at budget_kbps until the next reading plus budget_extra_s, they
+# stay under hard_gb; the newest beyond it are revoked at each reading (all of them at the hard cap or without a
+# fresh reading). 0 turns the budget off. Per address (IPv4, or IPv6 /64): mints_per_ip_hour.
+budget_kbps = 50000
+budget_extra_s = 900
+mints_per_ip_hour = 30
 
 [[relays]]
 id = "bom"

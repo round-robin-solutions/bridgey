@@ -190,14 +190,18 @@ async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
     loop {
         let reading = client.usage(hub::unix_ms() / 1_000).await;
         let error = reading.as_ref().err().cloned();
-        let (wait, tier, used) = {
+        let (wait, tier, used, revoke) = {
             let mut hub = app.hub.lock().unwrap();
             let used = reading.as_ref().ok().copied();
             hub.set_cf_usage(reading, Instant::now());
-            (hub.cf_poll_interval(), hub.cf_tier(Instant::now(), &[]), used)
+            (hub.cf_poll_interval(), hub.cf_tier(Instant::now(), &[]), used, hub.take_revocations())
         };
         if let Some(e) = error {
             eprintln!("cloudflare: usage not read ({e})");
+        }
+        if !revoke.is_empty() {
+            eprintln!("cloudflare: revoking {} credentials the usage leaves no room for", revoke.len());
+            run_revocations(&app, &client, revoke);
         }
         if last_tier != Some(tier) {
             let used = used.map(|b| format!("{:.1} GB", cloudflare::gb(b))).unwrap_or_else(|| "unknown".into());
@@ -206,6 +210,25 @@ async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
         }
         tokio::time::sleep(wait).await;
     }
+}
+
+/// Revokes Cloudflare credentials, a few at a time; a failed revocation is tried again after the next reading.
+fn run_revocations(app: &Arc<App>, client: &cloudflare::Shared, credentials: Vec<hub::CfCredential>) {
+    let app = app.clone();
+    let client = client.clone();
+    tokio::spawn(async move {
+        let mut failed = 0usize;
+        for credential in credentials {
+            let revoked = client.revoke(&credential.username).await;
+            if revoked.is_err() {
+                failed += 1;
+            }
+            app.hub.lock().unwrap().finish_revoke(credential, revoked.is_ok());
+        }
+        if failed > 0 {
+            eprintln!("cloudflare: {failed} revocations failed; they are tried again after the next reading");
+        }
+    });
 }
 
 /// Mints the credentials of queued Cloudflare grants, each on its own task; a failure becomes an own-pool grant.
@@ -269,12 +292,28 @@ async fn status(State(app): State<Arc<App>>) -> Json<serde_json::Value> {
     }))
 }
 
+/// The client's address: `X-Real-IP` when behind the proxy and the connection comes from it, else the peer.
+/// The proxy (the host nginx) reaches the container from loopback or a private Docker address; a connection from a
+/// public address bypassed it (a published port is reachable past the host firewall), so its header is not believed.
+fn client_ip(trust_proxy: bool, peer: IpAddr, headers: &HeaderMap) -> IpAddr {
+    if !trust_proxy || !from_proxy(peer) {
+        return peer;
+    }
+    headers.get("x-real-ip").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok()).unwrap_or(peer)
+}
+
+fn from_proxy(peer: IpAddr) -> bool {
+    match peer {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => from_proxy(IpAddr::V4(v4)),
+            None => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+        },
+    }
+}
+
 async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
-    let ip = if app.trust_proxy {
-        headers.get("x-real-ip").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse().ok()).unwrap_or(peer.ip())
-    } else {
-        peer.ip()
-    };
+    let ip = client_ip(app.trust_proxy, peer.ip(), &headers);
     {
         let mut per_ip = app.per_ip.lock().unwrap();
         let count = per_ip.entry(ip).or_insert(0);
@@ -290,7 +329,7 @@ async fn upgrade(State(app): State<Arc<App>>, ConnectInfo(peer): ConnectInfo<Soc
     let accepted = fast.is_some();
     let mut response = ws.max_message_size(rdv::MAX_FRAME_BYTES).max_frame_size(rdv::MAX_FRAME_BYTES).on_upgrade(move |socket| async move {
         let _slot = slot;
-        session(app.clone(), socket, fast).await;
+        session(app.clone(), socket, fast, ip).await;
     });
     if accepted {
         response.headers_mut().insert(rdv::WELCOME_HEADER, axum::http::HeaderValue::from_static("1"));
@@ -410,7 +449,7 @@ fn welcome(app: &App, node_id: &str, caps: &[String]) -> Msg {
     }
 }
 
-async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>) {
+async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>, ip: IpAddr) {
     let (node_id, keepalive, ids, warm, caps) = match fast {
         Some(f) => {
             if !send(&mut socket, welcome(&app, &f.node_id, &f.caps)).await {
@@ -424,7 +463,7 @@ async fn session(app: Arc<App>, mut socket: WebSocket, fast: Option<FastSignIn>)
         }
     };
     let (tx, mut rx) = mpsc::channel::<String>(64);
-    let joined = app.hub.lock().unwrap().join_with(node_id, tx, &caps);
+    let joined = app.hub.lock().unwrap().join_with(node_id, tx, &caps, Some(ip));
     let Some(id) = joined else {
         send(&mut socket, Msg::Error { code: "server_busy".into(), retry_after_ms: Some(30_000) }).await;
         return;
@@ -497,6 +536,24 @@ mod tests {
             caps: Some(vec![rdv::CAP_CLOUDFLARE.into()]),
         };
         b64::url_encode(serde_json::to_string(&hello).unwrap().as_bytes())
+    }
+
+    #[test]
+    fn real_ip_only_from_the_proxy() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", "203.0.113.9".parse().unwrap());
+        let real: IpAddr = "203.0.113.9".parse().unwrap();
+        // From nginx on the host: loopback, or the Docker gateway on a private address.
+        for proxy in ["127.0.0.1", "172.18.0.1", "10.0.1.5", "::1", "::ffff:172.17.0.1"] {
+            assert_eq!(client_ip(true, proxy.parse().unwrap(), &headers), real, "{proxy}");
+        }
+        // A client that reached the published port directly cannot choose its address for the per-address limit.
+        let direct: IpAddr = "198.51.100.7".parse().unwrap();
+        assert_eq!(client_ip(true, direct, &headers), direct);
+        assert_eq!(client_ip(true, "2001:db8::1".parse().unwrap(), &headers), "2001:db8::1".parse::<IpAddr>().unwrap());
+        // Without trust_proxy the header is never read; a missing or bad header leaves the peer.
+        assert_eq!(client_ip(false, "127.0.0.1".parse().unwrap(), &headers), "127.0.0.1".parse::<IpAddr>().unwrap());
+        assert_eq!(client_ip(true, "127.0.0.1".parse().unwrap(), &HeaderMap::new()), "127.0.0.1".parse::<IpAddr>().unwrap());
     }
 
     #[test]
