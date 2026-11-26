@@ -24,9 +24,9 @@
     <string name="control_mode_off">Off</string>
     <string name="control_mode_ask">Ask each time</string>
     <string name="control_mode_always">Allow without asking</string>
-    <string name="control_mode_title">Control from %1$s</string>
-    <string name="control_mode_off_detail">This Mac cannot control this phone.</string>
-    <string name="control_mode_ask_detail">This phone asks you every time.</string>
+    <string name="control_mode_title">Access from %1$s</string>
+    <string name="control_mode_off_detail">Asks you before every share. Cannot control this phone.</string>
+    <string name="control_mode_ask_detail">Asks you before every share and before control.</string>
     <string name="control_mode_always_detail">Sees and controls this phone without asking.</string>
     <string name="control_raise_refused">Stop %1$s controlling this phone first.</string>
     <string name="control_settings_note">Android asks you to turn on Bridgey control, an accessibility service, before a Mac can tap and type here. It acts only while an allowed Mac sees your screen, and it never reads text or buttons from the screen.</string>
@@ -37,6 +37,8 @@
     <string name="unattended_search_detail">See and control this phone from your Macs without asking</string>
     <string name="unattended_needs_service">To see this phone with nobody here, turn on Bridgey control.</string>
     <string name="unattended_needs_android">Seeing this phone with nobody here needs Android 11 or later. Until then, someone approves each share here.</string>
-    <string name="control_mode_default">Default</string>
     <string name="control_mode_default_detail">Follows Unattended access.</string>
+    <string name="control_mode_default_value">Default (%1$s)</string>
+    <string name="settings_summary_unattended">Unattended access on</string>
+    <string name="unattended_needs_share_here">Share screen with Macs was turned on from a Mac. Turn it off and on here to let your Macs see this phone without asking.</string>
 </resources>

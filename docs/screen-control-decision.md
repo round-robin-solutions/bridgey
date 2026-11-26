@@ -39,8 +39,17 @@ screens without a confirmation prompt each time.
   Mac hears why (`needs` in `screen.status`); the phone's Settings say what is missing.
 - **Grants and the switch stay local.** They live in the host's private grant file
   (bound to each device's pinned key, never synced, never sent, outside backups); the
-  switch is in the same file, never in settings sync. A grant file that cannot be read
-  turns the switch off until the next save.
+  switch is in the same file, never in settings sync. Bad data fails closed: an entry that
+  does not decode is Off for that device, and a grant file that cannot be read turns the
+  switch off and keeps every device ID it still names as Off.
+- **Lowering access takes effect at once.** A screenshot share ends (`disabled`) when its
+  Mac goes to Ask each time or Off, the switch goes off for a Mac on Default, Share screen
+  with Macs goes off or the device turns out to be an agent; on the Mac a stream that
+  started without a prompt ends when its device goes to Ask each time or Off. A video share
+  the person approved on the phone stays.
+- **A synced switch is not consent.** Share screen with Macs turned on through settings
+  sync (a Mac's Show phone screens) never allows unattended viewing of the phone; it has to
+  be turned on on the phone, and not while a Mac controls it.
 - **Kept from the 1.0 security review:** no grant can be raised while the device is being
   controlled, and that includes turning the switch on and setting a device back to Default
   when that would raise it; lowering always works. On the Mac, the Ask each time prompt's
@@ -50,6 +59,14 @@ screens without a confirmation prompt each time.
   The capability switches (Share screen with Macs on the phone, Show phone screens and
   See Mac screens on the viewers) are unchanged; unattended access removes prompts, it
   does not turn features on.
+- **Known limit: on the same network a server says what it is.** A device paired by invite
+  (the `bridgey` CLI) is an agent from the start, and one paired over the tailnet stays
+  restricted until the person trusts it. One paired on the same network is marked an agent
+  or server only when its own authenticated features map says so (`agent_draft1` with
+  `notify_draft1` and `ask_draft1`). A server that leaves those keys out is treated as a
+  person's device and gets Default, which is Allow without asking while the switch is on.
+  Pairing still needs the code confirmed on both screens, so the person has to pair it
+  themselves; set such a device to Off, or turn the switch off.
 
 ## Existing behavior
 

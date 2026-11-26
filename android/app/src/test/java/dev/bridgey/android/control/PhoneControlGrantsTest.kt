@@ -106,21 +106,49 @@ class PhoneControlGrantsTest {
     }
 
     @Test fun aDamagedFileFailsClosed() {
-        file.writeText("{not json")
+        val id = "5d1c8e0a-3b7f-4c2d-9e6a-1f0b2c3d4e5f"
+        val macWithId = GrantSubject(id, "key-A", agent = false)
+        file.writeText("""{"version":1,"unattended":true,"devices":{"$id":{"mode":"off","key":"${PhoneControlGrants.digest("key-A")}"}""")
         PhoneControlGrants(file).let {
             assertFalse("an unreadable file never turns the switch on", it.unattended)
+            assertEquals(PhoneControlGrantMode.OFF, it.mode(macWithId))
             assertEquals(PhoneControlGrantMode.OFF, it.mode(mac))
+            // Turning the switch back on does not give the lost Off away: the IDs the file still names stay Off.
+            it.setUnattended(true)
+            assertEquals(PhoneControlGrantMode.OFF, it.mode(macWithId))
+            assertEquals(PhoneControlGrantMode.OFF, it.mode(macWithId.copy(identityKey = "key-other")))
+            assertEquals("a device the file did not name follows the switch", PhoneControlGrantMode.ALWAYS, it.mode(mac))
         }
-        file.writeText("""{"version":1,"devices":{"mac-1":{"mode":"always","key":"short"}}}""")
-        assertEquals("a bad entry is dropped on its own; the switch is on", PhoneControlGrantMode.ALWAYS, PhoneControlGrants(file).mode(mac))
-        assertNull(PhoneControlGrants(file).choice(mac))
-        file.writeText("""{"version":2,"unattended":true,"devices":{"mac-1":{"mode":"always","key":"${PhoneControlGrants.digest("key-A")}"}}}""")
+        assertEquals("and that is written back", PhoneControlGrantMode.OFF, PhoneControlGrants(file).mode(macWithId))
+        file.writeText("""{"version":2,"unattended":true,"devices":{"$id":{"mode":"always","key":"${PhoneControlGrants.digest("key-A")}"}}}""")
         PhoneControlGrants(file).let {
             assertFalse(it.unattended)
-            assertEquals(PhoneControlGrantMode.OFF, it.mode(mac))
+            assertEquals(PhoneControlGrantMode.OFF, it.mode(macWithId))
         }
+    }
+
+    @Test fun aBadEntryIsOffForThatMacNeverDefault() {
+        file.writeText("""{"version":1,"devices":{"mac-1":{"mode":"always","key":"short"},"mac-2":{"mode":"sometimes","key":"${PhoneControlGrants.digest("key-B")}"},"mac-3":"always"}}""")
+        val grants = PhoneControlGrants(file)
+        assertTrue("the switch itself is fine", grants.unattended)
+        assertEquals(PhoneControlGrantMode.OFF, grants.mode(mac))
+        assertEquals(PhoneControlGrantMode.OFF, grants.mode(mac.copy(identityKey = "key-other")))
+        assertEquals(PhoneControlGrantMode.OFF, grants.mode(other))
+        assertEquals(PhoneControlGrantMode.OFF, grants.mode(GrantSubject("mac-3", "key-C", false)))
+        assertEquals(PhoneControlGrantMode.ALWAYS, grants.mode(GrantSubject("mac-4", "key-D", false)))
+        grants.setUnattended(true)
+        assertEquals("kept as Off through a save", PhoneControlGrantMode.OFF, PhoneControlGrants(file).mode(mac))
+        grants.set(mac, null)
+        assertEquals("choosing Default is the person's own choice", PhoneControlGrantMode.ALWAYS, grants.mode(mac))
+    }
+
+    @Test fun aSwitchThatIsNotABooleanReadsOff() {
         file.writeText("""{"version":1,"unattended":"yes","devices":{}}""")
-        assertFalse("a switch that is not a boolean reads as off", PhoneControlGrants(file).unattended)
+        assertFalse(PhoneControlGrants(file).unattended)
+        file.writeText("""{"version":1,"unattended":null,"devices":{}}""")
+        assertFalse("null is not on", PhoneControlGrants(file).unattended)
+        file.writeText("""{"version":1,"devices":{}}""")
+        assertTrue("missing is on (files from before the switch)", PhoneControlGrants(file).unattended)
     }
 
     @Test fun onlyMoreAccessCountsAsRaising() {

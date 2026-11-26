@@ -72,14 +72,20 @@ object StillFrameRates {
     /** Lower than video's 4 Mb/s: a third of a second of change goes into each frame. */
     const val START_BITRATE = 1_500_000L
 
+    /** The bit rate never climbs past this at about 3 frames a second (video may reach 8 Mb/s). */
+    const val MAX_BITRATE = 3_000_000L
+
     /** After a refusal for asking too soon, the next try waits this much longer. */
     const val TOO_SOON_BACKOFF_MILLIS = 60L
 
     /** This many failures in a row (other than asking too soon) end the share. */
     const val MAX_FAILURES = 5
 
-    /** A screenshot that has not answered after this long counts as a failure, so one lost callback cannot stall it. */
-    const val ANSWER_TIMEOUT_MILLIS = 2_000L
+    /**
+     * A screenshot that has not answered after this long counts as a failure and the next is asked for, so one lost
+     * callback freezes the picture for about a second at most (an answer normally takes tens of milliseconds).
+     */
+    const val ANSWER_TIMEOUT_MILLIS = 1_000L
 }
 
 /** Why a screenshot did not come, from AccessibilityService's error codes. */

@@ -5908,6 +5908,10 @@ class PairingCoordinator(
                 agents.sessionStarted(deviceId, current.agentSessionToken)
             }
             if (connectAvailable(deviceId)) sendConnectAddresses(current)
+            // An agent never sees or controls this phone: a request, a share or control with it ends now.
+            screenRequests.ended(deviceId)?.let { screenListener?.requestEnded(it) }
+            screenListener?.policy(deviceId, localOn = false, remoteOn = registry.state(deviceId)?.remoteFeatures?.get(BridgeyFeature.SCREEN) == true)
+            phoneControlPolicy()
             return
         }
         if (drafts[DEVICE_PRESENCE_FEATURE_KEY] != true) {

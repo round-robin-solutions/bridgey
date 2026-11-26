@@ -121,10 +121,10 @@ class ScreenPacer {
 
 /**
  * The bit rate: down by a quarter on a drop or when the round trip grows 80 ms over its minimum (at most
- * every 500 ms), up by 15 percent after 2 seconds without either, between 300 kb/s and 8 Mb/s.
+ * every 500 ms), up by 15 percent after 2 seconds without either, between 300 kb/s and [max] (8 Mb/s for video).
  */
-class ScreenBitrate(startMillis: Long, initial: Long = ScreenRates.START_BITRATE) {
-    var bitrate: Long = initial.coerceIn(ScreenRates.MIN_BITRATE, ScreenRates.MAX_BITRATE)
+class ScreenBitrate(startMillis: Long, initial: Long = ScreenRates.START_BITRATE, private val max: Long = ScreenRates.MAX_BITRATE) {
+    var bitrate: Long = initial.coerceIn(ScreenRates.MIN_BITRATE, max)
         private set
     var minRttMillis: Long? = null
         private set
@@ -157,7 +157,7 @@ class ScreenBitrate(startMillis: Long, initial: Long = ScreenRates.START_BITRATE
     }
 
     private fun set(value: Long): Long? {
-        val next = value.coerceIn(ScreenRates.MIN_BITRATE, ScreenRates.MAX_BITRATE)
+        val next = value.coerceIn(ScreenRates.MIN_BITRATE, max)
         if (next == bitrate) return null
         bitrate = next
         return next

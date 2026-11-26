@@ -60,7 +60,12 @@ data class PhoneControlSettingsState(
     val unattended: Boolean = true,
     /** Screenshots need Android 11 or later (seeing this phone with nobody here). */
     val screenshots: Boolean = true,
-)
+    /** Share screen with Macs was turned on by settings sync, not here: Macs are still asked. */
+    val screenOnBySync: Boolean = false,
+) {
+    /** What Default gives a Mac now. */
+    val defaultMode: PhoneControlGrantMode get() = if (unattended) PhoneControlGrantMode.ALWAYS else PhoneControlGrantMode.OFF
+}
 
 class PhoneControlSettingsActions(
     val openServiceSettings: () -> Unit = {},
@@ -80,9 +85,10 @@ private fun modeLabel(mode: PhoneControlGrantMode): String = stringResource(
     },
 )
 
-/** What a Mac row says: Default, or its own choice. */
+/** What a Mac row says: its own choice, or Default with what Default gives now ("Default (Allow without asking)"). */
 @Composable
-private fun choiceLabel(choice: PhoneControlGrantMode?): String = choice?.let { modeLabel(it) } ?: stringResource(R.string.control_mode_default)
+private fun choiceLabel(choice: PhoneControlGrantMode?, defaultMode: PhoneControlGrantMode): String =
+    choice?.let { modeLabel(it) } ?: stringResource(R.string.control_mode_default_value, modeLabel(defaultMode))
 
 /**
  * The Remote control page's part: Unattended access, Bridgey control's status with Android's settings one tap away, then
@@ -132,7 +138,7 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
                     row { shape ->
                         ListRow(
                             shape, mac.name,
-                            if (needsShare) stringResource(R.string.control_mac_needs_share) else choiceLabel(mac.choice),
+                            if (needsShare) stringResource(R.string.control_mac_needs_share) else choiceLabel(mac.choice, state.defaultMode),
                             BridgeyIcons.LaptopMac, if (mac.mode == PhoneControlGrantMode.OFF) Tint.NEUTRAL else Tint.PURPLE,
                             compact = true,
                             detailWarning = needsShare,
@@ -152,6 +158,7 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
                 !state.unattended && state.macs.none { it.choice == PhoneControlGrantMode.ALWAYS } -> null
                 !state.screenshots -> R.string.unattended_needs_android
                 !state.serviceEnabled -> R.string.unattended_needs_service
+                state.screenOnBySync -> R.string.unattended_needs_share_here
                 else -> null
             }
             unattendedNeeds?.let { Note(stringResource(it), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) }
@@ -161,7 +168,7 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
             )
         }
         state.macs.firstOrNull { it.id == choosing }?.let { mac ->
-            PhoneControlModeDialog(mac, state.controlledBy, onDismiss = { choosing = null }) { mode -> actions.setMode(mac.id, mode) }
+            PhoneControlModeDialog(mac, state.defaultMode, state.controlledBy, onDismiss = { choosing = null }) { mode -> actions.setMode(mac.id, mode) }
         }
     }
 }
@@ -171,7 +178,13 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
  * this phone.
  */
 @Composable
-private fun PhoneControlModeDialog(mac: PhoneControlMac, controlledBy: String?, onDismiss: () -> Unit, choose: (PhoneControlGrantMode?) -> Boolean) {
+private fun PhoneControlModeDialog(
+    mac: PhoneControlMac,
+    defaultMode: PhoneControlGrantMode,
+    controlledBy: String?,
+    onDismiss: () -> Unit,
+    choose: (PhoneControlGrantMode?) -> Boolean,
+) {
     var refused by rememberSaveable { mutableStateOf(false) }
     val colors = BridgeyTheme.colors
     AlertDialog(
@@ -192,7 +205,7 @@ private fun PhoneControlModeDialog(mac: PhoneControlMac, controlledBy: String?, 
                     ) {
                         RadioButton(selected = selected, onClick = null)
                         Column(Modifier.weight(1f)) {
-                            Text(choiceLabel(mode), style = BridgeyType.itemTitle, color = colors.onSurface)
+                            Text(choiceLabel(mode, defaultMode), style = BridgeyType.itemTitle, color = colors.onSurface)
                             Text(
                                 stringResource(
                                     when (mode) {
@@ -251,6 +264,7 @@ fun rememberPhoneControlSettings(macs: List<Pair<String, String>>, sharingWith: 
         macs = if (hub == null) emptyList() else macs.map { (id, name) -> PhoneControlMac(id, name, modes[id] ?: PhoneControlGrantMode.OFF, sharingWith(id), choices[id]) },
         unattended = androidx.compose.runtime.remember(revision, hub) { hub?.unattended ?: false },
         screenshots = android.os.Build.VERSION.SDK_INT >= dev.bridgey.android.screen.StillFrameRates.MIN_SDK,
+        screenOnBySync = androidx.compose.runtime.remember(revision, app) { app?.settings?.screenOnBySync == true },
     )
     val actions = PhoneControlSettingsActions(
         openServiceSettings = { runCatching { context.startActivity(dev.bridgey.android.control.BridgeyControlService.settingsIntent()) } },

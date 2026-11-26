@@ -29,11 +29,14 @@ data class GrantSubject(val deviceId: String, val identityKey: String?, val agen
  *
  * Unattended access (Rahul, 26 Nov): one switch, on by default. A Mac without a choice of its own (Default) follows it:
  * Allow without asking while it is on, Off while it is off. A choice made for a Mac (Off, Ask each time, Allow without
- * asking) stays as it is whatever the switch says. Agents and servers never get anything. A missing file is the defaults;
- * a file that cannot be read fails closed (switch off, no choices) until the next save.
+ * asking) stays as it is whatever the switch says. Agents and servers never get anything. A missing file is the defaults.
+ * Everything else fails closed: an entry that does not decode is Off for that Mac whatever its key, and a file that
+ * cannot be read turns the switch off and keeps every device ID it still names as Off, so turning the switch back on
+ * never gives a lost Off away.
  */
 class PhoneControlGrants(private val file: File) {
-    private data class Entry(val mode: PhoneControlGrantMode, val keyDigest: String)
+    /** [keyDigest] null: an entry that did not decode, Off for that Mac with any key. */
+    private data class Entry(val mode: PhoneControlGrantMode, val keyDigest: String?)
 
     private class Stored(val unattended: Boolean, val entries: Map<String, Entry>)
 
@@ -59,6 +62,7 @@ class PhoneControlGrants(private val file: File) {
     fun choice(subject: GrantSubject): PhoneControlGrantMode? {
         val key = subject.identityKey?.takeIf { it.isNotEmpty() } ?: return null
         val entry = synchronized(lock) { entries[subject.deviceId] } ?: return null
+        if (entry.keyDigest == null) return PhoneControlGrantMode.OFF
         return entry.mode.takeIf { entry.keyDigest == digest(key) }
     }
 
@@ -100,9 +104,12 @@ class PhoneControlGrants(private val file: File) {
 
     private fun load(): Stored {
         if (!file.isFile) return Stored(UNATTENDED_DEFAULT, emptyMap())
+        val text = runCatching { file.readText(Charsets.UTF_8) }.getOrDefault("")
+        // Unreadable: the switch is off and every device the file still names stays Off.
+        val damaged = { Stored(false, DEVICE_ID.findAll(text).associate { it.value.lowercase() to Entry(PhoneControlGrantMode.OFF, null) }) }
         return runCatching {
-            val json = JSONObject(file.readText(Charsets.UTF_8))
-            if (json.optInt("version") != 1) return Stored(false, emptyMap())
+            val json = JSONObject(text)
+            if (json.optInt("version") != 1) return damaged()
             // Beta 6 files have no switch: it is on, as on a new install. A switch that is not a boolean reads as off.
             val unattended = when (val stored = json.opt("unattended")) {
                 null -> UNATTENDED_DEFAULT
@@ -110,19 +117,22 @@ class PhoneControlGrants(private val file: File) {
                 else -> false
             }
             val devices = json.optJSONObject("devices") ?: return Stored(unattended, emptyMap())
-            val loaded = devices.keys().asSequence().mapNotNull { id ->
-                val item = devices.optJSONObject(id) ?: return@mapNotNull null
-                val mode = PhoneControlGrantMode.fromWire(item.opt("mode")) ?: return@mapNotNull null
-                val key = item.optString("key").takeIf { it.length == 64 } ?: return@mapNotNull null
-                id to Entry(mode, key)
+            val loaded = devices.keys().asSequence().map { id ->
+                // An entry that does not decode (an unknown mode, a bad key, not an object) is Off, never Default.
+                val item = devices.optJSONObject(id)
+                val mode = item?.let { PhoneControlGrantMode.fromWire(it.opt("mode")) }
+                val key = item?.optString("key")?.takeIf { DIGEST.matches(it) }
+                id to if (mode != null && key != null) Entry(mode, key) else Entry(PhoneControlGrantMode.OFF, null)
             }.toMap()
             Stored(unattended, loaded)
-        }.getOrDefault(Stored(false, emptyMap()))
+        }.getOrElse { damaged() }
     }
 
     private fun save() {
         val devices = JSONObject()
-        entries.forEach { (id, entry) -> devices.put(id, JSONObject().put("mode", entry.mode.wire).put("key", entry.keyDigest)) }
+        entries.forEach { (id, entry) ->
+            devices.put(id, JSONObject().put("mode", entry.mode.wire).apply { entry.keyDigest?.let { put("key", it) } })
+        }
         val text = JSONObject().put("version", 1).put("unattended", unattended).put("devices", devices).toString()
         file.parentFile?.mkdirs()
         val temp = File(file.parentFile, file.name + ".tmp")
@@ -138,6 +148,9 @@ class PhoneControlGrants(private val file: File) {
 
         /** Unattended access on a new install and on files from before the switch. */
         const val UNATTENDED_DEFAULT = true
+
+        private val DIGEST = Regex("[0-9a-f]{64}")
+        private val DEVICE_ID = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
         fun digest(identityKey: String): String =
             MessageDigest.getInstance("SHA-256").digest(identityKey.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

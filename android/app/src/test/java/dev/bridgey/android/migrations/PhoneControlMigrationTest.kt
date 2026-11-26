@@ -52,11 +52,11 @@ class PhoneControlMigrationTest {
     }
 
     @Test
-    fun badEntriesAreDroppedOneByOne() {
+    fun badEntriesAreOffOneByOne() {
         val (_, grants) = grants("phone-control-grants.malformed.json")
         assertEquals(PhoneControlGrantMode.ASK, grants.choice(GrantSubject(MAC_A, KEY_A, false)))
-        assertNull("an unknown mode", grants.choice(GrantSubject(MAC_B, KEY_B, false)))
-        assertNull("a short key digest", grants.choice(GrantSubject(MAC_C, KEY_C, false)))
+        assertEquals("an unknown mode", PhoneControlGrantMode.OFF, grants.mode(GrantSubject(MAC_B, KEY_B, false)))
+        assertEquals("a short key digest", PhoneControlGrantMode.OFF, grants.mode(GrantSubject(MAC_C, KEY_C, false)))
         assertTrue(grants.unattended)
     }
 }

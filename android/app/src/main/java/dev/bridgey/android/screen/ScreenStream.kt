@@ -76,7 +76,11 @@ class ScreenStream(
     private val guard = ScreenSequenceGuard()
     private val pacer = ScreenPacer()
     private val startedAt = clock()
-    private val bitrate = ScreenBitrate(startedAt, if (mode == ScreenMode.SCREENSHOTS) StillFrameRates.START_BITRATE else ScreenRates.START_BITRATE)
+    private val bitrate = if (mode == ScreenMode.SCREENSHOTS) {
+        ScreenBitrate(startedAt, StillFrameRates.START_BITRATE, StillFrameRates.MAX_BITRATE)
+    } else {
+        ScreenBitrate(startedAt)
+    }
     private val window = ScreenStatsWindow(startedAt)
     private var frameNumber = 0L
     private var lastKeyRequestAt = Long.MIN_VALUE / 2

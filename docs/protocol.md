@@ -1118,17 +1118,26 @@ grant on the phone is Allow without asking (its own choice, or Default while the
 access switch is on) gets no Bridgey question. With the phone unlocked and its screen on, on Android
 11 and later, with Bridgey control (the accessibility service below) connected, the phone answers no
 `screen.status` and starts at once a share of accessibility screenshots: `screen.start` with the
-`requestId` and `mode` `screenshots`, `fps` 3, a start bit rate of 1.5 Mb/s, and the whole display
-(control-capable as below). Each screenshot (`AccessibilityService.takeScreenshot`, at most one every
+`requestId` and `mode` `screenshots`, `fps` 3, a start bit rate of 1.5 Mb/s (never above 3 Mb/s), and the
+whole display (control-capable as below). Nothing is captured until Bridgey control's bar "MacBook Air is
+viewing this phone", with Stop, is on the screen; if it cannot be shown, the Mac hears `failed`, and if it
+goes later the share ends. Each screenshot (`AccessibilityService.takeScreenshot`, at most one every
 340 ms, one at a time) is drawn onto the hardware encoder's surface where Android would mirror the
 display, so frames, pacing, acks and control are exactly as for video. Android refuses screenshots
 asked for within 333 ms of each other; the phone backs off by 60 ms each time (up to one more
 interval), gives up after five other failures in a row or when the capability or the display goes,
-and treats a screenshot unanswered after 2 seconds as a failure. The sharing notification says it
+and treats a screenshot unanswered after 1 second as a failure. The sharing notification says it
 sends screenshots and offers Use video: Android's consent dialog, then a new video stream (no
-`requestId`) that replaces this one. Without Android 11, Bridgey control or an unlocked screen, the
-request is asked as above and `waiting` carries `needs` (`android_11`, `accessibility` or `unlock`) so
-the Mac can say what the phone needs. A Mac on Ask each time or Off is asked as above.
+`requestId`) that replaces this one; if video cannot start, the screenshots go on. Without Android 11,
+Bridgey control or an unlocked screen, the request is asked as above and `waiting` carries `needs`
+(`android_11`, `accessibility` or `unlock`) so the Mac can say what the phone needs. With `unlock`, the
+open request starts its screenshot share by itself once the phone is unlocked, if the Mac is still
+allowed then, so the Mac waits rather than asking again. A Mac on Ask each time or Off is asked as above.
+Lowering access ends a screenshot share at once with `screen.stop` `disabled`: the Mac set to Ask each
+time or Off, Unattended access turned off for a Mac on Default, Share screen with Macs turned off, or the
+device found to be an agent. A video share the person approved stays. Share screen with Macs turned on
+by settings sync from a Mac (Show phone screens) never allows unattended viewing: shares are asked on
+the phone until it is turned on there, and it cannot be turned on while a Mac controls the phone.
 
 **Stream messages.** Encrypted on the current session like remote input: the JSON ones have outer
 `kind`, `sessionId`, a unique `messageId`, `nonce` and `ciphertext`; `screen.frame` has only `kind`,

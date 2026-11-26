@@ -61,6 +61,24 @@ class ScreenShareHub(
     /** The service's way to tear down when the stream ends. */
     @Volatile var streamEnded: () -> Unit = {}
 
+    /** The way a stream reaches its Mac; tests replace it. */
+    internal var linkFor: (String) -> ScreenLink? = { deviceId -> pairing.screenLink(deviceId) }
+
+    /** Starts one screenshot share ([ScreenshotShare]); tests replace it. */
+    internal var startScreenshots: (ScreenshotTaker, String, String, String?) -> Unit = { taker, deviceId, macName, requestId ->
+        ScreenshotShare(taker, deviceId, macName, requestId).start()
+    }
+
+    /** The stream [begin] is replacing (Use video): its end is logged as replaced, not failed. */
+    @Volatile private var replacing: ScreenStream? = null
+
+    /** A Mac allowed without asking whose request waits for the phone to be unlocked; the share starts then. */
+    @Volatile private var waitingForUnlock: ScreenRequest? = null
+    private var unlockRegistered = false
+    private val unlockReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) = unlocked()
+    }
+
     private fun log(message: String) = BridgeyLogging.i(LogCategory.REMOTE_CONTROL, message)
 
     // MARK: Asking
@@ -83,18 +101,40 @@ class ScreenShareHub(
         if (!state.value.active) mutableState.value = ScreenShareState(ScreenShareState.Phase.ASKING, deviceId, macName)
     }
 
-    /** The person allowed capture: the service starts in the foreground and takes the projection. */
+    /**
+     * The person allowed capture: the service starts in the foreground and takes the projection. A screenshot share
+     * (Use video) keeps running and keeps its state until the video stream replaces it.
+     */
     fun consentGranted(from: Context, deviceId: String, macName: String, requestId: String?, resultCode: Int, data: Intent, control: Boolean = false) {
         requestId?.let { pairing.finishScreenRequest(deviceId, it) }
         ScreenNotifier.dismissAsk(context, deviceId)
-        mutableState.value = ScreenShareState(ScreenShareState.Phase.STARTING, deviceId, macName)
+        if (stream?.mode != ScreenMode.SCREENSHOTS) mutableState.value = ScreenShareState(ScreenShareState.Phase.STARTING, deviceId, macName)
         val started = runCatching {
             ContextCompat.startForegroundService(from, ScreenShareService.startIntent(from, deviceId, macName, requestId, resultCode, data, control))
         }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "SCREEN service did not start", it) }.isSuccess
         if (!started) {
             requestId?.let { pairing.sendScreenStatus(deviceId, it, ScreenStatus.FAILED) }
-            mutableState.value = ScreenShareState()
+            if (stream?.mode != ScreenMode.SCREENSHOTS) mutableState.value = ScreenShareState()
         }
+    }
+
+    /**
+     * The service could not take the projection. A screenshot share that Use video meant to replace goes on; otherwise
+     * the start ends here.
+     */
+    fun projectionFailed() {
+        val current = stream
+        if (current != null && current.mode == ScreenMode.SCREENSHOTS && current.phase != ScreenStreamPhase.ENDED) {
+            log("SCREEN video did not start; screenshots go on")
+            // The service's notification shared its ID and went with it.
+            ScreenNotifier.updateSharing(
+                context, current.macName, sharing = current.phase == ScreenStreamPhase.STREAMING,
+                controlling = phoneControl()?.state?.value?.active == true, screenshotsFor = current.deviceId,
+            )
+            return
+        }
+        streamEnded = {}
+        stop(ScreenStopReason.FAILED)
     }
 
     /** The person said no in Android's dialog (or it could not open): the Mac that asked hears `declined`. */
@@ -115,12 +155,18 @@ class ScreenShareHub(
      * the stream is control-capable.
      */
     fun begin(deviceId: String, macName: String, requestId: String?, control: Boolean = false, mode: ScreenMode = ScreenMode.VIDEO): ScreenStream? {
-        val link = pairing.screenLink(deviceId) ?: run {
+        val link = linkFor(deviceId) ?: run {
             requestId?.let { pairing.sendScreenStatus(deviceId, it, ScreenStatus.FAILED) }
             mutableState.value = ScreenShareState()
             return null
         }
-        stream?.stop(ScreenStopReason.FAILED, tell = false)
+        stream?.let { previous ->
+            // The Mac ends the old window when the new stream starts; nothing is sent for the old one.
+            log("SCREEN replacing stream=${previous.streamId.take(8)} mode=${previous.mode.name.lowercase()} with ${mode.name.lowercase()}")
+            replacing = previous
+            previous.stop(ScreenStopReason.FAILED, tell = false)
+            replacing = null
+        }
         val created = ScreenStream(
             deviceId, macName, requestId, link, clock = { System.nanoTime() / 1_000_000 }, log = ::log,
             stopWriter = { runCatching { stopWriter.execute(it) } },
@@ -135,7 +181,7 @@ class ScreenShareHub(
             if (stream === created) {
                 stream = null
                 mutableState.value = ScreenShareState()
-                pairing.recordRemoteControlEvent("screen_ended", deviceId, reason.wire)
+                pairing.recordRemoteControlEvent("screen_ended", deviceId, if (replacing === created) "replaced" else reason.wire)
                 streamEnded()
             }
         }
@@ -149,6 +195,18 @@ class ScreenShareHub(
     }
 
     // MARK: Unattended access
+
+    /**
+     * A grant, Unattended access, Share screen with Macs or a device's kind changed: a screenshot share that is no longer
+     * allowed ends at once and the Mac hears `disabled`. A video share stays: the person approved it on this phone.
+     */
+    fun accessChanged() {
+        val current = stream ?: return
+        if (current.mode != ScreenMode.SCREENSHOTS || current.phase == ScreenStreamPhase.ENDED) return
+        if (phoneControl()?.unattendedView(current.deviceId) == true) return
+        log("SCREEN screenshots no longer allowed peer=${current.deviceId.take(8)}")
+        current.stop(ScreenStopReason.DISABLED, tell = true)
+    }
 
     /** What a request from [deviceId] does now: ask the person, or share screenshots without asking. */
     fun route(deviceId: String): ScreenRoute {
@@ -167,23 +225,62 @@ class ScreenShareHub(
 
     /**
      * Shares Bridgey control's screenshots with [deviceId] without asking (a Mac allowed without asking, nobody to approve
-     * video). False when it cannot start now.
+     * video). Says why when it cannot start now: Bridgey control is not connected, or another share is under way.
      */
-    fun shareScreenshots(deviceId: String, macName: String, requestId: String?): Boolean {
-        val taker = screenshots() ?: return false
-        if (state.value.active) return false
+    fun shareScreenshots(deviceId: String, macName: String, requestId: String?): ScreenshotStart {
+        val taker = screenshots() ?: return ScreenshotStart.NO_SERVICE
+        if (state.value.active) return ScreenshotStart.BUSY
         requestId?.let { pairing.finishScreenRequest(deviceId, it) }
         ScreenNotifier.dismissAsk(context, deviceId)
         mutableState.value = ScreenShareState(ScreenShareState.Phase.STARTING, deviceId, macName, mode = ScreenMode.SCREENSHOTS)
         log("SCREEN unattended share with screenshots peer=${deviceId.take(8)}")
-        ScreenshotShare(taker, deviceId, macName, requestId).start()
-        return true
+        startScreenshots(taker, deviceId, macName, requestId)
+        return ScreenshotStart.STARTED
+    }
+
+    /** Whether [shareScreenshots] started. */
+    enum class ScreenshotStart { STARTED, NO_SERVICE, BUSY }
+
+    // MARK: Waiting for the unlock
+
+    /** The phone was unlocked or its screen came on: a request waiting for that starts its share if still allowed. */
+    fun unlocked() {
+        val request = waitingForUnlock ?: return
+        if (pairing.screenRequests.current(request.deviceId, request.requestId) == null) {
+            stopWaitingForUnlock(request)
+            return
+        }
+        if (route(request.deviceId) != ScreenRoute.Screenshots) return
+        stopWaitingForUnlock(request)
+        log("SCREEN unlocked: the waiting request starts peer=${request.deviceId.take(8)}")
+        shareScreenshots(request.deviceId, request.macName, request.requestId)
+    }
+
+    private fun waitForUnlock(request: ScreenRequest) {
+        synchronized(this) {
+            waitingForUnlock = request
+            if (unlockRegistered) return
+            val filter = android.content.IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_SCREEN_ON) }
+            unlockRegistered = runCatching { ContextCompat.registerReceiver(context, unlockReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED) }.isSuccess
+        }
+    }
+
+    private fun stopWaitingForUnlock(request: ScreenRequest? = null) {
+        synchronized(this) {
+            if (request != null && waitingForUnlock?.requestId != request.requestId) return
+            waitingForUnlock = null
+            if (!unlockRegistered) return
+            runCatching { context.unregisterReceiver(unlockReceiver) }
+            unlockRegistered = false
+        }
     }
 
     /**
      * One screenshot share: its own capture thread, the encoder, the once-a-second tick, the screen-off rule, the sharing
-     * notification (with Use video) and Bridgey control's bar naming the Mac, with Stop, for as long as it runs. No
-     * foreground service of its own: Bridgey's connection service and the bound accessibility service keep the app running.
+     * notification (with Use video) and Bridgey control's bar naming the Mac, with Stop, for as long as it runs. Nothing is
+     * captured until the bar is on the screen, and the share ends if the bar cannot be shown: the notification may be
+     * turned off, the bar cannot. It tears itself down when its own stream ends, whoever ends it. No foreground service of
+     * its own: Bridgey's connection service and the bound accessibility service keep the app running.
      */
     private inner class ScreenshotShare(
         private val taker: ScreenshotTaker,
@@ -197,8 +294,8 @@ class ScreenShareHub(
         private var capture: ScreenCapture? = null
         private var ticker: java.util.concurrent.ScheduledExecutorService? = null
         private var receiverRegistered = false
-        private var created: ScreenStream? = null
-        private val finisher: () -> Unit = { finish() }
+        @Volatile private var created: ScreenStream? = null
+        private val bar = taker as? dev.bridgey.android.control.ControlService
 
         private val screenOff = object : android.content.BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
@@ -214,19 +311,29 @@ class ScreenShareHub(
                     finish()
                     return@post
                 }
+                if (!showBar()) {
+                    log("SCREEN screenshots refused: the viewing bar could not be shown")
+                    requestId?.let { pairing.sendScreenStatus(deviceId, it, ScreenStatus.FAILED) }
+                    if (state.value.phase == ScreenShareState.Phase.STARTING && state.value.mode == ScreenMode.SCREENSHOTS) mutableState.value = ScreenShareState()
+                    finish()
+                    return@post
+                }
                 val stream = begin(deviceId, macName, requestId, control = true, mode = ScreenMode.SCREENSHOTS) ?: run {
                     finish()
                     return@post
                 }
                 created = stream
-                streamEnded = finisher
+                val hubEnded = stream.onEnded
+                stream.onEnded = { reason, told ->
+                    hubEnded(reason, told)
+                    finish()
+                }
                 val hubStarted = stream.onStarted
                 stream.onStarted = {
                     hubStarted()
                     ScreenNotifier.updateSharing(context, macName, sharing = true, screenshotsFor = deviceId)
                 }
                 ScreenNotifier.updateSharing(context, macName, sharing = false, screenshotsFor = deviceId)
-                (taker as? dev.bridgey.android.control.ControlService)?.showViewing(macName) { stop(ScreenStopReason.USER) }
                 ContextCompat.registerReceiver(context, screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
                 receiverRegistered = true
                 val source = ScreenshotFrameSource(taker, onFailure = { reason -> stream.stop(reason) })
@@ -239,10 +346,26 @@ class ScreenShareHub(
             }
         }
 
+        /** The bar is on the screen within 2 seconds; if it later cannot be drawn again, the share ends. */
+        private fun showBar(): Boolean {
+            val bar = bar ?: return false
+            val first = java.util.concurrent.CountDownLatch(1)
+            var shown = false
+            bar.showViewing(macName, onStop = { stop(ScreenStopReason.USER) }) { drawn ->
+                if (first.count > 0) {
+                    shown = drawn
+                    first.countDown()
+                } else if (!drawn) {
+                    log("SCREEN viewing bar lost: the share ends")
+                    created?.stop(ScreenStopReason.FAILED)
+                }
+            }
+            return first.await(VIEWING_BAR_WAIT_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS) && shown
+        }
+
         /** Tears everything down once; the stream has already ended (or never started). */
         fun finish() {
             if (!ended.compareAndSet(false, true)) return
-            if (streamEnded === finisher) streamEnded = {}
             handler.post {
                 ticker?.shutdownNow()
                 ticker = null
@@ -252,7 +375,7 @@ class ScreenShareHub(
                     runCatching { context.unregisterReceiver(screenOff) }
                     receiverRegistered = false
                 }
-                (taker as? dev.bridgey.android.control.ControlService)?.hideViewing()
+                bar?.hideViewing()
                 // A video share that replaced this one has its own notification under the same ID.
                 if (state.value.phase == ScreenShareState.Phase.IDLE) {
                     context.getSystemService(android.app.NotificationManager::class.java)?.cancel(ScreenNotifier.SHARING_NOTIFICATION_ID)
@@ -277,8 +400,15 @@ class ScreenShareHub(
 
     override fun requested(request: ScreenRequest): ScreenAnswer {
         val route = route(request.deviceId)
-        if (route == ScreenRoute.Screenshots && shareScreenshots(request.deviceId, request.macName, request.requestId)) return ScreenAnswer.Sharing
-        val needs = (route as? ScreenRoute.Ask)?.needs ?: if (route == ScreenRoute.Screenshots) ScreenNeeds.ACCESSIBILITY else null
+        val started = if (route == ScreenRoute.Screenshots) shareScreenshots(request.deviceId, request.macName, request.requestId) else null
+        if (started == ScreenshotStart.STARTED) return ScreenAnswer.Sharing
+        val needs = when {
+            route is ScreenRoute.Ask -> route.needs
+            started == ScreenshotStart.NO_SERVICE -> ScreenNeeds.ACCESSIBILITY
+            else -> null
+        }
+        // Locked: the share starts by itself once the phone is unlocked, if the Mac is still allowed then.
+        if (needs == ScreenNeeds.UNLOCK) waitForUnlock(request)
         val locked = context.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
         // With Bridgey in front and the phone unlocked, Android's dialog opens at once; otherwise a notification waits.
         if (!locked && appInForeground() && ask(context, request.deviceId, request.macName, request.requestId)) return ScreenAnswer.Waiting(needs)
@@ -286,7 +416,10 @@ class ScreenShareHub(
         return ScreenAnswer.Waiting(needs)
     }
 
-    override fun requestEnded(request: ScreenRequest) = ScreenNotifier.dismissAsk(context, request.deviceId)
+    override fun requestEnded(request: ScreenRequest) {
+        stopWaitingForUnlock(request)
+        ScreenNotifier.dismissAsk(context, request.deviceId)
+    }
 
     override fun message(deviceId: String, message: ScreenMacMessage) {
         stream?.takeIf { it.deviceId == deviceId }?.receive(message)
@@ -309,7 +442,13 @@ class ScreenShareHub(
         // Off here: the Mac hears why. Off on the Mac: nothing more may be sent to it.
         if (!localOn) current.stop(ScreenStopReason.DISABLED, tell = true)
         else if (!remoteOn) current.stop(ScreenStopReason.DISABLED, tell = false)
+        else accessChanged()
     }
 
     override fun sharing(): Boolean = state.value.active
+
+    private companion object {
+        /** How long a screenshot share waits for the viewing bar before it gives up. */
+        const val VIEWING_BAR_WAIT_MILLIS = 2_000L
+    }
 }

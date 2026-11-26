@@ -123,16 +123,25 @@ phone, so the share falls back to Bridgey control's accessibility screenshots:
 - **Frames.** `ScreenshotFrameSource` asks for one screenshot at a time, at most one every 340 ms (Android
   refuses two within 333 ms), so about 3 a second, and draws each onto the encoder's input surface with
   Android's mirroring fit (aspect kept, centred). The encoder, pacing, acks, stats and phone control are the
-  ones video uses; `screen.start` says `mode` `screenshots` and `fps` 3 and starts at 1.5 Mb/s, and the
-  encoder does not repeat frames. A refusal for asking too soon backs off 60 ms at a time; five other
-  failures in a row, losing the capability or the display end the share as `failed`; a screenshot with no
-  answer in 2 seconds counts as a failure, so one lost callback cannot stall it.
+  ones video uses; `screen.start` says `mode` `screenshots` and `fps` 3, the bit rate starts at 1.5 Mb/s
+  and never goes above 3 Mb/s, and the encoder does not repeat frames. A refusal for asking too soon backs
+  off 60 ms at a time; five other failures in a row, losing the capability or the display end the share as
+  `failed`; a screenshot with no answer in 1 second counts as a failure, so one lost callback freezes the
+  picture for about a second at most.
 - **On the phone.** The sharing notification says it is sending screenshots and offers Use video (Android's
-  consent, then a video stream that replaces this one), and Bridgey control's bar says "MacBook Air is
-  viewing this phone" with Stop, which needs no notification permission. When the Mac takes control the
-  bar says so instead. Locking the phone or turning its screen off ends the share. There is no foreground
-  service of its own: Bridgey's connection service and the bound accessibility service keep the app alive.
+  consent, then a video stream that replaces this one; if video cannot start, the screenshots go on), and
+  Bridgey control's small bar above the navigation bar says "MacBook Air is viewing this phone" with Stop,
+  which needs no notification permission. Nothing is captured until the bar is on the screen, and the share
+  ends if it cannot be shown. When the Mac takes control the control bar at the top says so instead.
+  Locking the phone or turning its screen off ends the share; a request that waited for the unlock starts
+  once the phone is unlocked. Lowering access (the Mac to Ask each time or Off, the switch off for a Mac on
+  Default, Share screen with Macs off, the device an agent) ends it at once. There is no foreground service
+  of its own: Bridgey's connection service and the bound accessibility service keep the app alive.
 - **On the Mac.** The window's header says "Slower mode" before its numbers.
+- **Checked live (26 Nov, Android 16 emulator, a throwaway Mac test instance):** an update keeps Bridgey control
+  on with the new capability, screenshots start with no dialog at about 2.9 a second (342 ms median gap), Stop,
+  the screen turning off, `needs` `unlock` and `accessibility`, Use video, control during a share, and the
+  switch off asking as before. Evidence in Round Robin's output folder (`bridgey/screen/unattended-pr68`).
 - **Not checked yet:** a real phone (OEM screenshot behaviour, secure windows, rotation), Android 11 and
   12, and how a busy screen at 3 frames a second compresses. Covered by unit tests: which requests go
   unattended, the pacing and back-off, the mirroring fit and the `screen.start` and `screen.status` fields.

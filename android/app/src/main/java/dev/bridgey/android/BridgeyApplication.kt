@@ -295,6 +295,8 @@ class BridgeyApplication : Application() {
             override fun isAgent(deviceId: String): Boolean = pairing.isAgent(deviceId)
             override fun trusted(deviceId: String): Boolean = pairing.trustedDevices.value.any { it.id == deviceId }
             override fun viewGrant(deviceId: String): Boolean = settings.isEnabled(BridgeyFeature.SCREEN, deviceId)
+            override fun unattendedViewGrant(deviceId: String): Boolean = viewGrant(deviceId) &&
+                (settings.state.value.deviceFeatures[deviceId]?.get(BridgeyFeature.SCREEN) == true || !settings.screenOnBySync)
             override fun macAdvertises(deviceId: String): Boolean = pairing.macShowsPhoneControl(deviceId)
             override fun unlocked(): Boolean = keyguard?.isKeyguardLocked != true
             override fun otherDisplayActive(): Boolean = dev.bridgey.android.control.otherDisplayActive(displays)
@@ -311,8 +313,14 @@ class BridgeyApplication : Application() {
                     screenshotsFor = share.deviceId.takeIf { share.mode == dev.bridgey.android.screen.ScreenMode.SCREENSHOTS },
                 )
             }
-            override fun grantsChanged(deviceId: String) = pairing.refreshFeatureState(deviceId)
-            override fun unattendedChanged() = pairing.refreshFeatureStateForAll()
+            override fun grantsChanged(deviceId: String) {
+                pairing.refreshFeatureState(deviceId)
+                screenShare.accessChanged()
+            }
+            override fun unattendedChanged() {
+                pairing.refreshFeatureStateForAll()
+                screenShare.accessChanged()
+            }
             override fun record(event: String, deviceId: String, detail: String) = pairing.recordRemoteControlEvent(event, deviceId, detail)
             override fun log(message: String) = BridgeyLogging.i(LogCategory.REMOTE_CONTROL, message)
         }

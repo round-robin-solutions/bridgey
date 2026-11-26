@@ -47,8 +47,11 @@ interface ControlService : GestureSink {
     fun showPrompt(macName: String, answer: (Boolean) -> Unit)
     fun hidePrompt()
 
-    /** The bar for a screenshot share (unattended access): "MacBook Air is viewing this phone" with Stop. Control's bar wins. */
-    fun showViewing(macName: String, onStop: () -> Unit) {}
+    /**
+     * The bar for a screenshot share (unattended access): "MacBook Air is viewing this phone" with Stop. Control's bar wins.
+     * [drawn] says, on any thread, whether it is on the screen: once at first, then false whenever it cannot be drawn again.
+     */
+    fun showViewing(macName: String, onStop: () -> Unit, drawn: (Boolean) -> Unit) = drawn(false)
     fun hideViewing() {}
 }
 
@@ -62,6 +65,11 @@ interface PhoneControlEnvironment {
     fun trusted(deviceId: String): Boolean
     /** Share screen with Macs is on here for that Mac. */
     fun viewGrant(deviceId: String): Boolean
+    /**
+     * Share screen with Macs is on for that Mac by this phone's own choice, so it may be seen without asking. Not when the
+     * switch was only turned on by settings sync from another device.
+     */
+    fun unattendedViewGrant(deviceId: String): Boolean = viewGrant(deviceId)
     /** The Mac's latest map shows phone_control_draft1 (and screen_draft1). */
     fun macAdvertises(deviceId: String): Boolean
     fun unlocked(): Boolean
@@ -174,7 +182,7 @@ class PhoneControlHub(
      * nobody approves Android's video prompt it falls back to accessibility screenshots (ScreenShareHub).
      */
     fun unattendedView(deviceId: String): Boolean =
-        environment.built && !environment.isAgent(deviceId) && environment.viewGrant(deviceId) && mode(deviceId) == PhoneControlGrantMode.ALWAYS
+        environment.built && !environment.isAgent(deviceId) && environment.unattendedViewGrant(deviceId) && mode(deviceId) == PhoneControlGrantMode.ALWAYS
 
     /** phone_control_draft1 in features.update to that Mac. */
     fun advertised(deviceId: String): Boolean =

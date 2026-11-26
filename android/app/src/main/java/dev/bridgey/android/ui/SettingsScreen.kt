@@ -1014,6 +1014,8 @@ private fun sectionSummary(section: SettingsSection, state: SettingsState): Sect
         }
         SettingsSection.REMOTE_CONTROL -> SectionSummary(
             when {
+                // Macs can see and control this phone without asking: say so before anything about the touchpad.
+                state.phoneControl.built && state.phoneControl.unattended -> stringResource(R.string.settings_summary_unattended)
                 featureOff(BridgeyFeature.REMOTE_INPUT) -> off
                 state.remoteVolumeKeys -> stringResource(R.string.settings_summary_remote_volume_keys)
                 else -> stringResource(R.string.settings_summary_on)
