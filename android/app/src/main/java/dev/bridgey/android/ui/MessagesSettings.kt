@@ -29,6 +29,12 @@ class MessagesSettingsActions(
 
 /** The rows under the Text messages switch: permissions, then Send replies as SMS. */
 internal fun GroupScope.messagesRows(state: MessagesSettingsState, actions: MessagesSettingsActions) {
+    messagesMainRows(state, actions)
+    messagesMoreRows(state, actions)
+}
+
+/** The Text messages card's main rows: SMS access and Send replies as SMS. */
+internal fun GroupScope.messagesMainRows(state: MessagesSettingsState, actions: MessagesSettingsActions) {
     row { shape ->
         AccessRow(
             shape, stringResource(R.string.messages_sms_access),
@@ -36,6 +42,16 @@ internal fun GroupScope.messagesRows(state: MessagesSettingsState, actions: Mess
             state.smsAllowed, BridgeyIcons.Sms, actions.allowSms,
         )
     }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.messages_reply_as_sms), stringResource(R.string.messages_reply_as_sms_detail),
+            BridgeyIcons.Sms, if (state.replyAsSms) Tint.GREEN else Tint.NEUTRAL, state.replyAsSms, actions.setReplyAsSms,
+        )
+    }
+}
+
+/** The Text messages card's More options: contacts and, with two SIMs, the SIM list. */
+internal fun GroupScope.messagesMoreRows(state: MessagesSettingsState, actions: MessagesSettingsActions) {
     row { shape ->
         AccessRow(
             shape, stringResource(R.string.messages_contacts_access),
@@ -51,12 +67,6 @@ internal fun GroupScope.messagesRows(state: MessagesSettingsState, actions: Mess
                 state.simsAllowed, BridgeyIcons.SimCard, actions.allowSims,
             )
         }
-    }
-    row { shape ->
-        SwitchRow(
-            shape, stringResource(R.string.messages_reply_as_sms), stringResource(R.string.messages_reply_as_sms_detail),
-            BridgeyIcons.Sms, if (state.replyAsSms) Tint.GREEN else Tint.NEUTRAL, state.replyAsSms, actions.setReplyAsSms,
-        )
     }
 }
 

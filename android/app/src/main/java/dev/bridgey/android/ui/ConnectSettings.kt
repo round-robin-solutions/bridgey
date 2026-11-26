@@ -1,19 +1,8 @@
 package dev.bridgey.android.ui
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import dev.bridgey.android.R
 import dev.bridgey.android.connect.ConnectRoute
 
@@ -33,71 +22,9 @@ class ConnectSettingsActions(
     val resetIdentity: () -> Unit = {},
 )
 
-/**
- * Connect away from home: the switch, where it stands, what it does in plain words, and the
- * identity reset. On until chosen (Rahul, 2026-10-30, an exception to the edition's off until chosen).
- */
+/** Where Connect anywhere stands, in words, with the tint for its status row. */
 @Composable
-internal fun ConnectAwayPage(state: SettingsState, actions: SettingsActions, listState: LazyListState) {
-    var confirmReset by rememberSaveable { mutableStateOf(false) }
-    val connect = state.connect
-    SettingsPage(stringResource(R.string.settings_connect_away), actions.back, listState) {
-        item(key = "connect.switch") {
-            RowGroup(Modifier.padding(top = 20.dp)) {
-                row { shape ->
-                    SwitchRow(
-                        shape, stringResource(R.string.settings_connect_away), stringResource(R.string.connect_away_detail),
-                        BridgeyIcons.Public, if (connect.on) Tint.BLUE else Tint.NEUTRAL,
-                        connect.on && connect.state != ConnectState.UNAVAILABLE, actions.connect.setOn,
-                        enabled = connect.state != ConnectState.UNAVAILABLE,
-                    )
-                }
-                if (connect.on) {
-                    row { shape ->
-                        val (text, tint) = connectStatusText(connect)
-                        ListRow(shape, stringResource(R.string.connect_status), text, BridgeyIcons.Cloud, tint, compact = true)
-                    }
-                }
-            }
-        }
-        item(key = "connect.how") {
-            Note(stringResource(R.string.connect_how), Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp))
-        }
-        item(key = "connect.tailscale") {
-            TailscaleSetupGuidance(state.tailscale, actions.tailscale,
-                Modifier.padding(start = 20.dp, end = 20.dp, top = 24.dp), forPairing = false)
-        }
-        if (connect.on && connect.state != ConnectState.UNAVAILABLE) {
-            item(key = "connect.reset") {
-                RowGroup(Modifier.padding(top = 24.dp)) {
-                    row { shape ->
-                        ListRow(
-                            shape, stringResource(R.string.connect_reset), stringResource(R.string.connect_reset_detail),
-                            BridgeyIcons.Refresh, Tint.NEUTRAL, onClick = { confirmReset = true },
-                        )
-                    }
-                }
-            }
-        }
-    }
-    if (confirmReset) {
-        AlertDialog(
-            onDismissRequest = { confirmReset = false },
-            title = { Text(stringResource(R.string.connect_reset_confirm_title)) },
-            text = { Text(stringResource(R.string.connect_reset_confirm_body)) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmReset = false
-                    actions.connect.resetIdentity()
-                }) { Text(stringResource(R.string.connect_reset_confirm)) }
-            },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(stringResource(R.string.action_cancel)) } },
-        )
-    }
-}
-
-@Composable
-private fun connectStatusText(connect: ConnectSettingsState): Pair<String, Tint> = when (connect.state) {
+internal fun connectStatusText(connect: ConnectSettingsState): Pair<String, Tint> = when (connect.state) {
     ConnectState.ONLINE -> (
         if (connect.reachable > 0) pluralStringResource(R.plurals.connect_status_online_devices, connect.reachable, connect.reachable)
         else stringResource(R.string.connect_status_online)

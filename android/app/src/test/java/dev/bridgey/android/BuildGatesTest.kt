@@ -103,8 +103,11 @@ class BuildGatesTest {
         assertEquals(!play, SetupFeatures.all.any { it.id == "messages" })
         assertEquals(!play, SetupQuestions.all.any { it.id == "messages" })
         assertEquals(!play, SetupBundles.all.any { it.id == "messages" })
-        assertEquals(!play, SettingsSection.MESSAGES in SettingsSection.homeRows)
-        assertEquals(!play, SettingsSection.UPDATES in SettingsSection.homeRows)
+        val state = dev.bridgey.android.ui.sampleSettingsState(0L)
+        assertEquals(!play, dev.bridgey.android.ui.SettingsCard.MESSAGES in dev.bridgey.android.ui.cardsOn(dev.bridgey.android.ui.SettingsGroup.PHONE, state))
+        assertEquals(!play, dev.bridgey.android.ui.SettingsCard.UPDATES in dev.bridgey.android.ui.cardsOn(dev.bridgey.android.ui.SettingsGroup.APP, state))
+        assertEquals(!play, SettingsSection.MESSAGES.built)
+        assertEquals(!play, SettingsSection.UPDATES.built)
         if (play) assertFalse(BuildConfig.CODE_TEST_AVAILABLE)
     }
 

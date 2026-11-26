@@ -30,19 +30,22 @@ class SetupSettingsActions(
 /** Privacy: Permissions, then Reset Bridgey on this device. */
 @Composable
 fun PrivacySetupRows(actions: SetupSettingsActions) {
-    RowGroup(Modifier.padding(top = 24.dp)) {
-        row { shape ->
-            ListRow(
-                shape, stringResource(R.string.perm_page_title), stringResource(R.string.perm_page_detail),
-                BridgeyIcons.Shield, Tint.BLUE, onClick = actions.openPermissions,
-            ) { SetupChevron() }
-        }
-        row { shape ->
-            ListRow(
-                shape, stringResource(R.string.reset_title), stringResource(R.string.reset_detail),
-                BridgeyIcons.Delete, Tint.NEUTRAL, onClick = actions.openReset,
-            ) { SetupChevron() }
-        }
+    RowGroup(Modifier.padding(top = 24.dp)) { privacySetupRows(actions) }
+}
+
+/** Privacy's Permissions and Reset rows, each opening its page. */
+internal fun GroupScope.privacySetupRows(actions: SetupSettingsActions) {
+    row { shape ->
+        ListRow(
+            shape, stringResource(R.string.perm_page_title), stringResource(R.string.perm_page_detail),
+            BridgeyIcons.Shield, Tint.BLUE, onClick = actions.openPermissions,
+        ) { SetupChevron() }
+    }
+    row { shape ->
+        ListRow(
+            shape, stringResource(R.string.reset_title), stringResource(R.string.reset_detail),
+            BridgeyIcons.Delete, Tint.NEUTRAL, onClick = actions.openReset,
+        ) { SetupChevron() }
     }
 }
 
@@ -56,28 +59,30 @@ fun GeneralOemChecklist(state: SetupSettingsState, actions: SetupSettingsActions
 /** General: Run setup again. */
 @Composable
 fun GeneralSetupRows(actions: SetupSettingsActions) {
-    Column {
-        RowGroup(Modifier.padding(top = 24.dp)) {
-            row { shape ->
-                ListRow(
-                    shape, stringResource(R.string.setup_run_again), stringResource(R.string.setup_run_again_detail),
-                    BridgeyIcons.Refresh, Tint.BLUE, onClick = actions.runSetup,
-                ) { SetupChevron() }
-            }
-        }
+    RowGroup(Modifier.padding(top = 24.dp)) { generalSetupRows(actions) }
+}
+
+internal fun GroupScope.generalSetupRows(actions: SetupSettingsActions) {
+    row { shape ->
+        ListRow(
+            shape, stringResource(R.string.setup_run_again), stringResource(R.string.setup_run_again_detail),
+            BridgeyIcons.Refresh, Tint.BLUE, onClick = actions.runSetup,
+        ) { SetupChevron() }
     }
 }
 
 /** About: Add to Obtainium, for the app's current update channel. */
 @Composable
 fun ObtainiumRow(channel: UpdateChannel, actions: SetupSettingsActions) {
-    RowGroup(Modifier.padding(top = 24.dp)) {
-        row { shape ->
-            ListRow(
-                shape, stringResource(R.string.obtainium_title), stringResource(R.string.obtainium_detail, channelTitle(channel)),
-                BridgeyIcons.Download, Tint.GREEN, onClick = actions.addToObtainium,
-            ) { Icon(BridgeyIcons.OpenInNew, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
-        }
+    RowGroup(Modifier.padding(top = 24.dp)) { obtainiumRow(channel, actions) }
+}
+
+internal fun GroupScope.obtainiumRow(channel: UpdateChannel, actions: SetupSettingsActions) {
+    row { shape ->
+        ListRow(
+            shape, stringResource(R.string.obtainium_title), stringResource(R.string.obtainium_detail, channelTitle(channel)),
+            BridgeyIcons.Download, Tint.GREEN, onClick = actions.addToObtainium,
+        ) { Icon(BridgeyIcons.OpenInNew, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
     }
 }
 

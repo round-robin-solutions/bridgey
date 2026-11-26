@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -94,62 +93,63 @@ private fun choiceLabel(choice: PhoneControlGrantMode?, defaultMode: PhoneContro
  * The Remote control page's part: Unattended access, Bridgey control's status with Android's settings one tap away, then
  * each Mac's choice (Default, Off, Ask each time, Allow without asking), and why Android asks for an accessibility service.
  */
-internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, actions: PhoneControlSettingsActions) {
-    if (!state.built) return
-    item(key = "remote.phoneControl") {
-        var choosing by rememberSaveable { mutableStateOf<String?>(null) }
-        var asked by rememberSaveable { mutableStateOf(false) }
-        var unattendedRefused by rememberSaveable { mutableStateOf(false) }
-        val openSettings = {
-            asked = true
-            actions.openServiceSettings()
-        }
-        Column {
-            RowGroup(Modifier.padding(top = 16.dp)) {
-                row { shape ->
-                    SwitchRow(
-                        shape, stringResource(R.string.unattended_title),
-                        if (unattendedRefused && state.controlledBy != null) stringResource(R.string.control_raise_refused, state.controlledBy)
-                        else stringResource(R.string.unattended_detail),
-                        BridgeyIcons.ScreenShare, if (state.unattended) Tint.PURPLE else Tint.NEUTRAL,
-                        checked = state.unattended,
-                        onCheckedChange = { on -> unattendedRefused = !actions.setUnattended(on) },
-                        detailWarning = unattendedRefused && state.controlledBy != null,
-                    )
-                }
-                row { shape ->
-                    ListRow(
-                        shape, stringResource(R.string.control_settings_title),
-                        stringResource(if (state.serviceEnabled) R.string.control_service_on else R.string.control_service_off),
-                        BridgeyIcons.AdsClick, if (state.serviceEnabled) Tint.GREEN else Tint.NEUTRAL,
-                        detailWarning = !state.serviceEnabled && state.macs.any { it.mode != PhoneControlGrantMode.OFF },
-                        onClick = openSettings,
-                    ) {
-                        if (state.serviceEnabled) {
-                            Icon(BridgeyIcons.OpenInNew, null, tint = BridgeyTheme.colors.onSurfaceVariant)
-                        } else {
-                            TonalPillButton(stringResource(R.string.control_service_open), openSettings)
-                        }
-                    }
-                }
-                state.macs.forEach { mac ->
-                    // A Mac on Default is not flagged: without screen sharing the switch simply has nothing to do for it.
-                    val needsShare = mac.choice != null && mac.choice != PhoneControlGrantMode.OFF && !mac.sharing
-                    row { shape ->
-                        ListRow(
-                            shape, mac.name,
-                            if (needsShare) stringResource(R.string.control_mac_needs_share) else choiceLabel(mac.choice, state.defaultMode),
-                            BridgeyIcons.LaptopMac, if (mac.mode == PhoneControlGrantMode.OFF) Tint.NEUTRAL else Tint.PURPLE,
-                            compact = true,
-                            detailWarning = needsShare,
-                            onClick = { choosing = mac.id },
-                            role = Role.Button,
-                        ) {
-                            Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant)
-                        }
+@Composable
+internal fun PhoneControlCard(state: PhoneControlSettingsState, actions: PhoneControlSettingsActions, modifier: Modifier = Modifier) {
+    var choosing by rememberSaveable { mutableStateOf<String?>(null) }
+    var asked by rememberSaveable { mutableStateOf(false) }
+    var unattendedRefused by rememberSaveable { mutableStateOf(false) }
+    val openSettings = {
+        asked = true
+        actions.openServiceSettings()
+    }
+    FeatureCard(
+        SettingsCard.PHONE_CONTROL, null, modifier,
+        rows = {
+            row { shape ->
+                SwitchRow(
+                    shape, stringResource(R.string.unattended_title),
+                    if (unattendedRefused && state.controlledBy != null) stringResource(R.string.control_raise_refused, state.controlledBy)
+                    else stringResource(R.string.unattended_detail),
+                    BridgeyIcons.ScreenShare, if (state.unattended) Tint.PURPLE else Tint.NEUTRAL,
+                    checked = state.unattended,
+                    onCheckedChange = { on -> unattendedRefused = !actions.setUnattended(on) },
+                    detailWarning = unattendedRefused && state.controlledBy != null,
+                )
+            }
+            row { shape ->
+                ListRow(
+                    shape, stringResource(R.string.control_settings_title),
+                    stringResource(if (state.serviceEnabled) R.string.control_service_on else R.string.control_service_off),
+                    BridgeyIcons.AdsClick, if (state.serviceEnabled) Tint.GREEN else Tint.NEUTRAL,
+                    detailWarning = !state.serviceEnabled && state.macs.any { it.mode != PhoneControlGrantMode.OFF },
+                    onClick = openSettings,
+                ) {
+                    if (state.serviceEnabled) {
+                        Icon(BridgeyIcons.OpenInNew, null, tint = BridgeyTheme.colors.onSurfaceVariant)
+                    } else {
+                        TonalPillButton(stringResource(R.string.control_service_open), openSettings)
                     }
                 }
             }
+            state.macs.forEach { mac ->
+                // A Mac on Default is not flagged: without screen sharing the switch simply has nothing to do for it.
+                val needsShare = mac.choice != null && mac.choice != PhoneControlGrantMode.OFF && !mac.sharing
+                row { shape ->
+                    ListRow(
+                        shape, mac.name,
+                        if (needsShare) stringResource(R.string.control_mac_needs_share) else choiceLabel(mac.choice, state.defaultMode),
+                        BridgeyIcons.LaptopMac, if (mac.mode == PhoneControlGrantMode.OFF) Tint.NEUTRAL else Tint.PURPLE,
+                        compact = true,
+                        detailWarning = needsShare,
+                        onClick = { choosing = mac.id },
+                        role = Role.Button,
+                    ) {
+                        Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant)
+                    }
+                }
+            }
+        },
+        footer = {
             if (asked && !state.serviceEnabled && state.restrictedPossible) {
                 RestrictedSettingsHint(stringResource(R.string.control_service_label), actions.openAppInfo, Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp))
             }
@@ -166,10 +166,10 @@ internal fun LazyListScope.phoneControlItems(state: PhoneControlSettingsState, a
                 stringResource(if (state.typing) R.string.control_settings_note else R.string.control_settings_note_no_typing),
                 Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp),
             )
-        }
-        state.macs.firstOrNull { it.id == choosing }?.let { mac ->
-            PhoneControlModeDialog(mac, state.defaultMode, state.controlledBy, onDismiss = { choosing = null }) { mode -> actions.setMode(mac.id, mode) }
-        }
+        },
+    )
+    state.macs.firstOrNull { it.id == choosing }?.let { mac ->
+        PhoneControlModeDialog(mac, state.defaultMode, state.controlledBy, onDismiss = { choosing = null }) { mode -> actions.setMode(mac.id, mode) }
     }
 }
 

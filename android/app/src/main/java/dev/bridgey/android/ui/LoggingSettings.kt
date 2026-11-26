@@ -20,78 +20,23 @@ import dev.bridgey.android.R
 import dev.bridgey.android.ui.theme.BridgeyTheme
 
 /**
- * Settings > Privacy > Logging: one switch per category, content switches under their category,
- * then Export diagnostics and Clear logs. Per phone.
+ * Settings > Privacy > Logging: Export diagnostics and Clear logs, then (More options) one switch per category with the
+ * content switches under their category. Per phone.
  */
 @Composable
-fun LoggingSettingsGroup(
+fun LoggingCard(
     policy: LoggingPolicy,
     setPolicy: (LoggingPolicy) -> Unit,
     exportDiagnostics: () -> Unit,
     clearLogs: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     var confirmClear by rememberSaveable { mutableStateOf(false) }
-    Column {
-        Note(stringResource(R.string.logging_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 16.dp))
-        RowGroup(Modifier.padding(top = 8.dp)) {
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_connection), stringResource(R.string.logging_connection_detail),
-                    BridgeyIcons.Wifi, tintFor(policy.connection), policy.connection, { setPolicy(policy.copy(connection = it)) },
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_calls), stringResource(R.string.logging_calls_detail),
-                    BridgeyIcons.Call, tintFor(policy.calls), policy.calls, { setPolicy(policy.copy(calls = it)) },
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_call_numbers), stringResource(R.string.logging_call_numbers_detail),
-                    null, tintFor(policy.callNumbers), policy.callNumbers, { setPolicy(policy.copy(callNumbers = it)) },
-                    enabled = policy.calls, compact = true,
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_notifications), stringResource(R.string.logging_notifications_detail),
-                    BridgeyIcons.Notifications, tintFor(policy.notifications), policy.notifications,
-                    { setPolicy(policy.copy(notifications = it)) },
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_notification_content), stringResource(R.string.logging_notification_content_detail),
-                    null, tintFor(policy.notificationContent), policy.notificationContent,
-                    { setPolicy(policy.copy(notificationContent = it)) }, enabled = policy.notifications, compact = true,
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_clipboard), stringResource(R.string.logging_clipboard_detail),
-                    BridgeyIcons.ContentPaste, tintFor(policy.clipboard), policy.clipboard, { setPolicy(policy.copy(clipboard = it)) },
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_clipboard_previews), stringResource(R.string.logging_clipboard_previews_detail),
-                    null, tintFor(policy.clipboardPreviews), policy.clipboardPreviews,
-                    { setPolicy(policy.copy(clipboardPreviews = it)) }, enabled = policy.clipboard, compact = true,
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_file_names), stringResource(R.string.logging_file_names_detail),
-                    BridgeyIcons.Folder, tintFor(policy.fileNames), policy.fileNames, { setPolicy(policy.copy(fileNames = it)) },
-                )
-            }
-            row { shape ->
-                SwitchRow(
-                    shape, stringResource(R.string.logging_remote), stringResource(R.string.logging_remote_detail),
-                    BridgeyIcons.Mouse, tintFor(policy.remoteControl), policy.remoteControl, { setPolicy(policy.copy(remoteControl = it)) },
-                )
-            }
+    FeatureCard(
+        SettingsCard.LOGGING,
+        CardHeader(stringResource(R.string.settings_logging), BridgeyIcons.BugReport, Tint.NEUTRAL),
+        modifier,
+        rows = {
             row { shape ->
                 ListRow(
                     shape, stringResource(R.string.settings_diagnostics), stringResource(R.string.settings_diagnostics_detail),
@@ -103,8 +48,10 @@ fun LoggingSettingsGroup(
                     OutlinePillButton(stringResource(R.string.action_clear), null, { confirmClear = true })
                 }
             }
-        }
-    }
+        },
+        more = { loggingCategoryRows(policy, setPolicy) },
+        footer = { Note(stringResource(R.string.logging_note), Modifier.padding(start = 32.dp, end = 32.dp, top = 8.dp)) },
+    )
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
@@ -112,6 +59,68 @@ fun LoggingSettingsGroup(
             text = { Text(stringResource(R.string.logging_clear_body)) },
             confirmButton = { TextButton(onClick = { confirmClear = false; clearLogs() }) { Text(stringResource(R.string.action_clear)) } },
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
+    }
+}
+
+/** One switch per category, content switches under their category. */
+private fun GroupScope.loggingCategoryRows(policy: LoggingPolicy, setPolicy: (LoggingPolicy) -> Unit) {
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_connection), stringResource(R.string.logging_connection_detail),
+            BridgeyIcons.Wifi, tintFor(policy.connection), policy.connection, { setPolicy(policy.copy(connection = it)) },
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_calls), stringResource(R.string.logging_calls_detail),
+            BridgeyIcons.Call, tintFor(policy.calls), policy.calls, { setPolicy(policy.copy(calls = it)) },
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_call_numbers), stringResource(R.string.logging_call_numbers_detail),
+            null, tintFor(policy.callNumbers), policy.callNumbers, { setPolicy(policy.copy(callNumbers = it)) },
+            enabled = policy.calls, compact = true,
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_notifications), stringResource(R.string.logging_notifications_detail),
+            BridgeyIcons.Notifications, tintFor(policy.notifications), policy.notifications,
+            { setPolicy(policy.copy(notifications = it)) },
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_notification_content), stringResource(R.string.logging_notification_content_detail),
+            null, tintFor(policy.notificationContent), policy.notificationContent,
+            { setPolicy(policy.copy(notificationContent = it)) }, enabled = policy.notifications, compact = true,
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_clipboard), stringResource(R.string.logging_clipboard_detail),
+            BridgeyIcons.ContentPaste, tintFor(policy.clipboard), policy.clipboard, { setPolicy(policy.copy(clipboard = it)) },
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_clipboard_previews), stringResource(R.string.logging_clipboard_previews_detail),
+            null, tintFor(policy.clipboardPreviews), policy.clipboardPreviews,
+            { setPolicy(policy.copy(clipboardPreviews = it)) }, enabled = policy.clipboard, compact = true,
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_file_names), stringResource(R.string.logging_file_names_detail),
+            BridgeyIcons.Folder, tintFor(policy.fileNames), policy.fileNames, { setPolicy(policy.copy(fileNames = it)) },
+        )
+    }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.logging_remote), stringResource(R.string.logging_remote_detail),
+            BridgeyIcons.Mouse, tintFor(policy.remoteControl), policy.remoteControl, { setPolicy(policy.copy(remoteControl = it)) },
         )
     }
 }

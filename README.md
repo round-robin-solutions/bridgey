@@ -30,8 +30,8 @@ Needs macOS 13 or later and Android 8 or later.
 
 Each release has the APK, a DMG and ZIP, `SHA256SUMS`, an SBOM per platform and a provenance file.
 
-Choose the update channel, Stable, Beta or Nightly, in Settings > Updates. Beta also gets Stable releases
-when they are newer, and Nightly gets everything. The apps check and install updates themselves, and
+Choose the update channel, Stable, Beta or Nightly, in Settings > App > Updates. Beta also gets Stable
+releases when they are newer, and Nightly gets everything. The apps check and install updates themselves, and
 **Update all** updates every connected device from one button. More in the
 [user guide](docs/user-guide.md#install).
 

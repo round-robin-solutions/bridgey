@@ -1,99 +1,110 @@
 package dev.bridgey.android.ui
 
+import dev.bridgey.android.BridgeyFeature
+import dev.bridgey.android.PermissionOrder
+import dev.bridgey.android.ui.search.SettingsSearchRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pins the Settings section order Rahul agreed, mirrored by the macOS sidebar. Remote control
- * (2026-10-26) sits after Media and quick actions, the other "control the Mac" section. Since the
- * Settings pages (2026-10-26) the home shows This phone as a header card and the other sections as
- * rows in three groups: Devices, Features, App. Text messages (2026-10-27) follows Notifications; on the
- * Mac it is a card on the Notifications pane.
+ * Pins Settings in six groups (direction A, chosen 26 Nov 2026), mirrored by the macOS sidebar: Devices, Sharing,
+ * Notifications and calls ("Phone" on the Mac), Control, Privacy, App. Every page that existed before has a group and a
+ * card, so every place that opened one still lands somewhere.
  */
 class SettingsSectionOrderTest {
     @Test
-    fun sectionsAreInTheAgreedOrder() {
+    fun groupsAreInTheAgreedOrder() {
         assertEquals(
-            listOf(
-                SettingsSection.THIS_PHONE,
-                SettingsSection.DEVICES,
-                SettingsSection.AWAY,
-                SettingsSection.CLIPBOARD,
-                SettingsSection.NOTIFICATIONS,
-                SettingsSection.MESSAGES,
-                SettingsSection.CALLS,
-                SettingsSection.FILES,
-                SettingsSection.MEDIA,
-                SettingsSection.REMOTE_CONTROL,
-                SettingsSection.PRIVACY,
-                SettingsSection.UPDATES,
-                SettingsSection.GENERAL,
-                SettingsSection.ABOUT,
-                SettingsSection.DEVELOPER,
-            ),
-            SettingsSection.entries.toList(),
+            listOf(SettingsGroup.DEVICES, SettingsGroup.SHARING, SettingsGroup.PHONE, SettingsGroup.CONTROL, SettingsGroup.PRIVACY, SettingsGroup.APP),
+            SettingsGroup.entries.toList(),
         )
     }
 
+    /** The old pages, each to the group the plan put it in (outputs/bridgey/settings-redesign/spec.md). */
     @Test
-    fun homeRowsAreGroupedDevicesFeaturesApp() {
-        assertEquals(
-            mapOf(
-                SettingsGroup.DEVICES to listOf(SettingsSection.DEVICES),
-                SettingsGroup.FEATURES to listOf(
-                    SettingsSection.CLIPBOARD,
-                    SettingsSection.NOTIFICATIONS,
-                    SettingsSection.MESSAGES,
-                    SettingsSection.CALLS,
-                    SettingsSection.FILES,
-                    SettingsSection.MEDIA,
-                    SettingsSection.REMOTE_CONTROL,
-                ),
-                SettingsGroup.APP to listOf(
-                    SettingsSection.PRIVACY,
-                    SettingsSection.UPDATES,
-                    SettingsSection.GENERAL,
-                    SettingsSection.ABOUT,
-                ),
-            ),
-            SettingsSection.homeRows.groupBy { it.group },
+    fun everyOldPageMapsToAGroup() {
+        val expected = mapOf(
+            SettingsSection.THIS_PHONE to SettingsGroup.DEVICES,
+            SettingsSection.DEVICES to SettingsGroup.DEVICES,
+            SettingsSection.AWAY to SettingsGroup.DEVICES,
+            SettingsSection.CLIPBOARD to SettingsGroup.SHARING,
+            SettingsSection.FILES to SettingsGroup.SHARING,
+            SettingsSection.MEDIA to SettingsGroup.SHARING,
+            SettingsSection.NOTIFICATIONS to SettingsGroup.PHONE,
+            SettingsSection.MESSAGES to SettingsGroup.PHONE,
+            SettingsSection.CALLS to SettingsGroup.PHONE,
+            SettingsSection.REMOTE_CONTROL to SettingsGroup.CONTROL,
+            SettingsSection.PRIVACY to SettingsGroup.PRIVACY,
+            SettingsSection.UPDATES to SettingsGroup.APP,
+            SettingsSection.GENERAL to SettingsGroup.APP,
+            SettingsSection.ABOUT to SettingsGroup.APP,
+            SettingsSection.DEVELOPER to SettingsGroup.APP,
         )
-        // This phone is the header card, not a row; Connect away from home opens from the Devices page.
-        assertNull(SettingsSection.THIS_PHONE.group)
-        assertNull(SettingsSection.AWAY.group)
-        // Developer and experimental is hidden until unlocked; then the home adds it after About itself.
-        assertNull(SettingsSection.DEVELOPER.group)
-        assertEquals(SettingsSection.entries.drop(1) - SettingsSection.AWAY - SettingsSection.DEVELOPER, SettingsSection.homeRows)
+        assertEquals("every section is mapped", SettingsSection.entries.toSet(), expected.keys)
+        SettingsSection.entries.forEach { section ->
+            assertEquals(section.name, expected.getValue(section), section.group)
+            assertEquals(section.name, Route.SettingsGroupPage(section.group), settingsRoute(section))
+        }
+    }
+
+    /** Every card sits in one group, each group has cards, and the old pages' features each have a card. */
+    @Test
+    fun everyCardHasAGroup() {
+        SettingsGroup.entries.forEach { group -> assertTrue("$group has no cards", SettingsCard.entries.any { it.group == group }) }
+        assertEquals(SettingsCard.entries.size, SettingsCard.entries.map { it.key }.toSet().size)
+        // Ping, Find and Battery act on a device: Devices. The screens and Mac actions: Control.
+        assertEquals(SettingsGroup.DEVICES, SettingsCard.FIND_PING.group)
+        assertEquals(SettingsGroup.DEVICES, SettingsCard.BATTERY.group)
+        assertEquals(SettingsGroup.CONTROL, SettingsCard.SHARE_SCREEN.group)
+        assertEquals(SettingsGroup.CONTROL, SettingsCard.MAC_ACTIONS.group)
     }
 
     @Test
-    fun everySectionHasAPageThatSurvivesRestore() {
-        assertEquals(Route.Devices, settingsRoute(SettingsSection.DEVICES))
-        assertEquals(Route.Settings, settingsRoute(SettingsSection.THIS_PHONE))
-        SettingsSection.homeRows.forEach { section ->
-            val route = settingsRoute(section)
+    fun everyPageSurvivesRestore() {
+        SettingsGroup.entries.forEach { group ->
+            val route = settingsRoute(group)
             assertEquals(route, Route.fromKey(route.key))
         }
-        assertEquals(Route.SettingsPane(SettingsSection.UPDATES), Route.fromKey("settings:updates"))
+        // Keys saved before the groups open the group that took the page over.
+        assertEquals(Route.SettingsGroupPage(SettingsGroup.APP), Route.fromKey("settings:updates"))
+        assertEquals(Route.SettingsGroupPage(SettingsGroup.SHARING), Route.fromKey("settings:clipboard"))
+        assertEquals(Route.SettingsGroupPage(SettingsGroup.DEVICES), Route.fromKey("devices"))
         assertNull(Route.fromKey("settings:nope"))
     }
 
     @Test
     fun aDeepLinkOpensThePageAboveTheSettingsHome() {
+        val updates = Route.SettingsGroupPage(SettingsGroup.APP)
         val fromHome = BackStack(listOf(Route.Home))
         fromHome.openSettings(settingsRoute(SettingsSection.UPDATES))
-        assertEquals(listOf(Route.Home, Route.Settings, Route.SettingsPane(SettingsSection.UPDATES)), fromHome.entries.toList())
+        assertEquals(listOf(Route.Home, Route.Settings, updates), fromHome.entries.toList())
 
-        val inSettings = BackStack(listOf(Route.Home, Route.Settings, Route.SettingsPane(SettingsSection.FILES), Route.Places))
+        val inSettings = BackStack(listOf(Route.Home, Route.Settings, Route.SettingsGroupPage(SettingsGroup.SHARING), Route.Places))
         inSettings.openSettings(settingsRoute(SettingsSection.UPDATES))
-        assertEquals(listOf(Route.Home, Route.Settings, Route.SettingsPane(SettingsSection.UPDATES)), inSettings.entries.toList())
+        assertEquals(listOf(Route.Home, Route.Settings, updates), inSettings.entries.toList())
 
-        val already = BackStack(listOf(Route.Home, Route.Settings, Route.SettingsPane(SettingsSection.UPDATES)))
+        val already = BackStack(listOf(Route.Home, Route.Settings, updates))
         already.openSettings(settingsRoute(SettingsSection.UPDATES))
         assertEquals(3, already.entries.size)
 
         assertEquals(SettingsSection.UPDATES, SettingsDeepLink.section("UPDATES"))
         assertNull(SettingsDeepLink.section(null))
+    }
+
+    /**
+     * The chips replace the device page's switches one for one: every switch the page had is a chip row (and the
+     * search ids count them in the same order), and every chip row's card is in the group of its feature.
+     */
+    @Test
+    fun everyPerDeviceSwitchIsAChipRow() {
+        assertEquals(SettingsSearchRegistry.devicePermissionRows, DeviceChoices.map { it.titleRes to it.features })
+        val chipFeatures = DeviceChoices.filter { it.features.isNotEmpty() && !it.more }.map { it.features }.toSet()
+        assertEquals(PermissionOrder.toSet(), chipFeatures)
+        // Automatic clipboard per device sits in Clipboard's More options; sync per device in Sync settings.
+        assertEquals(SettingsCard.CLIPBOARD, DeviceChoices.single { it.more }.card)
+        assertEquals(SettingsCard.SYNC, DeviceChoices.single { it.features.isEmpty() }.card)
+        assertEquals(SettingsCard.CALLS_WINDOW, DeviceChoices.single { it.features == listOf(BridgeyFeature.DIALER) }.card)
     }
 }

@@ -82,8 +82,8 @@ before you run the other on a Mac.
 
 Keep both on the same Wi-Fi. Open Bridgey on both.
 
-1. On the Mac, the menu-bar panel lists nearby phones. On the phone, open **Settings > Devices and
-   permissions > Pair a new device** (or tap **Add** on the home screen).
+1. On the Mac, the menu-bar panel lists nearby phones. On the phone, open **Settings > Devices > Pair a new
+   device** (or tap **Add** on the home screen).
 2. Choose the other device. Either side can start.
 3. Both screens show a six-digit code. Press **Codes Match** (Mac) and confirm on the phone only if
    the two codes are the same. If they differ, cancel: someone else may be on the network.
@@ -102,7 +102,7 @@ After this the devices reconnect on their own. To stop trusting a device, open i
   Bridgey notification, or add the **Send copied item** tile to Quick Settings. Android does not
   let an ordinary app read the clipboard in the background (Android 10 and later); see
   [why](rr-edition.md#automatic-clipboard-and-why-it-is-not-fully-automatic-from-the-phone).
-- **Images and files:** with **Copy images and files** on in Settings > Clipboard, copied images,
+- **Images and files:** with **Copy images and files** on in Settings > Sharing > Clipboard, copied images,
   videos and files move when you paste. This works between two Round Robin edition apps. With
   the original Bridgey only text up to 32 KiB moves.
 - **Fresh screenshot:** if you took a screenshot in the last minute, **Send copied item** sends
@@ -133,10 +133,10 @@ is not shown in the notification or stored for these actions.
 - Several files go one after another in a queue. Each can be cancelled on its own. An interrupted
   send can be retried once the devices reconnect.
 - **Where they land:** Android saves to `Download/Bridgey`. The Mac saves to `Downloads/Bridgey` by
-  default; change it in Settings > Files (Received files). A file never replaces an existing one.
+  default; change it in Settings > Sharing > Files (Received files). A file never replaces an existing one.
 - **Hidden files in folders:** a folder skips hidden files (names that start with a dot, such as
   `.gitignore`) and system clutter (`.DS_Store`, `._` files, `Thumbs.db`). Two switches in Settings >
-  Files on the phone and on the Mac, "Include hidden files when sending folders" and "Include system
+  Sharing > Files (More options) on the phone and on the Mac, "Include hidden files when sending folders" and "Include system
   files when sending folders", turn each on; both are off by default. On the phone they also apply
   when a Mac downloads a folder from it.
 
@@ -145,7 +145,7 @@ is not shown in the notification or stored for these actions.
 The browser extension sends the page you are on, or a link, from Chrome, Edge, Firefox, Brave or Arc to
 a paired device.
 
-1. **On the Mac:** Settings > Media and actions > **Browser extensions** > **Install**. **On Windows:**
+1. **On the Mac:** Settings > Sharing > Links > **Browser extensions** > **Install**. **On Windows:**
    Settings > Media and actions > turn on **Browser extensions**.
 2. Add the extension to your browser from the release's `-Chrome.zip`, `-Edge.zip` or `-Firefox.zip`
    ([steps](browser-extensions.md#install-by-hand)) until it is in the browsers' stores.
@@ -156,7 +156,7 @@ a paired device.
 
 Phone notifications can appear on the Mac.
 
-1. On the phone, open **Settings > Notifications** and turn on **Notification forwarding**.
+1. On the phone, open **Settings > Notifications and calls** and turn on **Notification forwarding**.
 2. Choose **Notification forwarding** and allow **notification access** for Bridgey in Android's
    own screen.
 3. On the Mac, allow notifications for Bridgey when asked.
@@ -170,17 +170,17 @@ Dismissals sync both ways. A notification history on the Mac is off by default.
 - **Call from the Mac:** copy a phone number and press **Call** in Bridgey or Control-Option-P. In
   apps with macOS Services, select a number and choose **Services > Call with Bridgey RR**. By
   default the phone shows a notification; tap it to review the number in the dialer.
-- **Call status and answer controls on the Mac:** on the phone open **Settings > Calls** and turn on
+- **Call status and answer controls on the Mac:** on the phone open **Settings > Notifications and calls > Calls** and turn on
   **Call status and controls**. Android asks for Phone permissions. After that the Mac shows incoming
   and active calls with **Answer**, **Decline** and **Hang Up**. This option does not ask for contacts or
   call history, and Bridgey never dials emergency numbers itself.
 - **Calls window:** a keypad, your phone's contacts and recent calls on the Mac. Turn it on in
-  **Settings > Calls > Calls window** on both devices and allow each Mac on the phone (and each phone
-  on the Mac); the phone asks for Phone, Contacts and Call history then. Open it from the menu bar
-  panel. Type digits or a name, then press Return to call; Option-Return starts a WhatsApp call through
+  the **Calls window** card (Settings > Notifications and calls on the phone, Settings > Phone on the
+  Mac) on both devices and choose each Mac in its Devices row on the phone (and each phone on the
+  Mac); the phone asks for Phone, Contacts and Call history then. Open it from the menu bar panel. Type digits or a name, then press Return to call; Option-Return starts a WhatsApp call through
   the phone's WhatsApp and Shift-Option-Return a WhatsApp video call. Command-1 and Command-2 pick the
   SIM. The phone places every call, so the call audio stays on the phone or its earbuds.
-- **Phone links:** on the Mac, Settings > Calls > **Phone links** > **Use Bridgey** sends `tel:` links
+- **Phone links:** on the Mac, Settings > Phone > Calls > More options > **Phone links** > **Use Bridgey** sends `tel:` links
   from your browser to Bridgey.
 
 ## Codes from messages
@@ -188,12 +188,12 @@ Dismissals sync both ways. A notification history on the Mac is off by default.
 When a text message has a one-time code, the Mac can show "Code 482913 from HDFC Bank" with **Copy
 code**. It is off by default.
 
-1. **On the Mac:** Settings > Notifications > **Codes from messages** > turn on **Show codes from text
+1. **On the Mac:** Settings > Phone > **Codes from messages** > turn on **Show codes from text
    messages**. Choose **Read codes**: **On this Mac (private)** downloads a small model (253 MB, one
    time) and reads messages on the Mac. **Cloud (Cloudflare)** sends the message text to Round Robin's
    relay. See [the edition notes](rr-edition.md#codes-from-text-messages-draft-protocol) for the details.
 2. **On the phone (Android 15 and later):** Android hides code text from apps it does not trust. Open
-   **Settings > Notifications > Codes from messages** and tap **Link this phone to the Mac**. The
+   **Settings > Notifications and calls > Codes from messages** and tap **Link this phone to the Mac**. The
    Mac advertises over Bluetooth for a minute, Android's own dialog finds it, and you tap **Allow**
    once. Turn on Bluetooth (and, if Android finds no Mac, Location) on the phone. The Mac asks for
    Bluetooth permission the first time.
@@ -211,9 +211,10 @@ seconds. Codes and message text are never written to logs or diagnostics.
 
 Read and answer your phone's text messages on the Mac. It is off until you turn it on.
 
-1. On the phone, open **Settings > Text messages** and turn it on for your Mac. Allow SMS access
+1. On the phone, open **Settings > Notifications and calls > Text messages**, turn it on and choose your
+   Mac in its Devices row. Allow SMS access
    when asked; contacts access is optional (without it you see numbers instead of names).
-2. On the Mac, open **Settings > Text messages** and turn it on.
+2. On the Mac, open **Settings > Phone > Text messages** and turn it on.
 
 Then:
 
@@ -246,9 +247,9 @@ Then:
 The phone can act as a touchpad, keyboard and slides remote for a Mac. It is off on both sides
 until you turn it on, and only works between two Round Robin edition apps.
 
-1. **Mac:** Settings > **Remote control**: turn it on, and allow the phone. macOS asks for
+1. **Mac:** Settings > Control > **Remote control**: turn it on, and choose the phone in its Devices row. macOS asks for
    Accessibility access when it first becomes usable.
-2. **Phone:** Settings > **Remote control**: turn it on. The Mac's device page then shows a **Remote
+2. **Phone:** Settings > Control > **Remote control**: turn it on. The Mac's device page then shows a **Remote
    control** entry.
 3. Start a session. While it runs, the Mac shows a pill at the top of the screen with **Stop**, and
    the menu-bar icon changes. Control-Option-Escape on the Mac also stops it.
@@ -279,7 +280,7 @@ and pairing. This method is independent of the Bridgey service switch above.
 
 ## Update channels and updates
 
-Bridgey updates itself. Open **Settings > Updates** on either device.
+Bridgey updates itself. Open **Settings > App > Updates** on either device.
 
 | Channel | For |
 | --- | --- |
@@ -299,7 +300,7 @@ installed app. On the Mac the update must carry a valid EdDSA signature. Details
 ### Update all
 
 When one of your devices has an update, **Update all** appears on the phone's home screen and in the
-Mac's menu-bar panel, and in **Settings > Updates** on both. It updates every device connected to the
+Mac's menu-bar panel, and in **Settings > App > Updates** on both. It updates every device connected to the
 one you are using: on the phone, all connected Macs and the phone; on a Mac, its connected phones and
 that Mac, plus any Mac it is paired with (Macs can pair with each other on the same Wi-Fi, or over your
 tailnet). A Mac reached only through another device is not included; start Update all on the phone to
@@ -316,11 +317,11 @@ reach every Mac it is connected to.
 Each device stays on its own channel and only installs its own signed update. If a device starts again
 on its old version, Bridgey says "Update didn't apply" and does not try that version again by itself.
 To stop other devices from starting updates on one device, turn off **Let paired devices start updates
-on this device** in its Settings > Updates.
+on this device** in its Settings > App > Updates (More options).
 
 ### Update all devices automatically
 
-With **Update all devices automatically** on (Settings > Updates; on by default for Beta and Nightly,
+With **Update all devices automatically** on (Settings > App > Updates; on by default for Beta and Nightly,
 off for Stable), a new version reaches every connected device without a tap. Your devices check every
 30 minutes on Beta and Nightly (every 6 hours on Stable) and when they wake up. When one finds a new
 version, the other connected devices update first and it restarts last.
@@ -334,7 +335,7 @@ version, the other connected devices update first and it restarts last.
 - A device updated this way says "Started automatically by" the device that started it, and the
   activity stream lists what happened, for example "Updated automatically to 1.0 Beta 2"
   or "Waiting: call in progress".
-- Settings > Updates shows what it is doing now and how the last automatic update went.
+- Settings > App > Updates shows what it is doing now and how the last automatic update went.
 - With settings sync on, turning it on or off on one device does the same on your other devices.
 
 On a Mac you can also start it from Terminal: `"/Applications/Bridgey by Round Robin.app/Contents/MacOS/BridgeyMac" --update-all`
@@ -404,7 +405,7 @@ Security > Local Network allows Bridgey. Press **Look for devices again** (the r
 **Retry now** on a paired device. Check the original Bridgey is not running on the Mac.
 
 **It disconnects overnight or when the phone sleeps.** Allow Bridgey to stay connected: Settings >
-General > "Stay connected while the phone sleeps". Many phones add their own limit; see
+App > General > "Stay connected while the phone sleeps". Many phones add their own limit; see
 [compatibility](compatibility.md#phone-makers-and-skins). On OnePlus, open App info > Battery usage and
 allow background activity.
 

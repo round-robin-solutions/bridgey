@@ -105,6 +105,17 @@ internal fun GroupScope.codesRows(
     sync: SyncUiState = SyncUiState(),
     syncActions: SyncSettingsActions = SyncSettingsActions(),
 ) {
+    codesMainRows(state, actions, sync, syncActions)
+    codesMoreRows(state, actions)
+}
+
+/** The Codes card's main rows: the status (the card's first row), the link to the Mac, Also read codes in email. */
+internal fun GroupScope.codesMainRows(
+    state: CodesSettingsState,
+    actions: CodesSettingsActions,
+    sync: SyncUiState = SyncUiState(),
+    syncActions: SyncSettingsActions = SyncSettingsActions(),
+) {
     row { shape ->
         val ok = state.access == CodeAccessStatus.ALLOWED
         ListRow(
@@ -125,6 +136,10 @@ internal fun GroupScope.codesRows(
         )
     }
     syncRows(dev.bridgey.android.sync.SyncKey.EMAIL_CODES, sync, syncActions)
+}
+
+/** The Codes card's More options: Use cloud when no Mac is reading. */
+internal fun GroupScope.codesMoreRows(state: CodesSettingsState, actions: CodesSettingsActions) {
     row { shape -> CodesCloudRow(shape, state, actions) }
 }
 
@@ -266,5 +281,3 @@ private fun CodesStep(number: Int, text: String) {
     }
 }
 
-@Composable
-private fun Chevron() = androidx.compose.material3.Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant)

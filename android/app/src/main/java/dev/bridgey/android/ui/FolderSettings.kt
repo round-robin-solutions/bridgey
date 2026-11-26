@@ -105,8 +105,19 @@ internal fun GroupScope.autoResumeRow(state: FolderSettingsState, actions: Folde
     }
 }
 
-/** The folder rows inside the Files group. */
+/** The folder rows inside the Files card: Folders sent to this phone, then the rest (More options). */
 internal fun GroupScope.folderRows(
+    state: FolderSettingsState,
+    actions: FolderSettingsActions,
+    sync: dev.bridgey.android.sync.SyncUiState = dev.bridgey.android.sync.SyncUiState(),
+    syncActions: SyncSettingsActions = SyncSettingsActions(),
+) {
+    folderModeRows(state, actions, sync, syncActions)
+    folderMoreRows(state, actions, sync, syncActions)
+}
+
+/** Folders sent to this phone, with its sync lines: one of the Files card's main rows. */
+internal fun GroupScope.folderModeRows(
     state: FolderSettingsState,
     actions: FolderSettingsActions,
     sync: dev.bridgey.android.sync.SyncUiState = dev.bridgey.android.sync.SyncUiState(),
@@ -114,6 +125,15 @@ internal fun GroupScope.folderRows(
 ) {
     row { shape -> FolderModeRow(shape, state, actions, sync.syncs(dev.bridgey.android.sync.SyncKey.FOLDER_DESTINATION)) }
     syncRows(dev.bridgey.android.sync.SyncKey.FOLDER_DESTINATION, sync, syncActions)
+}
+
+/** The default folder, conflicts, browsing, Replace, hidden and system files and Places: the Files card's More options. */
+internal fun GroupScope.folderMoreRows(
+    state: FolderSettingsState,
+    actions: FolderSettingsActions,
+    sync: dev.bridgey.android.sync.SyncUiState = dev.bridgey.android.sync.SyncUiState(),
+    syncActions: SyncSettingsActions = SyncSettingsActions(),
+) {
     row { shape ->
         ChoiceRow(
             shape, stringResource(R.string.settings_default_folder), state.defaultLabel, BridgeyIcons.Folder,

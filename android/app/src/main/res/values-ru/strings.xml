@@ -320,7 +320,7 @@
     <string name="devices_none">Связанных устройств пока нет. Нажмите «Связать новое устройство».</string>
     <string name="devices_pair_new">Связать новое устройство</string>
     <string name="devices_pair_new_detail">Найдите устройство в этой сети Wi-Fi и сравните код</string>
-    <string name="devices_per_device_note">Откройте устройство, чтобы отключить функции только для него или забыть его. Чем делится каждая функция, задаётся в разделах настроек.</string>
+    <string name="devices_per_device_note">Откройте устройство, чтобы увидеть его активность или забыть его. Какие устройства получают функцию, выбирается в её карточке.</string>
     <string name="devices_direct_calls">Статус и управление звонками</string>
     <string name="devices_direct_calls_detail">Разрешает сопряжённому устройству начинать, принимать, отклонять и завершать звонки</string>
     <string name="notification_apps_intro">Выберите приложения, уведомления которых можно показывать на сопряжённых устройствах.</string>
@@ -503,7 +503,7 @@
     <string name="settings_summary_general_battery">Оптимизация батареи может приостанавливать Bridgey</string>
     <string name="settings_summary_version">Версия %1$s</string>
     <string name="settings_remote_detail">Телефон как тачпад, клавиатура и пульт для презентаций на Mac, который это разрешает</string>
-    <string name="remote_settings_note">Mac должен разрешить этот телефон в настройках Bridgey › Удалённое управление. Пока вы управляете, Mac это показывает и может остановить вас в любой момент.</string>
+    <string name="remote_settings_note">Mac должен разрешить этот телефон в настройках Bridgey › Управление › Удалённое управление. Пока вы управляете, Mac это показывает и может остановить вас в любой момент.</string>
     <string name="remote_speed_title">Скорость указателя</string>
     <string name="remote_speed_1">Медленно</string>
     <string name="remote_speed_2">Спокойно</string>
@@ -571,7 +571,7 @@
     <string name="remote_reason_left">Пауза: вы ушли с этого экрана. %1$s больше не управляется.</string>
     <string name="remote_reason_local_stop">Кто-то остановил управление на %1$s.</string>
     <string name="remote_reason_timeout">%1$s остановил управление: 6 секунд без связи с телефоном.</string>
-    <string name="remote_reason_disabled">На %1$s откройте настройки Bridgey › Удалённое управление и разрешите этот телефон. Здесь удалённое управление тоже должно быть включено.</string>
+    <string name="remote_reason_disabled">На %1$s откройте настройки Bridgey › Управление › Удалённое управление и разрешите этот телефон. Здесь удалённое управление тоже должно быть включено.</string>
     <string name="remote_reason_permission">На %1$s разрешите Bridgey в Системных настройках › Конфиденциальность и безопасность › Универсальный доступ, затем начните снова.</string>
     <string name="remote_reason_busy">Сейчас %1$s управляет другое устройство.</string>
     <string name="remote_reason_unsupported">Эта версия не может управлять %1$s. Обновите Bridgey на обоих устройствах.</string>
@@ -712,7 +712,7 @@
     </plurals>
     <string name="notification_folder_from">С %1$s</string>
     <string name="notification_lost_access">Bridgey потерял доступ к %1$s</string>
-    <string name="notification_lost_access_detail">Выдайте доступ снова: Настройки, Файлы, Места.</string>
+    <string name="notification_lost_access_detail">Выдайте доступ снова: Настройки, Обмен, Файлы, Места.</string>
     <string name="notification_channel_folder_questions">Вопросы о папках</string>
     <string name="notification_channel_folder_questions_detail">Куда сохранять папки, присланные на этот телефон, и что делать, если папка уже есть</string>
     <string name="notification_channel_received_folders">Полученные папки</string>
@@ -893,10 +893,10 @@
     <string name="mac_volume_level">Громкость %1$d%%</string>
     <string name="mac_volume_muted">Звук выключен</string>
     <string name="mac_actions_blocked">Для действия «%1$s» сначала нужно разрешение на %2$s</string>
-    <string name="mac_actions_empty">Пока ничего не разрешено. На %1$s откройте настройки Bridgey, раздел «Медиа и действия».</string>
+    <string name="mac_actions_empty">Пока ничего не разрешено. На %1$s откройте настройки Bridgey, раздел «Управление», карточку «Действия на Mac».</string>
     <string name="mac_action_done_app">%1$s: открыто на %2$s</string>
     <string name="mac_action_done_shortcut">Команда «%1$s» выполнена на %2$s</string>
-    <string name="mac_action_refused_not_allowed">%1$s больше не разрешает это. Проверьте «Медиа и действия» на Mac.</string>
+    <string name="mac_action_refused_not_allowed">%1$s больше не разрешает это. Проверьте «Управление», «Действия на Mac» в его настройках Bridgey.</string>
     <string name="mac_action_refused_invalid">%1$s не смог прочитать запрос</string>
     <string name="mac_action_refused_rate_limited">Слишком часто. Подождите немного и повторите.</string>
     <string name="mac_action_refused_busy">На %1$s ещё выполняется быстрая команда</string>
