@@ -277,6 +277,17 @@ Listing text, privacy answers and screenshots, ready for approval:
 | End to end, browser: a headless Chromium loads the built Chrome package with a test-only host permission; its native host is the real helper; a stub app answers on a Unix socket: `NODE_PATH=$(npm root -g) node extensions/browser/test/e2e.mjs --chrome <chromium>` | by hand (needs puppeteer-core and Chromium) |
 | End to end, Mac: the real helper, run the way a browser runs it, against a throwaway test instance paired with the scripted peer: `extensions/browser/test/mac-live.sh` | by hand on a Mac (no browser is started and no real browser folder is touched) |
 
+## Not verified yet
+
+- A real browser on a Mac or a Windows PC with the installed app: the checks above cover the extension in Chromium
+  on Linux, and the helper with a Mac test instance, but not Chrome, Edge, Firefox, Brave or Arc starting the
+  helper from an installed Bridgey.
+- A Mac where the app still carries the download quarantine (installed from the DMG rather than Homebrew, which
+  clears it): macOS may refuse to start the helper for the browser. If so, the fix belongs in the app (clear the
+  flag on the helper when installing) rather than in instructions.
+- Windows end to end: the pipe and registry code is built and unit tested on the Windows lane, not exercised with
+  a browser.
+
 ## Later
 
 - The store IDs in `native-host.json` once the stores assign them, and signed Firefox builds in releases.
