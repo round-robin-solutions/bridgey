@@ -87,7 +87,9 @@ The settings that change the app's behaviour are in Settings:
   encrypted), Codes from messages (off), Also read codes in email (off), Copy codes automatically (off), and Share
   when I'm using this PC (on);
 - Away from home: Connect away from home, on, and its status;
-- Links (on) and Open links right away (on), Media controls (off), Battery, Find device and Ping (on);
+- Links (on) and Open links right away (on), Browser extensions (off: the extension's native messaging host for
+  Chrome, Edge, Brave and Firefox, [docs](../docs/browser-extensions.md)), Media controls (off), Battery, Find device
+  and Ping (on);
 - for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links and Media controls
   switches;
 - Updates: the channel (the build's own: Beta for a beta), Check for updates when Bridgey opens (on, at most every

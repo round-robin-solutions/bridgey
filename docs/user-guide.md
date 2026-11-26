@@ -140,6 +140,18 @@ is not shown in the notification or stored for these actions.
   files when sending folders", turn each on; both are off by default. On the phone they also apply
   when a Mac downloads a folder from it.
 
+## Send from your browser
+
+The browser extension sends the page you are on, or a link, from Chrome, Edge, Firefox, Brave or Arc to
+a paired device.
+
+1. **On the Mac:** Settings > Media and actions > **Browser extensions** > **Install**. **On Windows:**
+   Settings > Media and actions > turn on **Browser extensions**.
+2. Add the extension to your browser from the release's `-Chrome.zip`, `-Edge.zip` or `-Firefox.zip`
+   ([steps](browser-extensions.md#install-by-hand)) until it is in the browsers' stores.
+3. Click the Bridgey button, choose a device and **Send**, or right-click a link. **Alt+Shift+S** sends
+   the page to the device you used last.
+
 ## Notifications
 
 Phone notifications can appear on the Mac.

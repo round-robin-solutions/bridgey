@@ -35,6 +35,8 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
     public event Action? CodesChanged;
     public event Action<bool>? NotificationHistoryChanged;
     public event Action<bool>? SendToMenuChanged;
+    /// <summary>Settings > Media and actions > Browser extensions was turned on or off.</summary>
+    public event Action<bool>? BrowserSupportChanged;
 
     public AppSettings Values => settings;
 
@@ -216,6 +218,30 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
             Changed();
             Raise();
         }
+    }
+
+    /// <summary>Browser extensions: the host manifests, registry keys and pipe the extension uses (Bridgey.App).</summary>
+    public bool BrowserSupport
+    {
+        get => settings.BrowserSupport;
+        set
+        {
+            if (value == settings.BrowserSupport) return;
+            settings.BrowserSupport = value;
+            Changed();
+            Raise();
+            BrowserSupportChanged?.Invoke(value);
+        }
+    }
+
+    private string _browserSupportStatus = BrowserSupportOff;
+    public const string BrowserSupportOff = "Send pages and links to your devices from Chrome, Edge, Firefox and Brave.";
+
+    /// <summary>The line under Browser extensions: what it does, the browsers it was set up for, or why it can't be.</summary>
+    public string BrowserSupportStatus
+    {
+        get => _browserSupportStatus;
+        set => Set(ref _browserSupportStatus, value);
     }
 
     public bool SendToMenu

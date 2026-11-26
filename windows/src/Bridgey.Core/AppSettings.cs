@@ -64,6 +64,8 @@ public sealed class AppSettings
     public bool Links { get; set; } = true;
     /// <summary>A link a phone sends with Open on PC opens at once (otherwise it waits for Open or Dismiss).</summary>
     public bool OpenLinksRightAway { get; set; } = true;
+    /// <summary>Browser extensions: the native messaging host for Chrome, Edge, Firefox and Brave (docs/browser-extensions.md). Off until chosen.</summary>
+    public bool BrowserSupport { get; set; }
     /// <summary>The phone's media controls for this PC's player. Off until chosen, as on the Mac.</summary>
     public bool Media { get; set; }
     /// <summary>Connect away from home: paired devices reach this PC off the local network (on, as on the Mac).</summary>
