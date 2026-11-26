@@ -20,7 +20,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -233,6 +233,24 @@ pub struct Node {
     cloudflare_relays: Mutex<HashSet<String>>,
     /// When foreground last asked for a fresh control connection.
     last_refresh: Mutex<Option<Instant>>,
+    /// Direct QUIC handshakes under way (incoming, not ICE), for [addrs::admit_incoming].
+    handshaking: AtomicUsize,
+}
+
+/// One direct handshake under way, counted until it ends however it ends.
+struct Handshake(Arc<Node>);
+
+impl Handshake {
+    fn start(node: Arc<Node>) -> Self {
+        node.handshaking.fetch_add(1, Ordering::Relaxed);
+        Handshake(node)
+    }
+}
+
+impl Drop for Handshake {
+    fn drop(&mut self) {
+        self.0.handshaking.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 fn now_ms() -> u64 {
@@ -304,6 +322,7 @@ impl Node {
             realms: Mutex::new(HashMap::new()),
             cloudflare_relays: Mutex::new(HashSet::new()),
             last_refresh: Mutex::new(None),
+            handshaking: AtomicUsize::new(0),
         });
         node.restore_state();
         tokio::spawn(node.clone().accept_loop());
@@ -774,19 +793,20 @@ impl Node {
         let config = quic::client_config(&self.identity.read().unwrap(), None, keep_alive(route), Mtu::Discover);
         let connecting = match self.endpoint.connect_with(config, addr, "bridgey") {
             Ok(c) => c,
-            Err(e) => {
-                self.mark("dial.error", Some(&peer), Some(&format!("{addr}: {e}")));
+            Err(_) => {
+                // The error can name the address, and timing events never carry one.
+                self.mark("dial.error", Some(&peer), Some(&format!("{} not_started", route.as_str())));
                 return;
             }
         };
         let conn = match tokio::time::timeout(Duration::from_secs(3), connecting).await {
             Ok(Ok(conn)) => conn,
             Ok(Err(e)) => {
-                self.mark("dial.error", Some(&peer), Some(&format!("{addr}: {e}")));
+                self.mark("dial.error", Some(&peer), Some(&format!("{} {}", route.as_str(), close_reason(&e))));
                 return;
             }
             Err(_) => {
-                self.mark("dial.timeout", Some(&peer), Some(&addr.to_string()));
+                self.mark("dial.timeout", Some(&peer), Some(route.as_str()));
                 return;
             }
         };
@@ -1682,15 +1702,15 @@ impl Node {
             // Caps before the handshake: tunnels the app has not authenticated yet, in all and per source
             // address (ICE tunnels come from virtual addresses and were set up through sealed signalling).
             let source = addrs::canonical(incoming.remote_address());
-            let (pending_total, pending_here) = {
+            let pending: Vec<_> = {
                 let tunnels = self.tunnels.lock().unwrap();
-                let pending: Vec<_> = tunnels.values().filter(|t| !t.authenticated.load(Ordering::Relaxed)).collect();
-                (pending.len(), pending.iter().filter(|t| t.remote_ip == Some(source.ip())).count())
+                tunnels.values().filter(|t| !t.authenticated.load(Ordering::Relaxed)).map(|t| t.remote_ip).collect()
             };
-            if pending_total >= 16 || (!is_virtual(source) && pending_here >= 3) {
+            if !addrs::admit_incoming(source.ip(), is_virtual(source), &pending, self.handshaking.load(Ordering::Relaxed)) {
                 incoming.refuse();
                 continue;
             }
+            let handshake = (!is_virtual(source)).then(|| Handshake::start(self.clone()));
             // A direct dial to one of our addresses may grow its datagrams; ICE tunnels (virtual sources) keep the
             // endpoint's 1,200 bytes (quic::Mtu).
             let connecting = if is_virtual(source) {
@@ -1705,14 +1725,15 @@ impl Node {
                     Ok(connecting) => tokio::time::timeout(Duration::from_secs(10), connecting).await,
                     Err(e) => Ok(Err(e)),
                 };
+                drop(handshake);
                 let conn = match accepted {
                     Ok(Ok(conn)) => conn,
                     Ok(Err(e)) => {
-                        node.mark("accept.error", None, Some(&format!("{source}: {e}")));
+                        node.mark("accept.error", None, Some(&close_reason(&e)));
                         return;
                     }
                     Err(_) => {
-                        node.mark("accept.timeout", None, Some(&source.to_string()));
+                        node.mark("accept.timeout", None, None);
                         return;
                     }
                 };

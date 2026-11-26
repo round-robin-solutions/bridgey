@@ -184,9 +184,60 @@ pub fn parse_learned(a: &str, port: u16) -> Option<SocketAddr> {
     Some(SocketAddr::new(ip, port))
 }
 
+/// The address group per-source limits count by: an IPv4 address, or the /64 an IPv6 address is in (one host
+/// usually holds a whole /64, so counting single IPv6 addresses would not limit it).
+pub fn source_group(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & !((1u128 << 64) - 1))),
+        },
+        v4 => v4,
+    }
+}
+
+/// Incoming QUIC tunnels the app has not authenticated yet, and handshakes under way, allowed at once.
+pub const MAX_PENDING_DIRECT: usize = 16;
+pub const MAX_PENDING_PER_SOURCE: usize = 3;
+pub const MAX_PENDING_ICE: usize = 32;
+pub const MAX_HANDSHAKES: usize = 32;
+
+/// Whether an incoming QUIC connection may start its handshake. `pending` holds the remote address of every tunnel
+/// not yet authenticated (`None` for ICE tunnels, which come from virtual addresses after sealed signalling and a
+/// pin check, and for this node's own dials); `handshaking` counts direct handshakes under way. Anyone who can reach
+/// the UDP port can fill the direct allowance, so ICE tunnels have their own and are never refused because of it.
+pub fn admit_incoming(source: IpAddr, ice: bool, pending: &[Option<IpAddr>], handshaking: usize) -> bool {
+    if ice {
+        return pending.iter().filter(|p| p.is_none()).count() < MAX_PENDING_ICE;
+    }
+    let group = source_group(source);
+    let direct = pending.iter().flatten().count();
+    let here = pending.iter().flatten().filter(|ip| source_group(**ip) == group).count();
+    handshaking < MAX_HANDSHAKES && direct < MAX_PENDING_DIRECT && here < MAX_PENDING_PER_SOURCE
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incoming_tunnels_cannot_crowd_out_ice() {
+        // Security review 1.0, C5: 16 direct handshakes from a host on the network refused every ICE tunnel too.
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let lan: Vec<Option<IpAddr>> = (1..=16).map(|i| Some(ip(&format!("192.168.1.{i}")))).collect();
+        assert!(!admit_incoming(ip("192.168.1.99"), false, &lan, 0));
+        assert!(admit_incoming(ip("fd00::1"), true, &lan, 0), "an ICE tunnel still gets in");
+        let ice: Vec<Option<IpAddr>> = vec![None; 32];
+        assert!(!admit_incoming(ip("fd00::1"), true, &ice, 0));
+        assert!(admit_incoming(ip("192.168.1.2"), false, &ice, 0), "and the other way round");
+        // Three per source, counting a whole IPv6 /64 as one source.
+        let one_host: Vec<Option<IpAddr>> = ["2001:db8:1:2::1", "2001:db8:1:2::2", "2001:db8:1:2:ffff::3"].iter().map(|a| Some(ip(a))).collect();
+        assert!(!admit_incoming(ip("2001:db8:1:2::99"), false, &one_host, 0));
+        assert!(admit_incoming(ip("2001:db8:1:3::1"), false, &one_host, 0));
+        // Handshakes under way count too.
+        assert!(!admit_incoming(ip("192.168.1.2"), false, &[], MAX_HANDSHAKES));
+        assert_eq!(source_group(ip("::ffff:10.0.0.1")), ip("10.0.0.1"));
+    }
 
     #[test]
     fn labels() {
