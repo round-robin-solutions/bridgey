@@ -227,9 +227,22 @@ line). Per host:
 | `sin` | rb-vps | deploy server | `EXTERNAL_IP` and `LISTENING_IP` `15.235.211.41`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=25000000` | 3478, 61000-62999 |
 | `sxb` | rr-dev-1 | deploy server (still the build server) | `EXTERNAL_IP` and `LISTENING_IP` `109.123.243.231`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=37500000`, `COTURN_CPUS=1.5` | 3478, 61000-62999 |
 
-The template denies relaying to private, carrier-NAT, tailnet, Docker and link-local ranges, has no
+The template denies relaying to private, carrier-NAT, tailnet, Docker, link-local and reserved ranges, has no
 TCP relay and no admin CLI. On rr-dev-1 also put the relay ports in the lowest `tc` class so builds
 and pushes always win (spec 9.10); that script is still to write.
+
+**Relay host firewall** (security review 1.0, C4; to apply at the next relay redeploy, not applied yet). coturn
+must be able to relay to its own public address (two peers on the same relay, and the core asks permission for every
+relay in the pool), so it cannot be told to refuse it. Relayed traffic to the host's own address leaves from a relay
+port, so the host keeps it away from everything but other relay ports. On each relay host, with its public IPv4 and
+relay range:
+
+```bash
+iptables -I INPUT -p udp -s <public IPv4> --sport 61000:62999 ! --dport 61000:62999 -j DROP
+```
+
+Make it persistent the way the host keeps its other rules, and check with `ss -ulpn` which UDP services listen on
+the public address.
 
 Check each relay from another host: a STUN binding to `relay-xx.roundrobin.in:3478` answers, and a probe
 pair (`rust/core/examples/probe.rs` with `--relay-only` and the production control URL) connects
