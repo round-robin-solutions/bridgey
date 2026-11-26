@@ -33,25 +33,34 @@ class SmartRoutingSettingsActions(
 
 @Composable
 fun SmartRoutingSettings(state: SmartRoutingSettingsState, actions: SmartRoutingSettingsActions) {
+    RowGroup { smartRoutingRows(state, actions) }
+}
+
+/** Send notifications to the Mac you are using, the preferred Mac, and where they go now. */
+internal fun GroupScope.smartRoutingRows(state: SmartRoutingSettingsState, actions: SmartRoutingSettingsActions) {
+    row { shape -> SwitchRow(shape, stringResource(R.string.smart_routing_title), stringResource(R.string.smart_routing_detail),
+        BridgeyIcons.Notifications, Tint.PURPLE, state.enabled, actions.setEnabled) }
+    row { shape -> PreferredMacRow(shape, state, actions) }
+    row { shape ->
+        val destinationName = state.devices.firstOrNull { it.id == state.destinationId }?.name
+        val status = when {
+            !state.enabled -> stringResource(R.string.smart_routing_all_status)
+            state.reason == RoutingReason.ACTIVE && destinationName != null -> stringResource(R.string.smart_routing_active_status, destinationName)
+            state.reason == RoutingReason.PREFERRED && destinationName != null -> stringResource(R.string.smart_routing_preferred_status, destinationName)
+            else -> stringResource(R.string.smart_routing_phone_status)
+        }
+        ListRow(shape, stringResource(R.string.smart_routing_status), status, BridgeyIcons.Notifications, Tint.NEUTRAL, searchable = false)
+    }
+}
+
+@Composable
+private fun PreferredMacRow(shape: androidx.compose.ui.graphics.Shape, state: SmartRoutingSettingsState, actions: SmartRoutingSettingsActions) {
     val colors = BridgeyTheme.colors
     var choosing by remember { mutableStateOf(false) }
     val preferredName = state.devices.firstOrNull { it.id == state.preferredId }?.name
-    val destinationName = state.devices.firstOrNull { it.id == state.destinationId }?.name
-    val status = when {
-        !state.enabled -> stringResource(R.string.smart_routing_all_status)
-        state.reason == RoutingReason.ACTIVE && destinationName != null -> stringResource(R.string.smart_routing_active_status, destinationName)
-        state.reason == RoutingReason.PREFERRED && destinationName != null -> stringResource(R.string.smart_routing_preferred_status, destinationName)
-        else -> stringResource(R.string.smart_routing_phone_status)
-    }
-    RowGroup {
-        row { shape -> SwitchRow(shape, stringResource(R.string.smart_routing_title), stringResource(R.string.smart_routing_detail),
-            BridgeyIcons.Notifications, Tint.PURPLE, state.enabled, actions.setEnabled) }
-        row { shape -> ListRow(shape, stringResource(R.string.smart_routing_preferred),
-            preferredName ?: stringResource(R.string.smart_routing_none), BridgeyIcons.LaptopMac, Tint.BLUE,
-            onClick = { choosing = true }) { Text(stringResource(R.string.smart_routing_change), style = BridgeyType.label, color = colors.primary) } }
-        row { shape -> ListRow(shape, stringResource(R.string.smart_routing_status), status,
-            BridgeyIcons.Notifications, Tint.NEUTRAL, searchable = false) }
-    }
+    ListRow(shape, stringResource(R.string.smart_routing_preferred),
+        preferredName ?: stringResource(R.string.smart_routing_none), BridgeyIcons.LaptopMac, Tint.BLUE,
+        onClick = { choosing = true }) { Text(stringResource(R.string.smart_routing_change), style = BridgeyType.label, color = colors.primary) }
     if (choosing) {
         AlertDialog(
             onDismissRequest = { choosing = false },

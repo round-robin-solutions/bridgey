@@ -98,7 +98,8 @@ final class SendDesignScreenshots: XCTestCase {
                                                            hasCommandLine: state != .notInstalled, refreshing: state == .checking)
                 let suffix = "\(state.rawValue)-\(scheme == .dark ? "dark" : "light")"
                 let pane = VStack(alignment: .leading, spacing: 16) {
-                    ConnectAwayPane(model: model, actions: SettingsActions())
+                    SettingsPaneView(pane: .away, model: model, actions: SettingsActions())
+                        .environment(\.settingsExpandAll, true)
                 }.frame(width: 620).padding(24).frame(width: 1440, height: 900)
                 try write(pane, scheme: scheme, name: "mac-tailscale-1440-\(suffix)", padding: 0)
                 if state == .notInstalled || state == .running || state == .unavailable {

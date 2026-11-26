@@ -35,9 +35,19 @@ import kotlinx.coroutines.flow.first
 
 /**
  * Where a search result points: a row titled [title] on the page whose route key is [routeKey]. [fallback] is the
- * switch to show instead when that row is hidden in the page's current state.
+ * switch to show instead when that row is hidden in the page's current state. [expand] is the card (SettingsCard.key)
+ * whose More options hold the row: that card opens them first.
  */
-data class SearchTarget(val routeKey: String, val title: String, val scope: String? = null, val token: Long, val fallback: String? = null)
+data class SearchTarget(
+    val routeKey: String,
+    val title: String,
+    val scope: String? = null,
+    val token: Long,
+    val fallback: String? = null,
+    val expand: String? = null,
+    /** The card (its key) the fallback switch sits in. */
+    val fallbackScope: String? = null,
+)
 
 /**
  * Settings search across the app: the result that was chosen (the page scrolls to its row, which then
@@ -64,9 +74,9 @@ class SettingsSearchHost {
      */
     var recorder: ((route: String?, scope: String?, title: String, searchable: Boolean, row: Any) -> Unit)? = null
 
-    fun open(routeKey: String, title: String, scope: String? = null, fallback: String? = null) {
+    fun open(routeKey: String, title: String, scope: String? = null, fallback: String? = null, expand: String? = null, fallbackScope: String? = scope) {
         rowBounds = null
-        pending = SearchTarget(routeKey, title, scope, nextToken++, fallback?.takeIf { it != title })
+        pending = SearchTarget(routeKey, title, scope, nextToken++, fallback?.takeIf { it != title || fallbackScope != scope }, expand, fallbackScope)
     }
 
     /** The row is not on the page: point at its [SearchTarget.fallback] instead, keeping the token. */
@@ -74,7 +84,8 @@ class SettingsSearchHost {
         val target = pending?.takeIf { it.token == token } ?: return false
         val fallback = target.fallback ?: return false
         rowBounds = null
-        pending = target.copy(title = fallback, fallback = null)
+        // The switch that shows the row is never inside More options.
+        pending = target.copy(title = fallback, fallback = null, scope = target.fallbackScope, expand = null)
         return true
     }
 
@@ -88,7 +99,10 @@ val LocalSettingsSearch = staticCompositionLocalOf<SettingsSearchHost?> { null }
 /** The route key of the page being drawn, so a target only matches rows on its own page. */
 val LocalSearchRoute = staticCompositionLocalOf<String?> { null }
 
-/** Rows that repeat per device on one page tell them apart with the device id. */
+/**
+ * Rows tell apart rows with the same title on one page: a card's rows carry the card's key, and a Devices chip the device's
+ * id.
+ */
 val LocalSearchScope = staticCompositionLocalOf<String?> { null }
 
 /** The highlight's whole run: in, a dip, in again, a short hold, out. */

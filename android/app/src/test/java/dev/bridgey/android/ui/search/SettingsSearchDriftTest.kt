@@ -49,9 +49,6 @@ import dev.bridgey.android.ui.DialerSettingsState
 import dev.bridgey.android.ui.PhoneControlMac
 import dev.bridgey.android.ui.PhoneControlSettingsState
 import dev.bridgey.android.control.PhoneControlGrantMode
-import dev.bridgey.android.ui.DevicesSettingsActions
-import dev.bridgey.android.ui.DevicesSettingsScreen
-import dev.bridgey.android.ui.DevicesSettingsState
 import dev.bridgey.android.ui.FocusSettingsState
 import dev.bridgey.android.ui.MessagesSettingsState
 import dev.bridgey.android.ui.PermissionRow
@@ -60,6 +57,9 @@ import dev.bridgey.android.ui.ResetScreen
 import dev.bridgey.android.ui.Route
 import dev.bridgey.android.ui.SettingsActions
 import dev.bridgey.android.ui.SettingsScreen
+import dev.bridgey.android.ui.LocalCardsExpanded
+import dev.bridgey.android.ui.SettingsDevice
+import dev.bridgey.android.ui.SettingsGroup
 import dev.bridgey.android.ui.SettingsSection
 import dev.bridgey.android.ui.SettingsState
 import dev.bridgey.android.ui.SetupSettingsState
@@ -69,6 +69,8 @@ import dev.bridgey.android.ui.settingsRoute
 import dev.bridgey.android.ui.theme.BridgeyTheme
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -98,15 +100,15 @@ class SettingsSearchDriftTest {
 
     private data class Drawn(val route: String?, val title: String, val searchable: Boolean, val scope: String? = null, val row: Any? = null)
 
-    /** Every row [content] draws, with the route key it was drawn under. */
-    private fun record(routeKey: String, content: @Composable () -> Unit): List<Drawn> {
+    /** Every row [content] draws, with the route key it was drawn under; [expanded] opens or closes every More options. */
+    private fun record(routeKey: String, expanded: Boolean? = null, content: @Composable () -> Unit): List<Drawn> {
         val drawn = mutableListOf<Drawn>()
         val host = SettingsSearchHost().apply { recorder = { route, scope, title, searchable, row -> drawn += Drawn(route, title, searchable, scope, row) } }
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     BridgeyTheme {
-                        CompositionLocalProvider(LocalSettingsSearch provides host, LocalSearchRoute provides routeKey) { content() }
+                        CompositionLocalProvider(LocalSettingsSearch provides host, LocalSearchRoute provides routeKey, LocalCardsExpanded provides expanded) { content() }
                     }
                 }
             }
@@ -128,6 +130,9 @@ class SettingsSearchDriftTest {
             messages = MessagesSettingsState(dualSim = true),
             setup = SetupSettingsState(oem = OemChecklist(OemVendor.ONEPLUS, listOf(OemStep(OemStepKind.AUTO_START, emptyList())))),
             connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 1),
+            // The paired Mac's chips on every card, and the paired devices list.
+            devices = listOf(SettingsDevice(work.id, work.name, on = BridgeyFeature.entries.associateWith { true })),
+            rings = deviceRings(listOf(work, agent), emptyList(), PairingState.Connected("work", "Work MacBook")),
             // A paired Mac's own rows: Macs that can call, and control of this phone.
             dialer = DialerSettingsState(macs = listOf(DialerMac(work.id, work.name, allowed = true))),
             phoneControl = PhoneControlSettingsState(macs = listOf(PhoneControlMac(work.id, work.name, PhoneControlGrantMode.ASK, sharing = true))),
@@ -152,20 +157,14 @@ class SettingsSearchDriftTest {
         )
     }
 
-    /** Each page: its route key and the rows it draws. */
-    private fun drawAll(): Map<String, List<Drawn>> {
+    /** Each page: its route key and the rows it draws, every card's More options open. */
+    private fun drawAll(expanded: Boolean = true): Map<String, List<Drawn>> {
         val state = fullState()
         val pages = linkedMapOf<String, List<Drawn>>()
         pages[Route.Settings.key] = record(Route.Settings.key) { SettingsScreen(state = state, actions = SettingsActions()) }
-        SettingsSection.entries.filter { it != SettingsSection.THIS_PHONE && it != SettingsSection.DEVICES }.forEach { section ->
-            val key = settingsRoute(section).key
-            pages[key] = record(key) { SettingsScreen(state = state, actions = SettingsActions(), section = section) }
-        }
-        pages[Route.Devices.key] = record(Route.Devices.key) {
-            DevicesSettingsScreen(
-                DevicesSettingsState(deviceRings(listOf(work, agent), emptyList(), PairingState.Connected("work", "Work MacBook")), connect = state.connect),
-                DevicesSettingsActions(),
-            )
+        SettingsGroup.entries.forEach { group ->
+            val key = settingsRoute(group).key
+            pages[key] = record(key, expanded) { SettingsScreen(state = state, actions = SettingsActions(), group = group) }
         }
         pages[Route.Permissions.key] = record(Route.Permissions.key) {
             PermissionsScreen(PermissionKind.entries.map { PermissionEntry(it, PermissionState.ALLOWED) }, onBack = {}) {}
@@ -190,28 +189,55 @@ class SettingsSearchDriftTest {
         return pages
     }
 
+    private fun Drawn.id() = scope to title
+
+    private fun SearchResultEntry.id() = scope to rowTitle
+
     @Test fun everyRowHasAnEntryAndEveryEntryIsDrawn() {
         val pages = drawAll()
         val entries = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = fullState().sync, devices = devices)
-        val offered = entries.filter { it.rowTitle != null }.groupBy({ it.route.key }, { it.rowTitle!! })
+        val offered = entries.filter { it.rowTitle != null }.groupBy({ it.route.key }, { it.id() })
         val problems = mutableListOf<String>()
         pages.forEach { (key, drawn) ->
             assertTrue("$key drew no rows", drawn.isNotEmpty())
-            // The Devices list shows each device by name; search offers the device's own page for it.
-            val allowed = offered[key].orEmpty().toSet() + if (key == Route.Devices.key) devices.map { it.name } else emptyList()
-            drawn.filter { it.searchable && it.route == key }.map { it.title }.toSet().forEach { title ->
-                if (title !in allowed) problems += "$key: row \"$title\" has no search entry"
+            val allowed = offered[key].orEmpty().toSet()
+            drawn.filter { it.searchable && it.route == key }.map { it.id() }.toSet().forEach { id ->
+                if (id !in allowed) problems += "$key: row \"${id.second}\"${id.first?.let { " [$it]" } ?: ""} has no search entry"
             }
         }
         entries.filter { it.rowTitle != null }.forEach { entry ->
-            val drawn = pages[entry.route.key]?.filter { it.searchable }?.map { it.title }.orEmpty()
-            if (entry.rowTitle !in drawn) problems += "${entry.route.key}: entry ${entry.id} (\"${entry.rowTitle}\") is not drawn"
+            val drawn = pages[entry.route.key]?.filter { it.searchable }?.map { it.id() }.orEmpty()
+            if (entry.id() !in drawn) problems += "${entry.route.key}: entry ${entry.id} (\"${entry.rowTitle}\") is not drawn"
         }
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
         // Guard against a harness that draws nothing: the pages hold well over a hundred settings rows.
         val total = pages.values.sumOf { drawn -> drawn.count { it.searchable } }
         pages.forEach { (key, drawn) -> println("drift: $key ${drawn.count { it.searchable }} rows") }
         assertTrue("only $total rows drawn", total >= 120)
+    }
+
+    /**
+     * Every entry lands on a row a person can see: drawn with every card closed, or (an entry that names its card's
+     * More options) drawn only once that card's More options open.
+     */
+    @Test fun everyEntryResolvesToAVisibleOrDisclosedRow() {
+        val open = drawAll(expanded = true)
+        val closed = drawAll(expanded = false)
+        val entries = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = fullState().sync, devices = devices)
+        val problems = mutableListOf<String>()
+        var disclosed = 0
+        entries.filter { it.rowTitle != null }.forEach { entry ->
+            val shown = closed[entry.route.key].orEmpty().filter { it.searchable }.map { it.id() }
+            val inMore = open[entry.route.key].orEmpty().filter { it.searchable }.map { it.id() }
+            when {
+                entry.expand == null && entry.id() !in shown -> problems += "${entry.id} (\"${entry.rowTitle}\") is not on its page with More options closed"
+                entry.expand != null && entry.id() in shown -> problems += "${entry.id} names More options of ${entry.expand}, but it is shown without them"
+                entry.expand != null && entry.id() !in inMore -> problems += "${entry.id} is not in ${entry.expand}'s More options"
+                entry.expand != null -> disclosed++
+            }
+        }
+        assertTrue(problems.joinToString("\n"), problems.isEmpty())
+        assertTrue("only $disclosed rows behind More options", disclosed >= 25)
     }
 
     /** One row per title on a page: rows sharing a title would all highlight, and the scroll would pick either. */
@@ -235,22 +261,23 @@ class SettingsSearchDriftTest {
             developerMenu = true,
             connect = ConnectSettingsState(on = false),
         )
-        val pages = linkedMapOf<String, List<String>>()
-        SettingsSection.entries.filter { it != SettingsSection.THIS_PHONE && it != SettingsSection.DEVICES }.forEach { section ->
-            val key = settingsRoute(section).key
-            pages[key] = record(key) { SettingsScreen(state = off, actions = SettingsActions(), section = section) }
-                .filter { it.searchable && it.route == key }.map { it.title }
+        val pages = linkedMapOf<String, List<Pair<String?, String>>>()
+        SettingsGroup.entries.forEach { group ->
+            val key = settingsRoute(group).key
+            pages[key] = record(key, expanded = true) { SettingsScreen(state = off, actions = SettingsActions(), group = group) }
+                .filter { it.searchable && it.route == key }.map { it.id() }
         }
         val entries = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = SyncUiState(), devices = emptyList())
         val problems = mutableListOf<String>()
         var hidden = 0
         entries.filter { it.rowTitle != null && it.route.key in pages }.forEach { entry ->
             val drawn = pages.getValue(entry.route.key)
-            if (entry.rowTitle in drawn) return@forEach
+            if (entry.id() in drawn) return@forEach
             hidden++
-            when (val fallback = entry.fallbackTitle) {
-                null -> problems += "${entry.route.key}: ${entry.id} (\"${entry.rowTitle}\") is hidden with its feature off and names no revealedBy switch"
-                !in drawn -> problems += "${entry.route.key}: ${entry.id} falls back to \"$fallback\", which is not on the page either"
+            val fallback = entry.fallbackTitle
+            when {
+                fallback == null -> problems += "${entry.route.key}: ${entry.id} (\"${entry.rowTitle}\") is hidden with its feature off and names no revealedBy switch"
+                (entry.fallbackScope to fallback) !in drawn -> problems += "${entry.route.key}: ${entry.id} falls back to \"$fallback\" in ${entry.fallbackScope}, which is not on the page either"
             }
         }
         assertTrue(problems.joinToString("\n"), problems.isEmpty())
@@ -260,15 +287,28 @@ class SettingsSearchDriftTest {
 
     @Test fun statusLinesAreNotOffered() {
         val clipboard = drawAll().getValue(settingsRoute(SettingsSection.CLIPBOARD).key)
+        assertEquals(settingsRoute(SettingsGroup.SHARING).key, settingsRoute(SettingsSection.CLIPBOARD).key)
         val waiting = context.getString(R.string.settings_sync_waiting_here)
         assertTrue(clipboard.any { it.title == waiting && !it.searchable })
     }
 
     @Test fun developerRowsOnlyWithTheMenu() {
         val off = SettingsSearchRegistry.resolve(context, developerMenu = false, sync = SyncUiState(), devices = emptyList())
-        assertTrue(off.none { it.route == settingsRoute(SettingsSection.DEVELOPER) })
+        assertTrue(off.none { it.id.startsWith("developer.") })
         val on = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = SyncUiState(), devices = emptyList())
-        assertTrue(on.any { it.route == settingsRoute(SettingsSection.DEVELOPER) })
+        assertTrue(on.filter { it.id.startsWith("developer.") }.all { it.route == settingsRoute(SettingsGroup.APP) })
+        assertTrue(on.any { it.id.startsWith("developer.") })
+    }
+
+    /** Results for rows inside More options name their card, so the card opens them; others name none. */
+    @Test fun moreOptionsRowsOpenTheirCard() {
+        val entries = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = SyncUiState(), devices = devices).associateBy { it.id }
+        assertEquals("clipboard", entries.getValue("clipboard.eager").expand)
+        assertEquals("logging", entries.getValue("privacy.logCalls").expand)
+        assertEquals("clipboard", entries.getValue("device.work.1").expand)
+        assertNull(entries.getValue("clipboard.auto").expand)
+        assertNull(entries.getValue("device.work.0").expand)
+        assertEquals("work", entries.getValue("device.work.0").scope)
     }
 
     private fun topIds(query: String, entries: List<SearchResultEntry>): List<String> =
@@ -291,14 +331,17 @@ class SettingsSearchDriftTest {
         val entries = SettingsSearchRegistry.resolve(context, developerMenu = false, sync = SyncUiState(), devices = devices)
         val hits = topIds("build-server", entries)
         assertEquals("device.agent1", hits.first())
-        // A Mac's name leads to its page, then to its rows on Calls and Remote control.
+        // A Mac's name leads to its page, then to its chips and its row on Let Macs control this phone.
         val mac = topIds("work macbook", entries)
         assertEquals("device.work", mac.first())
-        assertTrue("calls.mac.work" in mac && "remote.mac.work" in mac)
+        assertTrue("remote.mac.work" in mac && "device.work.12" in mac)
+        // "May it start calls" was a row on Calls and a switch on its page: now one chip, one result.
+        assertFalse(entries.any { it.id == "calls.mac.work" })
         val work = SettingsSearch.search("work clipboard", entries.map { it.doc }).map { entries[it.index] }
-        assertEquals(Route.Device("work"), work.first().route)
+        assertEquals(Route.SettingsGroupPage(SettingsGroup.SHARING), work.first().route)
         assertEquals(context.getString(R.string.feature_clipboard), work.first().rowTitle)
-        assertTrue(work.first().breadcrumb.contains(" › Work MacBook › "))
+        assertEquals("work", work.first().scope)
+        assertTrue(work.first().breadcrumb, work.first().breadcrumb.endsWith(" › Work MacBook"))
     }
 
     @Test fun syncedRowsAreFoundAsSyncedAndByTheirStatus() {

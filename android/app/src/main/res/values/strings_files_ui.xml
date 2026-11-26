@@ -14,7 +14,7 @@
     <string name="attach_video_description">Video, %1$s</string>
     <string name="attach_media_access_title">See your photos and videos here</string>
     <string name="attach_media_access_body">Pick recent photos and videos right here, without the system picker. Android asks once.</string>
-    <string name="attach_media_access_mac">Paired Macs can browse them too while Settings › Files › Let other devices browse this phone is on.</string>
+    <string name="attach_media_access_mac">Paired Macs can browse them too while Settings › Sharing › Files › Let other devices browse this phone is on.</string>
     <string name="attach_media_allow">Allow access</string>
     <string name="attach_media_open_settings">Open settings</string>
     <string name="attach_media_partial">Bridgey sees only the photos and videos you selected.</string>

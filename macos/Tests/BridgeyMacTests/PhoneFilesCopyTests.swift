@@ -392,7 +392,7 @@ final class PhoneFilesCopyTests: XCTestCase {
         let entries = SettingsSearchRegistry.entries(SettingsModel())
         XCTAssertEqual(SettingsSearchOutcome.run("copy and download", entries: entries).rows.first?.entry.id, "files.phoneQuality")
         XCTAssertEqual(SettingsSearchOutcome.run("phone files original", entries: entries).rows.first?.entry.id, "files.phoneQuality")
-        XCTAssertEqual(SettingsSearchRegistry.staticEntries.first { $0.id == "files.phoneQuality" }?.breadcrumb, "Files")
+        XCTAssertEqual(SettingsSearchRegistry.staticEntries.first { $0.id == "files.phoneQuality" }?.breadcrumb, "Sharing \u{203A} Files")
     }
 
     // MARK: Strings

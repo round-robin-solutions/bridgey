@@ -52,8 +52,14 @@ class DialerSettingsActions(
     val setMacAllowed: (String, Boolean) -> Unit = { _, _ -> },
 )
 
-/** The rows under the Calls window switch: permissions, Ask on this phone first, then each Mac. */
+/** The rows under the Calls window switch: permissions and Ask on this phone first. */
 internal fun GroupScope.dialerRows(state: DialerSettingsState, actions: DialerSettingsActions) {
+    dialerMainRows(state, actions)
+    dialerMoreRows(state, actions)
+}
+
+/** The Calls window card's main rows: Place calls, Ask on this phone first (and the notifications it needs). */
+internal fun GroupScope.dialerMainRows(state: DialerSettingsState, actions: DialerSettingsActions) {
     row { shape ->
         DialerAccessRow(
             shape, stringResource(R.string.dialer_place_access),
@@ -61,6 +67,25 @@ internal fun GroupScope.dialerRows(state: DialerSettingsState, actions: DialerSe
             state.placeAllowed, BridgeyIcons.Call, actions.allowPlace,
         )
     }
+    row { shape ->
+        SwitchRow(
+            shape, stringResource(R.string.dialer_ask_first), stringResource(R.string.dialer_ask_first_detail),
+            BridgeyIcons.Smartphone, if (state.askFirst) Tint.GREEN else Tint.NEUTRAL, state.askFirst, actions.setAskFirst,
+        )
+    }
+    if (state.askFirst && !state.notificationsAllowed) {
+        row { shape ->
+            DialerAccessRow(
+                shape, stringResource(R.string.perm_post_notifications_name),
+                stringResource(R.string.dialer_ask_first_needs_notifications), false,
+                BridgeyIcons.Notifications, actions.allowNotifications,
+            )
+        }
+    }
+}
+
+/** The Calls window card's More options: contacts and call history. */
+internal fun GroupScope.dialerMoreRows(state: DialerSettingsState, actions: DialerSettingsActions) {
     if (state.contactsBuilt) {
         row { shape ->
             DialerAccessRow(
@@ -76,21 +101,6 @@ internal fun GroupScope.dialerRows(state: DialerSettingsState, actions: DialerSe
                 shape, stringResource(R.string.perm_call_log_name),
                 stringResource(if (state.callLogAllowed) R.string.dialer_call_log_access_on else R.string.dialer_call_log_access_off),
                 state.callLogAllowed, BridgeyIcons.Update, actions.allowCallLog,
-            )
-        }
-    }
-    row { shape ->
-        SwitchRow(
-            shape, stringResource(R.string.dialer_ask_first), stringResource(R.string.dialer_ask_first_detail),
-            BridgeyIcons.Smartphone, if (state.askFirst) Tint.GREEN else Tint.NEUTRAL, state.askFirst, actions.setAskFirst,
-        )
-    }
-    if (state.askFirst && !state.notificationsAllowed) {
-        row { shape ->
-            DialerAccessRow(
-                shape, stringResource(R.string.perm_post_notifications_name),
-                stringResource(R.string.dialer_ask_first_needs_notifications), false,
-                BridgeyIcons.Notifications, actions.allowNotifications,
             )
         }
     }

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings in six groups, one card per feature (26 Nov 2026). The Mac's sidebar has the same groups. -->
+    <string name="settings_group_devices">Devices</string>
+    <string name="settings_group_sharing">Sharing</string>
+    <string name="settings_group_phone">Notifications and calls</string>
+    <string name="settings_group_control">Control</string>
+    <string name="settings_group_privacy">Privacy</string>
+    <string name="settings_group_app">App</string>
+    <plurals name="settings_group_devices_paired">
+        <item quantity="one">%d paired</item>
+        <item quantity="other">%d paired</item>
+    </plurals>
+    <string name="settings_group_devices_away">%1$s, Away from home on</string>
+    <string name="settings_group_sharing_summary">Clipboard, files, links</string>
+    <string name="settings_group_phone_summary">Alerts, codes, messages, calls</string>
+    <string name="settings_group_control_summary">Screens, remote control</string>
+    <string name="settings_group_privacy_summary">Activity, permissions, reset</string>
+    <string name="settings_group_app_summary">Updates, sync, about</string>
+    <!-- A feature card's row of device chips. -->
+    <string name="settings_card_devices">Devices</string>
+    <string name="settings_more_options">More options</string>
+    <string name="settings_expanded">Expanded</string>
+    <string name="settings_collapsed">Collapsed</string>
+    <!-- TalkBack on a device chip: "Work MacBook, Clipboard". -->
+    <string name="settings_chip_description">%1$s, %2$s</string>
+    <string name="settings_logging">Logging</string>
+    <!-- Device page, Permissions: each row opens the setting's card in Settings. -->
+    <string name="device_permissions_change">Change in Settings</string>
+</resources>

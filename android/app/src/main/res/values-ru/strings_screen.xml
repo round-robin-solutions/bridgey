@@ -2,14 +2,14 @@
 <!-- Показ экрана на Mac (черновик screen_draft1, прототип v0.9, только просмотр). -->
 <resources>
     <string name="feature_screen">Показ экрана на Mac</string>
-    <string name="feature_screen_detail">%1$s может попросить показать экран; вы каждый раз подтверждаете</string>
-    <string name="settings_screen_detail">Mac может попросить показать этот экран. Вы каждый раз подтверждаете на телефоне</string>
+    <string name="feature_screen_detail">%1$s может видеть этот экран</string>
+    <string name="settings_screen_detail">Mac могут видеть этот экран. Доступ каждого Mac задаётся ниже.</string>
     <string name="setup_bundle_remote_screen">Телефон как тачпад и пульт для слайдов, а его экран на Mac.</string>
     <string name="setup_q_screen_title">Показывать этот экран на Mac?</string>
-    <string name="setup_q_screen_context">Mac показывает экран телефона в окне. Он только смотрит: нажимать и печатать он не может. Android каждый раз просит подтверждения, а уведомление с кнопкой «Стоп» видно всё время показа.</string>
-    <string name="setup_q_screen_summary">Mac может попросить показать экран</string>
-    <string name="setup_a_screen_yes">Да, после подтверждения</string>
-    <string name="setup_a_screen_yes_detail">Показ начинается только после «Начать» в окне Android.</string>
+    <string name="setup_q_screen_context">Mac показывает экран телефона в окне. Он только смотрит: нажимать и печатать он не может. Уведомление с кнопкой «Стоп» видно всё время показа.</string>
+    <string name="setup_q_screen_summary">Mac может видеть этот экран</string>
+    <string name="setup_a_screen_yes">Да</string>
+    <string name="setup_a_screen_yes_detail">Пока включён неконтролируемый доступ, Mac видят экран без вопроса. Это меняется в настройках, раздел «Управление».</string>
     <string name="screen_entry_title">Показать экран</string>
     <string name="screen_entry_detail">%1$s увидит этот экран после подтверждения</string>
     <string name="screen_entry_stop">Остановить показ</string>

@@ -13,16 +13,40 @@ func connectStatusText(_ display: ConnectDisplay, enabled: Bool) -> String {
     }
 }
 
-/// Devices: the row that opens Connect away from home.
+/// Devices > Connect away from home (docs/connect-anywhere.md, section 12.1): the switch, its status, then in More
+/// options the identity reset and, in test builds, the service address and relay only.
 struct ConnectAwayCard: View {
     let model: SettingsModel
     let actions: SettingsActions
+    @State private var controlURL = ""
 
     var body: some View {
-        SettingsCard {
-            SettingsRow(title: SettingsPane.away.title, subtitle: connectStatusText(model.connect, enabled: model.connectAway), divider: false) {
-                Button(L10n.text("connect.open", fallback: "Open")) { actions.setup.showPane(.away) }
+        FeatureCard(card: .away,
+                    detail: L10n.text("connect.detail", fallback: "Reach your paired devices from any network. They connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account needed."),
+                    toggle: CardToggle(title: SettingsPane.away.title, isOn: model.connectAway && model.connect.available,
+                                       enabled: model.connect.available, set: actions.setConnectAway),
+                    footnote: L10n.text("connect.privacy", fallback: "Relays and the Round Robin service never see names, files or messages. Turning this off stops Bridgey\u{2019}s internet connection service. Same Wi-Fi and independently connected Tailscale devices can still connect.")) {
+            SettingsRow(title: L10n.text("connect.status", fallback: "Status"), subtitle: connectStatusText(model.connect, enabled: model.connectAway)) { EmptyView() }
+        } more: {
+            SettingsRow(title: L10n.text("connect.reset", fallback: "Reset away-from-home identity"),
+                        subtitle: L10n.text("connect.reset.detail", fallback: "A new key for the Round Robin service, and new secrets with your devices. Pairings stay.")) {
+                Button(L10n.text("connect.reset.action", fallback: "Reset")) { actions.resetConnectIdentity() }
                     .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    .disabled(!model.connect.running)
+            }
+            if model.connect.debug {
+                SettingsCard(title: L10n.text("connect.debug", fallback: "Testing")) {
+                    SettingsRow(title: L10n.text("connect.debug.url", fallback: "Service address"), subtitle: nil, divider: false) {
+                        TextField("wss://", text: $controlURL)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 280)
+                            .onSubmit { actions.setConnectControlURL(controlURL) }
+                    }
+                    SettingsToggle(title: L10n.text("connect.debug.relayOnly", fallback: "Relay only"),
+                                   subtitle: L10n.text("connect.debug.relayOnly.detail", fallback: "Blocks every other route, to test the relay"),
+                                   isOn: model.connect.relayOnly, set: actions.setConnectRelayOnly)
+                }
+                .onAppear { controlURL = model.connect.controlURL }
             }
         }
     }
@@ -65,7 +89,7 @@ struct TailscaleSetupCard: View {
     @Environment(\.brandReduceMotion) private var reduceMotion
 
     var body: some View {
-        SettingsCard(title: "Tailscale") {
+        FeatureCard(card: .tailscale, headerAnchor: "Tailscale") {
             VStack(alignment: .leading, spacing: 10) {
                 Text(tailscaleStatusText(display))
                     .font(BrandFont.body(13, .semibold))
@@ -91,62 +115,16 @@ struct TailscaleSetupCard: View {
                         .accessibilityIdentifier("tailscale-check")
                 }
             }
-            .padding(.vertical, 10)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
         }
-        .settingsSearchAnchor("Tailscale")
     }
 
     private var primaryTitle: String {
         if display.hasApplication { return L10n.text("tailscale.action.open", fallback: "Open Tailscale") }
         if display.hasCommandLine { return L10n.text("tailscale.action.help", fallback: "Setup guide") }
         return L10n.text("tailscale.action.install", fallback: "Get Tailscale")
-    }
-}
-
-/// Devices > Connect away from home (docs/connect-anywhere.md, section 12.1).
-struct ConnectAwayPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-    @State private var controlURL = ""
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        SettingsCard {
-            SettingsToggle(
-                title: SettingsPane.away.title,
-                subtitle: L10n.text("connect.detail", fallback: "Reach your paired devices from any network. They connect directly when they can, or through a Round Robin relay that only sees encrypted data. No account needed."),
-                divider: false,
-                isOn: model.connectAway && model.connect.available,
-                set: actions.setConnectAway
-            )
-            .disabled(!model.connect.available)
-            SettingsRow(title: L10n.text("connect.status", fallback: "Status"), subtitle: connectStatusText(model.connect, enabled: model.connectAway)) { EmptyView() }
-            SettingsRow(title: L10n.text("connect.reset", fallback: "Reset away-from-home identity"),
-                        subtitle: L10n.text("connect.reset.detail", fallback: "A new key for the Round Robin service, and new secrets with your devices. Pairings stay.")) {
-                Button(L10n.text("connect.reset.action", fallback: "Reset")) { actions.resetConnectIdentity() }
-                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-                    .disabled(!model.connect.running)
-            }
-        }
-        Text(L10n.text("connect.privacy", fallback: "Relays and the Round Robin service never see names, files or messages. Turning this off stops Bridgey’s internet connection service. Same Wi-Fi and independently connected Tailscale devices can still connect."))
-            .font(BrandFont.body(12))
-            .foregroundStyle(c.on2)
-            .fixedSize(horizontal: false, vertical: true)
-        TailscaleSetupCard(display: model.tailscaleSetup, actions: actions)
-        if model.connect.debug {
-            SettingsCard(title: L10n.text("connect.debug", fallback: "Testing")) {
-                SettingsRow(title: L10n.text("connect.debug.url", fallback: "Service address"), subtitle: nil, divider: false) {
-                    TextField("wss://", text: $controlURL)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 280)
-                        .onSubmit { actions.setConnectControlURL(controlURL) }
-                }
-                SettingsToggle(title: L10n.text("connect.debug.relayOnly", fallback: "Relay only"),
-                               subtitle: L10n.text("connect.debug.relayOnly.detail", fallback: "Blocks every other route, to test the relay"),
-                               isOn: model.connect.relayOnly, set: actions.setConnectRelayOnly)
-            }
-            .onAppear { controlURL = model.connect.controlURL }
-        }
     }
 }
 

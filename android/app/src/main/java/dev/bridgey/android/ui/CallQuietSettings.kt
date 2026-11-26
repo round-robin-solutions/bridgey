@@ -44,6 +44,12 @@ class CallQuietSettingsActions(
 )
 
 internal fun GroupScope.callQuietRows(state: CallQuietSettingsState, actions: CallQuietSettingsActions) {
+    callQuietMainRows(state, actions)
+    callQuietMoreRows(state, actions)
+}
+
+/** The Quiet media card's main rows: what happens during a call, and after it. */
+internal fun GroupScope.callQuietMainRows(state: CallQuietSettingsState, actions: CallQuietSettingsActions) {
     row { shape ->
         QuietChoiceRow(shape, stringResource(R.string.call_quiet_mode), state.policy.mode,
             CallMediaMode.entries, { quietModeLabel(it) }, actions.setMode)
@@ -52,6 +58,10 @@ internal fun GroupScope.callQuietRows(state: CallQuietSettingsState, actions: Ca
         QuietChoiceRow(shape, stringResource(R.string.call_quiet_after), state.policy.restoration,
             CallMediaRestoration.entries, { quietRestorationLabel(it) }, actions.setRestoration)
     }
+}
+
+/** The Quiet media card's More options: the access it needs and what happened last. */
+internal fun GroupScope.callQuietMoreRows(state: CallQuietSettingsState, actions: CallQuietSettingsActions) {
     row { shape ->
         ListRow(shape, stringResource(R.string.call_quiet_phone_state),
             stringResource(if (state.phoneState) R.string.call_quiet_phone_state_on else R.string.call_quiet_phone_state_off),

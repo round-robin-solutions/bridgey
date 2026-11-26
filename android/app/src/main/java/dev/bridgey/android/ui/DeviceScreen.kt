@@ -137,6 +137,8 @@ class DeviceActions(
     /** Runs one Mac action; the value only for volume_set. */
     val runMacAction: (String, Int?) -> Unit = { _, _ -> },
     val setSync: (Boolean) -> Unit = {},
+    /** Opens the Settings card that holds one of this device's choices, at its chip. */
+    val openChoice: (DeviceChoice) -> Unit = {},
     val live: LiveActions = LiveActions(),
 )
 
@@ -473,6 +475,10 @@ private fun DeviceTabs(tab: DeviceTab, onTab: (DeviceTab) -> Unit, modifier: Mod
     }
 }
 
+/**
+ * What this phone shares with the device, one row per choice. Each choice lives in its feature's card in Settings
+ * (the Devices chips, since 26 Nov 2026), so a row opens that card at this device's chip.
+ */
 @Composable
 private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentPadding: PaddingValues) {
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -488,87 +494,53 @@ private fun PermissionsList(state: DeviceState, actions: DeviceActions, contentP
             RowGroup(Modifier.padding(top = 12.dp)) {
                 state.permissions.forEach { permission ->
                     val feature = permission.features.first()
+                    val choice = DeviceChoices.firstOrNull { it.features == permission.features && !it.more } ?: return@forEach
                     row { shape ->
                         val (icon, tint) = permissionVisual(feature)
+                        val on = permission.checked && !permission.globallyOff && !permission.remotelyOff
                         val needsAccess = feature == BridgeyFeature.NOTIFICATIONS && !state.notificationAccess && permission.checked
                         val detail = when {
                             permission.globallyOff -> stringResource(R.string.permission_off_everywhere)
                             permission.remotelyOff -> stringResource(R.string.permission_off_remote, state.ring.name)
                             needsAccess -> stringResource(R.string.permission_needs_notification_access)
-                            else -> permissionDetail(feature, state)
+                            on -> stringResource(R.string.settings_summary_on)
+                            else -> stringResource(R.string.settings_summary_off)
                         }
-                        if (needsAccess) {
-                            ListRow(
-                                shape = shape,
-                                title = permissionTitle(feature),
-                                detail = detail,
-                                icon = icon,
-                                tint = tint,
-                                compact = true,
-                                detailWarning = true,
-                                onClick = actions.notificationAccess,
-                                onClickLabel = stringResource(R.string.action_enable),
-                            ) {
-                                BridgeySwitch(checked = true, onCheckedChange = { actions.setPermission(permission.features, it) })
-                            }
-                        } else {
-                            SwitchRow(
-                                shape = shape,
-                                title = permissionTitle(feature),
-                                detail = detail,
-                                icon = icon,
-                                tint = if (permission.checked && !permission.globallyOff && !permission.remotelyOff) tint else Tint.NEUTRAL,
-                                checked = permission.checked && !permission.globallyOff && !permission.remotelyOff,
-                                onCheckedChange = { actions.setPermission(permission.features, it) },
-                                // Off on the other device: shown off, as there is nothing to switch on here.
-                                enabled = !permission.globallyOff && !permission.remotelyOff,
-                                compact = true,
-                                detailWarning = permission.remotelyOff || permission.globallyOff,
-                            )
-                        }
-                    }
-                    // Automatic clipboard for this device, just under Clipboard, while both the
-                    // feature and the global Automatic clipboard switch are on.
-                    if (feature == BridgeyFeature.CLIPBOARD && state.autoClipboardGlobalOn &&
-                        permission.checked && !permission.globallyOff && !permission.remotelyOff
-                    ) {
-                        row { shape ->
-                            SwitchRow(
-                                shape = shape,
-                                title = stringResource(R.string.auto_clipboard_title),
-                                detail = stringResource(R.string.auto_clipboard_detail),
-                                icon = BridgeyIcons.Sync,
-                                tint = if (state.autoClipboard) Tint.BLUE else Tint.NEUTRAL,
-                                checked = state.autoClipboard,
-                                onCheckedChange = actions.setAutoClipboard,
-                                compact = true,
-                            )
-                        }
+                        ListRow(
+                            shape = shape,
+                            title = permissionTitle(feature),
+                            detail = detail,
+                            icon = icon,
+                            tint = if (on) tint else Tint.NEUTRAL,
+                            compact = true,
+                            detailWarning = permission.remotelyOff || permission.globallyOff || needsAccess,
+                            onClick = { actions.openChoice(choice) },
+                            onClickLabel = stringResource(R.string.device_permissions_change),
+                            // A way to the setting's one home, not a setting: search offers the chip instead.
+                            searchable = false,
+                        ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
                     }
                 }
-            }
-        }
-        state.sync?.let { sync ->
-            item(key = "sync") {
-                RowGroup(Modifier.padding(top = 16.dp)) {
+                state.sync?.let { sync ->
                     row { shape ->
                         val shown = sync.on && sync.globalOn && !sync.offRemote
-                        SwitchRow(
+                        ListRow(
                             shape = shape,
                             title = stringResource(R.string.devices_sync_title),
                             detail = when {
                                 !sync.globalOn -> stringResource(R.string.permission_off_everywhere)
                                 sync.on && sync.offRemote -> stringResource(R.string.permission_off_remote, state.ring.name)
-                                else -> stringResource(R.string.devices_sync_detail)
+                                shown -> stringResource(R.string.settings_summary_on)
+                                else -> stringResource(R.string.settings_summary_off)
                             },
                             icon = BridgeyIcons.Sync,
                             tint = if (shown) Tint.BLUE else Tint.NEUTRAL,
-                            checked = sync.on && sync.globalOn,
-                            onCheckedChange = actions.setSync,
-                            enabled = sync.globalOn,
                             compact = true,
                             detailWarning = !sync.globalOn || (sync.on && sync.offRemote),
-                        )
+                            onClick = { actions.openChoice(DeviceChoices.first { it.card == SettingsCard.SYNC }) },
+                            onClickLabel = stringResource(R.string.device_permissions_change),
+                            searchable = false,
+                        ) { Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant) }
                     }
                 }
             }
@@ -616,30 +588,6 @@ fun permissionTitle(feature: BridgeyFeature): String = stringResource(
         BridgeyFeature.SCREEN_CONTROL -> R.string.feature_screen_control
     },
 )
-
-@Composable
-private fun permissionDetail(feature: BridgeyFeature, state: DeviceState): String = when (feature) {
-    BridgeyFeature.CLIPBOARD -> stringResource(R.string.feature_clipboard_detail)
-    BridgeyFeature.FILES -> stringResource(R.string.feature_files_detail)
-    BridgeyFeature.NOTIFICATIONS -> if (state.notificationAppsEnabled > 0) {
-        androidx.compose.ui.res.pluralStringResource(R.plurals.feature_notifications_detail, state.notificationAppsEnabled, state.notificationAppsEnabled, state.ring.name)
-    } else {
-        stringResource(R.string.feature_notifications_detail_none)
-    }
-    BridgeyFeature.CALLS -> stringResource(R.string.feature_calls_detail, state.ring.name)
-    BridgeyFeature.MEDIA -> stringResource(R.string.feature_media_detail, state.ring.name)
-    BridgeyFeature.FIND_DEVICE, BridgeyFeature.PING -> stringResource(R.string.feature_find_ping_detail, state.ring.name)
-    BridgeyFeature.LINKS -> stringResource(R.string.feature_links_detail)
-    BridgeyFeature.BATTERY -> stringResource(R.string.feature_battery_detail, state.ring.name)
-    BridgeyFeature.REMOTE_INPUT -> stringResource(R.string.feature_remote_input_detail, state.ring.name)
-    BridgeyFeature.MAC_ACTIONS -> stringResource(R.string.feature_mac_actions_detail, state.ring.name)
-    BridgeyFeature.CAMERA -> stringResource(R.string.feature_camera_detail, state.ring.name)
-    BridgeyFeature.SCREEN -> stringResource(R.string.feature_screen_detail, state.ring.name)
-    BridgeyFeature.SMS -> stringResource(R.string.feature_sms_device_detail, state.ring.name)
-    BridgeyFeature.CALL_QUIET -> stringResource(R.string.call_quiet_device_detail, state.ring.name)
-    BridgeyFeature.DIALER -> stringResource(R.string.dialer_device_detail, state.ring.name)
-    BridgeyFeature.SCREEN_CONTROL -> stringResource(R.string.feature_screen_control_detail, state.ring.name)
-}
 
 /** The device page's send bar: attach a file, type a message or leave it empty to send the clipboard. */
 @Composable

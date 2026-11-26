@@ -56,13 +56,9 @@ sealed interface Route {
         override val key = "settings"
     }
 
-    /** Settings › one section's page (Clipboard, Notifications, Updates...). See [settingsRoute]. */
-    data class SettingsPane(val section: SettingsSection) : Route {
-        override val key get() = "settings:${section.name.lowercase()}"
-    }
-
-    data object Devices : Route {
-        override val key = "devices"
+    /** Settings › one group's page of cards (Devices, Sharing, ... App). See [settingsRoute]. */
+    data class SettingsGroupPage(val group: SettingsGroup) : Route {
+        override val key get() = "settings:${group.name.lowercase()}"
     }
 
     /** Settings › Search (ui/search/SettingsSearchScreen.kt). */
@@ -115,16 +111,18 @@ sealed interface Route {
             key == Permissions.key -> Permissions
             key == Reset.key -> Reset
             key == Settings.key -> Settings
-            key == Devices.key -> Devices
+            // Saved before the six groups (26 Nov 2026): the Devices page, and each old section's page.
+            key == "devices" -> SettingsGroupPage(SettingsGroup.DEVICES)
             key == SettingsSearch.key -> SettingsSearch
             key == NotificationApps.key -> NotificationApps
             key == PerfTest.key -> PerfTest
             key == SpeedTest.key -> SpeedTest
             key == CodeTest.key -> CodeTest
             key == Places.key -> Places
-            key.startsWith("settings:") -> SettingsSection.entries
-                .firstOrNull { it.name.lowercase() == key.removePrefix("settings:") }
-                ?.let(::settingsRoute)
+            key.startsWith("settings:") -> key.removePrefix("settings:").let { name ->
+                SettingsGroup.entries.firstOrNull { it.name.lowercase() == name }?.let(::SettingsGroupPage)
+                    ?: SettingsSection.entries.firstOrNull { it.name.lowercase() == name }?.let(::settingsRoute)
+            }
             key.startsWith("device:") -> Device(key.removePrefix("device:"))
             key.startsWith("remote:") -> Remote(key.removePrefix("remote:"))
             else -> null
@@ -132,15 +130,11 @@ sealed interface Route {
     }
 }
 
-/**
- * The page a Settings section opens: Devices and permissions is its own screen ([Route.Devices]),
- * This phone is the home's header card, and every other section has a [Route.SettingsPane].
- */
-fun settingsRoute(section: SettingsSection): Route = when (section) {
-    SettingsSection.THIS_PHONE -> Route.Settings
-    SettingsSection.DEVICES -> Route.Devices
-    else -> Route.SettingsPane(section)
-}
+/** The page a Settings group opens. */
+fun settingsRoute(group: SettingsGroup): Route = Route.SettingsGroupPage(group)
+
+/** The page a Settings section opens: its group's page (the caller scrolls to [SettingsSection.anchorRes]). */
+fun settingsRoute(section: SettingsSection): Route = settingsRoute(section.group)
 
 /** Opening the app on a Settings page, e.g. Updates from the update notification. */
 object SettingsDeepLink {

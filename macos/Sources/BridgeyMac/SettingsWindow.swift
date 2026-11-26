@@ -3,25 +3,26 @@ import Combine
 import SwiftUI
 
 /*
- * Direction B Settings window: a sidebar like System Settings (in light mode the sidebar is
- * the midnight band), one pane at a time, cards of rows inside. The panes draw from a plain
+ * The Settings window (direction A, 26 Nov 2026): a sidebar with search and six groups (SettingsGroup), and the
+ * chosen group's feature cards on the right (SettingsGroupViews.swift). The cards draw from a plain
  * `SettingsModel`, so screenshots render them from sample state.
  */
 
-/// Grouped by what people come to change, most used first. Each feature pane starts with that
-/// feature's switch, followed by its options. Android uses the same order.
+/// The panes Settings had before the six groups. They stay as ids: deep links, notifications (their raw value is in
+/// the notification's userInfo), setup's More options and the test hooks name them. Each maps to a group and the
+/// card it scrolls to (SettingsCards.swift).
 enum SettingsPane: String, CaseIterable, Identifiable {
     case thisMac, devices, clipboard, notifications, messages, calls, files, media, remoteControl, privacy, updates, general, about
-    /// Privacy sub-pages (PermissionsView.swift, ResetView.swift); not in the sidebar.
+    /// Were Privacy sub-pages; now cards in Privacy.
     case permissions, reset
-    /// Devices sub-page: Connect away from home (ConnectSettingsView.swift).
+    /// Was a Devices sub-page; now a card in Devices.
     case away
-    /// Hidden until the version in About is clicked five times (DeveloperMenu.swift); then the last sidebar item.
+    /// The card at the end of App, while the version in About has been clicked five times (DeveloperMenu.swift).
     case developer
 
     var id: String { rawValue }
 
-    /// The pane's heading.
+    /// The pane's name: setup's More options heading.
     var title: String {
         switch self {
         case .thisMac: L10n.text("settings.thisMac", fallback: "This Mac")
@@ -37,48 +38,18 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .updates: L10n.text("settings.updates", fallback: "Updates")
         case .general: L10n.text("settings.general", fallback: "General")
         case .about: L10n.text("settings.about", fallback: "About")
-        case .permissions, .reset: subpageTitle
+        case .permissions: L10n.setup("permissions.title", fallback: "Permissions")
+        case .reset: L10n.setup("reset.title", fallback: "Reset Bridgey on this device")
         case .away: L10n.text("settings.away", fallback: "Connect away from home")
         case .developer: L10n.text("settings.developer", fallback: "Developer and experimental")
         }
     }
+}
 
-    /// The shorter name in the sidebar.
-    var sidebarTitle: String {
-        switch self {
-        case .devices: L10n.text("settings.devices", fallback: "Devices")
-        case .media: L10n.text("settings.mediaActions.short", fallback: "Media and actions")
-        default: title
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .thisMac: "laptopcomputer"
-        case .devices: "laptopcomputer.and.iphone"
-        case .clipboard: "doc.on.clipboard"
-        case .notifications: "bell"
-        case .messages: "message"
-        case .calls: "phone"
-        case .files: "folder"
-        case .media: "music.note"
-        case .remoteControl: "cursorarrow.rays"
-        case .privacy: "hand.raised"
-        case .updates: "arrow.triangle.2.circlepath"
-        case .general: "gearshape"
-        case .about: "info.circle"
-        case .permissions: "lock.shield"
-        case .reset: "arrow.counterclockwise"
-        case .away: "globe"
-        case .developer: "hammer"
-        }
-    }
-
-    /// The sidebar list; This Mac is the compact header above it.
-    static let sidebarItems: [SettingsPane] = allCases.filter { $0 != .thisMac && $0 != .developer && $0.parentPane == nil }
-
-    /// The sidebar with Developer and experimental at the end while it is on.
-    static func sidebar(developer: Bool) -> [SettingsPane] { developer ? sidebarItems + [.developer] : sidebarItems }
+/// A link to an old pane: the card to show. `token` makes the same link scroll again.
+struct SettingsCardRequest: Equatable {
+    let card: SettingsCardID
+    var token = UUID()
 }
 
 struct SettingsModel {
@@ -415,7 +386,9 @@ enum SettingsLinks {
 struct SettingsWindowView: View {
     let model: SettingsModel
     let actions: SettingsActions
-    @Binding var pane: SettingsPane
+    @Binding var group: SettingsGroup
+    /// A link to an old pane: the card to scroll to (screenshots start the group at it).
+    let request: SettingsCardRequest?
     @Environment(\.brand) private var c
     @Environment(\.snapshotRendering) private var snapshot
     @Environment(\.brandReduceMotion) private var reduce
@@ -430,15 +403,25 @@ struct SettingsWindowView: View {
     static let size = CGSize(width: 880, height: 600)
 
     /// `searchQuery`, `searchSelection` and `searchTarget` start the window mid-search, for screenshots.
-    init(model: SettingsModel, actions: SettingsActions, pane: Binding<SettingsPane>,
+    init(model: SettingsModel, actions: SettingsActions, group: Binding<SettingsGroup>, request: SettingsCardRequest? = nil,
          searchQuery: String = "", searchSelection: Int = 0, searchTarget: SettingsSearchTarget? = nil, showsSearchFocus: Bool = false) {
         self.model = model
         self.actions = actions
-        _pane = pane
+        _group = group
+        self.request = request
         _query = State(initialValue: searchQuery)
         _selected = State(initialValue: searchSelection)
         _target = State(initialValue: searchTarget)
         self.showsSearchFocus = showsSearchFocus
+    }
+
+    /// The window opened at an old pane: its group, scrolled to its card.
+    init(model: SettingsModel, actions: SettingsActions, pane: Binding<SettingsPane>,
+         searchQuery: String = "", searchSelection: Int = 0, searchTarget: SettingsSearchTarget? = nil, showsSearchFocus: Bool = false) {
+        let start = pane.wrappedValue
+        self.init(model: model, actions: actions, group: .constant(start.group),
+                  request: start.card == start.group.cards(developer: true).first ? nil : SettingsCardRequest(card: start.card),
+                  searchQuery: searchQuery, searchSelection: searchSelection, searchTarget: searchTarget, showsSearchFocus: showsSearchFocus)
     }
 
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
@@ -446,25 +429,29 @@ struct SettingsWindowView: View {
     var body: some View {
         let outcome = searching ? SettingsSearchOutcome.run(query, entries: SettingsSearchRegistry.entries(model)) : SettingsSearchOutcome()
         HStack(spacing: 0) {
-            SettingsSidebar(model: model, pane: $pane, query: $query, focused: $searchFocused, showsFocus: showsSearchFocus || searchFocused,
+            SettingsSidebar(model: model, group: $group, query: $query, focused: $searchFocused, showsFocus: showsSearchFocus || searchFocused,
                             outcome: outcome, selected: selected, open: open, hover: { selected = $0 },
                             choose: { target = nil })
             VStack(alignment: .leading, spacing: 0) {
                 ScrollViewReader { proxy in
                     BoundedScroll {
-                        VStack(alignment: .leading, spacing: 16) {
-                            SettingsBackButton(pane: $pane)
-                            Text(pane.title)
-                                .font(BrandFont.heading(24))
-                                .foregroundStyle(c.on)
-                                .frame(height: 30)
-                                .accessibilityAddTraits(.isHeader)
-                            SettingsPaneView(pane: pane, model: model, actions: actions)
+                        ZStack(alignment: .topLeading) {
+                            VStack(alignment: .leading, spacing: 16) {
+                                Text(group.title)
+                                    .font(BrandFont.heading(24))
+                                    .foregroundStyle(c.on)
+                                    .frame(height: 30)
+                                    .accessibilityAddTraits(.isHeader)
+                                SettingsGroupView(group: group, model: model, actions: actions,
+                                                  startCard: snapshot ? (request?.card ?? target?.card) : nil)
+                            }
+                            .padding(.horizontal, 40)
+                            .padding(.top, 32)
+                            .padding(.bottom, 24)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .id(group)
+                            .transition(reduce ? .opacity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity))
                         }
-                        .padding(.horizontal, 40)
-                        .padding(.top, 32)
-                        .padding(.bottom, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .onChange(of: target) { shown in reveal(shown, proxy: proxy) }
                 }
@@ -472,7 +459,7 @@ struct SettingsWindowView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(c.isDark ? Color(hex: 0x0A101D) : c.bg)
-            .environment(\.settingsSearchHighlight, target?.pane == pane ? target : nil)
+            .environment(\.settingsSearchHighlight, target?.group == group ? target : nil)
         }
         .frame(width: Self.size.width, height: Self.size.height)
         .onChange(of: query) { _ in
@@ -480,17 +467,23 @@ struct SettingsWindowView: View {
             keys.hasQuery = searching
         }
         .onChange(of: searchFocused) { keys.fieldFocused = $0 }
+        .onChange(of: request) { showCard($0) }
         .onReceive(keys.commands) { command in handle(command, outcome: outcome) }
         #if DEBUG
-        .task(id: SettingsTestHooks.Probe(query: query, selected: selected, pane: pane.rawValue, target: target?.title,
+        .task(id: SettingsTestHooks.Probe(query: query, selected: selected, pane: group.rawValue, target: target?.title,
                                           fieldFocused: searchFocused, choosable: outcome.choosable.map(\.id))) {
             if TestInstance.enabled {
-                SettingsTestHooks.shared.probe = SettingsTestHooks.Probe(query: query, selected: selected, pane: pane.rawValue, target: target?.title,
+                SettingsTestHooks.shared.probe = SettingsTestHooks.Probe(query: query, selected: selected, pane: group.rawValue, target: target?.title,
                                                                          fieldFocused: searchFocused, choosable: outcome.choosable.map(\.id))
             }
         }
         #endif
-        .onAppear { if !snapshot { keys.install() } }
+        .onAppear {
+            if !snapshot {
+                keys.install()
+                showCard(request)
+            }
+        }
         .onDisappear { keys.remove() }
     }
 
@@ -500,8 +493,8 @@ struct SettingsWindowView: View {
                 .font(BrandFont.body(12))
                 .foregroundStyle(c.on2)
             Spacer()
-            // Updates links to the offered release's notes in its status card; elsewhere only About links to them.
-            if pane == .about {
+            // Updates links to the offered release's notes in its status card; elsewhere only App links to them.
+            if group == .app {
                 Button(L10n.text("updates.releaseNotes", fallback: "Release notes")) { actions.openURL(SettingsLinks.releases) }
                     .buttonStyle(.plain)
                     .font(BrandFont.body(12, .semibold))
@@ -514,31 +507,51 @@ struct SettingsWindowView: View {
 
     // MARK: Search
 
-    /// Opens the result's pane and shows its row; the results stay, as in System Settings, until Escape.
+    /// Opens the result's group and shows its row, opening its card's More options first when the row is in them; the
+    /// results stay, as in System Settings, until Escape.
     private func open(_ row: SettingsSearchRow) {
         let entry = row.entry
-        withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = entry.pane }
+        withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { group = entry.group }
         // A row hidden until its switch is on (the Calls window's options) shows that switch instead.
-        target = SettingsSearchTarget(pane: entry.pane, scope: entry.scope, title: entry.anchorTitle(in: model))
+        target = SettingsSearchTarget(group: entry.group, scope: entry.scope, title: entry.anchorTitle(in: model), card: entry.card,
+                                      expand: entry.expands(in: model))
     }
 
-    /// Scrolls the found row to the middle once its pane has laid out; the row pulses by itself
-    /// (SearchPulse). The highlight is dropped after it has faded, so coming back later shows no stale mark.
+    /// A link to an old pane: its group, scrolled to the top of its card.
+    private func showCard(_ request: SettingsCardRequest?) {
+        guard let request else { return }
+        group = request.card.group
+        target = SettingsSearchTarget(group: request.card.group, card: request.card)
+    }
+
+    /// Scrolls the found row to the middle (or a linked card to the top) once its group has laid out; the row pulses
+    /// by itself (SearchPulse). The highlight is dropped after it has faded, so coming back later shows no stale mark.
     private func reveal(_ shown: SettingsSearchTarget?, proxy: ScrollViewProxy) {
         guard let shown else { return }
+        let id: AnyHashable?
+        let anchor: UnitPoint
         if let title = shown.title {
-            let id = SearchAnchorID(scope: shown.scope, title: title)
-            // An agent's card opens first (AgentBlock), so its rows exist only once it has.
-            let settle = shown.scope?.hasPrefix("agent:") == true ? 0.45 : 0.12
+            id = SearchAnchorID(scope: shown.scope, title: title)
+            anchor = .center
+        } else if let card = shown.card {
+            id = SettingsCardScrollID(card: card)
+            anchor = .top
+        } else {
+            id = nil
+            anchor = .top
+        }
+        if let id {
+            // An agent's card opens first (AgentBlock), and so do More options: their rows exist only once they have.
+            let settle = shown.scope?.hasPrefix("agent:") == true ? 0.45 : shown.expand != nil ? 0.3 : 0.12
             DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
                 if reduce {
-                    proxy.scrollTo(id, anchor: .center)
+                    proxy.scrollTo(id, anchor: anchor)
                 } else {
-                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(id, anchor: .center) }
+                    withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(id, anchor: anchor) }
                     // An animation that cannot run (the window hidden behind the lock screen or another Space) leaves the
-                    // pane where it was: land on the row anyway once the animation would have ended.
+                    // group where it was: land on the row anyway once the animation would have ended.
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        if target?.token == shown.token { proxy.scrollTo(id, anchor: .center) }
+                        if target?.token == shown.token { proxy.scrollTo(id, anchor: anchor) }
                     }
                 }
             }
@@ -569,7 +582,7 @@ struct SettingsWindowView: View {
 
 private struct SettingsSidebar: View {
     let model: SettingsModel
-    @Binding var pane: SettingsPane
+    @Binding var group: SettingsGroup
     @Binding var query: String
     var focused: FocusState<Bool>.Binding
     let showsFocus: Bool
@@ -577,7 +590,7 @@ private struct SettingsSidebar: View {
     let selected: Int
     let open: (SettingsSearchRow) -> Void
     let hover: (Int) -> Void
-    /// A pane chosen from the list: the search highlight is dropped.
+    /// A group chosen from the list: the search highlight is dropped.
     let choose: () -> Void
     @Environment(\.brand) private var c
     @Environment(\.snapshotRendering) private var snapshot
@@ -586,7 +599,6 @@ private struct SettingsSidebar: View {
     private var searching: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty }
 
     var body: some View {
-        let side = c.isDark ? c : BrandPalette.band
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 8) {
                 if snapshot {
@@ -596,13 +608,13 @@ private struct SettingsSidebar: View {
             .padding(.horizontal, 6)
             .frame(height: 44)
             SettingsSearchField(query: $query, focused: focused, showsFocus: showsFocus)
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
             ZStack(alignment: .topLeading) {
                 if searching {
                     SettingsSearchResultsList(query: query, outcome: outcome, selected: selected, open: open, hover: hover)
                         .transition(.opacity)
                 } else {
-                    paneList(side)
+                    BoundedScroll { groupButtons }
                         .transition(.opacity)
                 }
             }
@@ -612,7 +624,7 @@ private struct SettingsSidebar: View {
                 AuroraMark(size: 24)
                 Text("\(Edition.displayName)\n\(UpdateFlowText.label(model.shortVersion))")
                     .font(BrandFont.body(12))
-                    .foregroundStyle(side.on2)
+                    .foregroundStyle(c.on2)
                     .lineSpacing(1)
             }
             .padding(.horizontal, 6)
@@ -620,101 +632,50 @@ private struct SettingsSidebar: View {
             .padding(.bottom, 18)
         }
         .padding(.horizontal, 10)
-        .frame(width: 210)
+        .frame(width: 220)
         .frame(maxHeight: .infinity)
-        .background {
-            if c.isDark {
-                c.s1
-            } else {
-                SidebarBand()
-            }
-        }
-        .overlay(alignment: .trailing) { if c.isDark { Rectangle().fill(c.olv).frame(width: 1) } }
-        .environment(\.brand, side)
+        .background(c.isDark ? c.s1 : c.s2)
+        .overlay(alignment: .trailing) { Rectangle().fill(c.isDark ? c.olv : c.ol).frame(width: 1) }
     }
 
-    /// Scrolls only when it is taller than the window (the Developer pane on, a large text size).
-    private func paneList(_ side: BrandPalette) -> some View {
-        BoundedScroll {
-            paneButtons(side)
-        }
-    }
-
-    private func paneButtons(_ side: BrandPalette) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ThisMacHeader(model: model, selected: pane == .thisMac) { select(.thisMac) }
-                .padding(.bottom, 8)
-            ForEach(SettingsPane.sidebar(developer: model.developerMenu)) { item in
+    private var groupButtons: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(SettingsGroup.allCases) { item in
+                let chosen = item == group
                 Button {
                     select(item)
                 } label: {
                     HStack(spacing: 10) {
-                        Image(systemName: item.symbol)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(item == pane.sidebarPane ? side.tbi : side.on2)
-                            .frame(width: 18)
-                        Text(item.sidebarTitle)
+                        IconTile(symbol: item.symbol, tint: item.tint, size: 26, corner: 7)
+                        Text(item.title)
                             .font(BrandFont.body(13, .medium))
-                            .foregroundStyle(side.on)
+                            .foregroundStyle(c.on)
                             .lineLimit(1)
                         Spacer(minLength: 0)
+                        if item == .devices, !model.trustedDevices.isEmpty {
+                            Text("\(model.trustedDevices.count)")
+                                .font(BrandFont.body(12, .medium))
+                                .foregroundStyle(c.on2)
+                                .monospacedDigit()
+                        }
                     }
-                    .padding(.horizontal, 10)
-                    .frame(height: 30)
-                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(item == pane.sidebarPane ? side.tb : Color.clear))
+                    .padding(.horizontal, 8)
+                    .frame(height: 36)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(chosen ? (c.isDark ? c.s3 : c.s4.opacity(0.7)) : Color.clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityAddTraits(item == pane.sidebarPane ? .isSelected : [])
+                .accessibilityLabel(item == .devices && !model.trustedDevices.isEmpty
+                                    ? String(format: L10n.text("settings.group.devices.count", fallback: "%1$@, %2$d paired"), item.title, model.trustedDevices.count)
+                                    : item.title)
+                .accessibilityAddTraits(chosen ? [.isButton, .isSelected] : .isButton)
             }
         }
     }
 
-    private func select(_ item: SettingsPane) {
+    private func select(_ item: SettingsGroup) {
         choose()
-        withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { pane = item }
-    }
-}
-
-/// The compact header at the top of the sidebar: this Mac's name and connection.
-private struct ThisMacHeader: View {
-    let model: SettingsModel
-    let selected: Bool
-    let action: () -> Void
-    @Environment(\.brand) private var c
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                DeviceRingView(state: model.connectedDeviceID == nil ? .offline : .connected, platform: "macos", size: 32)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(model.deviceName)
-                        .font(BrandFont.body(13, .semibold))
-                        .foregroundStyle(c.on)
-                        .lineLimit(1)
-                    HStack(spacing: 3) {
-                        if case let .connected(_, name) = model.state {
-                            Image(systemName: "link").font(.system(size: 9, weight: .bold))
-                            Text(name)
-                        } else {
-                            Text(connectionText(model))
-                        }
-                    }
-                    .font(BrandFont.body(11))
-                    .foregroundStyle(model.connectedDeviceID == nil ? c.on2 : c.tgi)
-                    .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 48)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? c.tb : c.s2.opacity(0.6)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(model.deviceName), \(connectionText(model))")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { group = item }
     }
 }
 
@@ -732,24 +693,46 @@ func connectionText(_ model: SettingsModel) -> String {
     }
 }
 
-private struct SidebarBand: View {
-    var body: some View {
-        ZStack {
-            BrandPalette.midnight
-            RadialGradient(colors: [BrandPalette.auroraPurple.opacity(0.3), .clear], center: .topLeading, startRadius: 0, endRadius: 260)
-        }
-    }
-}
-
 // MARK: - Building blocks
 
+/// A box of rows. Inside a feature card (`settingsCardFlat`) it draws as a section of that card instead: its title
+/// as a small label, its rows, its footnote, under a hairline.
 struct SettingsCard<Content: View>: View {
     var title: String?
     var footnote: String?
     @ViewBuilder let content: Content
     @Environment(\.brand) private var c
+    @Environment(\.settingsCardFlat) private var flat
 
     var body: some View {
+        if flat { section } else { box }
+    }
+
+    private var section: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let title {
+                Text(title)
+                    .font(BrandFont.body(12, .semibold))
+                    .foregroundStyle(c.on2)
+                    .padding(.top, 12)
+                    .padding(.bottom, 2)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            content
+            if let footnote {
+                Text(footnote)
+                    .font(BrandFont.body(12))
+                    .foregroundStyle(c.on2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+                    .padding(.bottom, 10)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
+    }
+
+    private var box: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let title {
                 Text(title)
@@ -888,31 +871,14 @@ struct ChoiceButton: View {
 
 // MARK: - Panes
 
+/// What an old pane held: its cards, in order (setup's More options, screenshots of one feature).
 struct SettingsPaneView: View {
     let pane: SettingsPane
     let model: SettingsModel
     let actions: SettingsActions
 
     var body: some View {
-        switch pane {
-        case .thisMac: ThisMacPane(model: model, actions: actions)
-        case .devices: DevicesPane(model: model, actions: actions)
-        case .clipboard: ClipboardPane(model: model, actions: actions)
-        case .notifications: NotificationsPane(model: model, actions: actions)
-        case .messages: TextMessagesPane(model: model, actions: actions)
-        case .calls: CallsPane(model: model, actions: actions)
-        case .files: FilesPane(model: model, actions: actions)
-        case .media: MediaActionsPane(model: model, actions: actions)
-        case .remoteControl: RemoteControlPane(model: model, actions: actions)
-        case .privacy: PrivacyPane(model: model, actions: actions)
-        case .updates: UpdatesPane(model: model, actions: actions)
-        case .general: GeneralPane(model: model, actions: actions)
-        case .about: AboutPane(model: model, actions: actions)
-        case .permissions: PermissionsPane(model: model, actions: actions)
-        case .reset: ResetPane(model: model, actions: actions)
-        case .away: ConnectAwayPane(model: model, actions: actions)
-        case .developer: DeveloperPane(model: model, actions: actions)
-        }
+        SettingsCardsView(cards: pane.cards.filter { $0 != .developer || model.developerMenu }, model: model, actions: actions)
     }
 }
 
@@ -932,173 +898,12 @@ struct AutoClipboardToggle: View {
     }
 }
 
-/// The global switch that leads a feature pane.
-private struct FeatureSwitch: View {
-    let feature: BridgeyFeature
-    let model: SettingsModel
-    let actions: SettingsActions
-    var divider = false
-
-    var body: some View {
-        let key = SyncKey.key(for: feature)
-        SettingsToggle(title: feature.title, subtitle: feature.subtitle, divider: divider, synced: model.syncs(key),
-                       isOn: model.globalFeatures[feature] != false,
-                       set: { actions.setGlobal(feature, $0) })
-        if let key { SyncStatusLine(key: key, model: model, actions: actions) }
-    }
-}
-
-private struct ThisMacPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard {
-            DeviceNameRow(name: model.deviceName, onSave: actions.setDeviceName)
-            SettingsRow(title: L10n.text("thisMac.connection", fallback: "Connection"), subtitle: connectionText(model)) {
-                if model.connectedDeviceID != nil {
-                    Button(L10n.text("thisMac.disconnect", fallback: "Disconnect"), action: actions.disconnect)
-                        .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-                }
-            }
-        }
-    }
-}
-
-private struct ClipboardPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        let clipboardOn = model.globalFeatures[.clipboard] != false
-        SettingsCard(footnote: L10n.text("settings.autoClipboard.note", fallback: "Works while both devices are connected and Clipboard is on for both. Passwords and other concealed clips are never sent. With an older Bridgey on the other device, or with Copy images and files off, only text up to 32 KiB moves.")) {
-            FeatureSwitch(feature: .clipboard, model: model, actions: actions)
-            AutoClipboardToggle(isOn: model.autoClipboard, synced: model.syncs(.autoClipboard), set: actions.setAutoClipboard)
-                .disabled(!clipboardOn)
-            SyncStatusLine(key: .autoClipboard, model: model, actions: actions)
-            SettingsToggle(title: L10n.text("settings.clipboardFiles", fallback: "Copy images and files"),
-                           subtitle: L10n.text("settings.clipboardFiles.detail", fallback: "Images, videos, files and long text. Big items move when you paste."),
-                           synced: model.syncs(.clipboardFiles), isOn: model.clipboardFiles, set: actions.setClipboardFiles)
-                .disabled(!clipboardOn)
-            SyncStatusLine(key: .clipboardFiles, model: model, actions: actions)
-            HandoffTakeoverRows(model: model, actions: actions)
-            SettingsRow(title: L10n.text("settings.clipboardEager", fallback: "Send right away up to"),
-                        subtitle: L10n.text("settings.clipboardEager.detail", fallback: "Smaller copies move as soon as you copy, so pasting is instant.")) {
-                ChoiceButton(value: eagerLimitTitle(model.clipboardEagerLimit)) {
-                    ClipboardEagerLimit.allCases.map { limit in
-                        PopUpMenuItem(title: eagerLimitTitle(limit), checked: limit == model.clipboardEagerLimit) {
-                            actions.setClipboardEagerLimit(limit)
-                        }
-                    }
-                }
-            }
-            .disabled(!clipboardOn || !model.clipboardFiles)
-            .opacity(clipboardOn && model.clipboardFiles ? 1 : 0.5)
-        }
-        ShortcutsCard(model: model, actions: actions, only: [.clipboard])
-    }
-}
-
 func eagerLimitTitle(_ limit: ClipboardEagerLimit) -> String {
     switch limit {
     case .fiveMB: L10n.text("settings.clipboardEager.5", fallback: "5 MB")
     case .twentyFiveMB: L10n.text("settings.clipboardEager.25", fallback: "25 MB")
     case .hundredMB: L10n.text("settings.clipboardEager.100", fallback: "100 MB")
     case .askWhenPasting: L10n.text("settings.clipboardEager.ask", fallback: "Always ask when pasting")
-    }
-}
-
-private struct NotificationsPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard {
-            FeatureSwitch(feature: .notifications, model: model, actions: actions)
-            NotificationPermissionRow(model: model, actions: actions)
-        }
-        SettingsCard {
-            SettingsToggle(title: L10n.text("settings.presence.share", fallback: "Share when I'm using this device"),
-                           subtitle: L10n.text("settings.presence.detail", fallback: "Helps other devices send here. Only activity status and time since input are shared."),
-                           divider: false, isOn: model.shareActivityStatus, set: actions.setShareActivityStatus)
-        }
-        CodesCard(model: model, actions: actions)
-        LocalAgentCodesCard(options: model.localAgentCodeOptions, unavailable: model.localAgentCodesUnavailable, set: actions.setLocalAgentCodes)
-        FocusSyncCard(model: model, actions: actions)
-        NotificationHistoryCard(model: model, actions: actions)
-    }
-}
-
-private struct CallsPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard {
-            FeatureSwitch(feature: .calls, model: model, actions: actions)
-            PhoneLinksRow(status: model.phoneLinkStatus, use: actions.usePhoneLinks)
-            OtherAppCallsRow(model: model, actions: actions)
-            RingForCallsToggle(model: model, actions: actions)
-            PauseForCallsToggle(model: model, actions: actions)
-        }
-        CallsWindowCard(model: model, actions: actions)
-        CallMediaSettingsCard(model: model, actions: actions)
-        ShortcutsCard(model: model, actions: actions, only: [.call])
-    }
-}
-
-private struct FilesPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard {
-            FeatureSwitch(feature: .files, model: model, actions: actions)
-            ReceiveFolderRow(path: model.receiveFolderPath, choose: actions.chooseReceiveFolder)
-            SettingsToggle(title: L10n.text("settings.files.autoResume", fallback: "Resume interrupted files automatically"),
-                           isOn: model.autoResumeFiles, set: actions.setAutoResumeFiles)
-        }
-        SettingsCard(footnote: L10n.text("settings.folders.note", fallback: "These are the defaults; the send sheet can change them for one folder. Links and Finder aliases are never sent.")) {
-            SettingsToggle(title: L10n.text("settings.folders.hidden", fallback: "Include hidden files when sending folders"),
-                           subtitle: L10n.text("settings.folders.hidden.detail", fallback: "Files and folders whose names start with a dot, such as .gitignore or .config."),
-                           divider: false, synced: model.syncs(.folderIncludeHidden), isOn: model.folderIncludeHidden, set: actions.setFolderIncludeHidden)
-            SyncStatusLine(key: .folderIncludeHidden, model: model, actions: actions)
-            SettingsToggle(title: L10n.text("settings.folders.system", fallback: "Include system files when sending folders"),
-                           subtitle: L10n.text("settings.folders.system.detail", fallback: "Clutter the system makes, such as .DS_Store, ._ files and Thumbs.db."),
-                           synced: model.syncs(.folderIncludeSystem), isOn: model.folderIncludeSystem, set: actions.setFolderIncludeSystem)
-            SyncStatusLine(key: .folderIncludeSystem, model: model, actions: actions)
-        }
-        SettingsCard(footnote: L10n.text("settings.folders.receive.note", fallback: "Folders from other devices keep their structure. Received files get a Where from line in Finder.")) {
-            SettingsRow(title: L10n.text("settings.folders.receive", fallback: "Folders sent to this Mac"),
-                        subtitle: nil, divider: false, synced: model.syncs(.folderDestination)) {
-                ChoiceButton(value: folderReceiveModeTitle(model.folderReceiveMode)) {
-                    MacFolderReceiveMode.allCases.map { mode in
-                        PopUpMenuItem(title: folderReceiveModeTitle(mode), checked: mode == model.folderReceiveMode) { actions.setFolderReceiveMode(mode) }
-                    }
-                }
-            }
-            SyncStatusLine(key: .folderDestination, model: model, actions: actions)
-            SettingsRow(title: L10n.text("settings.folders.conflict", fallback: "When a folder already exists"), subtitle: nil,
-                        synced: model.syncs(.folderConflict)) {
-                ChoiceButton(value: folderConflictTitle(model.folderConflictPolicy)) {
-                    MacFolderConflictPolicy.allCases.map { policy in
-                        PopUpMenuItem(title: folderConflictTitle(policy), checked: policy == model.folderConflictPolicy) { actions.setFolderConflictPolicy(policy) }
-                    }
-                }
-            }
-            SyncStatusLine(key: .folderConflict, model: model, actions: actions)
-            SettingsToggle(title: L10n.text("settings.files.tag", fallback: "Tag received files in Finder"),
-                           subtitle: L10n.text("settings.files.tag.detail", fallback: "Adds the Bridgey tag, so Finder can list everything received from other devices."),
-                           isOn: model.tagReceivedFiles, set: actions.setTagReceivedFiles)
-        }
-        SettingsCard(footnote: L10n.text("camera.settings.note", fallback: "In the menu bar panel, File > Take Photo with your phone. The phone opens its camera once it is unlocked; the photo lands in Received files.")) {
-            SettingsToggle(title: L10n.text("camera.settings.clipboard", fallback: "Copy photos from the phone camera to the clipboard"),
-                           subtitle: L10n.text("camera.settings.clipboard.detail", fallback: "Ready to paste as soon as the photo arrives"),
-                           divider: false, isOn: model.cameraCopyToClipboard, set: actions.setCameraCopyToClipboard)
-        }
-        PhoneFilesQualitySettingsCard()
-        // Send options (Before sending, menu-bar drops): SendOptionsSettings.swift.
-        SendOptionsSettingsSection()
     }
 }
 
@@ -1117,33 +922,6 @@ func folderConflictTitle(_ policy: MacFolderConflictPolicy) -> String {
     case .newFolder: return L10n.text("settings.folders.conflict.newFolder", fallback: "Save as new folder")
     }
 }
-
-private struct MediaActionsPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard(footnote: model.mediaDetail.isEmpty ? L10n.text("settings.media.detail", fallback: "Music and Spotify: macOS asks once to let Bridgey control them. Other apps work while they show in Now Playing on this Mac.") : model.mediaDetail) {
-            FeatureSwitch(feature: .media, model: model, actions: actions)
-            MediaPlayerRow(model: model, actions: actions)
-        }
-        SettingsCard(title: L10n.text("settings.quickActions", fallback: "Quick actions")) {
-            ForEach(Array([BridgeyFeature.links, .ping, .findDevice, .battery].enumerated()), id: \.element) { index, feature in
-                FeatureSwitch(feature: feature, model: model, actions: actions, divider: index > 0)
-                if feature == .links {
-                    SettingsToggle(title: L10n.text("settings.links.openRightAway", fallback: "Open links from other devices right away"),
-                                   subtitle: L10n.text("settings.links.openRightAway.detail", fallback: "Links shared from other devices open in the browser. Turn this off to keep them in Bridgey's menu bar."),
-                                   isOn: model.openLinksRightAway, set: actions.setOpenLinksRightAway)
-                        .disabled(model.globalFeatures[.links] == false)
-                }
-            }
-        }
-        BrowserSupportCard(display: model.browserSupport, actions: actions)
-        MacActionsCards(model: model, actions: actions)
-        ShortcutsCard(model: model, actions: actions, only: [.link, .ping])
-    }
-}
-
 /// Media and actions > Browsers: install or remove browser support (docs/browser-extensions.md).
 struct BrowserSupportCard: View {
     let display: BrowserSupportDisplay
@@ -1171,29 +949,6 @@ struct BrowserSupportCard: View {
                 }
             }
         }
-    }
-}
-
-private struct GeneralPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        SettingsCard(footnote: L10n.text("settings.shortcuts.detail", fallback: "Shortcuts use Control + Option and the key you choose.")) {
-            SettingsToggle(title: L10n.text("settings.launchAtLogin", fallback: "Launch at login"),
-                           subtitle: model.loginItemMessage, subtitleIsWarning: model.loginItemMessage != nil, divider: false,
-                           isOn: model.launchAtLogin, set: actions.setLaunchAtLogin)
-            SettingsToggle(title: L10n.text("settings.reduceMotion", fallback: "Reduce motion"),
-                           subtitle: L10n.text("settings.reduceMotion.detail", fallback: "Fade between screens; nothing moves or bounces"),
-                           synced: model.syncs(.reduceMotion), isOn: model.reduceMotion, set: actions.setReduceMotion)
-            SyncStatusLine(key: .reduceMotion, model: model, actions: actions)
-            SettingsToggle(title: L10n.text("settings.panelMotion", fallback: "Animate the menu bar panel"),
-                           isOn: model.panelMoves, set: actions.setPanelMoves)
-            SettingsToggle(title: L10n.text("settings.shortcuts.shift", fallback: "Also require Shift for shortcuts"),
-                           isOn: model.shortcutShift, set: actions.setShortcutShift)
-        }
-        SettingsSyncCard(model: model, actions: actions)
-        RunSetupAgainCard(actions: actions)
     }
 }
 
@@ -1326,39 +1081,6 @@ extension BridgeyFeature {
     }
 }
 
-private struct DevicesPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        if model.trustedDevices.isEmpty {
-            SettingsCard {
-                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"),
-                            subtitle: L10n.text("devices.none.detail", fallback: "Pair a device below. Both screens show a code; confirm it only if they match."),
-                            divider: false) { EmptyView() }
-            }
-            .settingsSearchSkip()
-        }
-        SettingsCard {
-            SettingsRow(
-                title: L10n.text("panel.lookAgain", fallback: "Look for devices again"),
-                subtitle: model.rediscoverStatus ?? L10n.text("devices.lookAgain.detail", fallback: "Announces this Mac again and retries every paired device now"),
-                divider: false
-            ) {
-                Button(L10n.text("devices.lookAgain.action", fallback: "Look again")) { actions.lookForDevices() }
-                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-                    .disabled(model.rediscovering)
-            }
-        }
-        ConnectAwayCard(model: model, actions: actions)
-        ForEach(model.trustedDevices) { device in
-            DeviceCard(device: device, model: model, actions: actions)
-            AgentsOnPhoneCard(phoneID: device.id, phoneName: device.name, model: model, actions: actions)
-        }
-        PairNewCard(model: model, actions: actions)
-    }
-}
-
 struct DeviceCard: View {
     let device: TrustedDeviceInfo
     let model: SettingsModel
@@ -1390,44 +1112,8 @@ struct DeviceCard: View {
             }
             .padding(.vertical, 8)
             .settingsSearchAnchor(device.name)
-            Text(String(format: L10n.text("devices.permissions.intro", fallback: "What this Mac shares with %@."), device.name))
-                .font(BrandFont.body(12))
-                .foregroundStyle(c.on2)
-                .padding(.bottom, 4)
             ConnectionHealthRow(health: model.health[device.id], now: model.now)
-            ForEach(BridgeyFeature.allCases.filter { !$0.needsDeviceGrant }) { feature in
-                SettingsToggle(
-                    title: feature.title,
-                    subtitle: note(feature),
-                    subtitleIsWarning: note(feature) != nil,
-                    isOn: model.isEnabled(feature, for: device.id),
-                    set: { actions.setForDevice(device.id, feature, $0) }
-                )
-                .disabled(model.globalFeatures[feature] == false)
-                if feature == .battery {
-                    BatteryAlertsRow(thresholds: model.batteryAlerts[device.id] ?? .default,
-                                     enabled: model.isEnabled(.battery, for: device.id)) { actions.setBatteryAlerts(device.id, $0) }
-                }
-                if feature == .clipboard {
-                    AutoClipboardToggle(
-                        isOn: model.isAutoClipboardEnabled(for: device.id),
-                        subtitle: model.autoClipboard ? nil : L10n.text("settings.autoClipboard.offEverywhere", fallback: "Off for every device, in Clipboard"),
-                        subtitleIsWarning: !model.autoClipboard,
-                        set: { actions.setAutoClipboardForDevice(device.id, $0) }
-                    )
-                    .disabled(!model.autoClipboard || !model.isEnabled(.clipboard, for: device.id))
-                }
-            }
-            // Granted on its own, off by default; see Settings > Remote control.
-            RemoteControlGrantToggle(device: device, model: model, actions: actions)
-            // Never for a server or agent: nothing to choose.
-            if !model.restrictedDevices.contains(device.id) {
-                MacScreenGrantRow(device: device, model: model, actions: actions)
-            }
-            // The same for Mac actions; see Settings > Media and actions.
-            MacActionsGrantToggle(device: device, model: model, actions: actions)
-            CallMediaGrantToggle(device: device, model: model, actions: actions)
-            SettingsSyncDeviceToggle(device: device, model: model, actions: actions)
+            // What this Mac shares with the device is now chosen in each feature's card (its Devices row).
         }
         // Rows here have the same titles in every device's card: search tells them apart by device.
         .settingsSearchScope(device.id)
@@ -1440,32 +1126,31 @@ struct DeviceCard: View {
             Text(L10n.text("devices.forget.body", fallback: "This Mac stops trusting it. To use it again, pair and compare the code once more."))
         }
     }
-
-    private func note(_ feature: BridgeyFeature) -> String? {
-        if model.globalFeatures[feature] == false { return L10n.text("permission.offEverywhere", fallback: "Off for every device") }
-        let remote = model.phoneFeatures[device.id] ?? (model.connectedDeviceID == device.id ? model.remoteFeatures : [:])
-        if remote[feature] == false {
-            return String(format: L10n.text("permission.offRemote", fallback: "Off on %@"), device.name)
-        }
-        return nil
-    }
 }
 
+/// Look for devices again, the devices nearby that can pair, and pairing by a tailnet name or address.
 struct PairNewCard: View {
     let model: SettingsModel
     let actions: SettingsActions
 
     var body: some View {
         let nearby = model.rings.filter { !$0.trusted }
-        TailscaleSetupCard(display: model.tailscaleSetup, actions: actions)
-        SettingsCard(title: L10n.text("devices.pair", fallback: "Pair a new device"),
-                     footnote: L10n.text("devices.pair.detail", fallback: "Open Bridgey on both devices, on the same Wi-Fi or Tailscale network. Confirm only if the codes match.")) {
+        FeatureCard(card: .pair, headerAnchor: SettingsCardID.pair.title,
+                    footnote: L10n.text("devices.pair.detail", fallback: "Open Bridgey on both devices, on the same Wi-Fi or Tailscale network. Confirm only if the codes match.")) {
+            SettingsRow(
+                title: L10n.text("panel.lookAgain", fallback: "Look for devices again"),
+                subtitle: model.rediscoverStatus ?? L10n.text("devices.lookAgain.detail", fallback: "Announces this Mac again and retries every paired device now")
+            ) {
+                Button(L10n.text("devices.lookAgain.action", fallback: "Look again")) { actions.lookForDevices() }
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+                    .disabled(model.rediscovering)
+            }
             Group {
                 if nearby.isEmpty {
-                    SettingsRow(title: L10n.text("devices.pair.searching", fallback: "Looking for Bridgey devices on Wi-Fi and Tailscale\u{2026}"), divider: false) { EmptyView() }
+                    SettingsRow(title: L10n.text("devices.pair.searching", fallback: "Looking for Bridgey devices on Wi-Fi and Tailscale\u{2026}")) { EmptyView() }
                 }
-                ForEach(Array(nearby.enumerated()), id: \.element.id) { index, ring in
-                    SettingsRow(title: ring.name, subtitle: ringStatusText(ring), divider: index > 0) {
+                ForEach(nearby) { ring in
+                    SettingsRow(title: ring.name, subtitle: ringStatusText(ring)) {
                         Button(L10n.text("action.pair", fallback: "Pair")) { actions.pair(ring) }
                             .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                             .disabled(!ring.canConnect)
@@ -1475,7 +1160,6 @@ struct PairNewCard: View {
             .settingsSearchSkip()
             PairAddressRow(actions: actions)
         }
-        .settingsSearchAnchor(L10n.text("devices.pair", fallback: "Pair a new device"))
     }
 }
 
@@ -1484,14 +1168,27 @@ struct PairNewCard: View {
 struct PairAddressRow: View {
     let actions: SettingsActions
     @State private var address = ""
+    @Environment(\.snapshotRendering) private var snapshot
+    @Environment(\.brand) private var c
 
     var body: some View {
         SettingsRow(title: L10n.text("devices.pair.address", fallback: "Pair by tailnet name or address"),
                     subtitle: L10n.text("devices.pair.address.detail", fallback: "For a device on your tailnet. Tap Allow pairing there first."), divider: true) {
-            TextField(L10n.text("devices.pair.address.placeholder", fallback: "work or 100.64.0.10"), text: $address)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 170)
-                .onSubmit { submit() }
+            if snapshot {
+                // ImageRenderer cannot draw an AppKit text field: screenshots show its placeholder instead.
+                Text(L10n.text("devices.pair.address.placeholder", fallback: "work or 100.64.0.10"))
+                    .font(BrandFont.body(13))
+                    .foregroundStyle(c.on2)
+                    .padding(.horizontal, 8)
+                    .frame(width: 170, height: 24, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(c.s2))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(c.ol, lineWidth: 1))
+            } else {
+                TextField(L10n.text("devices.pair.address.placeholder", fallback: "work or 100.64.0.10"), text: $address)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 170)
+                    .onSubmit { submit() }
+            }
             Button(L10n.text("action.pair", fallback: "Pair")) { submit() }
                 .buttonStyle(PillButtonStyle(kind: .tonal, height: 28))
                 .disabled(address.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -1647,29 +1344,16 @@ struct NotificationHistoryCard: View {
     }
 }
 
-/// Settings > Text messages, its own page as on the phone (Rahul, 2026-10-27). One card per topic, so
-/// later phone features that belong with texts (call settings, for example) join as cards of their own
-/// without reshaping the page.
-struct TextMessagesPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        TextMessagesCard(model: model, actions: actions)
-        if model.smsEnabled { TextMessagesStorageCard(model: model, actions: actions) }
-    }
-}
-
-/// Text messages: the switch, the phone's state and the Messages window.
+/// Text messages: the switch in the header, the phone's state and the Messages window.
 struct TextMessagesCard: View {
     let model: SettingsModel
     let actions: SettingsActions
 
     var body: some View {
-        SettingsCard {
-            SettingsToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"),
-                           subtitle: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app."),
-                           divider: false, synced: model.syncs(.featureSms), isOn: model.smsEnabled, set: actions.setSmsEnabled)
+        FeatureCard(card: .messages,
+                    toggle: CardToggle(title: L10n.text("sms.toggle", fallback: "Your phone\u{2019}s texts on this Mac"), isOn: model.smsEnabled,
+                                       synced: model.syncs(.featureSms), set: actions.setSmsEnabled),
+                    footnote: L10n.text("sms.toggle.detail", fallback: "Read and answer conversations in the Messages window, and reply from text notifications. Off by default. Messages travel only between your phone and this Mac, encrypted; Bridgey never becomes the phone\u{2019}s default SMS app.")) {
             SyncStatusLine(key: .featureSms, model: model, actions: actions)
             if model.smsEnabled {
                 SettingsRow(title: phoneTitle, subtitle: phoneDetail, subtitleIsWarning: phoneWarning, divider: true) {
@@ -1680,6 +1364,8 @@ struct TextMessagesCard: View {
                 SettingsRow(title: L10n.text("sms.limits", fallback: "Group conversations and pictures"),
                             subtitle: L10n.text("sms.limits.detail", fallback: "You can read them here. Reply to groups and send pictures from your phone."), divider: true) { EmptyView() }
             }
+        } more: {
+            if model.smsEnabled { TextMessagesStorageCard(model: model, actions: actions) }
         }
     }
 
@@ -1741,37 +1427,8 @@ struct TextMessagesStorageCard: View {
     }
 }
 
-struct PrivacyPane: View {
-    let model: SettingsModel
-    let actions: SettingsActions
-    @State private var confirmClear = false
-
-    var body: some View {
-        PrivacyPermissionsCard(model: model, actions: actions)
-        SettingsCard(title: L10n.text("settings.activity", fallback: "Activity")) {
-            SettingsToggle(title: L10n.text("settings.previews", fallback: "Show previews in activity"),
-                           subtitle: L10n.text("settings.previews.detail", fallback: "Clipboard text, app names and callers. Off keeps only what happened."),
-                           divider: false, synced: model.syncs(.activityPreviews), isOn: model.showPreviews, set: actions.setShowPreviews)
-            SyncStatusLine(key: .activityPreviews, model: model, actions: actions)
-            SettingsRow(title: L10n.text("settings.activity.clear", fallback: "Clear activity"),
-                        subtitle: L10n.text("settings.activity.detail", fallback: "Kept only on this Mac, for 7 days. Never in diagnostics.")) {
-                Button(L10n.text("action.clear", fallback: "Clear")) { confirmClear = true }
-                    .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
-                    .disabled(model.activityCount == 0)
-            }
-        }
-        .confirmationDialog(L10n.text("settings.activity.clear.title", fallback: "Clear activity?"), isPresented: $confirmClear) {
-            Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearActivity)
-        } message: {
-            Text(L10n.text("settings.activity.clear.body", fallback: "This removes the stream from this Mac. Your other devices keep their own history."))
-        }
-        LoggingCard(model: model, actions: actions)
-        PrivacyResetCard(actions: actions)
-    }
-}
-
-/// Settings > Privacy > Logging: a switch per category, content switches under their category,
-/// then Export diagnostics and Clear logs. Per Mac.
+/// Privacy > Logging: Export diagnostics and Clear logs, then in More options a switch per category, content
+/// switches under their category. Per Mac.
 struct LoggingCard: View {
     let model: SettingsModel
     let actions: SettingsActions
@@ -1786,14 +1443,23 @@ struct LoggingCard: View {
     }
 
     var body: some View {
-        SettingsCard(
-            title: L10n.text("settings.logging", fallback: "Logging"),
-            footnote: L10n.text("settings.logging.note", fallback: "Logs stay on this device; you choose what goes into exported diagnostics. Names and text only reach the local log.")
-        ) {
+        FeatureCard(card: .logging,
+                    footnote: L10n.text("settings.logging.note", fallback: "Logs stay on this device; you choose what goes into exported diagnostics. Names and text only reach the local log.")) {
+            SettingsRow(title: L10n.text("settings.diagnostics.export", fallback: "Export diagnostics"),
+                        subtitle: L10n.text("settings.diagnostics.detail", fallback: "A bounded event log without clipboard text, notification content, file names, addresses or device identifiers.")) {
+                Button(L10n.text("action.export", fallback: "Export\u{2026}"), action: actions.exportDiagnostics)
+                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
+            }
+            SettingsRow(title: L10n.text("settings.logging.clear", fallback: "Clear logs"),
+                        subtitle: L10n.text("settings.logging.clear.detail", fallback: "Deletes the diagnostics log on this Mac")) {
+                Button(L10n.text("action.clear", fallback: "Clear")) { confirmClear = true }
+                    .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+            }
+        } more: {
             Group {
             SettingsToggle(title: L10n.text("settings.logging.connection", fallback: "Connection events"),
                            subtitle: L10n.text("settings.logging.connection.detail", fallback: "Discovery, pairing, connects and reconnects"),
-                           divider: false, isOn: policy.connection) { on in set { $0.connection = on } }
+                           isOn: policy.connection) { on in set { $0.connection = on } }
             SettingsToggle(title: L10n.text("settings.logging.calls", fallback: "Call events"),
                            subtitle: L10n.text("settings.logging.calls.detail", fallback: "Call states and the caller\u{2019}s name, so call problems can be traced"),
                            isOn: policy.calls) { on in set { $0.calls = on } }
@@ -1827,16 +1493,6 @@ struct LoggingCard: View {
                            subtitle: L10n.text("settings.logging.remote.detail", fallback: "When a session ends and why; the remote control audit keeps its own record"),
                            isOn: policy.remoteControl) { on in set { $0.remoteControl = on } }
             }
-            SettingsRow(title: L10n.text("settings.diagnostics.export", fallback: "Export diagnostics"),
-                        subtitle: L10n.text("settings.diagnostics.detail", fallback: "A bounded event log without clipboard text, notification content, file names, addresses or device identifiers.")) {
-                Button(L10n.text("action.export", fallback: "Export\u{2026}"), action: actions.exportDiagnostics)
-                    .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
-            }
-            SettingsRow(title: L10n.text("settings.logging.clear", fallback: "Clear logs"),
-                        subtitle: L10n.text("settings.logging.clear.detail", fallback: "Deletes the diagnostics log on this Mac")) {
-                Button(L10n.text("action.clear", fallback: "Clear")) { confirmClear = true }
-                    .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
-            }
         }
         .confirmationDialog(L10n.text("settings.logging.clear.title", fallback: "Clear logs?"), isPresented: $confirmClear) {
             Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearLogs)
@@ -1850,11 +1506,11 @@ struct AboutPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
-    /// "2 more clicks to open the developer pane", for a moment after each click near the end of the count.
+    /// "2 more clicks to open the developer settings", for a moment after each click near the end of the count.
     @State private var tapNote: String?
 
     var body: some View {
-        SettingsCard {
+        FeatureCard(card: .about) {
             HStack(spacing: 14) {
                 AuroraMark(size: 48)
                 VStack(alignment: .leading, spacing: 2) {
@@ -1862,7 +1518,7 @@ struct AboutPane: View {
                     Text(String(format: L10n.text("updates.version", fallback: "Version %@"), model.versionDescription))
                         .font(BrandFont.body(12)).foregroundStyle(c.on2)
                         .contentShape(Rectangle())
-                        // Five clicks turn on the Developer and experimental pane; once on, a click opens it.
+                        // Five clicks turn on the Developer and experimental settings; once on, a click opens them.
                         .onTapGesture { versionTapped() }
                         .accessibilityAddTraits(.isButton)
                     if let tapNote {
@@ -1871,18 +1527,21 @@ struct AboutPane: View {
                 }
             }
             .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .settingsSearchAnchor(SettingsSearchRegistry.version)
+            .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
             SettingsRow(title: Edition.credit,
                         subtitle: L10n.text("about.license", fallback: "Open source under the MIT License.")) {
                 Button(L10n.text("about.original", fallback: "Original project")) { actions.openURL(Edition.upstreamProjectURL) }
                     .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
             }
+        } more: {
             SettingsRow(title: L10n.text("about.fonts", fallback: "Fonts"),
                         subtitle: L10n.text("about.fonts.detail", fallback: "Space Grotesk and Inter, under the SIL Open Font License 1.1.")) { EmptyView() }
             SettingsRow(title: L10n.text("about.network", fallback: "Your data"),
                         subtitle: L10n.text("about.network.detail", fallback: "Bridgey talks directly over your local network. Clipboard, files and notification content are encrypted in transit.")) { EmptyView() }
+            LicencesCard()
         }
-        LicencesCard()
     }
 
     private func versionTapped() {
@@ -1891,10 +1550,10 @@ struct AboutPane: View {
             tapNote = nil
         case let .remaining(left):
             tapNote = String(format: left == 1
-                ? L10n.text("developer.tapsLeft.one", fallback: "%d more click to open the developer pane")
-                : L10n.text("developer.tapsLeft", fallback: "%d more clicks to open the developer pane"), left)
+                ? L10n.text("developer.tapsLeft.one", fallback: "%d more click to open the developer settings")
+                : L10n.text("developer.tapsLeft", fallback: "%d more clicks to open the developer settings"), left)
         case .unlocked:
-            tapNote = L10n.text("developer.on", fallback: "Developer and experimental pane is on")
+            tapNote = L10n.text("developer.on", fallback: "Developer and experimental settings are on")
         case .open:
             tapNote = nil
         }
@@ -1902,33 +1561,33 @@ struct AboutPane: View {
 }
 
 /// Developer and experimental (hidden, DeveloperMenu.swift): tests and facts for people chasing a problem, then the
-/// experiments Rahul turns on before they are ready for everyone, then the way to hide the pane again.
+/// experiments Rahul turns on before they are ready for everyone, then the way to hide the card again.
 struct DeveloperPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
 
     var body: some View {
-        SpeedTestCard(phones: model.speedPhones)
-        PerfTestPanel()
-        // Facts and an empty list, not settings: search skips them.
-        SettingsCard(title: L10n.text("developer.transfers", fallback: "How files travel now")) {
-            if model.transferPaths.isEmpty {
-                SettingsRow(title: L10n.text("developer.noPhones", fallback: "No phone connected"), subtitle: nil, divider: false) { EmptyView() }
+        FeatureCard(card: .developer) {
+            SpeedTestCard(phones: model.speedPhones)
+            PerfTestPanel()
+            // Facts and an empty list, not settings: search skips them.
+            SettingsCard(title: L10n.text("developer.transfers", fallback: "How files travel now")) {
+                if model.transferPaths.isEmpty {
+                    SettingsRow(title: L10n.text("developer.noPhones", fallback: "No phone connected"), subtitle: nil, divider: false) { EmptyView() }
+                }
+                ForEach(Array(model.transferPaths.enumerated()), id: \.element.id) { index, path in
+                    SettingsRow(title: path.name, subtitle: Self.describe(path), divider: index > 0) { EmptyView() }
+                }
             }
-            ForEach(Array(model.transferPaths.enumerated()), id: \.element.id) { index, path in
-                SettingsRow(title: path.name, subtitle: Self.describe(path), divider: index > 0) { EmptyView() }
+            .settingsSearchSkip()
+            SettingsCard(title: L10n.text("developer.experimental", fallback: "Experimental features")) {
+                SettingsRow(title: L10n.text("developer.experimental.empty", fallback: "Nothing to try right now. New experiments show up here before everyone gets them."),
+                            subtitle: nil, divider: false) { EmptyView() }
             }
-        }
-        .settingsSearchSkip()
-        SettingsCard(title: L10n.text("developer.experimental", fallback: "Experimental features")) {
-            SettingsRow(title: L10n.text("developer.experimental.empty", fallback: "Nothing to try right now. New experiments show up here before everyone gets them."),
-                        subtitle: nil, divider: false) { EmptyView() }
-        }
-        .settingsSearchSkip()
-        SettingsCard {
-            SettingsRow(title: L10n.text("developer.hide", fallback: "Hide this pane"),
-                        subtitle: L10n.text("developer.hide.detail", fallback: "Click the version in About five times to bring it back"), divider: false) {
+            .settingsSearchSkip()
+            SettingsRow(title: L10n.text("developer.hide", fallback: "Hide developer settings"),
+                        subtitle: L10n.text("developer.hide.detail", fallback: "Click the version in About five times to bring it back")) {
                 Button(L10n.text("developer.hide.action", fallback: "Hide"), action: actions.turnOffDeveloper)
                     .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
             }
@@ -2021,7 +1680,9 @@ struct LiveSettingsView: View {
     @ObservedObject var agentsMirror: AgentsMirror
     @ObservedObject var localAgentCodes: LocalAgentCodes
     @ObservedObject var browserSupport: BrowserSupport
-    @State private var pane: SettingsPane = .devices
+    @State private var group: SettingsGroup = .devices
+    /// A link to an old pane (a notification, setup, Allow on a sync line): the card to scroll to.
+    @State private var cardRequest: SettingsCardRequest?
     @State private var availableShortcuts: [String]?
     @State private var phoneLinkStatus: String?
     /// While Remote control is open: notices Accessibility being allowed in System Settings.
@@ -2073,11 +1734,11 @@ struct LiveSettingsView: View {
             if inSetup {
                 SetupWindowView.live(model: model, actions: actions, center: setupCenter)
             } else {
-                SettingsWindowView(model: model, actions: actions, pane: $pane)
+                SettingsWindowView(model: model, actions: actions, group: $group, request: cardRequest)
             }
         }
         .onAppear {
-            if inSetup { handoff.refresh() } else { handoff.watch(pane == .clipboard) }
+            if inSetup { handoff.refresh() } else { handoff.watch(group == .sharing) }
             pairing.refreshNotificationAuthorization()
             settings.refreshLoginItemStatus()
             remoteInput.refreshAccessibility()
@@ -2086,18 +1747,18 @@ struct LiveSettingsView: View {
             Task { await pairing.refreshTailnet() }
         }
         .onReceive(accessibilityTicker) { _ in
-            if pane == .remoteControl || pane == .media { remoteInput.refreshAccessibility() }
-            if pane == .remoteControl { macScreen.refreshDisplays() }
+            if group == .control { remoteInput.refreshAccessibility() }
+            if group == .control { macScreen.refreshDisplays() }
         }
-        .onChange(of: pane) { shown in
-            if shown == .devices || shown == .away { Task { await pairing.refreshTailnet() } }
-            if shown == .media || shown == .notifications { loadShortcuts() }
-            if !inSetup { handoff.watch(shown == .clipboard) }
+        .onChange(of: group) { shown in
+            if shown == .devices { Task { await pairing.refreshTailnet() } }
+            if shown == .control || shown == .phone { loadShortcuts() }
+            if !inSetup { handoff.watch(shown == .sharing) }
         }
         .onDisappear { handoff.watch(false) }
         .onReceive(SettingsPaneRequest.shared.$pane.compactMap { $0 }) { requested in
             guard !inSetup else { return }
-            pane = requested
+            open(requested)
             SettingsPaneRequest.shared.pane = nil
         }
     }
@@ -2113,7 +1774,7 @@ struct LiveSettingsView: View {
         model.rings = deviceRings(trusted: pairing.trustedDevices, peers: discovery.peers + pairing.tailnetPeers, connected: pairing.connectedPhones,
                                   pairing: pairing.pairingFlow, reconnecting: pairing.reconnectStates)
         model.speedPhones = pairing.speedPhones.map { SpeedPhone(id: $0.id, name: $0.name) }
-        model.developerMenu = DeveloperMenu.shared.enabled || pane == .developer
+        model.developerMenu = DeveloperMenu.shared.enabled
         model.transferPaths = model.developerMenu ? pairing.transferPaths : []
         model.rediscovering = pairing.isRediscovering
         model.rediscoverStatus = pairing.rediscoverStatus
@@ -2239,12 +1900,12 @@ struct LiveSettingsView: View {
         var actions = SettingsActions()
         actions.versionTapped = {
             let tap = DeveloperMenu.shared.tap()
-            if tap == .unlocked || tap == .open { pane = .developer }
+            if tap == .unlocked || tap == .open { open(.developer) }
             return tap
         }
         actions.turnOffDeveloper = {
             DeveloperMenu.shared.turnOff()
-            pane = .about
+            open(.about)
         }
         actions.setDeviceName = { name in
             settings.setDeviceName(name)
@@ -2304,7 +1965,7 @@ struct LiveSettingsView: View {
         actions.setSyncs = { key, on in settingsSync.setSyncs(key, on) }
         actions.applyToAll = { settingsSync.applyToAll($0) }
         // Codes waits for its own consent step on its card; the others for a system permission.
-        actions.allowPermission = { key in pane = key == .codesEnabled ? .notifications : .permissions }
+        actions.allowPermission = { key in show(key == .codesEnabled ? .codes : .permissions) }
         actions.setConnectAway = { settings.setConnectAway($0) }
         actions.setAgentGrant = { phone, agent, key, on, window in pairing.setAgentGrant(phone: phone, agent: agent, key: key, on: on, window: window) }
         actions.resetConnectIdentity = { pairing.resetConnectIdentity() }
@@ -2414,7 +2075,15 @@ struct LiveSettingsView: View {
         actions.setRemoteStartUpdates = { updateAll.setRemoteStartAllowed($0) }
         actions.setAutoUpdate = { autoUpdate.setEnabled($0) }
         actions.openURL = { NSWorkspace.shared.open($0) }
-        return setupCenter.hooked(actions, showPane: { pane = $0 }, inSetup: inSetup)
+        return setupCenter.hooked(actions, showPane: { open($0) }, inSetup: inSetup)
+    }
+
+    /// Shows an old pane: its group, scrolled to its card.
+    private func open(_ pane: SettingsPane) { show(pane.card) }
+
+    private func show(_ card: SettingsCardID) {
+        group = card.group
+        cardRequest = SettingsCardRequest(card: card)
     }
 
     /// A session whose grant went away ends now. Turning remote control on asks macOS for

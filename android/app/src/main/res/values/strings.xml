@@ -310,7 +310,7 @@
     <string name="devices_none">No paired devices yet. Tap Pair a new device to get started.</string>
     <string name="devices_pair_new">Pair a new device</string>
     <string name="devices_pair_new_detail">Find a device on this Wi-Fi and compare the code</string>
-    <string name="devices_per_device_note">Open a device to turn features off for it only, or to forget it. What each feature shares is set in the sections of Settings.</string>
+    <string name="devices_per_device_note">Open a device to see its activity or forget it. Each feature\'s card chooses which devices get it.</string>
     <string name="devices_direct_calls">Call status and controls</string>
     <string name="devices_direct_calls_detail">Lets your paired device start, answer, decline and end calls</string>
     <string name="notification_apps_intro">Choose which apps may show their notifications on your paired devices.</string>
@@ -479,7 +479,7 @@
     <string name="settings_summary_general_battery">Battery optimisation can pause Bridgey</string>
     <string name="settings_summary_version">Version %1$s</string>
     <string name="settings_remote_detail">Use this phone as a touchpad, keyboard and presentation remote for a Mac that allows it</string>
-    <string name="remote_settings_note">The Mac must allow this phone in Bridgey Settings › Remote control. While you are in control the Mac shows it, and can stop you at any time.</string>
+    <string name="remote_settings_note">The Mac must allow this phone in Bridgey Settings › Control › Remote control. While you are in control the Mac shows it, and can stop you at any time.</string>
     <string name="remote_speed_title">Pointer speed</string>
     <string name="remote_speed_1">Slow</string>
     <string name="remote_speed_2">Relaxed</string>
@@ -547,7 +547,7 @@
     <string name="remote_reason_left">Paused when you left this screen. %1$s is no longer controlled.</string>
     <string name="remote_reason_local_stop">Someone stopped it on %1$s.</string>
     <string name="remote_reason_timeout">%1$s stopped after 6 seconds without hearing from this phone.</string>
-    <string name="remote_reason_disabled">On %1$s, open Bridgey Settings › Remote control and allow this phone. Remote control must also be on here.</string>
+    <string name="remote_reason_disabled">On %1$s, open Bridgey Settings › Control › Remote control and allow this phone. Remote control must also be on here.</string>
     <string name="remote_reason_permission">On %1$s, allow Bridgey in System Settings › Privacy &amp; Security › Accessibility, then start again.</string>
     <string name="remote_reason_busy">Another device is controlling %1$s right now.</string>
     <string name="remote_reason_unsupported">%1$s cannot be controlled by this version. Update Bridgey on both devices.</string>
@@ -660,7 +660,7 @@
     </plurals>
     <string name="notification_folder_from">From %1$s</string>
     <string name="notification_lost_access">Bridgey lost access to %1$s</string>
-    <string name="notification_lost_access_detail">Grant it again in Settings, Files, Places.</string>
+    <string name="notification_lost_access_detail">Grant it again in Settings, Sharing, Files, Places.</string>
     <string name="notification_channel_folder_questions">Folder questions</string>
     <string name="notification_channel_folder_questions_detail">Where to save folders sent to this phone, and what to do when a folder already exists</string>
     <string name="notification_channel_received_folders">Received folders</string>
@@ -837,10 +837,10 @@
     <string name="mac_volume_level">Volume %1$d%%</string>
     <string name="mac_volume_muted">Muted</string>
     <string name="mac_actions_blocked">%1$s needs a permission on %2$s first</string>
-    <string name="mac_actions_empty">Nothing is allowed yet. On %1$s, open Bridgey Settings, Media and actions.</string>
+    <string name="mac_actions_empty">Nothing is allowed yet. On %1$s, open Bridgey Settings, Control, Mac actions.</string>
     <string name="mac_action_done_app">Opened %1$s on %2$s</string>
     <string name="mac_action_done_shortcut">Ran %1$s on %2$s</string>
-    <string name="mac_action_refused_not_allowed">%1$s does not allow this any more. Check Media and actions on the Mac.</string>
+    <string name="mac_action_refused_not_allowed">%1$s does not allow this any more. Check Control, Mac actions in its Bridgey Settings.</string>
     <string name="mac_action_refused_invalid">%1$s could not read that request</string>
     <string name="mac_action_refused_rate_limited">Too many at once. Wait a moment and try again.</string>
     <string name="mac_action_refused_busy">A Shortcut is still running on %1$s</string>

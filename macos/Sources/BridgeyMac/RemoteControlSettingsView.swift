@@ -1,116 +1,64 @@
 import SwiftUI
 
 /*
- * Settings > Remote control: the switch for this Mac, Accessibility (why and where), how to stop,
- * which phones may control this Mac, and the private session log. Drawn from `SettingsModel`, so
+ * Control > Remote control: the switch for this Mac, Accessibility (why and where), how to stop, which
+ * phones may control this Mac (the Devices row), and the private session log. Drawn from `SettingsModel`, so
  * the screenshots render it from sample state.
  */
 
-struct RemoteControlPane: View {
+struct RemoteControlCard: View {
     let model: SettingsModel
     let actions: SettingsActions
     @State private var confirmClear = false
     @Environment(\.brand) private var c
 
     var body: some View {
-        let on = model.globalFeatures[.remoteInput] == true
-        if let session = model.remoteSession {
-            SettingsCard {
+        FeatureCard(card: .remoteControl, toggle: featureToggle(.remoteInput, model, actions),
+                    footnote: L10n.text("remote.footnote", fallback: "Each phone needs its own permission, in Devices, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.")) {
+            SyncStatusLine(key: .featureRemoteInput, model: model, actions: actions)
+            if let session = model.remoteSession {
                 SettingsRow(title: String(format: L10n.text("remote.pill.title", fallback: "%@ is controlling this Mac"), session.deviceName),
                             subtitle: String(format: L10n.text("remote.active.detail", fallback: "%@, since %@"),
-                                             modeTitle(session.mode), session.startedAt.formatted(date: .omitted, time: .shortened)),
-                            divider: false) {
+                                             modeTitle(session.mode), session.startedAt.formatted(date: .omitted, time: .shortened))) {
                     Button(L10n.text("action.stop", fallback: "Stop"), action: actions.stopRemoteControl)
                         .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
                 }
+                .settingsSearchSkip()
             }
-            .settingsSearchSkip()
-        }
-        SettingsCard(footnote: L10n.text("remote.footnote", fallback: "Each phone needs its own permission, below, and Remote control turned on in Bridgey on the phone. Typing, keys and slides use a short list of keys; shortcuts such as Quit or Lock are never sent.")) {
-            SettingsToggle(title: BridgeyFeature.remoteInput.title, subtitle: BridgeyFeature.remoteInput.subtitle, divider: false,
-                           synced: model.syncs(.featureRemoteInput), isOn: on, set: { actions.setGlobal(.remoteInput, $0) })
-            SyncStatusLine(key: .featureRemoteInput, model: model, actions: actions)
             AccessibilityRow(trusted: model.accessibilityTrusted, open: actions.openAccessibilitySettings)
             SettingsRow(title: L10n.text("remote.stop.title", fallback: "Stop at any time"),
                         subtitle: L10n.text("remote.stop.detail", fallback: "Press Control-Option-Escape, or Stop in the pill at the top of the screen. The pill shows for the whole session.")) {
                 KeyCap(text: "\u{2303}\u{2325}\u{238B}")
             }
-        }
-        SettingsCard(title: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac")) {
-            if model.trustedDevices.isEmpty {
-                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet"), divider: false) { EmptyView() }
-                    .settingsSearchSkip()
-            }
-            ForEach(Array(model.trustedDevices.enumerated()), id: \.element.id) { index, device in
-                RemoteControlGrantToggle(device: device, model: model, actions: actions, title: device.name, divider: index > 0)
-            }
-        }
-        .settingsSearchAnchor(L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"))
-        MacScreenSettingsCard(model: model, actions: actions)
-        SettingsCard(title: PhoneScreenSettings.cardTitle, footnote: PhoneScreenSettings.footnote) {
-            SettingsToggle(title: PhoneScreenSettings.switchTitle, subtitle: PhoneScreenSettings.switchDetail, divider: false,
-                           synced: model.syncs(.featureScreen), isOn: model.phoneScreenEnabled, set: actions.setPhoneScreen)
-            SyncStatusLine(key: .featureScreen, model: model, actions: actions)
-        }
-        SettingsCard(title: L10n.text("remote.log", fallback: "Session log"),
-                     footnote: L10n.text("remote.log.detail", fallback: "Kept only on this Mac, for 30 days. It records which phone controlled this Mac, when, for how long and how many moves, clicks and keys, never what was typed.")) {
-            if model.remoteAudit.isEmpty {
-                SettingsRow(title: L10n.text("remote.log.empty", fallback: "No remote control yet"), divider: false) { EmptyView() }
-            } else {
-                ForEach(Array(model.remoteAudit.prefix(8).enumerated()), id: \.element.id) { index, entry in
-                    AuditRow(entry: entry, divider: index > 0)
-                }
-                SettingsRow(title: model.remoteAudit.count > 8
-                                ? String(format: L10n.text("remote.log.more", fallback: "%d more in the last 30 days"), model.remoteAudit.count - 8)
-                                : "") {
-                    Button(L10n.text("remote.log.clear", fallback: "Clear log")) { confirmClear = true }
-                        .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+            DeviceChoicesRow(feature: SettingsCardID.remoteControl.title, chips: DeviceChoices.remoteControl(model, actions),
+                           anchor: L10n.text("remote.devices", fallback: "Phones allowed to control this Mac"),
+                           subtitle: model.globalFeatures[.remoteInput] != true && model.trustedDevices.contains(where: { model.remoteGrant(for: $0.id) })
+                               ? L10n.text("remote.grant.globalOffShort", fallback: "Remote control is off on this Mac") : nil)
+        } more: {
+            SettingsCard(title: L10n.text("remote.log", fallback: "Session log"),
+                         footnote: L10n.text("remote.log.detail", fallback: "Kept only on this Mac, for 30 days. It records which phone controlled this Mac, when, for how long and how many moves, clicks and keys, never what was typed.")) {
+                if model.remoteAudit.isEmpty {
+                    SettingsRow(title: L10n.text("remote.log.empty", fallback: "No remote control yet"), divider: false) { EmptyView() }
+                } else {
+                    ForEach(Array(model.remoteAudit.prefix(8).enumerated()), id: \.element.id) { index, entry in
+                        AuditRow(entry: entry, divider: index > 0)
+                    }
+                    SettingsRow(title: model.remoteAudit.count > 8
+                                    ? String(format: L10n.text("remote.log.more", fallback: "%d more in the last 30 days"), model.remoteAudit.count - 8)
+                                    : "") {
+                        Button(L10n.text("remote.log.clear", fallback: "Clear log")) { confirmClear = true }
+                            .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
+                    }
                 }
             }
+            .settingsSearchSkip()
+            .settingsSearchAnchor(L10n.text("remote.log", fallback: "Session log"))
         }
-        .settingsSearchSkip()
-        .settingsSearchAnchor(L10n.text("remote.log", fallback: "Session log"))
         .confirmationDialog(L10n.text("remote.log.clear.title", fallback: "Clear the session log?"), isPresented: $confirmClear) {
             Button(L10n.text("action.clear", fallback: "Clear"), role: .destructive, action: actions.clearRemoteAudit)
         } message: {
             Text(L10n.text("remote.log.clear.body", fallback: "This removes the record of past remote control sessions from this Mac."))
         }
-    }
-}
-
-/// Settings > Devices > [phone] and the Remote control pane: the per-device grant, off by default.
-struct RemoteControlGrantToggle: View {
-    let device: TrustedDeviceInfo
-    let model: SettingsModel
-    let actions: SettingsActions
-    var title: String?
-    var divider = true
-
-    var body: some View {
-        let granted = model.remoteGrant(for: device.id)
-        let warning = note
-        SettingsToggle(
-            title: title ?? L10n.text("remote.grant", fallback: "Allow remote control"),
-            subtitle: warning ?? (granted
-                ? L10n.text("remote.grant.on", fallback: "Can use this Mac\u{2019}s pointer, keyboard and slides")
-                : L10n.text("remote.grant.off", fallback: "Off until you allow it")),
-            subtitleIsWarning: warning != nil,
-            divider: divider,
-            isOn: granted,
-            set: { actions.setForDevice(device.id, .remoteInput, $0) }
-        )
-    }
-
-    /// Why a granted phone still cannot control this Mac.
-    private var note: String? {
-        guard model.remoteGrant(for: device.id) else { return nil }
-        if model.globalFeatures[.remoteInput] != true {
-            return L10n.text("remote.grant.globalOff", fallback: "Remote control is off on this Mac. Turn it on in Remote control.")
-        }
-        if model.phoneFeatures[device.id]?[.remoteInput] == false {
-            return String(format: L10n.text("remote.grant.phoneOff", fallback: "Turn on Remote control in Bridgey on %@"), device.name)
-        }
-        return nil
     }
 }
 
@@ -122,7 +70,7 @@ private struct AccessibilityRow: View {
     var body: some View {
         SettingsRow(title: L10n.text("remote.accessibility", fallback: "Accessibility access"),
                     subtitle: trusted
-                        ? L10n.text("remote.accessibility.on", fallback: "Allowed. macOS requires it for any app that moves the pointer or types; Bridgey uses it only during a session you can see.")
+                        ? L10n.text("remote.accessibility.on", fallback: "macOS requires it for any app that moves the pointer or types; Bridgey uses it only during a session you can see.")
                         : L10n.text("remote.accessibility.off", fallback: "Needed to move the pointer and type. macOS asks when you first allow a phone. If you said no, turn on Bridgey in Privacy & Security > Accessibility."),
                     subtitleIsWarning: !trusted) {
             if trusted {
@@ -258,7 +206,7 @@ enum PhoneScreenSettings {
     static var cardTitle: String { L10n.text("screen.settings.card", fallback: "Phone screen") }
     static var switchTitle: String { L10n.text("screen.settings.switch", fallback: "Show phone screens") }
     static var switchDetail: String {
-        L10n.text("screen.settings.switch.detail", fallback: "See your phone\u{2019}s screen in a window on this Mac. The phone asks you each time.")
+        L10n.text("screen.settings.switch.detail", fallback: "See your phone\u{2019}s screen in a window on this Mac.")
     }
     static var footnote: String {
         L10n.text("screen.settings.note", fallback: "In the menu bar panel, choose File > Show Screen, or start sharing on the phone. If the phone allows this Mac, Control in the window taps, scrolls and types on it. The phone shows a notification with Stop while it shares; nothing is recorded or saved on this Mac.")
@@ -273,7 +221,7 @@ enum MacScreenSettings {
     static let scope = "display-share"
     static var cardTitle: String { L10n.text("display.settings.card", fallback: "This Mac\u{2019}s screen") }
     static var footnote: String {
-        L10n.text("display.settings.note", fallback: "Seeing and controlling are separate: a phone controls this screen only if it may also use remote control, above. While a phone watches, the pill at the top of the screen names it, with Stop.")
+        L10n.text("display.settings.note", fallback: "Seeing and controlling are separate: a phone controls this screen only if it may also use Remote control. While a phone watches, the pill at the top of the screen names it, with Stop.")
     }
     static var displayTitle: String { L10n.text("display.settings.display", fallback: "Screen to share") }
     static var recordingTitle: String { L10n.text("display.settings.recording", fallback: "Screen Recording access") }
@@ -310,7 +258,7 @@ enum MacScreenSettings {
             return String(format: L10n.text("display.grant.phoneOff", fallback: "Turn on See Mac screens in Bridgey on %@"), device.name)
         }
         if !model.screenRecordingAllowed {
-            return L10n.text("display.grant.recordingOff", fallback: "Needs Screen Recording access, below")
+            return L10n.text("display.grant.recordingOff", fallback: "Needs Screen Recording access")
         }
         return nil
     }
@@ -321,36 +269,29 @@ struct ScreenDisplayChoice: Identifiable, Equatable {
     let name: String
 }
 
-private struct MacScreenSettingsCard: View {
+/// Control > This Mac's screen: Unattended access, the display, Screen Recording, then each device's choice (Default,
+/// Off, Ask each time, Allow without asking), kept as its menu.
+struct MacScreenSettingsCard: View {
     let model: SettingsModel
     let actions: SettingsActions
 
     var body: some View {
-        if let session = model.screenSession {
-            SettingsCard {
+        let devices = MacScreenSettings.devices(model)
+        // No header switch: Unattended access is not an off switch for the screen, so it stays a row of its own.
+        FeatureCard(card: .macScreen, footnote: MacScreenSettings.footnote) {
+            if let session = model.screenSession {
                 SettingsRow(title: session.controlling
                                 ? String(format: L10n.text("display.pill.controlling", fallback: "%@ is viewing and controlling this screen"), session.deviceName)
                                 : String(format: L10n.text("display.pill.viewing", fallback: "%@ is viewing this screen"), session.deviceName),
                             subtitle: String(format: L10n.text("display.active.since", fallback: "Since %@"),
-                                             session.startedAt.formatted(date: .omitted, time: .shortened)),
-                            divider: false) {
+                                             session.startedAt.formatted(date: .omitted, time: .shortened))) {
                     Button(L10n.text("action.stop", fallback: "Stop"), action: actions.stopScreenShare)
                         .buttonStyle(PillButtonStyle(kind: .danger, height: 28))
                 }
+                .settingsSearchSkip()
             }
-            .settingsSearchSkip()
-        }
-        let devices = MacScreenSettings.devices(model)
-        SettingsCard(title: MacScreenSettings.cardTitle, footnote: MacScreenSettings.footnote) {
-            SettingsToggle(title: MacScreenSettings.unattendedTitle, subtitle: MacScreenSettings.unattendedDetail, divider: false,
+            SettingsToggle(title: MacScreenSettings.unattendedTitle, subtitle: MacScreenSettings.unattendedDetail,
                            isOn: model.screenUnattended, set: actions.setScreenUnattended)
-            if devices.isEmpty {
-                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet")) { EmptyView() }
-                    .settingsSearchSkip()
-            }
-            ForEach(devices, id: \.id) { device in
-                MacScreenGrantRow(device: device, model: model, actions: actions, title: device.name)
-            }
             SettingsRow(title: MacScreenSettings.displayTitle) {
                 ChoiceButton(value: model.screenDisplays.first { $0.id == model.screenDisplayID }?.name
                                  ?? L10n.text("display.name.fallback", fallback: "Display")) {
@@ -360,13 +301,20 @@ private struct MacScreenSettingsCard: View {
                 }
             }
             ScreenRecordingRow(allowed: model.screenRecordingAllowed, open: actions.openScreenRecordingSettings)
+            if devices.isEmpty {
+                SettingsRow(title: L10n.text("devices.none", fallback: "No paired devices yet")) { EmptyView() }
+                    .settingsSearchSkip()
+            }
+            ForEach(devices, id: \.id) { device in
+                MacScreenGrantRow(device: device, model: model, actions: actions, title: device.name)
+            }
         }
         .settingsSearchScope(MacScreenSettings.scope)
     }
 }
 
-/// One device's choice: Default (it follows Unattended access), Off, Ask each time or Allow without asking. On
-/// Settings > Devices > device and in the card.
+/// One device's choice: Default (it follows Unattended access), Off, Ask each time or Allow without asking, in This
+/// Mac's screen.
 struct MacScreenGrantRow: View {
     let device: TrustedDeviceInfo
     let model: SettingsModel
@@ -397,7 +345,7 @@ private struct ScreenRecordingRow: View {
     var body: some View {
         SettingsRow(title: MacScreenSettings.recordingTitle,
                     subtitle: allowed
-                        ? L10n.text("display.settings.recording.on", fallback: "Allowed. Bridgey captures the screen only while a phone you allow is watching.")
+                        ? L10n.text("display.settings.recording.on", fallback: "Bridgey captures the screen only while a phone you allow is watching.")
                         : L10n.text("display.settings.recording.off", fallback: "Needed to share this screen. Turn on Bridgey in Privacy & Security > Screen & System Audio Recording."),
                     subtitleIsWarning: !allowed) {
             if allowed {

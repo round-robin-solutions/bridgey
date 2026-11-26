@@ -62,7 +62,7 @@ class DeveloperMenuTest {
         // Settings sync only sends the keys it lists; none of them is the menu's.
         val synced = dev.bridgey.android.sync.SyncKey.entries.flatMap { listOf(it.key, it.token) }
         assertTrue(synced.none { it.contains("developer") })
-        assertEquals(Route.SettingsPane(SettingsSection.DEVELOPER), settingsRoute(SettingsSection.DEVELOPER))
+        assertEquals(Route.SettingsGroupPage(dev.bridgey.android.ui.SettingsGroup.APP), settingsRoute(SettingsSection.DEVELOPER))
         assertEquals(settingsRoute(SettingsSection.DEVELOPER), Route.fromKey("settings:developer"))
     }
 }

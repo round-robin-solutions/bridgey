@@ -14,7 +14,7 @@
     <string name="attach_video_description">Видео, %1$s</string>
     <string name="attach_media_access_title">Ваши фото и видео здесь</string>
     <string name="attach_media_access_body">Выбирайте недавние фото и видео прямо здесь, без системного окна выбора. Android спросит один раз.</string>
-    <string name="attach_media_access_mac">Связанные Mac тоже смогут их просматривать, пока включено «Настройки › Файлы › Разрешить другим устройствам просматривать телефон».</string>
+    <string name="attach_media_access_mac">Связанные Mac тоже смогут их просматривать, пока включено «Настройки › Обмен › Файлы › Разрешить другим устройствам просматривать телефон».</string>
     <string name="attach_media_allow">Разрешить доступ</string>
     <string name="attach_media_open_settings">Открыть настройки</string>
     <string name="attach_media_partial">Bridgey видит только выбранные вами фото и видео.</string>

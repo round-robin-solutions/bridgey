@@ -223,6 +223,8 @@ fun ListRow(
     searchable: Boolean = true,
     /** Settings search: the row's name when its [title] changes with state ("Link to Work Mac"). */
     searchTitle: String? = null,
+    /** A card header's larger title; rows use the standard one. */
+    titleStyle: androidx.compose.ui.text.TextStyle? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = BridgeyTheme.colors
@@ -253,13 +255,14 @@ fun ListRow(
             }
         }
         Column(Modifier.weight(1f)) {
+            val style = titleStyle ?: if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle
             if (synced) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface, modifier = Modifier.weight(1f, fill = false))
+                    Text(title, style = style, color = colors.onSurface, modifier = Modifier.weight(1f, fill = false))
                     SyncedMark()
                 }
             } else {
-                Text(title, style = if (compact) BridgeyType.itemTitle else BridgeyType.rowTitle, color = colors.onSurface)
+                Text(title, style = style, color = colors.onSurface)
             }
             if (detail != null) {
                 Text(

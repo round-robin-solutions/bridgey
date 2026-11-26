@@ -194,11 +194,11 @@ struct FocusSyncCard: View {
 
     var body: some View {
         let focus = model.focusSync
-        SettingsCard(title: L10n.text("focus.title", fallback: "Focus"),
-                     footnote: L10n.text("focus.footnote", fallback: "To share, add Bridgey to a Focus in System Settings > Focus > Focus filters, or use the Share Focus with Phones action in a Shortcuts automation. To follow, pick Shortcuts that use the Set Focus action. macOS does not let apps read or change a Focus directly.")) {
+        FeatureCard(card: .focus,
+                    footnote: L10n.text("focus.footnote", fallback: "To share, add Bridgey to a Focus in System Settings > Focus > Focus filters, or use the Share Focus with Phones action in a Shortcuts automation. To follow, pick Shortcuts that use the Set Focus action. macOS does not let apps read or change a Focus directly.")) {
             SettingsToggle(title: L10n.text("focus.share", fallback: "Share Focus with phones"),
                            subtitle: L10n.text("focus.share.detail", fallback: "Phones that follow this Mac turn on Do Not Disturb with your Focus"),
-                           divider: false, synced: model.syncs(.focusShare), isOn: focus.share, set: { value in actions.setFocusSync { $0.share = value } })
+                           synced: model.syncs(.focusShare), isOn: focus.share, set: { value in actions.setFocusSync { $0.share = value } })
             SyncStatusLine(key: .focusShare, model: model, actions: actions)
             SettingsToggle(title: L10n.text("focus.follow", fallback: "Follow the phone\u{2019}s Do Not Disturb"),
                            subtitle: L10n.text("focus.follow.detail", fallback: "Runs your Shortcut when Do Not Disturb turns on or off on a phone that shares it"),

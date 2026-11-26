@@ -96,12 +96,12 @@ final class PermissionStateTests: XCTestCase {
         XCTAssertTrue(SetupPermission.notifications.settingsURL.absoluteString.contains("Notifications-Settings"))
     }
 
-    func testPrivacySubpagesStayOutOfTheSidebar() {
-        XCTAssertFalse(SettingsPane.sidebarItems.contains(.permissions))
-        XCTAssertFalse(SettingsPane.sidebarItems.contains(.reset))
-        XCTAssertEqual(SettingsPane.permissions.sidebarPane, .privacy)
-        XCTAssertEqual(SettingsPane.reset.parentPane, .privacy)
-        XCTAssertNil(SettingsPane.general.parentPane)
+    func testPermissionsAndResetAreCardsInPrivacy() {
+        XCTAssertEqual(SettingsPane.permissions.group, .privacy)
+        XCTAssertEqual(SettingsPane.reset.group, .privacy)
+        XCTAssertEqual(SettingsPane.permissions.card, .permissions)
+        XCTAssertEqual(SettingsPane.reset.card, .reset)
+        XCTAssertEqual(SettingsGroup.privacy.cards(developer: false), [.activity, .permissions, .logging, .reset])
         XCTAssertEqual(SettingsPane.permissions.title, "Permissions")
     }
 

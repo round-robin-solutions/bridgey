@@ -70,9 +70,6 @@ import dev.bridgey.android.ui.DeviceRing
 import dev.bridgey.android.ui.DeviceScreen
 import dev.bridgey.android.ui.DeviceTab
 import dev.bridgey.android.ui.DeviceState
-import dev.bridgey.android.ui.DevicesSettingsActions
-import dev.bridgey.android.ui.DevicesSettingsScreen
-import dev.bridgey.android.ui.DevicesSettingsState
 import dev.bridgey.android.ui.HomeActions
 import dev.bridgey.android.ui.HomeScreen
 import dev.bridgey.android.ui.HomeState
@@ -715,7 +712,6 @@ private fun BridgeyApp(
     val remotePrefs by remotePreferences.state.collectAsStateWithLifecycle()
     val reconnectStates by pairing.reconnectStates.collectAsStateWithLifecycle()
     val rediscover by pairing.rediscover.collectAsStateWithLifecycle()
-    val connectDevicesStatus by (androidx.compose.ui.platform.LocalContext.current.applicationContext as BridgeyApplication).connect.status.collectAsStateWithLifecycle()
     val batteryPromptShown by uiPreferences.batteryPromptShown.collectAsStateWithLifecycle()
     val codeAccessStatus by codes.access.status.collectAsStateWithLifecycle()
     val companionLink by codes.linker.state.collectAsStateWithLifecycle()
@@ -910,11 +906,32 @@ private fun BridgeyApp(
         }
     }
 
-    // The Mac's "Link this phone to the Mac" notification: Settings › Notifications, where Codes
-    // from messages lives, and the link starts. Back goes to the Settings home.
+    val searchHost = remember { dev.bridgey.android.ui.search.SettingsSearchHost() }
+
+    /**
+     * Opens a Settings section where it lives now: its group's page, scrolled to its card (setup's links, permission
+     * prompts, notifications). [push] keeps the page below; otherwise the Settings home sits below it.
+     */
+    fun showSection(section: SettingsSection, push: Boolean = true) {
+        val route = settingsRoute(section)
+        section.anchorRes?.let { searchHost.open(route.key, context.getString(it), scope = section.card.key) }
+        if (push) stack.push(route) else stack.openSettings(route)
+    }
+
+    /** Opens the card that holds a device's choice, at that device's chip (from the device page). */
+    fun showDeviceChoice(choice: dev.bridgey.android.ui.DeviceChoice, deviceId: String) {
+        val route = settingsRoute(choice.card.group)
+        searchHost.open(route.key, context.getString(choice.titleRes), scope = deviceId, expand = choice.card.key.takeIf { choice.more })
+        stack.push(route)
+    }
+
+    // The Mac's "Link this phone to the Mac" notification: Notifications and calls, at Codes from messages, and the
+    // link starts. Back goes to the Settings home.
     LaunchedEffect(codes.linkRequest) {
         if (codes.linkRequest == null) return@LaunchedEffect
-        stack.openSettings(settingsRoute(SettingsSection.NOTIFICATIONS))
+        val route = settingsRoute(SettingsSection.NOTIFICATIONS)
+        searchHost.open(route.key, context.getString(R.string.codes_title), scope = dev.bridgey.android.ui.SettingsCard.CODES.key)
+        stack.openSettings(route)
         codes.linker.start()
         codes.onLinkRequestHandled()
     }
@@ -950,7 +967,7 @@ private fun BridgeyApp(
         val target = settingsTarget ?: return@LaunchedEffect
         val section = SettingsDeepLink.section(target)
         if (target == SettingsDeepLink.PERMISSIONS) stack.openSettings(Route.Permissions)
-        else if (section != null) stack.openSettings(settingsRoute(section))
+        else if (section != null) showSection(section, push = false)
         onSettingsTargetHandled()
     }
 
@@ -991,7 +1008,6 @@ private fun BridgeyApp(
 
     val animatorScale = rememberAnimatorScale()
     val motion = remember(animatorScale, reduceMotion) { resolveMotion(animatorScale, reduceMotion) }
-    val searchHost = remember { dev.bridgey.android.ui.search.SettingsSearchHost() }
     CompositionLocalProvider(LocalMotion provides motion, LocalShowPreviews provides showPreviews, dev.bridgey.android.ui.search.LocalSettingsSearch provides searchHost) {
         MotionNavHost(stack) { route ->
             when (route) {
@@ -1116,6 +1132,7 @@ private fun BridgeyApp(
                                 stopScreen = { screenHub?.stop(dev.bridgey.android.screen.ScreenStopReason.USER) },
                                 runMacAction = { id, value -> ring.deviceId?.let { pairing.macActions.run(it, id, value) } },
                                 setSync = { on -> ring.deviceId?.let { pairing.settingsSync.setDeviceEnabled(it, on) } },
+                                openChoice = { choice -> ring.deviceId?.let { showDeviceChoice(choice, it) } },
                                 live = liveActions,
                             ),
                             snackbar = snackbar,
@@ -1132,7 +1149,7 @@ private fun BridgeyApp(
                     preferences = remotePrefs,
                     onBack = { stack.pop() },
                 )
-                Route.Settings, is Route.SettingsPane, Route.Setup, Route.Permissions, Route.Reset, Route.SettingsSearch -> {
+                Route.Settings, is Route.SettingsGroupPage, Route.Setup, Route.Permissions, Route.Reset, Route.SettingsSearch -> {
                     val (enabledApps, totalApps) = notificationAppCounts(settingsState.notificationApplications, settingsState.disabledNotificationPackages)
                     val bridgeyApp = context.applicationContext as BridgeyApplication
                     val bgSourceStatus by bridgeyApp.backgroundClipboardSource.status.collectAsStateWithLifecycle()
@@ -1252,13 +1269,33 @@ private fun BridgeyApp(
                             developerMenu = developerOn,
                             transferPaths = transferPaths,
                             phoneControl = phoneControlUi.state,
+                            rings = rings,
+                            rediscovering = rediscover == RediscoverState.Running,
+                            devices = trustedDevices.filterNot { it.isAgent }.map { device ->
+                                val connection = connectionOf(device.id)
+                                dev.bridgey.android.ui.settingsDevice(
+                                    settings, device.id, device.name, connection?.state?.remoteFeatures,
+                                    sync = syncUi.switches.devices[device.id] != false,
+                                    syncOffRemote = connection != null && device.id in syncUi.offOn,
+                                )
+                            },
                         )
                     val settingsUiActions =
                         SettingsActions(
                             back = { stack.pop() },
                             openSearch = { stack.push(Route.SettingsSearch) },
-                            openDevices = { stack.push(Route.Devices) },
-                            openSection = { stack.push(settingsRoute(it)) },
+                            openGroup = { stack.push(settingsRoute(it)) },
+                            openSection = { showSection(it) },
+                            openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
+                            addDevice = { pairDialog = true },
+                            lookForDevices = pairing::lookForDevices,
+                            // The same writes as the device page's switches did.
+                            setDeviceFeature = { deviceId, features, enabled ->
+                                dev.bridgey.android.ui.setDeviceChoice(settings, deviceId, features, enabled)
+                                if (BridgeyFeature.FIND_DEVICE in features && !enabled && connectionOf(deviceId) != null) pairing.stopFinding(deviceId)
+                            },
+                            setDeviceAutoClipboard = { deviceId, enabled -> settings.setAutoClipboardForDevice(deviceId, enabled) },
+                            setDeviceSync = { deviceId, on -> pairing.settingsSync.setDeviceEnabled(deviceId, on) },
                             openPerfTest = { stack.push(Route.PerfTest) },
                             openSpeedTest = { stack.push(Route.SpeedTest) },
                             versionTapped = {
@@ -1269,15 +1306,13 @@ private fun BridgeyApp(
                                     ).show()
                                     DeveloperMenu.Tap.Unlocked -> {
                                         android.widget.Toast.makeText(context, context.getString(R.string.developer_on), android.widget.Toast.LENGTH_SHORT).show()
-                                        stack.push(settingsRoute(dev.bridgey.android.ui.SettingsSection.DEVELOPER))
+                                        showSection(dev.bridgey.android.ui.SettingsSection.DEVELOPER)
                                     }
-                                    DeveloperMenu.Tap.Open -> stack.push(settingsRoute(dev.bridgey.android.ui.SettingsSection.DEVELOPER))
+                                    DeveloperMenu.Tap.Open -> showSection(dev.bridgey.android.ui.SettingsSection.DEVELOPER)
                                 }
                             },
-                            turnOffDeveloper = {
-                                developerMenu.turnOff()
-                                stack.pop()
-                            },
+                            // The card goes; App stays open.
+                            turnOffDeveloper = { developerMenu.turnOff() },
                             openNotificationApps = { stack.push(Route.NotificationApps) },
                             appNotifications = {
                                 if (appNotificationsEnabled) onOpenAppNotificationSettings()
@@ -1432,7 +1467,7 @@ private fun BridgeyApp(
                             onAddDevice = { pairDialog = true },
                             onLookForDevices = pairing::lookForDevices,
                             onOpenNotificationAccess = onOpenNotificationAccessSettings,
-                            onOpenSection = { stack.push(settingsRoute(it)) },
+                            onOpenSection = { showSection(it) },
                             onFinish = { openSettings ->
                                 onOnboardingComplete()
                                 stack.pop()
@@ -1449,7 +1484,7 @@ private fun BridgeyApp(
                             actions = settingsUiActions,
                             onRequestAppNotifications = onRequestAppNotifications,
                             onRequestDirectCalls = onRequestDirectCalls,
-                            onOpenSection = { stack.push(settingsRoute(it)) },
+                            onOpenSection = { showSection(it) },
                         )
                         Route.Reset -> ResetRoute(setup, onBack = { stack.pop() })
                         Route.SettingsSearch -> {
@@ -1464,12 +1499,12 @@ private fun BridgeyApp(
                                 onBack = { stack.pop() },
                                 onOpen = { entry ->
                                     // The page opens on top of the search, so back returns to the results.
-                                    searchHost.open(entry.route.key, entry.rowTitle.orEmpty(), fallback = entry.fallbackTitle)
+                                    searchHost.open(entry.route.key, entry.rowTitle.orEmpty(), entry.scope, entry.fallbackTitle, entry.expand, entry.fallbackScope)
                                     if (entry.route == Route.Settings) stack.pop() else stack.push(entry.route)
                                 },
                             )
                         }
-                        else -> SettingsScreen(section = (route as? Route.SettingsPane)?.section, state = settingsUi, actions = settingsUiActions)
+                        else -> SettingsScreen(group = (route as? Route.SettingsGroupPage)?.group, state = settingsUi, actions = settingsUiActions)
                     }
                 }
                 Route.SpeedTest -> {
@@ -1550,20 +1585,6 @@ private fun BridgeyApp(
                         grantAgain = folderUi.placesActions.grantAgain,
                         remove = folderUi.placesActions.remove,
                         rename = folderUi.placesActions.rename,
-                    ),
-                )
-                Route.Devices -> DevicesSettingsScreen(
-                    state = DevicesSettingsState(
-                        rings = rings,
-                        rediscovering = rediscover == RediscoverState.Running,
-                        connect = connectSettingsState(settingsState.connectAway, connectDevicesStatus),
-                    ),
-                    actions = DevicesSettingsActions(
-                        openConnectAway = { stack.push(settingsRoute(SettingsSection.AWAY)) },
-                        back = { stack.pop() },
-                        openDevice = { ring -> ring.deviceId?.let { stack.push(Route.Device(it)) } },
-                        addDevice = { pairDialog = true },
-                        lookForDevices = pairing::lookForDevices,
                     ),
                 )
                 Route.NotificationApps -> NotificationAppsScreen(

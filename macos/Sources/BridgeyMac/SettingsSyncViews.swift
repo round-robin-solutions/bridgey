@@ -9,23 +9,25 @@ extension SyncKey {
     static func key(for feature: BridgeyFeature) -> SyncKey? { allCases.first { $0.feature == feature } }
 }
 
-/// Settings > General: the one switch that turns settings sync off for every device, and Choose what syncs.
+/// App > Sync settings: the one switch that turns settings sync off for every device, Choose what syncs, and each
+/// device's own choice (the Devices row).
 struct SettingsSyncCard: View {
     let model: SettingsModel
     let actions: SettingsActions
     @State private var choosing = false
 
     var body: some View {
-        SettingsCard {
-            SettingsToggle(title: L10n.text("settings.sync", fallback: "Sync settings with paired devices"),
-                           subtitle: L10n.text("settings.sync.detail", fallback: "Keeps settings and features the same on your devices. Permissions, pairing and folders stay on each device."),
-                           divider: false, isOn: model.settingsSyncEnabled, set: actions.setSettingsSync)
+        FeatureCard(card: .sync,
+                    detail: L10n.text("settings.sync.detail", fallback: "Keeps settings and features the same on your devices. Permissions, pairing and folders stay on each device."),
+                    toggle: CardToggle(title: L10n.text("settings.sync", fallback: "Sync settings with paired devices"),
+                                       isOn: model.settingsSyncEnabled, set: actions.setSettingsSync)) {
             SettingsRow(title: L10n.text("sync.choose.title", fallback: "What syncs"),
                         subtitle: syncedCountText) {
                 Button(L10n.text("sync.choose", fallback: "Choose what syncs\u{2026}")) { choosing = true }
                     .buttonStyle(PillButtonStyle(kind: .outline, height: 28))
             }
             .disabled(!model.settingsSyncEnabled)
+            DeviceChoicesRow(feature: SettingsCardID.sync.title, chips: DeviceChoices.settingsSync(model, actions))
         }
         .sheet(isPresented: $choosing) {
             BrandRoot(reduceMotion: model.reduceMotion) {
@@ -126,32 +128,6 @@ struct SyncStatusLine: View {
             }
         }
         .padding(.bottom, 8)
-    }
-}
-
-/// Devices > [phone]: settings sync with this phone only.
-struct SettingsSyncDeviceToggle: View {
-    let device: TrustedDeviceInfo
-    let model: SettingsModel
-    let actions: SettingsActions
-
-    var body: some View {
-        let warning = note
-        SettingsToggle(
-            title: L10n.text("settings.sync.device", fallback: "Sync settings with this device"),
-            subtitle: warning,
-            subtitleIsWarning: warning != nil,
-            isOn: model.isSettingsSyncEnabled(for: device.id),
-            set: { actions.setSettingsSyncForDevice(device.id, $0) }
-        )
-        .disabled(!model.settingsSyncEnabled)
-    }
-
-    /// "Off for every device" when General is off; "Off on OnePlus 11" when the phone has it off.
-    private var note: String? {
-        if !model.settingsSyncEnabled { return L10n.text("permission.offEverywhere", fallback: "Off for every device") }
-        guard model.isSettingsSyncEnabled(for: device.id), model.phoneSettingsSync[device.id] == false else { return nil }
-        return String(format: L10n.text("permission.offRemote", fallback: "Off on %@"), device.name)
     }
 }
 

@@ -14,7 +14,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.bridgey.android.R
 import dev.bridgey.android.ui.SettingsActions
 import dev.bridgey.android.ui.SettingsScreen
-import dev.bridgey.android.ui.SettingsSection
+import dev.bridgey.android.ui.SettingsCard
+import dev.bridgey.android.ui.SettingsGroup
 import dev.bridgey.android.ui.motion.LocalMotion
 import dev.bridgey.android.ui.motion.MotionSpec
 import dev.bridgey.android.ui.motion.MotionTokens
@@ -31,8 +32,9 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
- * A search result opens its page scrolled to the row, which then highlights: Privacy > Clear logs sits below the fold
- * on a phone-sized screen. Each motion mode, since the full one waits for the page to arrive and animates the scroll.
+ * A search result opens its page scrolled to the row, which then highlights. Privacy > Logging > Remote control sessions
+ * sits inside the Logging card's More options, below the fold on a phone-sized screen: the card opens them first. Each
+ * motion mode, since the full one waits for the page to arrive and animates the scroll.
  */
 @RunWith(AndroidJUnit4::class)
 @Config(sdk = [35], application = Application::class, qualifiers = "w412dp-h915dp-port-mdpi")
@@ -48,15 +50,15 @@ class SettingsSearchJumpTest {
     private fun jump(motion: MotionSpec): Pair<SettingsSearchHost, LazyListState> {
         val host = SettingsSearchHost()
         val list = LazyListState()
-        val route = settingsRoute(SettingsSection.PRIVACY).key
-        host.open(route, context.getString(R.string.logging_clear))
+        val route = settingsRoute(SettingsGroup.PRIVACY).key
+        host.open(route, context.getString(R.string.logging_remote), scope = SettingsCard.LOGGING.key, expand = SettingsCard.LOGGING.key)
         val token = host.pending!!.token
         ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     BridgeyTheme {
                         CompositionLocalProvider(LocalSettingsSearch provides host, LocalSearchRoute provides route, LocalMotion provides motion) {
-                            SettingsScreen(state = sampleSettingsState(1_793_000_000_000L), actions = SettingsActions(), listState = list, section = SettingsSection.PRIVACY)
+                            SettingsScreen(state = sampleSettingsState(1_793_000_000_000L), actions = SettingsActions(), listState = list, group = SettingsGroup.PRIVACY)
                         }
                     }
                 }

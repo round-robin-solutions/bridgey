@@ -1,18 +1,16 @@
 import SwiftUI
 
-/// Settings > Updates (Round Robin edition): one status card that shows one state at a time,
-/// then the channel and automatic checks as compact rows. The sidebar footer carries the version.
+/// App > Updates (Round Robin edition): the status (one state at a time), the channel and Update all devices
+/// automatically; in More options Check automatically, your devices and whether they may start updates here.
 struct UpdatesPane: View {
     let model: SettingsModel
     let actions: SettingsActions
     @Environment(\.brand) private var c
 
     var body: some View {
-        UpdateStatusCard(model: model, actions: actions)
-            .settingsSearchAnchor(SettingsSearchRegistry.checkForUpdates)
-        UpdateAllDevicesCard(display: model.updateAll, actions: actions.updateAll)
-            .settingsSearchAnchor(L10n.text("updateAll.devices", fallback: "Your devices"))
-        SettingsCard {
+        FeatureCard(card: .updates) {
+            UpdateStatusCard(model: model, actions: actions)
+                .settingsSearchAnchor(SettingsSearchRegistry.checkForUpdates)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 12) {
                     Text(L10n.text("updates.channel", fallback: "Release channel"))
@@ -33,14 +31,18 @@ struct UpdatesPane: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.vertical, 12)
+            .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
             .settingsSearchAnchor(L10n.text("updates.channel", fallback: "Release channel"))
+            AutoUpdateSettingsRows(display: model.autoUpdate, set: actions.setAutoUpdate)
+        } more: {
             SettingsToggle(
                 title: L10n.text("updates.automatic", fallback: "Check automatically"),
                 isOn: model.automaticallyChecks,
                 set: actions.setAutomaticallyChecks
             )
             .disabled(!model.updatesAvailable)
-            AutoUpdateSettingsRows(display: model.autoUpdate, set: actions.setAutoUpdate)
+            UpdateAllDevicesCard(display: model.updateAll, actions: actions.updateAll)
+                .settingsSearchAnchor(L10n.text("updateAll.devices", fallback: "Your devices"))
             SettingsToggle(
                 title: L10n.text("updates.remoteStart", fallback: "Let paired devices start updates on this Mac"),
                 subtitle: L10n.text("updates.remoteStart.detail", fallback: "Only starts Bridgey\u{2019}s own signed update from this Mac\u{2019}s channel."),
@@ -292,8 +294,21 @@ private struct ReleaseNotesList: View {
 struct UpdatesCard<Content: View>: View {
     @ViewBuilder let content: Content
     @Environment(\.brand) private var c
+    @Environment(\.settingsCardFlat) private var flat
 
     var body: some View {
+        if flat {
+            // A section of the Updates card.
+            VStack(alignment: .leading, spacing: 0) { content }
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .overlay(alignment: .top) { Rectangle().fill(c.olv).frame(height: 1) }
+        } else {
+            box
+        }
+    }
+
+    private var box: some View {
         VStack(alignment: .leading, spacing: 0) { content }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)

@@ -63,7 +63,21 @@ internal fun sampleSettingsState(now: Long) = SettingsState(
         ),
         defaultPlaceId = "default",
     ),
+    rings = deviceRings(sampleTrusted, emptyList(), PairingState.Connected("work", "Work MacBook")),
+    // Three Macs: Clipboard and Files on for two, everything else on for all; Links off on the Mac mini's side.
+    devices = sampleTrusted.map { device ->
+        SettingsDevice(
+            device.id, device.name,
+            on = BridgeyFeature.entries.associateWith { feature ->
+                !(device.id == "mini" && (feature == BridgeyFeature.CLIPBOARD || feature == BridgeyFeature.FILES))
+            },
+            remoteOff = if (device.id == "mini") setOf(BridgeyFeature.LINKS) else emptySet(),
+        )
+    },
 )
+
+/** The sample's paired Macs. */
+internal val sampleTrusted = listOf(TrustedDevice("work", "Work MacBook"), TrustedDevice("personal", "Personal Mac"), TrustedDevice("mini", "Mac mini"))
 
 /**
  * Settings home and every section page at the design's 412 x 915 dp phone size, light and dark.
@@ -135,79 +149,108 @@ class SettingsPagesScreenshotTest {
         connectionStatus = "Not connected",
     )
 
-    /** Devices and permissions: the home's row opens this screen. */
-    private fun devices() = capture("devices") {
-        val trusted = listOf(TrustedDevice("work", "Work MacBook"), TrustedDevice("personal", "Personal Mac"), TrustedDevice("mini", "Mac mini"))
-        DevicesSettingsScreen(DevicesSettingsState(deviceRings(trusted, emptyList(), PairingState.Connected("work", "Work MacBook"))), DevicesSettingsActions())
-    }
+    /** A group's page, from the top, with every card's More options closed. */
+    private fun group(group: SettingsGroup, state: SettingsState = this.state) =
+        capture("group-${group.name.lowercase()}") { SettingsScreen(state = state, actions = SettingsActions(), group = group) }
 
-    /** Connect away from home: on and reachable; the Devices page with one Mac reached through a relay. */
-    private fun connectAway() = page(
-        SettingsSection.AWAY, "connect-away",
-        state.copy(connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 1)),
-    )
+    @Test fun devicesLight() = group(SettingsGroup.DEVICES, connected())
 
-    @Test fun connectAwayLight() = connectAway()
+    @Test @Config(qualifiers = "+night") fun devicesDark() = group(SettingsGroup.DEVICES, connected())
 
-    @Test @Config(qualifiers = "+night") fun connectAwayDark() = connectAway()
+    @Test fun sharingLight() = group(SettingsGroup.SHARING)
 
-    private fun connectDevices() = capture("connect-devices") {
-        val trusted = listOf(TrustedDevice("work", "Work MacBook"), TrustedDevice("personal", "Personal Mac"), TrustedDevice("mini", "Mac mini"))
-        val connections = listOf(
-            dev.bridgey.android.DeviceConnection("work", "Work MacBook", dev.bridgey.android.DeviceLinkState(connectRoute = dev.bridgey.android.connect.ConnectRoute("relay", "sxb"))),
-            dev.bridgey.android.DeviceConnection("personal", "Personal Mac", dev.bridgey.android.DeviceLinkState(connectRoute = dev.bridgey.android.connect.ConnectRoute("vpn"))),
-        )
-        DevicesSettingsScreen(
-            DevicesSettingsState(deviceRings(trusted, emptyList(), connections, PairingState.Idle), connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 2)),
-            DevicesSettingsActions(),
-        )
-    }
+    @Test @Config(qualifiers = "+night") fun sharingDark() = group(SettingsGroup.SHARING)
 
-    @Test fun connectDevicesLight() = connectDevices()
+    @Test fun phoneLight() = group(SettingsGroup.PHONE)
 
-    @Test @Config(qualifiers = "+night") fun connectDevicesDark() = connectDevices()
+    @Test @Config(qualifiers = "+night") fun phoneDark() = group(SettingsGroup.PHONE)
 
-    @Test fun devicesLight() = devices()
+    @Test fun controlLight() = group(SettingsGroup.CONTROL, controls())
 
-    @Test @Config(qualifiers = "+night") fun devicesDark() = devices()
+    @Test @Config(qualifiers = "+night") fun controlDark() = group(SettingsGroup.CONTROL, controls())
 
+    @Test fun privacyLight() = group(SettingsGroup.PRIVACY)
+
+    @Test @Config(qualifiers = "+night") fun privacyDark() = group(SettingsGroup.PRIVACY)
+
+    @Test fun appLight() = group(SettingsGroup.APP)
+
+    @Test @Config(qualifiers = "+night") fun appDark() = group(SettingsGroup.APP)
+
+    private fun connected() = state.copy(connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 2))
+
+    private fun controls() = state.copy(globalFeatures = state.globalFeatures + (BridgeyFeature.REMOTE_INPUT to true))
+
+    /** Each old page's card, the page opened at it with its More options open (as setup's links open it). */
     @Test fun clipboardLight() = page(SettingsSection.CLIPBOARD)
 
     @Test @Config(qualifiers = "+night") fun clipboardDark() = page(SettingsSection.CLIPBOARD)
-
-    @Test fun notificationsLight() = page(SettingsSection.NOTIFICATIONS)
-
-    @Test @Config(qualifiers = "+night") fun notificationsDark() = page(SettingsSection.NOTIFICATIONS)
-
-    @Test fun callsLight() = page(SettingsSection.CALLS)
-
-    @Test @Config(qualifiers = "+night") fun callsDark() = page(SettingsSection.CALLS)
 
     @Test fun filesLight() = page(SettingsSection.FILES)
 
     @Test @Config(qualifiers = "+night") fun filesDark() = page(SettingsSection.FILES)
 
-    @Test fun mediaLight() = page(SettingsSection.MEDIA)
+    @Test fun notificationsLight() = page(SettingsSection.NOTIFICATIONS)
 
-    @Test @Config(qualifiers = "+night") fun mediaDark() = page(SettingsSection.MEDIA)
-
-    @Test fun remoteControlLight() = page(SettingsSection.REMOTE_CONTROL)
-
-    @Test @Config(qualifiers = "+night") fun remoteControlDark() = page(SettingsSection.REMOTE_CONTROL)
-
-    @Test fun privacyLight() = page(SettingsSection.PRIVACY)
-
-    @Test @Config(qualifiers = "+night") fun privacyDark() = page(SettingsSection.PRIVACY)
+    @Test @Config(qualifiers = "+night") fun notificationsDark() = page(SettingsSection.NOTIFICATIONS)
 
     @Test fun updatesLight() = page(SettingsSection.UPDATES)
 
     @Test @Config(qualifiers = "+night") fun updatesDark() = page(SettingsSection.UPDATES)
 
-    @Test fun generalLight() = page(SettingsSection.GENERAL)
+    @Test fun connectAwayLight() = page(SettingsSection.AWAY, "connect-away", connected())
 
-    @Test @Config(qualifiers = "+night") fun generalDark() = page(SettingsSection.GENERAL)
+    @Test @Config(qualifiers = "+night") fun connectAwayDark() = page(SettingsSection.AWAY, "connect-away", connected())
+}
 
-    @Test fun aboutLight() = page(SettingsSection.ABOUT)
+/** Every group's whole page, every card's More options closed, on a very tall phone screen: what each group holds. */
+@RunWith(AndroidJUnit4::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [35], application = Application::class, qualifiers = "w412dp-h2400dp-port-xhdpi")
+class SettingsGroupsFullScreenshotTest {
+    private val zone: TimeZone = TimeZone.getTimeZone("Asia/Kolkata")
+    private val now: Long = Calendar.getInstance(zone).apply {
+        set(2026, Calendar.OCTOBER, 26, 16, 5, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
-    @Test @Config(qualifiers = "+night") fun aboutDark() = page(SettingsSection.ABOUT)
+    @Before
+    fun setUp() {
+        TimeZone.setDefault(zone)
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        shadowOf(context.packageManager).addActivityIfNotPresent(ComponentName(context, ComponentActivity::class.java))
+    }
+
+    private fun night(): Boolean =
+        ApplicationProvider.getApplicationContext<Application>().resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+    private fun all() {
+        val state = sampleSettingsState(now).copy(
+            connect = ConnectSettingsState(on = true, state = ConnectState.ONLINE, reachable = 2),
+            developerMenu = false,
+        )
+        SettingsGroup.entries.forEach { group ->
+            ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+                scenario.onActivity { activity ->
+                    activity.enableEdgeToEdge()
+                    activity.setContent { BridgeyTheme { SettingsScreen(state = state, actions = SettingsActions(), group = group) } }
+                    val density = activity.resources.displayMetrics.density
+                    val insets = WindowInsetsCompat.Builder()
+                        .setInsets(WindowInsetsCompat.Type.statusBars(), Insets.of(0, (40 * density).toInt(), 0, 0))
+                        .setInsets(WindowInsetsCompat.Type.navigationBars(), Insets.of(0, 0, 0, (24 * density).toInt()))
+                        .build()
+                    ViewCompat.dispatchApplyWindowInsets(activity.window.decorView, insets)
+                }
+                repeat(3) { shadowOf(Looper.getMainLooper()).idle() }
+                val directory = System.getProperty("bridgey.screenshots") ?: "build/outputs/roborazzi"
+                val theme = if (night()) "dark" else "light"
+                scenario.onActivity { it.window.decorView.captureRoboImage("$directory/android-settings-group-${group.name.lowercase()}-full-$theme.png") }
+            }
+        }
+    }
+
+    @Test fun lightAll() = all()
+
+    @Test @Config(qualifiers = "+night") fun darkAll() = all()
 }
