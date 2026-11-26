@@ -81,6 +81,11 @@ data class SettingsSearchEntry(
     val keywords: List<String> = emptyList(),
     val developerOnly: Boolean = false,
     val syncKey: SyncKey? = null,
+    /**
+     * The switch that shows this row when it is hidden (Files for the folder options): a result whose row is not on
+     * the page now highlights that switch instead, so the jump never lands on nothing.
+     */
+    @StringRes val revealedBy: Int? = null,
 )
 
 /** A paired device, for the per-device pages search can open. */
@@ -101,6 +106,8 @@ data class SearchResultEntry(
     val route: Route,
     /** The row to scroll to and highlight; null opens the page only. */
     val rowTitle: String?,
+    /** The row to highlight when [rowTitle] is hidden in the page's current state (its feature is off). */
+    val fallbackTitle: String? = null,
 )
 
 /** The separator in breadcrumbs: a single right-pointing angle quotation mark with spaces. */
@@ -124,8 +131,12 @@ object SettingsSearchRegistry {
     private val SMS_WORDS = listOf("sms", "texts", "mms", "смс", "сообщения")
     private val CALL_WORDS = listOf("phone", "dial", "звонок", "вызов")
     private val DIALER_WORDS = CALL_WORDS + listOf("dialer", "keypad", "whatsapp", "contacts", "sim", "клавиатура", "контакты", "набор")
-    private val FILE_WORDS = listOf("send file", "airdrop", "share", "transfer", "folder", "файлы", "передача")
+    private val FILE_WORDS = listOf("send file", "airdrop", "share", "transfer", "transfers", "folder", "файлы", "передача", "передачи")
     private val MEDIA_WORDS = listOf("music", "spotify", "play", "pause", "volume", "музыка", "громкость")
+    private val MAC_ACTION_WORDS = listOf("lock", "sleep", "shortcuts", "заблокировать")
+    private val CAMERA_WORDS = listOf("camera", "photo", "камера", "фото")
+    private val SHARE_SCREEN_WORDS = listOf("screen sharing", "mirror", "экран")
+    private val LINK_WORDS = listOf("url", "browser", "ссылки")
     private val FIND_WORDS = listOf("ring", "lost", "locate", "найти")
     private val PING_WORDS = listOf("alert", "пинг")
     private val BATTERY_WORDS = listOf("charge", "power", "low battery", "батарея", "заряд")
@@ -166,8 +177,8 @@ object SettingsSearchRegistry {
 
         // Connect away from home
         SettingsSearchEntry("away.switch", SearchPage.AWAY, null, R.string.settings_connect_away, R.string.connect_away_detail, AWAY_WORDS, syncKey = SyncKey.CONNECT_AWAY),
-        SettingsSearchEntry("away.status", SearchPage.AWAY, null, R.string.connect_status, null, listOf("online", "relay", "в сети")),
-        SettingsSearchEntry("away.reset", SearchPage.AWAY, null, R.string.connect_reset, R.string.connect_reset_detail, listOf("identity", "relay")),
+        SettingsSearchEntry("away.status", SearchPage.AWAY, null, R.string.connect_status, null, listOf("online", "relay", "в сети"), revealedBy = R.string.settings_connect_away),
+        SettingsSearchEntry("away.reset", SearchPage.AWAY, null, R.string.connect_reset, R.string.connect_reset_detail, listOf("identity", "relay"), revealedBy = R.string.settings_connect_away),
 
         // Clipboard
         feature("clipboard.switch", SearchPage.CLIPBOARD, R.string.feature_clipboard, R.string.feature_clipboard_detail, BridgeyFeature.CLIPBOARD, CLIPBOARD_WORDS),
@@ -180,61 +191,61 @@ object SettingsSearchRegistry {
 
         // Notifications
         SettingsSearchEntry("notifications.switch", SearchPage.NOTIFICATIONS, null, R.string.settings_forwarding_title, R.string.settings_notifications_detail, NOTIFICATION_WORDS, syncKey = SyncKey.NOTIFICATIONS),
-        SettingsSearchEntry("notifications.access", SearchPage.NOTIFICATIONS, null, R.string.perm_notification_access_name, R.string.perm_notification_access_why, NOTIFICATION_WORDS),
-        SettingsSearchEntry("notifications.apps", SearchPage.NOTIFICATIONS, null, R.string.settings_notification_apps, null, listOf("apps", "mute", "приложения")),
-        SettingsSearchEntry("notifications.codes", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_title, null, CODES),
-        SettingsSearchEntry("notifications.codesLink", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_link, R.string.codes_link_detail, CODES + listOf("bluetooth", "companion")),
-        SettingsSearchEntry("notifications.codesEmail", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_email, R.string.codes_email_detail, CODES + CODES_EMAIL, syncKey = SyncKey.EMAIL_CODES),
-        SettingsSearchEntry("notifications.codesCloud", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_cloud, R.string.codes_cloud_detail, CODES + listOf("cloud", "облако")),
+        SettingsSearchEntry("notifications.access", SearchPage.NOTIFICATIONS, null, R.string.perm_notification_access_name, R.string.perm_notification_access_why, NOTIFICATION_WORDS, revealedBy = R.string.settings_forwarding_title),
+        SettingsSearchEntry("notifications.apps", SearchPage.NOTIFICATIONS, null, R.string.settings_notification_apps, null, listOf("apps", "mute", "приложения"), revealedBy = R.string.settings_forwarding_title),
+        SettingsSearchEntry("notifications.codes", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_title, null, CODES, revealedBy = R.string.settings_forwarding_title),
+        SettingsSearchEntry("notifications.codesLink", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_link, R.string.codes_link_detail, CODES + listOf("bluetooth", "companion"), revealedBy = R.string.settings_forwarding_title),
+        SettingsSearchEntry("notifications.codesEmail", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_email, R.string.codes_email_detail, CODES + CODES_EMAIL, syncKey = SyncKey.EMAIL_CODES, revealedBy = R.string.settings_forwarding_title),
+        SettingsSearchEntry("notifications.codesCloud", SearchPage.NOTIFICATIONS, R.string.codes_title, R.string.codes_cloud, R.string.codes_cloud_detail, CODES + listOf("cloud", "облако"), revealedBy = R.string.settings_forwarding_title),
         SettingsSearchEntry("notifications.bridgey", SearchPage.NOTIFICATIONS, null, R.string.settings_app_notifications, null, NOTIFICATION_WORDS),
         SettingsSearchEntry("notifications.focusShare", SearchPage.NOTIFICATIONS, R.string.focus_section, R.string.focus_share_title, R.string.focus_share_detail, FOCUS_WORDS, syncKey = SyncKey.FOCUS_SHARE),
         SettingsSearchEntry("notifications.focusFollow", SearchPage.NOTIFICATIONS, R.string.focus_section, R.string.focus_follow_title, R.string.focus_follow_detail, FOCUS_WORDS, syncKey = SyncKey.FOCUS_FOLLOW),
-        SettingsSearchEntry("notifications.focusAccess", SearchPage.NOTIFICATIONS, R.string.focus_section, R.string.focus_access_title, null, FOCUS_WORDS),
+        SettingsSearchEntry("notifications.focusAccess", SearchPage.NOTIFICATIONS, R.string.focus_section, R.string.focus_access_title, null, FOCUS_WORDS, revealedBy = R.string.focus_share_title),
 
         // Text messages
         feature("messages.switch", SearchPage.MESSAGES, R.string.feature_sms, R.string.feature_sms_detail, BridgeyFeature.SMS, SMS_WORDS),
-        SettingsSearchEntry("messages.smsAccess", SearchPage.MESSAGES, null, R.string.messages_sms_access, null, SMS_WORDS),
-        SettingsSearchEntry("messages.contacts", SearchPage.MESSAGES, null, R.string.messages_contacts_access, null, listOf("names", "контакты")),
-        SettingsSearchEntry("messages.sims", SearchPage.MESSAGES, null, R.string.messages_sims_access, null, listOf("dual sim", "sim", "сим")),
-        SettingsSearchEntry("messages.replyAsSms", SearchPage.MESSAGES, null, R.string.messages_reply_as_sms, R.string.messages_reply_as_sms_detail, SMS_WORDS),
+        SettingsSearchEntry("messages.smsAccess", SearchPage.MESSAGES, null, R.string.messages_sms_access, null, SMS_WORDS, revealedBy = R.string.feature_sms),
+        SettingsSearchEntry("messages.contacts", SearchPage.MESSAGES, null, R.string.messages_contacts_access, null, listOf("names", "контакты"), revealedBy = R.string.feature_sms),
+        SettingsSearchEntry("messages.sims", SearchPage.MESSAGES, null, R.string.messages_sims_access, null, listOf("dual sim", "sim", "сим"), revealedBy = R.string.feature_sms),
+        SettingsSearchEntry("messages.replyAsSms", SearchPage.MESSAGES, null, R.string.messages_reply_as_sms, R.string.messages_reply_as_sms_detail, SMS_WORDS, revealedBy = R.string.feature_sms),
 
         // Calls
         feature("calls.switch", SearchPage.CALLS, R.string.feature_calls, R.string.settings_calls_detail, BridgeyFeature.CALLS, CALL_WORDS),
-        SettingsSearchEntry("calls.direct", SearchPage.CALLS, null, R.string.devices_direct_calls, R.string.devices_direct_calls_detail, CALL_WORDS + listOf("answer", "decline", "ответить")),
+        SettingsSearchEntry("calls.direct", SearchPage.CALLS, null, R.string.devices_direct_calls, R.string.devices_direct_calls_detail, CALL_WORDS + listOf("answer", "decline", "ответить"), revealedBy = R.string.feature_calls),
         feature("calls.quiet", SearchPage.CALLS, R.string.call_quiet_title, R.string.call_quiet_detail, BridgeyFeature.CALL_QUIET, CALL_WORDS + MEDIA_WORDS + listOf("mute", "pause", "без звука")),
-        SettingsSearchEntry("calls.quiet.mode", SearchPage.CALLS, null, R.string.call_quiet_mode, null, CALL_WORDS + MEDIA_WORDS),
-        SettingsSearchEntry("calls.quiet.after", SearchPage.CALLS, null, R.string.call_quiet_after, null, CALL_WORDS + listOf("resume", "restore", "возобновить")),
-        SettingsSearchEntry("calls.quiet.phone", SearchPage.CALLS, null, R.string.call_quiet_phone_state, null, CALL_WORDS),
-        SettingsSearchEntry("calls.quiet.access", SearchPage.CALLS, null, R.string.call_quiet_access, null, MEDIA_WORDS),
-        SettingsSearchEntry("calls.quiet.status", SearchPage.CALLS, null, R.string.call_quiet_status, null, CALL_WORDS + MEDIA_WORDS),
-        SettingsSearchEntry("calls.quiet.peers", SearchPage.CALLS, null, R.string.call_quiet_peers, null, CALL_WORDS + MEDIA_WORDS),
+        SettingsSearchEntry("calls.quiet.mode", SearchPage.CALLS, null, R.string.call_quiet_mode, null, CALL_WORDS + MEDIA_WORDS, revealedBy = R.string.call_quiet_title),
+        SettingsSearchEntry("calls.quiet.after", SearchPage.CALLS, null, R.string.call_quiet_after, null, CALL_WORDS + listOf("resume", "restore", "возобновить"), revealedBy = R.string.call_quiet_title),
+        SettingsSearchEntry("calls.quiet.phone", SearchPage.CALLS, null, R.string.call_quiet_phone_state, null, CALL_WORDS, revealedBy = R.string.call_quiet_title),
+        SettingsSearchEntry("calls.quiet.access", SearchPage.CALLS, null, R.string.call_quiet_access, null, MEDIA_WORDS, revealedBy = R.string.call_quiet_title),
+        SettingsSearchEntry("calls.quiet.status", SearchPage.CALLS, null, R.string.call_quiet_status, null, CALL_WORDS + MEDIA_WORDS, revealedBy = R.string.call_quiet_title),
+        SettingsSearchEntry("calls.quiet.peers", SearchPage.CALLS, null, R.string.call_quiet_peers, null, CALL_WORDS + MEDIA_WORDS, revealedBy = R.string.call_quiet_title),
         feature("calls.window", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_detail, BridgeyFeature.DIALER, DIALER_WORDS),
-        SettingsSearchEntry("calls.window.place", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_place_access, null, DIALER_WORDS),
-        SettingsSearchEntry("calls.window.callLog", SearchPage.CALLS, R.string.dialer_title, R.string.perm_call_log_name, null, DIALER_WORDS + listOf("recent", "history", "недавние")),
-        SettingsSearchEntry("calls.window.askFirst", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_ask_first, R.string.dialer_ask_first_detail, DIALER_WORDS + listOf("confirm", "tap", "подтвердить")),
-        SettingsSearchEntry("calls.window.contacts", SearchPage.CALLS, R.string.dialer_title, R.string.perm_contacts_name, null, DIALER_WORDS + listOf("names", "имена")),
+        SettingsSearchEntry("calls.window.place", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_place_access, null, DIALER_WORDS, revealedBy = R.string.dialer_title),
+        SettingsSearchEntry("calls.window.callLog", SearchPage.CALLS, R.string.dialer_title, R.string.perm_call_log_name, null, DIALER_WORDS + listOf("recent", "history", "недавние"), revealedBy = R.string.dialer_title),
+        SettingsSearchEntry("calls.window.askFirst", SearchPage.CALLS, R.string.dialer_title, R.string.dialer_ask_first, R.string.dialer_ask_first_detail, DIALER_WORDS + listOf("confirm", "tap", "подтвердить"), revealedBy = R.string.dialer_title),
+        SettingsSearchEntry("calls.window.contacts", SearchPage.CALLS, R.string.dialer_title, R.string.perm_contacts_name, null, DIALER_WORDS + listOf("names", "имена"), revealedBy = R.string.dialer_title),
 
         // Files
         feature("files.switch", SearchPage.FILES, R.string.feature_files, R.string.feature_files_detail, BridgeyFeature.FILES, FILE_WORDS),
-        SettingsSearchEntry("files.autoResume", SearchPage.FILES, null, R.string.settings_auto_resume, null, FILE_WORDS + listOf("resume", "interrupted", "retry", "продолжать", "прерванные")),
-        SettingsSearchEntry("files.foldersMode", SearchPage.FILES, null, R.string.settings_folders_mode, null, FILE_WORDS + listOf("save", "where", "сохранять"), syncKey = SyncKey.FOLDER_DESTINATION),
-        SettingsSearchEntry("files.defaultFolder", SearchPage.FILES, null, R.string.settings_default_folder, null, listOf("download", "save", "папка")),
-        SettingsSearchEntry("files.conflict", SearchPage.FILES, null, R.string.settings_folder_conflict, null, listOf("merge", "replace", "conflict", "заменить"), syncKey = SyncKey.FOLDER_CONFLICT),
-        SettingsSearchEntry("files.browse", SearchPage.FILES, null, R.string.settings_allow_browse, R.string.settings_allow_browse_detail, listOf("browse", "phone files", "просмотр")),
-        SettingsSearchEntry("files.replace", SearchPage.FILES, null, R.string.settings_allow_replace, R.string.settings_allow_replace_detail, listOf("overwrite", "replace")),
-        SettingsSearchEntry("files.hidden", SearchPage.FILES, null, R.string.settings_folder_hidden, R.string.settings_folder_hidden_detail, listOf("dotfiles", "hidden", "скрытые"), syncKey = SyncKey.FOLDER_INCLUDE_HIDDEN),
-        SettingsSearchEntry("files.system", SearchPage.FILES, null, R.string.settings_folder_system, R.string.settings_folder_system_detail, listOf("ds_store", "thumbs.db", "системные"), syncKey = SyncKey.FOLDER_INCLUDE_SYSTEM),
-        SettingsSearchEntry("files.places", SearchPage.FILES, null, R.string.settings_places, null, listOf("storage", "sd card", "folders", "места")),
+        SettingsSearchEntry("files.autoResume", SearchPage.FILES, null, R.string.settings_auto_resume, null, FILE_WORDS + listOf("resume", "interrupted", "retry", "продолжать", "прерванные"), revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.foldersMode", SearchPage.FILES, null, R.string.settings_folders_mode, null, FILE_WORDS + listOf("save", "where", "сохранять"), syncKey = SyncKey.FOLDER_DESTINATION, revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.defaultFolder", SearchPage.FILES, null, R.string.settings_default_folder, null, listOf("download", "save", "папка"), revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.conflict", SearchPage.FILES, null, R.string.settings_folder_conflict, null, listOf("merge", "replace", "conflict", "заменить"), syncKey = SyncKey.FOLDER_CONFLICT, revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.browse", SearchPage.FILES, null, R.string.settings_allow_browse, R.string.settings_allow_browse_detail, listOf("browse", "phone files", "просмотр"), revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.replace", SearchPage.FILES, null, R.string.settings_allow_replace, R.string.settings_allow_replace_detail, listOf("overwrite", "replace"), revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.hidden", SearchPage.FILES, null, R.string.settings_folder_hidden, R.string.settings_folder_hidden_detail, listOf("dotfiles", "hidden", "скрытые"), syncKey = SyncKey.FOLDER_INCLUDE_HIDDEN, revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.system", SearchPage.FILES, null, R.string.settings_folder_system, R.string.settings_folder_system_detail, listOf("ds_store", "thumbs.db", "системные"), syncKey = SyncKey.FOLDER_INCLUDE_SYSTEM, revealedBy = R.string.feature_files),
+        SettingsSearchEntry("files.places", SearchPage.FILES, null, R.string.settings_places, null, listOf("storage", "sd card", "folders", "места"), revealedBy = R.string.feature_files),
 
         SettingsSearchEntry("notifications.smartRouting", SearchPage.NOTIFICATIONS, null, R.string.smart_routing_title, R.string.smart_routing_detail, listOf("active Mac", "situational awareness", "duplicate alerts", "notification routing")),
         SettingsSearchEntry("notifications.preferredMac", SearchPage.NOTIFICATIONS, null, R.string.smart_routing_preferred, null, listOf("default Mac", "preferred device", "fallback", "destination")),
 
         // Media and quick actions
         feature("media.media", SearchPage.MEDIA, R.string.feature_media, R.string.settings_media_detail, BridgeyFeature.MEDIA, MEDIA_WORDS),
-        feature("media.macActions", SearchPage.MEDIA, R.string.feature_mac_actions, R.string.settings_mac_actions_detail, BridgeyFeature.MAC_ACTIONS, listOf("lock", "sleep", "shortcuts", "заблокировать")),
-        feature("media.camera", SearchPage.MEDIA, R.string.feature_camera, R.string.settings_camera_detail, BridgeyFeature.CAMERA, listOf("camera", "photo", "камера", "фото")),
-        feature("media.screen", SearchPage.MEDIA, R.string.feature_screen, R.string.settings_screen_detail, BridgeyFeature.SCREEN, listOf("screen sharing", "mirror", "экран")),
-        feature("media.links", SearchPage.MEDIA, R.string.feature_links, R.string.feature_links_detail, BridgeyFeature.LINKS, listOf("url", "browser", "ссылки")),
+        feature("media.macActions", SearchPage.MEDIA, R.string.feature_mac_actions, R.string.settings_mac_actions_detail, BridgeyFeature.MAC_ACTIONS, MAC_ACTION_WORDS),
+        feature("media.camera", SearchPage.MEDIA, R.string.feature_camera, R.string.settings_camera_detail, BridgeyFeature.CAMERA, CAMERA_WORDS),
+        feature("media.screen", SearchPage.MEDIA, R.string.feature_screen, R.string.settings_screen_detail, BridgeyFeature.SCREEN, SHARE_SCREEN_WORDS),
+        feature("media.links", SearchPage.MEDIA, R.string.feature_links, R.string.feature_links_detail, BridgeyFeature.LINKS, LINK_WORDS),
         feature("media.ping", SearchPage.MEDIA, R.string.feature_ping, R.string.settings_ping_detail, BridgeyFeature.PING, PING_WORDS),
         feature("media.find", SearchPage.MEDIA, R.string.feature_find, R.string.settings_find_detail, BridgeyFeature.FIND_DEVICE, FIND_WORDS),
         feature("media.battery", SearchPage.MEDIA, R.string.feature_battery, R.string.settings_battery_detail, BridgeyFeature.BATTERY, BATTERY_WORDS),
@@ -244,8 +255,8 @@ object SettingsSearchRegistry {
 
         // Remote control
         feature("remote.switch", SearchPage.REMOTE_CONTROL, R.string.feature_remote_input, R.string.settings_remote_detail, BridgeyFeature.REMOTE_INPUT, REMOTE_WORDS),
-        SettingsSearchEntry("remote.speed", SearchPage.REMOTE_CONTROL, null, R.string.remote_speed_title, null, REMOTE_WORDS + listOf("pointer", "cursor", "скорость")),
-        SettingsSearchEntry("remote.volumeKeys", SearchPage.REMOTE_CONTROL, null, R.string.remote_volume_keys_title, R.string.remote_volume_keys_detail, listOf("volume", "slides", "громкость")),
+        SettingsSearchEntry("remote.speed", SearchPage.REMOTE_CONTROL, null, R.string.remote_speed_title, null, REMOTE_WORDS + listOf("pointer", "cursor", "скорость"), revealedBy = R.string.feature_remote_input),
+        SettingsSearchEntry("remote.volumeKeys", SearchPage.REMOTE_CONTROL, null, R.string.remote_volume_keys_title, R.string.remote_volume_keys_detail, listOf("volume", "slides", "громкость"), revealedBy = R.string.feature_remote_input),
         feature("remote.screenControl", SearchPage.REMOTE_CONTROL, R.string.feature_screen_control, R.string.settings_screen_control_detail, BridgeyFeature.SCREEN_CONTROL, SCREEN_CONTROL_WORDS),
         SettingsSearchEntry("remote.phoneControl", SearchPage.REMOTE_CONTROL, null, R.string.control_settings_title, R.string.control_settings_search_detail, PHONE_CONTROL_WORDS),
 
@@ -276,7 +287,7 @@ object SettingsSearchRegistry {
         // General
         SettingsSearchEntry("general.background", SearchPage.GENERAL, null, R.string.settings_background_title, null, BACKGROUND_WORDS),
         SettingsSearchEntry("general.wifiAwake", SearchPage.GENERAL, null, R.string.settings_wifi_awake_title, R.string.settings_wifi_awake_detail, listOf("wifi", "wi-fi", "sleep", "вайфай")),
-        SettingsSearchEntry("general.oem", SearchPage.GENERAL, null, R.string.settings_search_oem, null, BACKGROUND_WORDS + listOf("autostart", "oneplus", "xiaomi", "samsung", "автозапуск")),
+        SettingsSearchEntry("general.oem", SearchPage.GENERAL, null, R.string.settings_search_oem, null, BACKGROUND_WORDS + listOf("autostart", "oneplus", "xiaomi", "samsung", "автозапуск"), revealedBy = R.string.settings_background_title),
         SettingsSearchEntry("general.sync", SearchPage.GENERAL, null, R.string.settings_sync_title, R.string.settings_sync_detail, SYNC_WORDS),
         SettingsSearchEntry("general.syncChoose", SearchPage.GENERAL, null, R.string.settings_sync_choose, null, SYNC_WORDS),
         SettingsSearchEntry("general.reduceMotion", SearchPage.GENERAL, null, R.string.settings_reduce_motion, R.string.settings_reduce_motion_detail, MOTION_WORDS, syncKey = SyncKey.REDUCE_MOTION),
@@ -353,6 +364,10 @@ object SettingsSearchRegistry {
             BridgeyFeature.BATTERY -> BATTERY_WORDS
             BridgeyFeature.REMOTE_INPUT -> REMOTE_WORDS
             BridgeyFeature.SCREEN_CONTROL -> SCREEN_CONTROL_WORDS
+            BridgeyFeature.SCREEN -> SHARE_SCREEN_WORDS
+            BridgeyFeature.CAMERA -> CAMERA_WORDS
+            BridgeyFeature.LINKS -> LINK_WORDS
+            BridgeyFeature.MAC_ACTIONS -> MAC_ACTION_WORDS
             else -> emptyList()
         }
     }
@@ -410,6 +425,7 @@ object SettingsSearchRegistry {
                 doc = SearchDoc(title, subtitle, section, context.crumb(entry.page).joinToString(" "), keywords),
                 route = entry.page.route,
                 rowTitle = title,
+                fallbackTitle = entry.revealedBy?.let(context::getString),
             )
         }
         out += devices.flatMap { deviceEntries(context, it) }

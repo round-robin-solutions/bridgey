@@ -1464,7 +1464,7 @@ private fun BridgeyApp(
                                 onBack = { stack.pop() },
                                 onOpen = { entry ->
                                     // The page opens on top of the search, so back returns to the results.
-                                    searchHost.open(entry.route.key, entry.rowTitle.orEmpty())
+                                    searchHost.open(entry.route.key, entry.rowTitle.orEmpty(), fallback = entry.fallbackTitle)
                                     if (entry.route == Route.Settings) stack.pop() else stack.push(entry.route)
                                 },
                             )

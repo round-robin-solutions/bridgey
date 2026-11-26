@@ -31,8 +31,11 @@ import dev.bridgey.android.ui.theme.BridgeyTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 
-/** Where a search result points: a row titled [title] on the page whose route key is [routeKey]. */
-data class SearchTarget(val routeKey: String, val title: String, val scope: String? = null, val token: Long)
+/**
+ * Where a search result points: a row titled [title] on the page whose route key is [routeKey]. [fallback] is the
+ * switch to show instead when that row is hidden in the page's current state.
+ */
+data class SearchTarget(val routeKey: String, val title: String, val scope: String? = null, val token: Long, val fallback: String? = null)
 
 /**
  * Settings search across the app: the result that was chosen (the page scrolls to its row, which then
@@ -56,9 +59,18 @@ class SettingsSearchHost {
     /** Tests: every row drawn, with its page (route key), scope, title and whether search offers it. */
     var recorder: ((route: String?, scope: String?, title: String, searchable: Boolean) -> Unit)? = null
 
-    fun open(routeKey: String, title: String, scope: String? = null) {
+    fun open(routeKey: String, title: String, scope: String? = null, fallback: String? = null) {
         rowBounds = null
-        pending = SearchTarget(routeKey, title, scope, nextToken++)
+        pending = SearchTarget(routeKey, title, scope, nextToken++, fallback?.takeIf { it != title })
+    }
+
+    /** The row is not on the page: point at its [SearchTarget.fallback] instead, keeping the token. */
+    internal fun useFallback(token: Long): Boolean {
+        val target = pending?.takeIf { it.token == token } ?: return false
+        val fallback = target.fallback ?: return false
+        rowBounds = null
+        pending = target.copy(title = fallback, fallback = null)
+        return true
     }
 
     internal fun finish(token: Long) {
@@ -129,8 +141,9 @@ fun Modifier.settingsSearchHighlight(title: String, shape: Shape, searchable: Bo
 
 /**
  * A scrolling settings list's part in search: when the chosen result is on this page, finds its row (stepping
- * through items not drawn yet), centres it, then lets the highlight play. Attach the returned modifier to the
- * list. Scrolls without animation under reduced motion.
+ * through items not drawn yet; a hidden row's switch when it has one), centres it in the list, below the page bar,
+ * then lets the highlight play. Attach the returned modifier to the list. Scrolls without animation under reduced
+ * motion.
  */
 fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.composed {
     val host = LocalSettingsSearch.current ?: return@composed Modifier
@@ -147,13 +160,20 @@ fun Modifier.settingsSearchScroll(listState: LazyListState): Modifier = this.com
         // Let the page arrive first, so the scroll is seen.
         if (motion.moves) delay(280)
         withFrameNanos {}
-        if (host.located != target.token) {
+        suspend fun locate() {
+            if (host.located == target.token) return
             val count = listState.layoutInfo.totalItemsCount
             for (index in 0 until count) {
                 listState.scrollToItem(index)
                 withFrameNanos {}
-                if (host.located == target.token) break
+                if (host.located == target.token) return
             }
+        }
+        locate()
+        // Hidden while its feature is off (the folder options with Files off): show the switch that brings it back.
+        if (host.located != target.token && host.useFallback(target.token)) {
+            withFrameNanos {}
+            locate()
         }
         if (host.located != target.token) {
             // Not on the page in its current state (an option hidden while its switch is off).

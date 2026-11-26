@@ -206,6 +206,41 @@ class SettingsSearchDriftTest {
         assertTrue("only $total rows drawn", total >= 120)
     }
 
+    /**
+     * With every feature off most option rows are hidden. A result for one of them must name the switch that shows
+     * it (the page highlights that instead), and that switch must be on the page in that state; otherwise the jump
+     * would land on nothing.
+     */
+    @Test fun hiddenRowsNameTheSwitchThatShowsThem() {
+        val off = sampleSettingsState(now).copy(
+            globalFeatures = BridgeyFeature.entries.associateWith { false },
+            autoClipboardEnabled = false,
+            developerMenu = true,
+            connect = ConnectSettingsState(on = false),
+        )
+        val pages = linkedMapOf<String, List<String>>()
+        SettingsSection.entries.filter { it != SettingsSection.THIS_PHONE && it != SettingsSection.DEVICES }.forEach { section ->
+            val key = settingsRoute(section).key
+            pages[key] = record(key) { SettingsScreen(state = off, actions = SettingsActions(), section = section) }
+                .filter { it.searchable && it.route == key }.map { it.title }
+        }
+        val entries = SettingsSearchRegistry.resolve(context, developerMenu = true, sync = SyncUiState(), devices = emptyList())
+        val problems = mutableListOf<String>()
+        var hidden = 0
+        entries.filter { it.rowTitle != null && it.route.key in pages }.forEach { entry ->
+            val drawn = pages.getValue(entry.route.key)
+            if (entry.rowTitle in drawn) return@forEach
+            hidden++
+            when (val fallback = entry.fallbackTitle) {
+                null -> problems += "${entry.route.key}: ${entry.id} (\"${entry.rowTitle}\") is hidden with its feature off and names no revealedBy switch"
+                !in drawn -> problems += "${entry.route.key}: ${entry.id} falls back to \"$fallback\", which is not on the page either"
+            }
+        }
+        assertTrue(problems.joinToString("\n"), problems.isEmpty())
+        // The off state really hides the option rows (Files, Calls, Text messages...).
+        assertTrue("only $hidden rows hidden", hidden >= 30)
+    }
+
     @Test fun statusLinesAreNotOffered() {
         val clipboard = drawAll().getValue(settingsRoute(SettingsSection.CLIPBOARD).key)
         val waiting = context.getString(R.string.settings_sync_waiting_here)
