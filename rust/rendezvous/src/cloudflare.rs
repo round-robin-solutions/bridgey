@@ -231,8 +231,10 @@ async fn post_inner(url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<
     } else {
         Box::new(tcp)
     };
+    // No Content-Type without a body (the revoke call): Cloudflare's example sends none.
+    let content_type = if body.is_empty() { "" } else { "Content-Type: application/json\r\n" };
     let mut request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: bridgey-rendezvous\r\nAccept: application/json\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
+        "POST {path} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: bridgey-rendezvous\r\nAccept: application/json\r\n{content_type}Content-Length: {}\r\nConnection: close\r\n",
         body.len()
     );
     for (name, value) in headers {
@@ -413,6 +415,8 @@ mod tests {
         let request = seen.recv().await.unwrap();
         assert!(request.starts_with("POST /v1/turn/keys/KEYID/credentials/abc%2F1%202/revoke HTTP/1.1\r\n"), "{request}");
         assert!(request.contains("Authorization: Bearer TOKEN\r\n"));
+        assert!(!request.contains("Content-Type"), "no body, so no Content-Type: {request}");
+        assert!(request.contains("Content-Length: 0\r\n"));
         // Already gone counts as revoked; anything else is a failure without secrets in it.
         let (base, _) = mock("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n", Duration::ZERO).await;
         assert!(client(&base, "", 2_000).revoke("u").await.is_ok());

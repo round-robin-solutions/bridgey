@@ -9,6 +9,9 @@ trust_proxy = true
 environment = "production"
 # What clients sign in a single-flight sign-in (hello in the upgrade request); nginx forwards another Host.
 public_host = "connect.roundrobin.in"
+# The Cloudflare credentials out, kept across restarts. The image makes the folder; a volume mounted there keeps it
+# across deploys too. Without the file a start assumes the budget's worth is out, expiring over 12 hours.
+state_file = "/var/lib/bridgey-rendezvous/cloudflare-credentials.json"
 
 [limits]
 max_ids = 64
@@ -26,8 +29,9 @@ warm_grant_lifetime_s = 43200
 auth_timeout_s = 10
 # Any message, per connection: past it they are dropped, past twice it the connection closes (one lock serves all).
 messages_per_minute = 600
-# Session grants waiting for the other side's claim, across all nodes.
+# Session grants remembered for the other side's claim: in all (the oldest makes room) and per address group.
 max_pending = 100000
+pending_per_ip = 1000
 # Connections on one rendezvous ID (a pair is two nodes of at most three sockets each).
 sockets_per_rdv = 8
 
@@ -50,16 +54,18 @@ max_kbps = 40000
 soft_gb = 800
 hard_gb = 950
 usage_interval_s = 900
-usage_interval_near_s = 300
+usage_interval_near_s = 60
 usage_max_age_s = 3600
 # 0: the last window_days days (covers any billing month); set the billing day here once it is confirmed.
 cycle_day = 0
 window_days = 31
-# Credentials out at once are budgeted so that, each at budget_kbps until the next reading plus budget_extra_s, they
-# stay under hard_gb; the newest beyond it are revoked at each reading (all of them at the hard cap or without a
-# fresh reading). 0 turns the budget off. Per address (IPv4, or IPv6 /64): mints_per_ip_hour.
-budget_kbps = 50000
-budget_extra_s = 900
+# Credentials out at once are budgeted so that, each at budget_kbps (the top of Cloudflare's per-client rate) until
+# the next reading plus budget_extra_s, they stay under hard_gb. At a reading the excess is revoked: replaced
+# credentials first, then session ones, a node's live warm one last; all of them at the hard cap. A stale reading
+# stops minting and revokes nothing. 0 turns the budget and revocations off. Per address (IPv4, or IPv6 /64):
+# mints_per_ip_hour.
+budget_kbps = 100000
+budget_extra_s = 300
 mints_per_ip_hour = 30
 
 [[relays]]

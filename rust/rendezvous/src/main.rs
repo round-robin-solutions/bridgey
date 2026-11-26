@@ -39,6 +39,9 @@ struct App {
     seen_hellos: Mutex<SeenHellos>,
     /// Cloudflare Realtime TURN, when its TURN key is in the environment.
     cloudflare: Option<cloudflare::Shared>,
+    /// Where the Cloudflare credentials out are kept across restarts, and whether writing it has failed.
+    state_file: Option<String>,
+    state_failed: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Default)]
@@ -140,9 +143,16 @@ async fn main() {
         fail("server.public_host is required with trust_proxy");
     }
     let mut hub = Hub::new(config.clone(), secrets);
+    let state_file = config.server.state_file.clone().filter(|p| !p.is_empty());
     let cloudflare = cf.map(|(relay, secrets)| {
         let client = Arc::new(cloudflare::Cloudflare::new(relay.cloudflare.clone().unwrap_or_default(), secrets));
         hub.enable_cloudflare(relay);
+        // Credentials an earlier run handed out keep working: from the state file, or assumed out for a while.
+        let saved = load_cloudflare(state_file.as_deref());
+        if saved.is_none() {
+            eprintln!("cloudflare: no saved credentials; assuming the budget's worth is out, expiring over the warm grant lifetime");
+        }
+        hub.restore_cloudflare(saved, Instant::now());
         client
     });
     let app = Arc::new(App {
@@ -154,6 +164,8 @@ async fn main() {
         hub: Mutex::new(hub),
         per_ip: Mutex::new(HashMap::new()),
         cloudflare: cloudflare.clone(),
+        state_file,
+        state_failed: std::sync::atomic::AtomicBool::new(false),
     });
     if let Some(client) = cloudflare.filter(|c| c.can_read_usage()) {
         tokio::spawn(watch_usage(app.clone(), client));
@@ -203,6 +215,7 @@ async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
             eprintln!("cloudflare: revoking {} credentials the usage leaves no room for", revoke.len());
             run_revocations(&app, &client, revoke);
         }
+        save_cloudflare(&app);
         if last_tier != Some(tier) {
             let used = used.map(|b| format!("{:.1} GB", cloudflare::gb(b))).unwrap_or_else(|| "unknown".into());
             eprintln!("cloudflare: {tier:?} (used {used} in the window)");
@@ -212,23 +225,57 @@ async fn watch_usage(app: Arc<App>, client: cloudflare::Shared) {
     }
 }
 
-/// Revokes Cloudflare credentials, a few at a time; a failed revocation is tried again after the next reading.
-fn run_revocations(app: &Arc<App>, client: &cloudflare::Shared, credentials: Vec<hub::CfCredential>) {
+/// Revokes Cloudflare credentials one after another; a failed revocation still counts and is tried again after the
+/// next reading.
+fn run_revocations(app: &Arc<App>, client: &cloudflare::Shared, usernames: Vec<String>) {
     let app = app.clone();
     let client = client.clone();
     tokio::spawn(async move {
-        let mut failed = 0usize;
-        for credential in credentials {
-            let revoked = client.revoke(&credential.username).await;
-            if revoked.is_err() {
-                failed += 1;
+        let mut failed = None;
+        for username in usernames {
+            let revoked = client.revoke(&username).await;
+            if let Err(e) = &revoked {
+                failed = Some(e.clone());
             }
-            app.hub.lock().unwrap().finish_revoke(credential, revoked.is_ok());
+            app.hub.lock().unwrap().finish_revoke(&username, revoked.is_ok());
         }
-        if failed > 0 {
-            eprintln!("cloudflare: {failed} revocations failed; they are tried again after the next reading");
+        save_cloudflare(&app);
+        if let Some(e) = failed {
+            eprintln!("cloudflare: revocations failed ({e}); they still count and are tried again after the next reading");
         }
     });
+}
+
+/// Writes the Cloudflare credentials out to the state file, when there is one and they changed. Atomic, 0600; a
+/// failure is logged once and the next start is cautious instead.
+fn save_cloudflare(app: &App) {
+    let Some(path) = app.state_file.as_deref() else { return };
+    let Some(list) = app.hub.lock().unwrap().cloudflare_to_save() else { return };
+    let Ok(text) = serde_json::to_vec(&serde_json::json!({ "v": 1, "credentials": list })) else { return };
+    if let Err(e) = write_private(path, &text) {
+        if !app.state_failed.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            eprintln!("cloudflare: state file not written ({}); the next start assumes credentials are out", e.kind());
+        }
+    }
+}
+
+fn write_private(path: &str, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let temporary = format!("{path}.tmp");
+    let _ = std::fs::remove_file(&temporary);
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
+    file.write_all(data)?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, path)
+}
+
+/// The credentials the state file kept, or `None` (no file configured, none yet, or unreadable).
+fn load_cloudflare(path: Option<&str>) -> Option<Vec<hub::CfCredential>> {
+    let text = std::fs::read(path?).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&text).ok()?;
+    (value.get("v")? == 1).then_some(())?;
+    serde_json::from_value(value.get("credentials")?.clone()).ok()
 }
 
 /// Mints the credentials of queued Cloudflare grants, each on its own task; a failure becomes an own-pool grant.
@@ -248,6 +295,7 @@ fn run_mints(app: &Arc<App>, jobs: Vec<MintJob>) {
                 hub.finish_mint(job, minted, Instant::now());
                 hub.take_mints()
             };
+            save_cloudflare(&app);
             run_mints(&app, more);
         });
     }
@@ -516,6 +564,8 @@ mod tests {
             hub: Mutex::new(Hub::new(config, HashMap::new())),
             per_ip: Mutex::new(HashMap::new()),
             cloudflare: None,
+            state_file: None,
+            state_failed: std::sync::atomic::AtomicBool::new(false),
         }
     }
 

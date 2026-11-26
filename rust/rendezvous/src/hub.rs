@@ -10,7 +10,7 @@
 use crate::cloudflare::{self, Minted};
 use crate::config::{Config, Relay};
 use bridgey_connect_proto::rdv::{self, Msg, RelayGrant, RelayInfo, WarmRequest};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -84,6 +84,8 @@ impl Window {
 struct PendingGrant {
     relay: String,
     expires: Instant,
+    /// The address group of the connection that made it, for the per-address cap.
+    group: Option<IpAddr>,
 }
 
 /// The Cloudflare relay: whether grants may go there now (usage under the caps, the API answering).
@@ -109,24 +111,43 @@ struct Cf {
     budget_bytes_per_s: u64,
     budget_extra: Duration,
     mints_per_ip: u32,
-    /// Every credential minted and not yet expired or revoked, and the mints under way (memory only). A credential
-    /// keeps working until it expires unless it is revoked, so these count against the cap, not just new mints.
+    /// Every credential minted and not yet expired or confirmed revoked, and the mints under way. A credential keeps
+    /// working until it expires unless Cloudflare confirms its revocation, so these count against the cap, not just
+    /// new mints; one queued for revocation still counts until then. Saved to the state file when there is one.
     outstanding: Vec<CfCredential>,
     in_flight: usize,
-    /// Credentials to revoke through Cloudflare's API, and those whose revocation failed (tried again later).
-    revoke: Vec<CfCredential>,
-    revoke_later: Vec<CfCredential>,
+    /// Usernames for the socket layer to revoke through Cloudflare's API, and those whose revocation failed (queued
+    /// again at the next reading).
+    revoke: Vec<String>,
+    revoke_retry: Vec<String>,
     /// Cloudflare credentials minted per address group in the last hour.
     per_ip: HashMap<IpAddr, Window>,
+    /// After a start without the state file: credentials the previous run may have left, assumed out ([Inherited]).
+    inherited: Option<Inherited>,
+    /// `outstanding` changed since it was last saved.
+    dirty: bool,
 }
 
-/// A Cloudflare credential that is out: Cloudflare's username, when it expires, whether it is a node's warm one.
-#[derive(Clone, Debug)]
+/// Credentials an earlier run of the service may have handed out, unknown after a restart without the state file:
+/// as many as the budget at the first fresh reading, assumed to expire evenly over the warm grant lifetime.
+struct Inherited {
+    since: Instant,
+    span: Duration,
+    count: Option<usize>,
+}
+
+/// A Cloudflare credential that is out: Cloudflare's username, when it expires, the node it went to, whether it is
+/// that node's warm one, and whether its revocation is under way.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CfCredential {
     pub username: String,
     expiry_unix_s: u64,
+    node: String,
     warm: bool,
-    minted: Instant,
+    minted_unix_s: u64,
+    #[serde(default)]
+    revoking: bool,
 }
 
 struct CfWarm {
@@ -179,6 +200,10 @@ pub struct Hub {
     sockets_per_node: HashMap<String, usize>,
     grants_per_node: HashMap<String, Window>,
     pending: HashMap<(String, String), PendingGrant>,
+    /// Pending grants in the order they expire (a refreshed one leaves a stale entry, skipped), and how many each
+    /// address group holds.
+    pending_order: VecDeque<(Instant, (String, String))>,
+    pending_per_group: HashMap<IpAddr, usize>,
     swept_at: Instant,
     next_id: ConnId,
     cf: Option<Cf>,
@@ -202,12 +227,16 @@ pub struct Counters {
     /// because the mint failed.
     pub cf_grants: u64,
     pub cf_fallbacks: u64,
-    /// Cloudflare grants that went to the own pool because the budget or the address limit was reached, and
-    /// Cloudflare credentials revoked because usage left no room for them.
+    /// Cloudflare grants that went to the own pool because the budget or the address limit was reached; Cloudflare
+    /// credentials queued for revocation because usage left no room for them, and revocations Cloudflare confirmed.
     pub cf_over_budget: u64,
+    pub cf_revoking: u64,
     pub cf_revoked: u64,
-    /// Messages dropped by the per-connection limit.
+    /// Messages dropped by the per-connection limit; session grants not remembered for a claim (an address group
+    /// past its share) and remembered ones dropped to make room.
     pub messages_dropped: u64,
+    pub pending_skipped: u64,
+    pub pending_evicted: u64,
 }
 
 /// What a connection must do after a message.
@@ -227,6 +256,8 @@ impl Hub {
             sockets_per_node: HashMap::new(),
             grants_per_node: HashMap::new(),
             pending: HashMap::new(),
+            pending_order: VecDeque::new(),
+            pending_per_group: HashMap::new(),
             swept_at: Instant::now(),
             next_id: 1,
             cf: None,
@@ -258,9 +289,33 @@ impl Hub {
             outstanding: Vec::new(),
             in_flight: 0,
             revoke: Vec::new(),
-            revoke_later: Vec::new(),
+            revoke_retry: Vec::new(),
             per_ip: HashMap::new(),
+            inherited: None,
+            dirty: false,
         });
+    }
+
+    /// After a start: the credentials the state file kept (expired ones dropped, revocations under way queued
+    /// again), or, without them, the assumption that the previous run left the budget's worth out ([Inherited]).
+    pub fn restore_cloudflare(&mut self, saved: Option<Vec<CfCredential>>, now: Instant) {
+        let span = Duration::from_secs(self.config.limits.warm_grant_lifetime_s);
+        let Some(cf) = self.cf.as_mut() else { return };
+        let unix_s = unix_ms() / 1_000;
+        match saved {
+            Some(list) => {
+                cf.outstanding = list.into_iter().filter(|c| c.expiry_unix_s > unix_s).collect();
+                cf.revoke = cf.outstanding.iter().filter(|c| c.revoking).map(|c| c.username.clone()).collect();
+            }
+            None => cf.inherited = Some(Inherited { since: now, span, count: None }),
+        }
+    }
+
+    /// The credentials to save, when they changed since the last call.
+    pub fn cloudflare_to_save(&mut self) -> Option<Vec<CfCredential>> {
+        let cf = self.cf.as_mut().filter(|cf| cf.dirty)?;
+        cf.dirty = false;
+        Some(cf.outstanding.clone())
     }
 
     fn is_cf(&self, relay: &str) -> bool {
@@ -275,13 +330,23 @@ impl Hub {
     /// Records a usage reading (or the error that stopped one), then queues the revocation of credentials the
     /// usage no longer leaves room for ([Hub::take_revocations]).
     pub fn set_cf_usage(&mut self, reading: Result<u64, String>, now: Instant) {
-        let Some(cf) = self.cf.as_mut() else { return };
-        match reading {
-            Ok(bytes) => {
-                cf.usage = Some((bytes, now));
-                cf.usage_error = None;
+        let fresh = reading.is_ok();
+        {
+            let Some(cf) = self.cf.as_mut() else { return };
+            match reading {
+                Ok(bytes) => {
+                    cf.usage = Some((bytes, now));
+                    cf.usage_error = None;
+                }
+                Err(e) => cf.usage_error = Some(e),
             }
-            Err(e) => cf.usage_error = Some(e),
+        }
+        // The first fresh reading after a start without the state file sets how many credentials are assumed left.
+        let budget = self.cf_budget(now);
+        if let (true, Some(budget), Some(cf)) = (fresh, budget, self.cf.as_mut()) {
+            if let Some(inherited) = cf.inherited.as_mut().filter(|i| i.count.is_none()) {
+                inherited.count = Some(budget);
+            }
         }
         self.plan_revocations(now);
     }
@@ -289,33 +354,43 @@ impl Hub {
     /// How many Cloudflare credentials may be out at once, so that what they can carry before the next reading
     /// (and the revocation it can trigger) stays under the hard cap: the room left under the cap divided by what one
     /// credential can carry in that time. Every credential handed out keeps working until it expires or is revoked,
-    /// so this, not the tier alone, is what keeps the free tier from being exceeded. 0 without a fresh reading.
-    pub fn cf_budget(&self, now: Instant) -> usize {
-        let Some(cf) = &self.cf else { return 0 };
-        let Some((bytes, at)) = cf.usage else { return 0 };
-        let age = now.saturating_duration_since(at);
-        if age > cf.max_age {
-            return 0;
-        }
+    /// so this, not the tier alone, is what keeps the free tier from being exceeded. `None` when the budget is off
+    /// (`budget_kbps = 0`); 0 without a fresh reading.
+    pub fn cf_budget(&self, now: Instant) -> Option<usize> {
+        let cf = self.cf.as_ref()?;
         if cf.budget_bytes_per_s == 0 {
-            return usize::MAX;
+            return None;
         }
+        let Some((bytes, at)) = cf.usage.filter(|(_, at)| now.saturating_duration_since(*at) <= cf.max_age) else { return Some(0) };
+        let age = now.saturating_duration_since(at);
         let horizon = age + self.cf_poll_interval() + cf.budget_extra;
         let per_credential = cf.budget_bytes_per_s.saturating_mul(horizon.as_secs().max(1));
-        usize::try_from(cf.hard_bytes.saturating_sub(bytes) / per_credential).unwrap_or(usize::MAX)
+        Some(usize::try_from(cf.hard_bytes.saturating_sub(bytes) / per_credential).unwrap_or(usize::MAX))
     }
 
-    /// Credentials out now (unexpired and not revoked) plus mints under way.
-    fn cf_out(&self) -> usize {
+    /// Credentials assumed left by an earlier run ([Inherited]), fewer as time passes.
+    fn cf_inherited(&self, now: Instant) -> usize {
+        let Some(Inherited { since, span, count }) = self.cf.as_ref().and_then(|cf| cf.inherited.as_ref()) else { return 0 };
+        let Some(count) = *count else { return 0 };
+        let left = span.saturating_sub(now.saturating_duration_since(*since));
+        if span.is_zero() {
+            return 0;
+        }
+        (count as u128 * left.as_millis()).div_ceil(span.as_millis().max(1)) as usize
+    }
+
+    /// Credentials out now (unexpired, including those whose revocation is not confirmed), mints under way and
+    /// those assumed left by an earlier run.
+    fn cf_out(&self, now: Instant) -> usize {
         let Some(cf) = &self.cf else { return 0 };
         let unix_s = unix_ms() / 1_000;
-        cf.outstanding.iter().filter(|c| c.expiry_unix_s > unix_s).count() + cf.in_flight
+        cf.outstanding.iter().filter(|c| c.expiry_unix_s > unix_s).count() + cf.in_flight + self.cf_inherited(now)
     }
 
     /// One more Cloudflare credential fits the budget and this address's hourly allowance.
     fn cf_room(&self, ip: Option<IpAddr>, now: Instant) -> bool {
         let Some(cf) = &self.cf else { return false };
-        if self.cf_out() >= self.cf_budget(now) {
+        if self.cf_budget(now).is_some_and(|budget| self.cf_out(now) >= budget) {
             return false;
         }
         ip.map(ip_group).and_then(|g| cf.per_ip.get(&g)).is_none_or(|w| w.room(cf.mints_per_ip, now))
@@ -333,39 +408,65 @@ impl Hub {
         self.mints.push(job);
     }
 
-    /// Moves credentials the budget has no room for to the revocation queue: warm ones (a node's standby relay,
-    /// whose loss only slows its next connect) before session ones, the newest first. At the hard cap, or without a
-    /// fresh reading, that is all of them.
+    /// At a reading, queues the revocation of the credentials the budget has no room for. In order: credentials a
+    /// node has replaced (a renewal, or a restart of the app, so most likely unused), then session credentials, the
+    /// oldest first; a node's current warm credential only if the budget still has no room, because sessions ride on
+    /// it (the core then moves to another relay). At the hard cap all of them go. Without a fresh reading nothing is
+    /// revoked (minting stops instead), and with the budget off nothing ever is. Revocations not yet confirmed are
+    /// tried again.
     fn plan_revocations(&mut self, now: Instant) {
-        let budget = self.cf_budget(now);
+        let Some(budget) = self.cf_budget(now) else { return };
+        let inherited = self.cf_inherited(now);
         let unix_s = unix_ms() / 1_000;
         let Some(cf) = self.cf.as_mut() else { return };
-        let later = std::mem::take(&mut cf.revoke_later);
-        cf.revoke.extend(later.into_iter().filter(|c| c.expiry_unix_s > unix_s));
+        let before = cf.outstanding.len();
         cf.outstanding.retain(|c| c.expiry_unix_s > unix_s);
-        let out = cf.outstanding.len() + cf.in_flight;
-        if out <= budget {
+        cf.dirty |= cf.outstanding.len() != before;
+        let retry = std::mem::take(&mut cf.revoke_retry);
+        let out: HashSet<&str> = cf.outstanding.iter().map(|c| c.username.as_str()).collect();
+        let again: Vec<String> = retry.into_iter().filter(|u| out.contains(u.as_str())).collect();
+        cf.revoke.extend(again);
+        let Some((bytes, _)) = cf.usage.filter(|(_, at)| now.saturating_duration_since(*at) <= cf.max_age) else { return };
+        let live = cf.outstanding.iter().filter(|c| !c.revoking).count();
+        let excess = if bytes >= cf.hard_bytes { live } else { (live + cf.in_flight + inherited).saturating_sub(budget).min(live) };
+        if excess == 0 {
             return;
         }
-        let excess = (out - budget).min(cf.outstanding.len());
-        // Kept first: session credentials, then the oldest.
-        cf.outstanding.sort_by(|a, b| a.warm.cmp(&b.warm).then(a.minted.cmp(&b.minted)));
-        let victims = cf.outstanding.split_off(cf.outstanding.len() - excess);
-        let names: HashSet<&str> = victims.iter().map(|c| c.username.as_str()).collect();
-        cf.warm.retain(|_, w| !names.contains(w.username.as_str()));
-        self.counters.cf_revoked += victims.len() as u64;
-        cf.revoke.extend(victims);
+        let current: HashSet<&str> = cf.warm.values().map(|w| w.username.as_str()).collect();
+        // Lower sorts first: replaced, then session, then current warm; the oldest first within each.
+        let rank = |c: &CfCredential| if !c.warm { 1 } else if current.contains(c.username.as_str()) { 2 } else { 0 };
+        let mut order: Vec<(u8, u64, String)> =
+            cf.outstanding.iter().filter(|c| !c.revoking).map(|c| (rank(c), c.minted_unix_s, c.username.clone())).collect();
+        order.sort();
+        let victims: HashSet<String> = order.into_iter().take(excess).map(|(_, _, username)| username).collect();
+        for credential in cf.outstanding.iter_mut().filter(|c| victims.contains(&c.username)) {
+            credential.revoking = true;
+        }
+        // A reclaim never hands out a credential being revoked.
+        cf.warm.retain(|_, w| !victims.contains(&w.username));
+        cf.revoke.extend(victims.iter().cloned());
+        cf.dirty = true;
+        self.counters.cf_revoking += victims.len() as u64;
     }
 
-    /// Credentials for the socket layer to revoke through Cloudflare's API.
-    pub fn take_revocations(&mut self) -> Vec<CfCredential> {
+    /// Usernames for the socket layer to revoke through Cloudflare's API.
+    pub fn take_revocations(&mut self) -> Vec<String> {
         self.cf.as_mut().map(|cf| std::mem::take(&mut cf.revoke)).unwrap_or_default()
     }
 
-    /// A revocation's outcome: a failed one is tried again at the next usage reading.
-    pub fn finish_revoke(&mut self, credential: CfCredential, revoked: bool) {
-        if let Some(cf) = self.cf.as_mut().filter(|_| !revoked) {
-            cf.revoke_later.push(credential);
+    /// A revocation's outcome: a confirmed one stops counting; a failed one still counts and is tried again at the
+    /// next reading.
+    pub fn finish_revoke(&mut self, username: &str, revoked: bool) {
+        let Some(cf) = self.cf.as_mut() else { return };
+        if !revoked {
+            cf.revoke_retry.push(username.to_string());
+            return;
+        }
+        let before = cf.outstanding.len();
+        cf.outstanding.retain(|c| c.username != username);
+        if cf.outstanding.len() != before {
+            cf.dirty = true;
+            self.counters.cf_revoked += 1;
         }
     }
 
@@ -419,8 +520,8 @@ impl Hub {
             "mintFailuresInARow": cf.failures,
             "pausedSeconds": cf.paused_until.map(|until| until.saturating_duration_since(now).as_secs()).filter(|s| *s > 0),
             "lastMintError": cf.last_error,
-            "credentialsOut": self.cf_out(),
-            "budget": self.cf_budget(now).min(1_000_000),
+            "credentialsOut": self.cf_out(now),
+            "budget": self.cf_budget(now).map(|b| b.min(1_000_000)),
         }))
     }
 
@@ -458,7 +559,15 @@ impl Hub {
                     expires_at: expiry * 1_000,
                     max_kbps: cf.relay.max_kbps,
                 };
-                cf.outstanding.push(CfCredential { username: m.username.clone(), expiry_unix_s: expiry, warm: job.rdv.is_none(), minted: now });
+                cf.outstanding.push(CfCredential {
+                    username: m.username.clone(),
+                    expiry_unix_s: expiry,
+                    node: job.node.clone(),
+                    warm: job.rdv.is_none(),
+                    minted_unix_s: unix_ms() / 1_000,
+                    revoking: false,
+                });
+                cf.dirty = true;
                 if job.rdv.is_none() {
                     let unix_s = unix_ms() / 1_000;
                     cf.warm.retain(|_, w| w.expiry_unix_s > unix_s);
@@ -598,12 +707,68 @@ impl Hub {
     /// expired Cloudflare credentials.
     fn sweep(&mut self, now: Instant) {
         self.swept_at = now;
-        self.pending.retain(|_, grant| grant.expires > now);
+        while self.pending_order.front().is_some_and(|(at, _)| *at <= now) {
+            let (_, key) = self.pending_order.pop_front().expect("front");
+            if self.pending.get(&key).is_some_and(|p| p.expires <= now) {
+                self.forget_pending(&key);
+            }
+        }
         self.grants_per_node.retain(|_, window| !window.expired(now));
         if let Some(cf) = self.cf.as_mut() {
             let unix_s = unix_ms() / 1_000;
             cf.per_ip.retain(|_, window| !window.expired(now));
+            let before = cf.outstanding.len();
             cf.outstanding.retain(|c| c.expiry_unix_s > unix_s);
+            cf.dirty |= cf.outstanding.len() != before;
+            if cf.inherited.as_ref().is_some_and(|i| now.saturating_duration_since(i.since) >= i.span) {
+                cf.inherited = None;
+            }
+        }
+    }
+
+    /// Remembers which relay a session got, for the other side's claim. Only a convenience (a claim without it
+    /// chooses again, and ICE pairs relays on different servers), so nothing is refused when it is full: an address
+    /// group past its share is not remembered, and the oldest entry makes room for a new one.
+    fn remember_pending(&mut self, key: (String, String), relay: String, expires: Instant, group: Option<IpAddr>) {
+        if let Some(existing) = self.pending.get_mut(&key) {
+            existing.relay = relay;
+            existing.expires = expires;
+            self.pending_order.push_back((expires, key));
+            return;
+        }
+        let (per_group, max) = (self.config.limits.pending_per_ip, self.config.limits.max_pending);
+        if group.is_some_and(|g| self.pending_per_group.get(&g).copied().unwrap_or(0) >= per_group) {
+            self.counters.pending_skipped += 1;
+            return;
+        }
+        while self.pending.len() >= max {
+            let Some((at, oldest)) = self.pending_order.pop_front() else { break };
+            if self.pending.get(&oldest).is_some_and(|p| p.expires == at) {
+                self.forget_pending(&oldest);
+                self.counters.pending_evicted += 1;
+            }
+        }
+        if let Some(g) = group {
+            *self.pending_per_group.entry(g).or_insert(0) += 1;
+        }
+        self.pending.insert(key.clone(), PendingGrant { relay, expires, group });
+        self.pending_order.push_back((expires, key));
+        // Refreshed grants leave stale entries behind: compact once they outnumber the live ones.
+        if self.pending_order.len() > 2 * self.pending.len() + 1_024 {
+            let pending = &self.pending;
+            self.pending_order.retain(|(at, k)| pending.get(k).is_some_and(|p| p.expires == *at));
+        }
+    }
+
+    fn forget_pending(&mut self, key: &(String, String)) {
+        let Some(grant) = self.pending.remove(key) else { return };
+        if let Some(g) = grant.group {
+            if let Some(count) = self.pending_per_group.get_mut(&g) {
+                *count -= 1;
+                if *count == 0 {
+                    self.pending_per_group.remove(&g);
+                }
+            }
         }
     }
 
@@ -753,16 +918,8 @@ impl Hub {
             self.send(id, Msg::RelayDenied { sid, code: "pool_exhausted".into(), retry_after_ms: 60_000 });
             return Outcome::Continue;
         };
-        if self.pending.len() >= self.config.limits.max_pending && !self.pending.contains_key(&key) {
-            self.sweep(now);
-            if self.pending.len() >= self.config.limits.max_pending {
-                self.counters.denied += 1;
-                self.send(id, Msg::RelayDenied { sid, code: "pool_exhausted".into(), retry_after_ms: 60_000 });
-                return Outcome::Continue;
-            }
-        }
         let lifetime = self.config.limits.grant_lifetime_s;
-        self.pending.insert(key, PendingGrant { relay: relay_id.clone(), expires: now + Duration::from_secs(lifetime) });
+        self.remember_pending(key, relay_id.clone(), now + Duration::from_secs(lifetime), ip);
         if self.is_cf(&relay_id) {
             let node = self.conns[&id].node_id.clone();
             let job = MintJob { conn: id, node, sid, side, rdv: Some(rdv), rtts, exclude, ttl_s: lifetime, asked_unix_s: unix_ms() / 1_000 };
@@ -1212,7 +1369,7 @@ penalty_ms = 10
         assert_eq!(stale.cf_tier(now, &["cf".into()]), CfTier::Off);
         // Near the cap the usage is read more often.
         assert_eq!(cf_hub(Some(1)).cf_poll_interval(), Duration::from_secs(900));
-        assert_eq!(cf_hub(Some(850)).cf_poll_interval(), Duration::from_secs(300));
+        assert_eq!(cf_hub(Some(850)).cf_poll_interval(), Duration::from_secs(60));
 
         let warm = |hub: &mut Hub, exclude: Vec<String>| {
             let (tx, mut rx) = mpsc::channel(16);
@@ -1293,53 +1450,160 @@ penalty_ms = 10
         cloudflare
     }
 
+    /// Mints a warm credential for an existing connection (a renewal, or the same node again).
+    fn cf_warm_again(hub: &mut Hub, id: ConnId, username: &str) {
+        hub.handle(id, Msg::RelayWarm { request: WarmRequest::default() });
+        for job in hub.take_mints() {
+            let ok = Ok(Minted { urls: vec!["turn:turn.cloudflare.com:3478?transport=udp".into()], username: username.into(), credential: "c".into() });
+            hub.finish_mint(job, ok, Instant::now());
+        }
+    }
+
+    fn revoking(hub: &Hub) -> Vec<String> {
+        let mut names: Vec<String> = hub.cf.as_ref().unwrap().outstanding.iter().filter(|c| c.revoking).map(|c| c.username.clone()).collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn cloudflare_credentials_out_stay_within_the_budget() {
         // Security review 1.0, C1: unpaired nodes with fresh keys used to get a 12-hour Cloudflare credential each,
         // without limit, and nothing ended them at the hard cap.
         let mut hub = cf_hub(Some(0));
-        let budget = hub.cf_budget(Instant::now());
-        // 950 GB of room; 50 Mbit/s for 15 minutes to the next reading plus 15 minutes: 11.25 GB a credential.
-        assert_eq!(budget, 84);
+        let now = Instant::now();
+        let budget = hub.cf_budget(now).unwrap();
+        // 950 GB of room; 100 Mbit/s for 15 minutes to the next reading plus 5 minutes: 15 GB a credential.
+        assert_eq!(budget, 63);
         let granted = (0..500).filter(|i| cf_warm_mint(&mut hub, *i, None)).count();
         assert_eq!(granted, budget, "the rest go to the own pool");
         assert_eq!(hub.counters.cf_over_budget, (500 - budget) as u64);
+        hub.set_cf_usage(Ok(0), Instant::now());
         assert!(hub.take_revocations().is_empty(), "nothing over the budget is out");
-        // Usage grows: the budget shrinks and the newest credentials beyond it are revoked at the reading.
+        // Usage grows: the budget shrinks (readings every minute past the soft cap) and the excess is revoked.
         hub.set_cf_usage(Ok(900_000_000_000), Instant::now());
-        let shrunk = hub.cf_budget(Instant::now());
-        assert_eq!(shrunk, 6, "50 GB of room, 300 s to the next reading near the cap");
+        let shrunk = hub.cf_budget(Instant::now()).unwrap();
+        assert_eq!(shrunk, 11, "50 GB of room, 60 s to the next reading plus 5 minutes");
         let revoked = hub.take_revocations();
         assert_eq!(revoked.len(), budget - shrunk);
-        assert!(revoked.iter().all(|c| c.username.parse::<String>().is_ok()));
-        assert!(revoked.iter().any(|c| c.username == "u83") && !revoked.iter().any(|c| c.username == "u0"), "the newest go first");
+        // Queued for revocation is not revoked: they still count until Cloudflare confirms, and are not queued twice.
+        assert_eq!(hub.cf_out(Instant::now()), budget);
+        hub.set_cf_usage(Ok(900_000_000_000), Instant::now());
+        assert!(hub.take_revocations().is_empty());
+        for name in &revoked {
+            hub.finish_revoke(name, true);
+        }
+        assert_eq!(hub.cf_out(Instant::now()), shrunk);
+        assert_eq!(hub.counters.cf_revoked, (budget - shrunk) as u64);
         // At the hard cap every credential still out is revoked, and none is minted.
         hub.set_cf_usage(Ok(950_000_000_000), Instant::now());
         assert_eq!(hub.take_revocations().len(), shrunk);
-        assert_eq!(hub.cf_out(), 0);
         assert!(!cf_warm_mint(&mut hub, 1_000, None));
-        assert_eq!(hub.counters.cf_revoked, budget as u64);
-        // A revoked warm credential is not handed back by a reclaim.
+        // A credential being revoked is never handed back by a reclaim.
         assert!(hub.cf.as_ref().unwrap().warm.is_empty());
     }
 
     #[test]
-    fn cloudflare_credentials_are_revoked_when_readings_stop() {
+    fn cloudflare_revokes_replaced_credentials_first_and_live_warm_ones_last() {
+        // Review of PR #67: a node's current warm credential carries its sessions; replaced ones (a renewal, an app
+        // restart) are most likely unused, so they go first, then session credentials, the current warm one last.
+        let mut hub = cf_hub(Some(0));
+        let (tx, _rx) = mpsc::channel(64);
+        let a = hub.join_with("node-a".into(), tx, &caps(true), None).unwrap();
+        let (tx_b, _rx_b) = mpsc::channel(64);
+        let b = hub.join_with("node-b".into(), tx_b, &caps(true), None).unwrap();
+        hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
+        hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
+        cf_warm_again(&mut hub, a, "w-old");
+        cf_warm_again(&mut hub, a, "w-current");
+        hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: SID.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+        for job in hub.take_mints() {
+            let ok = Ok(Minted { urls: vec!["turn:turn.cloudflare.com:3478?transport=udp".into()], username: "session".into(), credential: "c".into() });
+            hub.finish_mint(job, ok, Instant::now());
+        }
+        assert_eq!(hub.cf_out(Instant::now()), 3);
+        // 941 GB: room for two (9 GB at 4.5 GB each); one over.
+        hub.set_cf_usage(Ok(941_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations(), vec!["w-old".to_string()]);
+        // 945 GB: room for one: the session credential goes next.
+        hub.set_cf_usage(Ok(945_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations(), vec!["session".to_string()]);
+        assert_eq!(hub.cf.as_ref().unwrap().warm["node-a"].username, "w-current", "the live warm credential stays");
+        // 949 GB: no room at all: the current warm credential goes too, and the core moves to another relay.
+        hub.set_cf_usage(Ok(949_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations(), vec!["w-current".to_string()]);
+        assert!(!hub.cf.as_ref().unwrap().warm.contains_key("node-a"));
+        assert_eq!(revoking(&hub), vec!["session".to_string(), "w-current".to_string(), "w-old".to_string()]);
+    }
+
+    #[test]
+    fn cloudflare_readings_that_stop_end_minting_not_sessions() {
+        // Review of PR #67: an analytics outage or an expired token used to revoke every credential.
         let start = Instant::now();
         let mut hub = cf_hub(Some(0));
         assert!(cf_warm_mint(&mut hub, 0, None));
-        // The analytics API stops answering: the budget shrinks as the reading ages, then every credential goes.
-        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(600));
-        assert!(hub.take_revocations().is_empty());
         hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(3_601));
+        assert!(hub.take_revocations().is_empty(), "nothing is revoked");
+        assert!(!hub.cf_room(None, start + Duration::from_secs(3_601)), "nothing more is minted");
+        assert_eq!(hub.cf_tier(start + Duration::from_secs(3_601), &[]), CfTier::Off);
+        // A revocation that fails still counts and is queued again at the next fresh reading.
+        hub.set_cf_usage(Ok(950_000_000_000), Instant::now());
         let revoked = hub.take_revocations();
         assert_eq!(revoked.len(), 1);
-        // A revocation that fails is tried again after the next reading.
-        hub.finish_revoke(revoked[0].clone(), false);
-        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(3_700));
-        assert_eq!(hub.take_revocations().len(), 1);
-        hub.set_cf_usage(Err("usage: timed out".into()), start + Duration::from_secs(3_800));
+        hub.finish_revoke(&revoked[0], false);
+        assert_eq!(hub.cf_out(Instant::now()), 1);
+        hub.set_cf_usage(Ok(950_000_000_000), Instant::now());
+        assert_eq!(hub.take_revocations(), revoked);
+        hub.finish_revoke(&revoked[0], true);
+        assert_eq!(hub.cf_out(Instant::now()), 0);
+    }
+
+    #[test]
+    fn cloudflare_budget_off_means_no_budget_and_no_revocations() {
+        let mut hub = cf_hub(Some(0));
+        hub.cf.as_mut().unwrap().budget_bytes_per_s = 0;
+        assert_eq!(hub.cf_budget(Instant::now()), None);
+        assert_eq!((0..100).filter(|i| cf_warm_mint(&mut hub, *i, None)).count(), 100);
+        hub.set_cf_usage(Err("usage: not allowed".into()), Instant::now() + Duration::from_secs(3_601));
+        hub.set_cf_usage(Ok(960_000_000_000), Instant::now());
         assert!(hub.take_revocations().is_empty());
+    }
+
+    #[test]
+    fn cloudflare_credentials_survive_a_restart_or_are_assumed_out() {
+        // Review of PR #67: the list was memory only, so after a restart earlier credentials were invisible.
+        let start = Instant::now();
+        let mut hub = cf_hub(None);
+        hub.restore_cloudflare(None, start);
+        hub.set_cf_usage(Ok(0), start);
+        assert_eq!(hub.cf_out(start), 63, "the budget's worth assumed out");
+        assert!(!hub.cf_room(None, start));
+        let later = start + Duration::from_secs(6 * 3_600);
+        assert_eq!(hub.cf_out(later), 32, "half of them after half the warm grant lifetime");
+        hub.set_cf_usage(Ok(0), later);
+        assert_eq!(hub.cf_out(later), 32, "a later reading does not change the assumption");
+        assert!(hub.cf_room(None, later));
+        assert_eq!(hub.cf_out(start + Duration::from_secs(12 * 3_600)), 0);
+        // With the state file: what it kept counts, expired entries go, revocations under way are queued again.
+        let mut saved = cf_hub(Some(0));
+        assert!(cf_warm_mint(&mut saved, 1, None));
+        assert!(cf_warm_mint(&mut saved, 2, None));
+        saved.set_cf_usage(Ok(949_000_000_000), Instant::now());
+        let queued = saved.take_revocations();
+        let list = saved.cloudflare_to_save().expect("changed");
+        assert!(saved.cloudflare_to_save().is_none(), "saved once per change");
+        let text = serde_json::to_string(&list).unwrap();
+        assert!(!text.contains("\"credential\""), "no secret in the state file");
+        let mut expired = list[0].clone();
+        expired.username = "gone".into();
+        expired.expiry_unix_s = 1;
+        let mut restored = cf_hub(Some(0));
+        restored.restore_cloudflare(Some(serde_json::from_str::<Vec<CfCredential>>(&text).unwrap().into_iter().chain([expired]).collect()), Instant::now());
+        assert_eq!(restored.cf_out(Instant::now()), 2);
+        let mut again = restored.take_revocations();
+        again.sort();
+        let mut queued = queued;
+        queued.sort();
+        assert_eq!(again, queued);
     }
 
     #[test]
@@ -1388,21 +1652,40 @@ penalty_ms = 10
         assert_eq!(hub.grants_per_node.len(), 50);
         hub.sweep(Instant::now() + Duration::from_secs(3_601));
         assert!(hub.grants_per_node.is_empty());
-        // Pending grants expire with their lifetime, and a full table refuses new grants instead of growing.
+        // Pending grants expire with their lifetime; a full table makes room by dropping the oldest instead of
+        // refusing grants (review of PR #67: fresh keys from a few addresses could fill it for everyone).
         let mut hub = Hub::new(
-            Config::parse("[server]\nlisten='x'\n[limits]\nmax_pending=2\n[[relays]]\nid='bom'\nkind='coturn'\nurls=['turn:a:3478']\nsecret_env='A'\n").unwrap(),
+            Config::parse("[server]\nlisten='x'\n[limits]\nmax_pending=2\npending_per_ip=2\n[[relays]]\nid='bom'\nkind='coturn'\nurls=['turn:a:3478']\nsecret_env='A'\n").unwrap(),
             HashMap::from([("bom".to_string(), b"s1".to_vec())]),
         );
+        let request = |hub: &mut Hub, id: ConnId, sid: &str| {
+            hub.handle(id, Msg::RelayRequest { rdv: RDV.into(), sid: sid.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+        };
         let (tx, mut rx) = mpsc::channel(16);
         let a = hub.join("a".into(), tx).unwrap();
         hub.handle(a, Msg::Register { ids: vec![RDV.into()] });
+        drain(&mut rx);
         for sid in ["AAAAAAAAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBBBBBBBB", "CCCCCCCCCCCCCCCCCCCCCC"] {
-            hub.handle(a, Msg::RelayRequest { rdv: RDV.into(), sid: sid.into(), side: 0, rtts: None, need: None, est_bytes: None, exclude: None });
+            request(&mut hub, a, sid);
+            assert!(matches!(drain(&mut rx).pop(), Some(Msg::RelayGrantMsg { .. })), "every grant is given");
         }
-        assert!(matches!(drain(&mut rx).pop(), Some(Msg::RelayDenied { code, .. }) if code == "pool_exhausted"));
         assert_eq!(hub.pending.len(), 2);
+        assert!(!hub.pending.contains_key(&(RDV.to_string(), "AAAAAAAAAAAAAAAAAAAAAA".to_string())), "the oldest made room");
+        assert_eq!(hub.counters.pending_evicted, 1);
         hub.sweep(Instant::now() + Duration::from_secs(7_201));
-        assert!(hub.pending.is_empty());
+        assert!(hub.pending.is_empty() && hub.pending_order.is_empty());
+        // One address group gets its share; past it grants are still given, just not remembered.
+        let ip: IpAddr = "203.0.113.5".parse().unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        let b = hub.join_with("b".into(), tx, &[], Some(ip)).unwrap();
+        hub.handle(b, Msg::Register { ids: vec![RDV.into()] });
+        drain(&mut rx);
+        for sid in ["DDDDDDDDDDDDDDDDDDDDDD", "EEEEEEEEEEEEEEEEEEEEEE", "FFFFFFFFFFFFFFFFFFFFFF"] {
+            request(&mut hub, b, sid);
+            assert!(matches!(drain(&mut rx).pop(), Some(Msg::RelayGrantMsg { .. })));
+        }
+        assert_eq!(hub.pending_per_group[&ip], 2);
+        assert_eq!(hub.counters.pending_skipped, 1);
     }
 
     #[test]

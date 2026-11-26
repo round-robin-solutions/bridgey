@@ -28,6 +28,10 @@ pub struct Server {
     /// signature made for another service is refused. Unset: no single-flight sign-ins (the challenge only).
     #[serde(default)]
     pub public_host: Option<String>,
+    /// Where the Cloudflare credentials out are kept across restarts (a writable volume). Unset or unreadable: the
+    /// service assumes the budget's worth is out after a start, expiring over the warm grant lifetime.
+    #[serde(default)]
+    pub state_file: Option<String>,
 }
 
 fn default_environment() -> String {
@@ -52,8 +56,10 @@ pub struct Limits {
     /// Messages one connection may send a minute (signals have their own lower limit); past it they are dropped,
     /// and past twice it the connection closes. Every message takes the hub's one lock.
     pub messages_per_minute: u32,
-    /// Session grants remembered for the other side's claim, across all nodes; past it new grants are refused.
+    /// Session grants remembered for the other side's claim: in all (the oldest makes room), and per address group
+    /// (an IPv4 address or an IPv6 /64; past it a grant is still given, just not remembered).
     pub max_pending: usize,
+    pub pending_per_ip: usize,
     /// Connections that may hold one rendezvous ID (a pair is two nodes of at most three sockets each).
     pub sockets_per_rdv: usize,
 }
@@ -73,6 +79,7 @@ impl Default for Limits {
             auth_timeout_s: 10,
             messages_per_minute: 600,
             max_pending: 100_000,
+            pending_per_ip: 1_000,
             sockets_per_rdv: 8,
         }
     }
@@ -163,12 +170,13 @@ pub struct CloudflareSettings {
     pub count_ingress: bool,
     /// A mint that takes longer fails over to the own pool.
     pub mint_timeout_ms: u64,
-    /// The rate one credential is assumed to carry when the service works out how many may be out at once (a
-    /// client that ignores the 40 Mbit/s pace reaches Cloudflare's own per-allocation limit, 50 to 100 Mbit/s).
-    /// 0 turns the budget off.
+    /// The rate one credential is assumed to carry when the service works out how many may be out at once: the top of
+    /// Cloudflare's 50 to 100 Mbit/s per client, since a client that ignores the 40 Mbit/s pace gets there. Several
+    /// allocations on one credential are not bounded by Cloudflare; the frequent readings near the cap and the
+    /// revocations are what stop them. 0 turns the budget and the revocations off.
     pub budget_kbps: u32,
-    /// Added to the time until the next usage reading when working out that budget: the analytics delay plus the
-    /// life of an allocation after its credential is revoked (it can no longer refresh).
+    /// Added to the time until the next usage reading when working out that budget: the analytics delay (Cloudflare
+    /// says 30 seconds) plus the time until an allocation stops after its credential is revoked.
     pub budget_extra_s: u64,
     /// Cloudflare credentials one address (an IPv4 address or an IPv6 /64) may get an hour; past it, the own pool.
     pub mints_per_ip_hour: u32,
@@ -186,14 +194,14 @@ impl Default for CloudflareSettings {
             soft_gb: 800,
             hard_gb: 950,
             usage_interval_s: 900,
-            usage_interval_near_s: 300,
+            usage_interval_near_s: 60,
             usage_max_age_s: 3_600,
             cycle_day: 0,
             window_days: 31,
             count_ingress: false,
             mint_timeout_ms: 3_000,
-            budget_kbps: 50_000,
-            budget_extra_s: 900,
+            budget_kbps: 100_000,
+            budget_extra_s: 300,
             mints_per_ip_hour: 30,
         }
     }
