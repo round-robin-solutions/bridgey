@@ -1050,9 +1050,9 @@ private struct StreamList: View {
                 ForEach(rows) { row in
                     switch row {
                     case let .header(section):
-                        Text(ActivityText.section(section).uppercased())
-                            .font(BrandFont.body(11, .semibold))
-                            .kerning(0.55)
+                        // Sentence case and untracked, as the Settings card headings: no small tracked capitals.
+                        Text(ActivityText.section(section))
+                            .font(BrandFont.body(12, .semibold))
                             .foregroundStyle(c.on2)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.leading, 16)

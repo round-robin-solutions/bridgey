@@ -159,12 +159,12 @@ fun DeviceGlyph(
     }
 }
 
-/** Section label: 13 sp, upper case, muted, inset 32 dp. */
+/** A list's group heading: 13 sp, sentence case and untracked (no small tracked capitals), muted, inset 32 dp. */
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
-        text.uppercase(),
-        style = BridgeyType.section,
+        text,
+        style = BridgeyType.listHeader,
         color = BridgeyTheme.colors.onSurfaceVariant,
         modifier = modifier.padding(horizontal = 32.dp).semantics { heading() },
     )
