@@ -117,6 +117,19 @@ struct SearchPulse: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .task(id: token) { await run() }
+            #if DEBUG
+            .background {
+                if TestInstance.enabled {
+                    GeometryReader { geometry in
+                        let frame = geometry.frame(in: .global)
+                        Color.clear
+                            .onAppear { SettingsTestHooks.shared.pulse = frame }
+                            .onChange(of: frame) { SettingsTestHooks.shared.pulse = $0 }
+                            .onDisappear { SettingsTestHooks.shared.pulse = nil }
+                    }
+                }
+            }
+            #endif
     }
 
     @MainActor private func run() async {

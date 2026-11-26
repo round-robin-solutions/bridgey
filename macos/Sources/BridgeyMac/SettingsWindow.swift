@@ -476,6 +476,15 @@ struct SettingsWindowView: View {
         }
         .onChange(of: searchFocused) { keys.fieldFocused = $0 }
         .onReceive(keys.commands) { command in handle(command, outcome: outcome) }
+        #if DEBUG
+        .task(id: SettingsTestHooks.Probe(query: query, selected: selected, pane: pane.rawValue, target: target?.title,
+                                          fieldFocused: searchFocused, choosable: outcome.choosable.map(\.id))) {
+            if TestInstance.enabled {
+                SettingsTestHooks.shared.probe = SettingsTestHooks.Probe(query: query, selected: selected, pane: pane.rawValue, target: target?.title,
+                                                                         fieldFocused: searchFocused, choosable: outcome.choosable.map(\.id))
+            }
+        }
+        #endif
         .onAppear { if !snapshot { keys.install() } }
         .onDisappear { keys.remove() }
     }
