@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bridgey Protocol v1 freeze check (docs/protocol-v1.md). Report only until the freeze is approved.
+"""Bridgey Protocol v1 freeze check (docs/protocol-v1.md). Enforced since the freeze was approved on 27 November 2026.
 
   python3 protocol/tools/v1_freeze.py --check
       list every change to a v1-frozen entry or vector since protocol/v1-baseline.json; exit 1 only when enforced
@@ -279,7 +279,7 @@ def write_baseline(amend=None, contract=None, path=BASELINE, root=ROOT, today=No
     baseline = {
         "description": "Bridgey Protocol v1 freeze baseline (docs/protocol-v1.md): every v1 core, extension and deprecated "
                        "entry of protocol/messages.json and a hash of each vector case that pins one, as recorded by "
-                       "protocol/tools/v1_freeze.py --write-baseline. Proposal: report only while frozen is false.",
+                       "protocol/tools/v1_freeze.py --write-baseline. Frozen since 27 November 2026: --check fails on breaking changes.",
         "frozen": old.get("frozen", False) if old else False,
         "contractVersion": contract["contractVersion"],
         "amendments": amendments,

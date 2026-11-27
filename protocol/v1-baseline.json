@@ -1,6 +1,6 @@
 {
- "description": "Bridgey Protocol v1 freeze baseline (docs/protocol-v1.md): every v1 core, extension and deprecated entry of protocol/messages.json and a hash of each vector case that pins one, as recorded by protocol/tools/v1_freeze.py --write-baseline. Proposal: report only while frozen is false.",
- "frozen": false,
+ "description": "Bridgey Protocol v1 freeze baseline (docs/protocol-v1.md): every v1 core, extension and deprecated entry of protocol/messages.json and a hash of each vector case that pins one, as recorded by protocol/tools/v1_freeze.py --write-baseline. Frozen since 27 November 2026: --check fails on breaking changes.",
+ "frozen": true,
  "contractVersion": 1,
  "amendments": [
   {
