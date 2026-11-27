@@ -24,6 +24,9 @@ public sealed partial class MessagesViewModel : ObservableObject
     private bool _canSend;
     private bool _older;
     private bool _moreConversations;
+    /// <summary>The list is being brought up to date: a list control that loses its selection while rows move does
+    /// not close the open conversation.</summary>
+    private bool _reloading;
     private SimChoice? _sim;
     private readonly Dictionary<string, byte[]> _images = new();
     private readonly HashSet<string> _failedImages = new();
@@ -123,6 +126,11 @@ public sealed partial class MessagesViewModel : ObservableObject
         set
         {
             var previous = _selected;
+            if (_reloading && value is null && previous is not null && Conversations.Contains(previous))
+            {
+                Raise();
+                return;
+            }
             if (!Set(ref _selected, value)) return;
             Messages.Clear();
             _images.Clear();
@@ -487,7 +495,9 @@ public sealed partial class MessagesViewModel : ObservableObject
             item.Update(row);
             wanted.Add(item);
         }
-        Sync(Conversations, wanted);
+        _reloading = true;
+        try { Sync(Conversations, wanted); }
+        finally { _reloading = false; }
         Raise(nameof(HasNoConversations));
         Raise(nameof(HasPhone));
         Raise(nameof(HasNoPhone));
@@ -629,6 +639,9 @@ public sealed partial class ConversationItem(MessagesViewModel owner, long threa
     public void MarkRead() => owner.MarkRead(this);
     public void MarkUnread() => owner.MarkUnread(this);
     public void BlockOnPhone() => owner.BlockOnPhone(this);
+
+    /// <summary>The list row's name for Narrator and UI Automation.</summary>
+    public override string ToString() => Label;
 }
 
 /// <summary>One message in the open conversation, or a text this PC is sending.</summary>
@@ -751,6 +764,8 @@ public sealed partial class MessageItem(MessagesViewModel owner, string id) : Ob
 
     public void Retry() => owner.Retry(this);
     public void Discard() => owner.Discard(this);
+
+    public override string ToString() => Label;
 }
 
 /// <summary>A contact the phone found for a new message.</summary>
@@ -760,7 +775,12 @@ public sealed class ContactItem(MessagesViewModel owner, string name, string add
     public string Address { get; } = address;
     public string Detail => label is { Length: > 0 } l ? $"{l} · {Address}" : Address;
     public void Pick() => owner.PickContact(this);
+
+    public override string ToString() => $"{Name}, {Detail}";
 }
 
 /// <summary>One of the phone's SIMs.</summary>
-public sealed record SimChoice(long SubId, string Label);
+public sealed record SimChoice(long SubId, string Label)
+{
+    public override string ToString() => Label;
+}

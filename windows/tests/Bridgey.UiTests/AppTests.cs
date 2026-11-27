@@ -334,7 +334,7 @@ public sealed partial class AppTests : IDisposable
     private void TextMessages(Window window)
     {
         Click(window, "NavMessages");
-        Find(window, "MessagesOff");
+        Find(window, "MessagesSettings");
         Shot(window, "messages-off-light");
         Click(window, "MessagesSettings");
         var on = Find(window, "TextMessagesOn");

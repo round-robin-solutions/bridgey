@@ -12,6 +12,9 @@
 //!   codes-status <status>    allowed, hidden or not_linked
 //!   link <url> | link-open <url>   send a link (kept for Open, or opened right away)
 //!   media <action> [value]   a media button (toggle, pause, next, previous, seek, volume)
+//!   feature <key> <0|1>      this device's switch for the connected device (sms_draft1, ...)
+//!   phone <area> <json>      a command for one of the phone's features as a desktop (area 1 text messages); the
+//!                            answer and the area's events are written out
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
 //!        [--receive-dir <folder>] [--seconds 300] [--phone]
@@ -120,6 +123,23 @@ fn main() {
                     "ring" => client.find(&device, true),
                     "stop-ring" => client.find(&device, false),
                     "stopped" => client.find_stopped(&device),
+                    "feature" => {
+                        let (key, on) = rest.split_once(' ').unwrap_or((rest, "1"));
+                        client.set_feature(Some(&device), key, on == "1")
+                    }
+                    "phone" => {
+                        let (area, command) = rest.split_once(' ').unwrap_or((rest, "{}"));
+                        let area = match area {
+                            "1" | "sms" => bridgey_core::phone::Area::Sms,
+                            _ => {
+                                out(json!({"event": "command", "ok": false, "error": "unknown area", "line": line}));
+                                continue;
+                            }
+                        };
+                        let command: serde_json::Value = serde_json::from_str(command).unwrap_or_default();
+                        out(json!({"event": "phone", "answer": client.phone(area, &device, &command)}));
+                        Ok(())
+                    }
                     "notify" => client.send_as_phone_for_tests(&device, "notifications.post", rest),
                     "unnotify" => client.send_as_phone_for_tests(&device, "notifications.remove", &json!({"notificationId": rest}).to_string()),
                     "codes-status" => client.send_as_phone_for_tests(&device, "codes.status", &json!({"version": 1, "status": rest}).to_string()),
@@ -185,6 +205,7 @@ fn main() {
             Event::FindRequested { ring, .. } => out(json!({"event": "find", "ring": ring})),
             Event::FindState { ringing, .. } => out(json!({"event": "ringing", "ringing": ringing})),
             Event::Link { url, open, .. } => out(json!({"event": "link", "url": url, "open": open})),
+            Event::Phone { area, what, json, .. } => out(json!({"event": "phoneEvent", "area": format!("{area:?}"), "what": what, "detail": serde_json::from_str::<serde_json::Value>(&json).unwrap_or_default()})),
             _ => {}
         }
     }
