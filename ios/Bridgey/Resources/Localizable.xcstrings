@@ -11,12 +11,130 @@
         }
       }
     },
+    "%@ couldn’t share its screen." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось показать экран %@."
+          }
+        }
+      }
+    },
+    "%@ didn’t allow control." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ не разрешили управление."
+          }
+        }
+      }
+    },
+    "%@ didn’t allow it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ не разрешили."
+          }
+        }
+      }
+    },
     "%@ didn’t allow pairing in time." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ не разрешил связать устройства вовремя."
+          }
+        }
+      }
+    },
+    "%@ didn’t answer." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ не ответил."
+          }
+        }
+      }
+    },
+    "%@ disconnected." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ отключился."
+          }
+        }
+      }
+    },
+    "%@ doesn’t allow control right now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ сейчас не разрешает управление."
+          }
+        }
+      }
+    },
+    "%@ doesn’t share its screen with this %@." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ doesn’t share its screen with this %2$@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ не показывает свой экран этому %2$@."
+          }
+        }
+      }
+    },
+    "%@ doesn’t share its screen with this %@. Allow it in Bridgey on the Mac, in Settings › Remote control." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ doesn’t share its screen with this %2$@. Allow it in Bridgey on the Mac, in Settings › Remote control."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ не показывает свой экран этому %2$@. Разрешите это в Bridgey на Mac: Настройки › Удалённое управление."
+          }
+        }
+      }
+    },
+    "%@ doesn’t share its screen with this %@. Turn it on in Bridgey there." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ doesn’t share its screen with this %2$@. Turn it on in Bridgey there."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ не показывает свой экран этому %2$@. Включите это в Bridgey на том устройстве."
+          }
+        }
+      }
+    },
+    "%@ is locked." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ заблокирован."
           }
         }
       }
@@ -37,12 +155,42 @@
         }
       }
     },
+    "%@ is showing its screen to another device." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ уже показывает экран другому устройству."
+          }
+        }
+      }
+    },
     "%@ isn’t connected." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ не подключено."
+          }
+        }
+      }
+    },
+    "%@ needs Accessibility for Bridgey." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ нужно разрешить Bridgey универсальный доступ."
+          }
+        }
+      }
+    },
+    "%@ needs Screen Recording for Bridgey." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ нужно разрешить Bridgey запись экрана."
           }
         }
       }
@@ -59,6 +207,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ отправил сигнал на этот %2$@."
+          }
+        }
+      }
+    },
+    "%@ stopped sharing its screen with this %@." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ stopped sharing its screen with this %2$@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ больше не показывает свой экран этому %2$@."
           }
         }
       }
@@ -139,6 +303,16 @@
         }
       }
     },
+    "About three pictures a second, because nobody approved video on the phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Около трёх кадров в секунду: на телефоне никто не разрешил видео."
+          }
+        }
+      }
+    },
     "Allow" : {
       "localizations" : {
         "ru" : {
@@ -169,6 +343,16 @@
         }
       }
     },
+    "Another device is controlling %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ уже управляет другое устройство."
+          }
+        }
+      }
+    },
     "Appearance" : {
       "localizations" : {
         "ru" : {
@@ -179,12 +363,52 @@
         }
       }
     },
+    "Asking" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос"
+          }
+        }
+      }
+    },
+    "Asking %@…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос к %@…"
+          }
+        }
+      }
+    },
+    "Asking for control…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос управления…"
+          }
+        }
+      }
+    },
     "Automatic" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Автоматически"
+          }
+        }
+      }
+    },
+    "Back" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Назад"
           }
         }
       }
@@ -462,6 +686,62 @@
         }
       }
     },
+    "Control" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление"
+          }
+        }
+      }
+    },
+    "Control is off for this %@ on %@." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Control is off for this %1$@ on %2$@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %2$@ управление с этого %1$@ выключено."
+          }
+        }
+      }
+    },
+    "Control stopped." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление остановлено."
+          }
+        }
+      }
+    },
+    "Control was stopped on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление остановили на %@."
+          }
+        }
+      }
+    },
+    "Controlling" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Управление включено"
+          }
+        }
+      }
+    },
     "Copied" : {
       "localizations" : {
         "ru" : {
@@ -732,6 +1012,26 @@
         }
       }
     },
+    "Hide keyboard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрыть клавиатуру"
+          }
+        }
+      }
+    },
+    "Home" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Домой"
+          }
+        }
+      }
+    },
     "iOS doesn’t let apps control what other apps play, so your phone can’t control media here." : {
       "localizations" : {
         "ru" : {
@@ -792,6 +1092,16 @@
         }
       }
     },
+    "Keyboard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клавиатура"
+          }
+        }
+      }
+    },
     "Light" : {
       "localizations" : {
         "ru" : {
@@ -828,6 +1138,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ссылки выключены на том устройстве."
+          }
+        }
+      }
+    },
+    "Live" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В эфире"
           }
         }
       }
@@ -992,12 +1312,42 @@
         }
       }
     },
+    "On" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вкл."
+          }
+        }
+      }
+    },
     "On %@" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "На %@"
+          }
+        }
+      }
+    },
+    "On %@, allow the request, or turn on Bridgey in Accessibility settings to share without asking." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ разрешите запрос или включите Bridgey в настройках специальных возможностей, чтобы показывать экран без вопроса."
+          }
+        }
+      }
+    },
+    "On %@, allow the request. Sharing without asking needs Android 11 or later." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ разрешите запрос. Показ без вопроса работает на Android 11 и новее."
           }
         }
       }
@@ -1242,6 +1592,16 @@
         }
       }
     },
+    "Recent apps" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недавние приложения"
+          }
+        }
+      }
+    },
     "Reduce motion" : {
       "localizations" : {
         "ru" : {
@@ -1271,6 +1631,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Экран"
+          }
+        }
+      }
+    },
+    "Screen of %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран %@"
           }
         }
       }
@@ -1455,6 +1825,16 @@
         }
       }
     },
+    "Slower mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Медленный режим"
+          }
+        }
+      }
+    },
     "Something went wrong (%d)." : {
       "localizations" : {
         "ru" : {
@@ -1475,12 +1855,52 @@
         }
       }
     },
+    "Starting" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запуск"
+          }
+        }
+      }
+    },
     "Stop" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стоп"
+          }
+        }
+      }
+    },
+    "Stopped on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено на %@."
+          }
+        }
+      }
+    },
+    "Stopped." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено."
+          }
+        }
+      }
+    },
+    "Stops showing this screen." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Прекращает показ этого экрана."
           }
         }
       }
@@ -1685,6 +2105,46 @@
         }
       }
     },
+    "The screen of %@ turned off." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Экран %@ выключился."
+          }
+        }
+      }
+    },
+    "The shared display changed. Try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Общий дисплей сменился. Попробуйте снова."
+          }
+        }
+      }
+    },
+    "The stream stopped answering." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Трансляция перестала отвечать."
+          }
+        }
+      }
+    },
+    "The stream stopped. Try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Трансляция остановилась. Попробуйте снова."
+          }
+        }
+      }
+    },
     "There wasn’t room to save it." : {
       "localizations" : {
         "ru" : {
@@ -1755,12 +2215,32 @@
         }
       }
     },
+    "Touches go to the other device." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Касания передаются другому устройству."
+          }
+        }
+      }
+    },
     "Try again" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Повторить"
+          }
+        }
+      }
+    },
+    "Turn on Bridgey in Accessibility settings on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите Bridgey в настройках специальных возможностей на %@."
           }
         }
       }
@@ -1775,12 +2255,52 @@
         }
       }
     },
+    "Typing works only in windows on the shared display." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Печатать можно только в окнах на общем дисплее."
+          }
+        }
+      }
+    },
+    "Unlock %@ to share its screen." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Разблокируйте %@, чтобы показать экран."
+          }
+        }
+      }
+    },
     "Update Bridgey on %@ to pair." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Обновите Bridgey на %@, чтобы связать."
+          }
+        }
+      }
+    },
+    "Wait a few seconds, then try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подождите несколько секунд и попробуйте снова."
+          }
+        }
+      }
+    },
+    "Waiting for %@ to allow it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ждём разрешения на %@."
           }
         }
       }
@@ -1851,6 +2371,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Уведомления, сообщения и звонки телефона видны, пока Bridgey открыт."
+          }
+        }
+      }
+    },
+    "Your touches go to %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваши касания передаются на %@."
           }
         }
       }
