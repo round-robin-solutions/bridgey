@@ -5,8 +5,9 @@
 #   linux/packaging/appimage.sh BINARY OUTPUT.AppImage
 #
 # Run it on the oldest system the AppImage supports (linux/build/Dockerfile, Ubuntu 24.04): the libraries it copies
-# come from there. Left to the host, as AppImage's own exclude list does: glibc, the graphics drivers (GL, EGL, Vulkan,
-# DRM), libX11 and libxcb, fontconfig, FreeType and HarfBuzz, zlib, expat, libgcc and libstdc++.
+# come from there. Left to the host, as AppImage's own exclude list does: glibc, the graphics drivers (GL, EGL, DRM,
+# GBM), libX11 and libxcb, fontconfig, FreeType and HarfBuzz, zlib, expat, libgcc and libstdc++. The Vulkan loader is
+# carried (GTK links it, and minimal systems lack it); it still finds the host's drivers.
 #
 # The AppImage runtime is the pinned type2-runtime release below, checked by SHA-256 before use.
 set -eu
@@ -79,6 +80,13 @@ X-AppImage-Name=Bridgey by Round Robin
 EOF
 cp "$APPDIR/in.roundrobin.bridgey.desktop" "$APPDIR/usr/share/applications/"
 
+# The MIME database's compiled files (no source XML), so image types are recognised even on a system without
+# shared-mime-info; a desktop's own database still applies after it.
+mkdir -p "$APPDIR/usr/share/mime"
+for f in mime.cache magic globs globs2 aliases subclasses types generic-icons icons treemagic XMLnamespaces version; do
+  [ -f "/usr/share/mime/$f" ] && cp "/usr/share/mime/$f" "$APPDIR/usr/share/mime/"
+done
+
 # GTK's own settings schemas (the file chooser reads them).
 cp /usr/share/glib-2.0/schemas/org.gtk.gtk4.*.gschema.xml "$APPDIR/usr/share/glib-2.0/schemas/"
 glib-compile-schemas "$APPDIR/usr/share/glib-2.0/schemas"
@@ -94,7 +102,7 @@ excluded() {
   case "$1" in
     ld-linux*|libc.so.*|libdl.so.*|libm.so.*|libmvec.so.*|libpthread.so.*|librt.so.*|libresolv.so.*|libutil.so.*|libnsl.so.*|libanl.so.*|libBrokenLocale.so.*|libthread_db.so.*) return 0 ;;
     libgcc_s.so.*|libstdc++.so.*) return 0 ;;
-    libGL.so.*|libEGL.so.*|libGLX*|libGLdispatch.so.*|libOpenGL.so.*|libGLESv2.so.*|libdrm.so.*|libgbm.so.*|libvulkan.so.*) return 0 ;;
+    libGL.so.*|libEGL.so.*|libGLX*|libGLdispatch.so.*|libOpenGL.so.*|libGLESv2.so.*|libdrm.so.*|libgbm.so.*) return 0 ;;
     libX11.so.*|libX11-xcb.so.*|libxcb.so.*) return 0 ;;
     libfontconfig.so.*|libfreetype.so.*|libharfbuzz.so.*|libexpat.so.*|libz.so.*|libuuid.so.*) return 0 ;;
   esac
