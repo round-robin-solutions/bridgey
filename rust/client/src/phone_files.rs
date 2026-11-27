@@ -446,6 +446,8 @@ struct Send {
     entries: Vec<Entry>,
     sources: HashMap<usize, Source>,
     phase: SendPhase,
+    /// Files still to hand to the session, in entry order.
+    queue: VecDeque<usize>,
     transfers: HashMap<u64, usize>,
     sent: usize,
     failures: Vec<(usize, String)>,
@@ -1201,12 +1203,11 @@ fn receive_json(r: &Receive, state: &str, error: Option<&str>) -> Value {
     })
 }
 
+/// A folder coming in ended. Its files still running stay this area's until their last event (a cancel's own end), so
+/// the host never hears about them as ordinary files.
 fn end_receive(inner: &Inner, device_id: &str, r: &Receive, state: &str, error: Option<&str>) {
     {
         let mut st = inner.phone.files.lock().unwrap();
-        for t in r.transfers.keys() {
-            st.owned.remove(t);
-        }
         if let Some(req) = &r.request {
             if let Some(p) = st.phones.get_mut(device_id) {
                 p.downloads.remove(req);
@@ -1340,6 +1341,7 @@ fn start_send(inner: &Inner, device_id: &str, id: &str, download_request: Option
         entries: vec![],
         sources: HashMap::new(),
         phase: SendPhase::Hashing,
+        queue: VecDeque::new(),
         transfers: HashMap::new(),
         sent: 0,
         failures: vec![],
@@ -1506,54 +1508,16 @@ fn send_answer(inner: &Inner, device_id: &str, kind: &str, plain: &[u8]) {
             }
         }
         "folders.accept" => {
-            let files = with(inner, device_id, |p| {
+            let accepted = with(inner, device_id, |p| {
                 let s = p.sending.get_mut(&id).filter(|s| s.phase == SendPhase::Offered || s.phase == SendPhase::Waiting)?;
                 s.phase = SendPhase::Sending;
                 s.generation += 1;
-                Some(
-                    (0..s.entries.len())
-                        .filter(|i| !s.entries[*i].dir)
-                        .map(|i| (i, s.entries[i].clone(), s.sources.get(&i).map(|(p, m, b)| (p.clone(), m.clone(), crate::resume::Blocks(b.0.clone())))))
-                        .collect::<Vec<_>>(),
-                )
+                s.queue = (0..s.entries.len()).filter(|i| !s.entries[*i].dir).collect();
+                Some(())
             });
-            let Some(files) = files else { return };
-            if files.is_empty() {
-                return all_sent(inner, device_id, &id);
-            }
-            for (index, e, source) in files {
-                let Some((path, mime, blocks)) = source else { continue };
-                let transfer = inner.next_id();
-                {
-                    let mut st = inner.phone.files.lock().unwrap();
-                    st.owned.insert(transfer, (device_id.to_string(), id.clone()));
-                    if let Some(s) = st.phones.get_mut(device_id).and_then(|p| p.sending.get_mut(&id)) {
-                        s.transfers.insert(transfer, index);
-                    }
-                }
-                let file = OutgoingFile {
-                    transfer,
-                    path,
-                    name: folders::leaf(&e.path).to_string(),
-                    mime,
-                    size: e.size,
-                    sha256: e.sha256.clone(),
-                    blocks,
-                    folder: Some(FolderFile { folder_transfer_id: id.clone(), entry: index as u64, path: e.path.clone() }),
-                };
-                if !inner.send_hashed_file(device_id, file) {
-                    inner.phone.files.lock().unwrap().owned.remove(&transfer);
-                    with(inner, device_id, |p| {
-                        if let Some(s) = p.sending.get_mut(&id) {
-                            s.transfers.remove(&transfer);
-                            s.failures.push((index, "interrupted".into()));
-                        }
-                    });
-                }
-            }
-            report_send(inner, device_id, &id, true);
-            if with(inner, device_id, |p| p.sending.get(&id).is_some_and(|s| s.transfers.is_empty())) {
-                all_sent(inner, device_id, &id);
+            if accepted.is_some() {
+                report_send(inner, device_id, &id, true);
+                send_next(inner, device_id, &id);
             }
         }
         "folders.rejected" => {
@@ -1575,11 +1539,9 @@ fn send_answer(inner: &Inner, device_id: &str, kind: &str, plain: &[u8]) {
                 Some(t)
             });
             if let Some(t) = transfer {
-                inner.phone.files.lock().unwrap().owned.remove(&t);
+                // The phone drops the rest of this file: it stops here too (its end is still this folder's), and the next goes.
                 inner.cancel_transfer(t);
-                if with(inner, device_id, |p| p.sending.get(&id).is_some_and(|s| s.transfers.is_empty() && s.phase == SendPhase::Sending)) {
-                    all_sent(inner, device_id, &id);
-                }
+                send_next(inner, device_id, &id);
             }
         }
         "folders.result" => {
@@ -1589,6 +1551,54 @@ fn send_answer(inner: &Inner, device_id: &str, kind: &str, plain: &[u8]) {
             end_send(inner, device_id, &s, if complete { "done" } else { "incomplete" }, None, Some(result));
         }
         _ => {}
+    }
+}
+
+/// Hands the folder's next file to the session (one at a time: the session sends them in order anyway, and its queue
+/// stays short); when none is left and none is going, the folder is complete.
+fn send_next(inner: &Inner, device_id: &str, id: &str) {
+    loop {
+        let next = with(inner, device_id, |p| {
+            let s = p.sending.get_mut(id).filter(|s| s.phase == SendPhase::Sending)?;
+            if !s.transfers.is_empty() {
+                return Some(None);
+            }
+            let Some(index) = s.queue.pop_front() else { return Some(Some(None)) };
+            let e = s.entries[index].clone();
+            let source = s.sources.get(&index).map(|(p, m, b)| (p.clone(), m.clone(), crate::resume::Blocks(b.0.clone())));
+            Some(Some(Some((index, e, source))))
+        });
+        let Some(Some(next)) = next else { return };
+        let Some((index, e, source)) = next else { return all_sent(inner, device_id, id) };
+        let Some((path, mime, blocks)) = source else { continue };
+        let transfer = inner.next_id();
+        {
+            let mut st = inner.phone.files.lock().unwrap();
+            st.owned.insert(transfer, (device_id.to_string(), id.to_string()));
+            if let Some(s) = st.phones.get_mut(device_id).and_then(|p| p.sending.get_mut(id)) {
+                s.transfers.insert(transfer, index);
+            }
+        }
+        let file = OutgoingFile {
+            transfer,
+            path,
+            name: folders::leaf(&e.path).to_string(),
+            mime,
+            size: e.size,
+            sha256: e.sha256.clone(),
+            blocks,
+            folder: Some(FolderFile { folder_transfer_id: id.to_string(), entry: index as u64, path: e.path.clone() }),
+        };
+        if inner.send_hashed_file(device_id, file) {
+            return;
+        }
+        inner.phone.files.lock().unwrap().owned.remove(&transfer);
+        with(inner, device_id, |p| {
+            if let Some(s) = p.sending.get_mut(id) {
+                s.transfers.remove(&transfer);
+                s.failures.push((index, "interrupted".into()));
+            }
+        });
     }
 }
 
@@ -1623,9 +1633,7 @@ fn send_file_event(inner: &Inner, device_id: &str, folder: &str, transfer: u64, 
     match ended {
         Some(true) => {
             report_send(inner, device_id, folder, true);
-            if with(inner, device_id, |p| p.sending.get(folder).is_some_and(|s| s.transfers.is_empty() && s.phase == SendPhase::Sending)) {
-                all_sent(inner, device_id, folder);
-            }
+            send_next(inner, device_id, folder);
         }
         Some(false) => report_send(inner, device_id, folder, false),
         None => {}
@@ -1678,12 +1686,6 @@ fn send_json(s: &Send, state: &str, error: Option<&str>, result: Option<Value>) 
 }
 
 fn end_send(inner: &Inner, device_id: &str, s: &Send, state: &str, error: Option<&str>, result: Option<Value>) {
-    {
-        let mut st = inner.phone.files.lock().unwrap();
-        for t in s.transfers.keys() {
-            st.owned.remove(t);
-        }
-    }
     if s.download_request.is_none() {
         emit(inner, device_id, "upload", send_json(s, state, error, result));
     }
