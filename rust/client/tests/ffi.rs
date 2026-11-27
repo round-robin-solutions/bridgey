@@ -214,3 +214,77 @@ fn a_config_from_before_receive_dir_still_starts() {
     assert_eq!(unsafe { bridgey_client_new(&config, std::ptr::null(), &mut handle) }, BRIDGEY_OK);
     bridgey_client_free(handle);
 }
+
+fn phone(handle: u64, area: u32, device: &str, command: serde_json::Value) -> serde_json::Value {
+    let (device, command) = (CString::new(device).unwrap(), CString::new(command.to_string()).unwrap());
+    let answer = unsafe { bridgey_phone(handle, area, device.as_ptr(), command.as_ptr()) };
+    assert!(!answer.is_null());
+    let v = serde_json::from_str(unsafe { CStr::from_ptr(answer) }.to_str().unwrap()).unwrap();
+    unsafe { bridgey_string_free(answer) };
+    v
+}
+
+fn on(handle: u64, key: &str) {
+    let key = CString::new(key).unwrap();
+    assert_eq!(unsafe { bridgey_set_feature(handle, std::ptr::null(), key.as_ptr(), 1) }, BRIDGEY_OK);
+}
+
+/// The tests-only calls a host's own tests use where no phone or Mac can run (the iOS simulator): one client answers as
+/// a simulated phone and Mac, and sends what a phone sends; the other sees a Mac's screen (area 5) and a notification.
+#[test]
+fn a_simulated_phone_and_mac_through_the_c_abi() {
+    let (viewer, mac) = (start("iPad", None), start("Test Mac", None));
+    assert_eq!(bridgey_simulate_phone_for_tests(mac, 1), BRIDGEY_OK);
+    for h in [viewer, mac] {
+        on(h, "screen_control_draft1");
+        on(h, "notifications");
+    }
+    assert_eq!(bridgey_allow_pairing(mac, u32::MAX), BRIDGEY_OK);
+    let host = CString::new("127.0.0.1").unwrap();
+    let mut pairing = 0u64;
+    assert_eq!(unsafe { bridgey_pair(viewer, std::ptr::null(), host.as_ptr(), port_of(mac), &mut pairing) }, BRIDGEY_OK);
+    let mac_thread = std::thread::spawn(move || pump(mac, |e| e.kind == BridgeyEventKind::Features));
+    pump(viewer, |e| e.kind == BridgeyEventKind::Features && e.text.is_some());
+    mac_thread.join().unwrap();
+    let (viewer_id, mac_id) = (id_of(viewer), id_of(mac));
+
+    // A Mac's screen: request, the started event of kind 36, and a frame through the shared pull call.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let request = loop {
+        let answer = phone(viewer, BridgeyPhoneArea::Display as u32, &mac_id, serde_json::json!({"op": "request"}));
+        if answer["ok"] == serde_json::json!(true) {
+            break answer;
+        }
+        assert!(Instant::now() < deadline, "{answer}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    assert!(request["requestId"].is_string());
+    let started = pump(viewer, |e| e.kind == BridgeyEventKind::Display && e.id != 0);
+    let started = started.last().unwrap();
+    let detail: serde_json::Value = serde_json::from_str(started.text.as_deref().unwrap()).unwrap();
+    assert_eq!(detail["width"], serde_json::json!(96));
+    let mut buffer = vec![0u8; 64 * 1024];
+    let (mut len, mut micros, mut flags) = (0usize, 0i64, 0u32);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut rc = 0;
+    while rc != 1 && Instant::now() < deadline {
+        rc = unsafe { bridgey_screen_frame(viewer, started.id, 500, buffer.as_mut_ptr(), buffer.len(), &mut len, &mut micros, &mut flags) };
+    }
+    assert_eq!(rc, 1);
+    assert!(len > 4 && flags & 3 == 3, "a key frame with SPS and PPS first: {flags}");
+    assert_eq!(phone(viewer, BridgeyPhoneArea::Display as u32, &mac_id, serde_json::json!({"op": "touch", "contact": 0, "phase": "down", "x": 0.5, "y": 0.5}))["error"], serde_json::json!("unsupported"));
+    assert_eq!(phone(viewer, 6, &mac_id, serde_json::json!({"op": "status"}))["error"], serde_json::json!("invalid"), "no area 6");
+
+    // What a phone sends: a notification arrives as one.
+    let post = serde_json::json!({"packageName": "com.whatsapp", "applicationName": "WhatsApp", "notificationId": "w1", "title": "Ravi", "text": "On my way", "timestamp": 1});
+    let (to, kind, body) = (CString::new(viewer_id).unwrap(), CString::new("notifications.post").unwrap(), CString::new(post.to_string()).unwrap());
+    assert_eq!(unsafe { bridgey_send_as_phone_for_tests(mac, to.as_ptr(), kind.as_ptr(), body.as_ptr()) }, BRIDGEY_OK);
+    let got = pump(viewer, |e| e.kind == BridgeyEventKind::Notification);
+    assert!(got.last().unwrap().text.as_deref().unwrap().contains("On my way"));
+    let unknown = CString::new("sms.send").unwrap();
+    assert_eq!(unsafe { bridgey_send_as_phone_for_tests(mac, to.as_ptr(), unknown.as_ptr(), body.as_ptr()) }, BRIDGEY_ERR_INVALID_ARGUMENT);
+
+    bridgey_client_free(viewer);
+    bridgey_client_free(mac);
+    assert_eq!(bridgey_simulate_phone_for_tests(mac, 0), BRIDGEY_ERR_STOPPED);
+}

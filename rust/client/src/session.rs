@@ -1193,7 +1193,7 @@ impl Session {
         }
         // Screen stream messages stay out of the shared window (30 a second would push every other ID out); each stream
         // numbers its own (docs/protocol.md "Phone screen to Mac").
-        if crate::screen::is_stream(&m.kind) {
+        if crate::screen::is_stream(&m.kind) || crate::display::is_stream(&m.kind) {
             return Some(true);
         }
         if self.st.seen.contains(id) {
@@ -1481,9 +1481,9 @@ impl Session {
             // dropped and the session stays.
             kind if self.host.phone_kind(kind).is_some() => {
                 let spec = self.host.phone_kind(kind).unwrap();
-                // screen.frame carries no messageId: its header holds the stream's sequence.
+                // screen.frame and display.frame carry no messageId: the header holds the stream's sequence.
                 let message_id = m.message_id.clone();
-                if message_id.is_none() && kind != "screen.frame" {
+                if message_id.is_none() && kind != "screen.frame" && kind != "display.frame" {
                     return Step::Continue;
                 }
                 let mut plain = match self.open(&m) {
@@ -2345,7 +2345,7 @@ mod tests {
         let session = include_str!("session.rs");
         let client = include_str!("client.rs");
         // The phone's own features (phone.rs), each in its own module.
-        let areas = [include_str!("sms.rs"), include_str!("calls.rs"), include_str!("phone_files.rs"), include_str!("screen.rs")];
+        let areas = [include_str!("sms.rs"), include_str!("calls.rs"), include_str!("phone_files.rs"), include_str!("screen.rs"), include_str!("display.rs")];
         let mut code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
         for area in areas {
             code.push_str(area.split("#[cfg(test)]\nmod tests").next().unwrap());

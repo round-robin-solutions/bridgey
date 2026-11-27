@@ -10,6 +10,7 @@ pub mod calls;
 pub mod client;
 pub mod codes;
 pub mod crypto;
+pub mod display;
 #[cfg(feature = "mdns")]
 mod discovery;
 pub mod events;

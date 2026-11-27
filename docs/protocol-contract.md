@@ -1268,17 +1268,17 @@ Not in the messageId window: the contract seq is the replay guard, checked by th
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `display.request` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.status` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.start` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.started` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.frame` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
-| `display.ack` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.stats` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.geometry` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.control` | edition-draft | draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.input` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `display.stop` | edition-draft | draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `display.request` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.status` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.start` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.started` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.frame` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos, client |
+| `display.ack` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.stats` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.geometry` | edition-draft | draft | source-to-viewer | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.control` | edition-draft | draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.input` | edition-draft | draft | viewer-to-source | screen_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `display.stop` | edition-draft | draft | either | screen_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `display.request`
 

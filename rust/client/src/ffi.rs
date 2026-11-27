@@ -136,6 +136,8 @@ pub enum BridgeyEventKind {
     PhoneFiles = 34,
     /// The phone's screen (BRIDGEY_PHONE_AREA_SCREEN), as Sms.
     Screen = 35,
+    /// A Mac's screen (BRIDGEY_PHONE_AREA_DISPLAY), as Sms.
+    Display = 36,
 }
 
 /// Which of the phone's own features a `bridgey_phone` command is for.
@@ -150,6 +152,8 @@ pub enum BridgeyPhoneArea {
     PhoneFiles = 3,
     /// The phone's screen (`screen_draft1`, `phone_control_draft1`).
     Screen = 4,
+    /// A Mac's screen and control of it (`screen_control_draft1`): this device as the viewer and controller.
+    Display = 5,
 }
 
 /// Bytes owned by the library: UTF-8, NUL-terminated for convenience, `len` without the NUL. `ptr` is NULL when
@@ -378,6 +382,7 @@ fn to_c(event: Event) -> BridgeyEvent {
                 crate::phone::Area::Calls => K::Calls,
                 crate::phone::Area::PhoneFiles => K::PhoneFiles,
                 crate::phone::Area::Screen => K::Screen,
+                crate::phone::Area::Display => K::Display,
             };
             (kind, 0, id, Some(device_id), Some(what), Some(json), None)
         }
@@ -1035,6 +1040,7 @@ pub unsafe extern "C" fn bridgey_phone(handle: u64, area: u32, device_id: *const
             2 => crate::phone::Area::Calls,
             3 => crate::phone::Area::PhoneFiles,
             4 => crate::phone::Area::Screen,
+            5 => crate::phone::Area::Display,
             _ => return give(crate::phone::error("invalid").to_string()),
         };
         let (Ok(Some(id)), Ok(Some(command))) = (arg(device_id), arg(command)) else { return give(crate::phone::error("invalid").to_string()) };
@@ -1044,12 +1050,13 @@ pub unsafe extern "C" fn bridgey_phone(handle: u64, area: u32, device_id: *const
     .unwrap_or(std::ptr::null_mut())
 }
 
-/// Takes the next whole frame of a phone's screen (the id of a BRIDGEY_EVENT_KIND_SCREEN `started` event): one H.264
-/// access unit in Annex B, copied into `buffer`. Frames never go through bridgey_next_event. Waits up to `timeout_ms`.
-/// Returns 1 with `*out_len` bytes, `*out_capture_micros` (the phone's capture clock; only differences mean anything)
+/// Takes the next whole frame of a phone's or a Mac's screen (the id of a BRIDGEY_EVENT_KIND_SCREEN or
+/// BRIDGEY_EVENT_KIND_DISPLAY `started` event): one H.264 access unit in Annex B, copied into `buffer`. Frames never go
+/// through bridgey_next_event. Waits up to `timeout_ms`.
+/// Returns 1 with `*out_len` bytes, `*out_capture_micros` (the device's capture clock; only differences mean anything)
 /// and `*out_flags` (bit 0 a key frame, bit 1 it starts with SPS and PPS); 0 after the timeout;
 /// `BRIDGEY_ERR_TOO_LARGE` with `*out_len` the size needed (the frame stays next); `BRIDGEY_ERR_NOT_CONNECTED` once the
-/// stream has ended. Taking a frame tells the phone it arrived; a stream keeps at most 8 frames waiting.
+/// stream has ended. Taking a frame tells the device it arrived; a stream keeps at most 8 frames waiting.
 ///
 /// # Safety
 /// `buffer` is valid for `capacity` bytes; the out pointers are valid for writing.
@@ -1090,4 +1097,31 @@ pub unsafe extern "C" fn bridgey_buffer_set(buffer: *mut BridgeyBuffer, data: *c
     let bytes = if len == 0 { Vec::new() } else { std::slice::from_raw_parts(data, len).to_vec() };
     (*buffer).data = Some(bytes);
     BRIDGEY_OK
+}
+
+/// Tests only, never called by an app: this client answers other devices' requests for a phone's own features and for a
+/// Mac's screen as a simulated phone and Mac would (canned conversations, calls, files and a synthetic screen clip), so a
+/// host's tests can run real sessions where no phone or Mac can be started (the iOS simulator).
+#[no_mangle]
+pub extern "C" fn bridgey_simulate_phone_for_tests(handle: u64, on: u8) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        c.simulate_phone_for_tests(on != 0);
+        BRIDGEY_OK
+    })
+}
+
+/// Tests only, never called by an app: sends what a phone sends (`kind` notifications.post, notifications.remove,
+/// codes.status, quick.request, codes.advertise or codes.advertise_stop, with `json` its payload) to a connected device,
+/// as the scripted peer's notify, unnotify, codes-status, link and media commands do.
+///
+/// # Safety
+/// The strings are NUL-terminated and valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_send_as_phone_for_tests(handle: u64, device_id: *const c_char, kind: *const c_char, json: *const c_char) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        let (Ok(Some(id)), Ok(Some(kind)), Ok(Some(json))) = (arg(device_id), arg(kind), arg(json)) else { return BRIDGEY_ERR_INVALID_ARGUMENT };
+        c.send_as_phone_for_tests(id, kind, json).map(|_| BRIDGEY_OK).unwrap_or_else(code)
+    })
 }
