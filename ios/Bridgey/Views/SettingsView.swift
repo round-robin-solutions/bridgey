@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var alerts: AlertsModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.brand) private var c
     @State private var confirmReset = false
@@ -42,6 +43,14 @@ struct SettingsView: View {
                         .disabled(!settings.notifications)
                     Toggle("Also read codes in email", isOn: $settings.codesFromEmail)
                         .disabled(!settings.notifications || !settings.codesFromMessages)
+                    if settings.notifications, settings.codesFromMessages {
+                        // Android shows code messages only to a linked companion device.
+                        ForEach(model.devices.filter { $0.connected && alerts.needsLink($0.id) }) { device in
+                            Button("Link this \(UIDevice.current.localizedModel) on \(device.name)") { alerts.link(device.id) }
+                                .accessibilityHint("Android hides code messages from Bridgey until you allow it there.")
+                                .accessibilityIdentifier("settings.codesLink")
+                        }
+                    }
                     Toggle("Text messages", isOn: $settings.textMessages)
                         .accessibilityIdentifier("settings.textMessages")
                     Toggle("Keep conversations", isOn: $settings.keepConversations)
@@ -56,7 +65,15 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings.screens")
                     Toggle("Battery", isOn: $settings.battery)
                     Toggle("Find device", isOn: $settings.findDevice)
-                    Toggle("Connect away from home", isOn: $settings.connectAway)
+                    Toggle(isOn: $settings.connectAway) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Connect away from home")
+                            Text(settings.connectAway ? alerts.connectText : String(localized: "Off. Only devices on this Wi-Fi connect."))
+                                .font(.footnote)
+                                .foregroundStyle(c.on2)
+                                .accessibilityIdentifier("settings.connectStatus")
+                        }
+                    }
                 } footer: {
                     Text("Screens shows an Android phone or a Mac here, and controls it when that device allows.")
                 }
