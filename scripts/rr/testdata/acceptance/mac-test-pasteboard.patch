@@ -1,0 +1,241 @@
+diff --git a/macos/Sources/BridgeyMac/AutoClipboard.swift b/macos/Sources/BridgeyMac/AutoClipboard.swift
+index be722b36..5eab4e51 100644
+--- a/macos/Sources/BridgeyMac/AutoClipboard.swift
++++ b/macos/Sources/BridgeyMac/AutoClipboard.swift
+@@ -164,7 +164,7 @@ struct ClipboardChangeDebouncer {
+     var nextDeadline: Date? { pending?.due }
+ }
+ 
+-/// Polls `NSPasteboard.general.changeCount` about every 0.5 s while active; stopped otherwise.
++/// Polls `AppPasteboard.current.changeCount` about every 0.5 s while active; stopped otherwise.
+ @MainActor
+ final class AutoClipboardWatcher {
+     static let pollInterval: TimeInterval = 0.5
+@@ -182,7 +182,7 @@ final class AutoClipboardWatcher {
+     private var timer: Timer?
+     private var settleWork: DispatchWorkItem?
+ 
+-    init(pasteboard: NSPasteboard = .general) {
++    init(pasteboard: NSPasteboard = AppPasteboard.current) {
+         self.pasteboard = pasteboard
+     }
+ 
+diff --git a/macos/Sources/BridgeyMac/ClipboardInbox.swift b/macos/Sources/BridgeyMac/ClipboardInbox.swift
+index 234c4e5b..13e241d1 100644
+--- a/macos/Sources/BridgeyMac/ClipboardInbox.swift
++++ b/macos/Sources/BridgeyMac/ClipboardInbox.swift
+@@ -154,7 +154,7 @@ final class ClipboardInbox {
+ 
+     init(
+         cache: ClipboardCache,
+-        pasteboard: NSPasteboard = .general,
++        pasteboard: NSPasteboard = AppPasteboard.current,
+         clock: @escaping () -> Date = Date.init,
+         showProgressAfter: TimeInterval = 0.3,
+         blockedAfter: TimeInterval = 1
+diff --git a/macos/Sources/BridgeyMac/ClipboardOutbox.swift b/macos/Sources/BridgeyMac/ClipboardOutbox.swift
+index fe12a59d..0e53b68f 100644
+--- a/macos/Sources/BridgeyMac/ClipboardOutbox.swift
++++ b/macos/Sources/BridgeyMac/ClipboardOutbox.swift
+@@ -322,7 +322,7 @@ final class ClipboardOutbox {
+     var transport = ClipboardOutboxTransport()
+     /// Clipboard and Copy images and files are on for both devices.
+     var available: () -> Bool = { false }
+-    var pasteboardChangeCount: () -> Int = { NSPasteboard.general.changeCount }
++    var pasteboardChangeCount: () -> Int = { AppPasteboard.current.changeCount }
+     let cache: ClipboardCache
+     private var pushQueue: [(deviceID: String, index: Int)] = []
+     private var pushing: String?
+diff --git a/macos/Sources/BridgeyMac/CodeClipboard.swift b/macos/Sources/BridgeyMac/CodeClipboard.swift
+index 52e8efb4..367a5322 100644
+--- a/macos/Sources/BridgeyMac/CodeClipboard.swift
++++ b/macos/Sources/BridgeyMac/CodeClipboard.swift
+@@ -46,7 +46,7 @@ final class CodeClipboard {
+     /// The change count right after our last write, while it may still be ours to clear.
+     private(set) var pendingChangeCount: Int?
+ 
+-    init(pasteboard: CodePasteboard = NSPasteboard.general, schedule: @escaping Scheduler = { delay, work in
++    init(pasteboard: CodePasteboard = AppPasteboard.current, schedule: @escaping Scheduler = { delay, work in
+         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { work() } }
+     }) {
+         self.pasteboard = pasteboard
+diff --git a/macos/Sources/BridgeyMac/Edition.swift b/macos/Sources/BridgeyMac/Edition.swift
+index 08f90865..65e5a3a4 100644
+--- a/macos/Sources/BridgeyMac/Edition.swift
++++ b/macos/Sources/BridgeyMac/Edition.swift
+@@ -1,3 +1,4 @@
++import AppKit
+ import Foundation
+ 
+ /// Round Robin edition identifiers. Everything that would otherwise share state
+@@ -48,3 +49,13 @@ enum TestInstance {
+     /// lists it and it lists none of them; nil keeps `_bridgey._tcp.`.
+     static let serviceType: String? = enabled ? (Bundle.main.object(forInfoDictionaryKey: "BridgeyTestServiceType") as? String).flatMap { $0.hasPrefix("_") ? $0 : nil } : nil
+ }
++
++/// The pasteboard Bridgey's clipboard features read and write: the system clipboard, except in a debug test instance,
++/// which gets a private named pasteboard of its own. A test instance on a Mac that runs the real Bridgey would
++/// otherwise put test clips on the person's clipboard, and the real app's automatic clipboard would send them on to
++/// their devices (docs/acceptance-1.0.md).
++enum AppPasteboard {
++    static var current: NSPasteboard {
++        TestInstance.enabled ? NSPasteboard(name: NSPasteboard.Name("\(Edition.identifier).clipboard")) : .general
++    }
++}
+diff --git a/macos/Sources/BridgeyMac/Pairing.swift b/macos/Sources/BridgeyMac/Pairing.swift
+index 52e68dfd..9b8857a7 100644
+--- a/macos/Sources/BridgeyMac/Pairing.swift
++++ b/macos/Sources/BridgeyMac/Pairing.swift
+@@ -1410,8 +1410,8 @@ final class PairingCoordinator: ObservableObject {
+     }
+ 
+     func sendCallFromClipboard() {
+-        guard !ClipboardOwnWrite.isLazy(NSPasteboard.general.changeCount),
+-              let value = NSPasteboard.general.string(forType: .string) else {
++        guard !ClipboardOwnWrite.isLazy(AppPasteboard.current.changeCount),
++              let value = AppPasteboard.current.string(forType: .string) else {
+             setTransientCallStatus("Copy a phone number first")
+             return
+         }
+@@ -1575,7 +1575,7 @@ final class PairingCoordinator: ObservableObject {
+             clipboardStatus = "Clipboard is turned off on one of your devices"
+             return
+         }
+-        let pasteboard = NSPasteboard.general
++        let pasteboard = AppPasteboard.current
+         if ClipboardOwnWrite.matches(pasteboard.changeCount) {
+             // It came from the phone; reading it would fetch it back.
+             clipboardStatus = "This clip came from \(current.peerName)"
+@@ -1596,7 +1596,7 @@ final class PairingCoordinator: ObservableObject {
+                 break
+             }
+         }
+-        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
++        guard let text = AppPasteboard.current.string(forType: .string), !text.isEmpty else {
+             clipboardStatus = "Clipboard is empty or unavailable"
+             return
+         }
+@@ -1604,9 +1604,9 @@ final class PairingCoordinator: ObservableObject {
+             clipboardStatus = "Clipboard exceeds 32 KiB. Send large text or diagnostics as a file."
+             return
+         }
+-        let html = NSPasteboard.general.data(forType: .html)
++        let html = AppPasteboard.current.data(forType: .html)
+             .flatMap { String(data: $0, encoding: .utf8) }
+-        sendClipboardContent(text: text, html: html, concealed: pasteboardIsConcealed(NSPasteboard.general), automatic: false, to: [current])
++        sendClipboardContent(text: text, html: html, concealed: pasteboardIsConcealed(AppPasteboard.current), automatic: false, to: [current])
+     }
+ 
+     /// Automatic clipboard targets: every connected device, phones and Macs, with Clipboard and
+@@ -1774,7 +1774,7 @@ final class PairingCoordinator: ObservableObject {
+         }
+         let sources = Array(allSources.prefix(offer.items.count))
+         clipboardInbox.supersede()
+-        clipboardOutbox.begin(offer: offer, sources: sources, changeCount: NSPasteboard.general.changeCount, deviceID: first.remoteDeviceID)
++        clipboardOutbox.begin(offer: offer, sources: sources, changeCount: AppPasteboard.current.changeCount, deviceID: first.remoteDeviceID)
+         clearClipboardSendStatus()
+         let group = beginClipGroup(kind: .clipOfferSent, preview: nil, sensitive: sensitive, automatic: automatic, summary: ClipboardOfferSummary(offer))
+         var sent = 0
+@@ -3310,11 +3310,11 @@ final class PairingCoordinator: ObservableObject {
+                 clipboardInbox.supersede()
+                 // A paste waiting for the phone must not see the pasteboard change under it.
+                 clipboardInbox.performPasteboardWrite { [weak self] in
+-                    NSPasteboard.general.clearContents()
+-                    NSPasteboard.general.setString(text, forType: .string)
+-                    if let html { NSPasteboard.general.setData(Data(html.utf8), forType: .html) }
++                    AppPasteboard.current.clearContents()
++                    AppPasteboard.current.setString(text, forType: .string)
++                    if let html { AppPasteboard.current.setData(Data(html.utf8), forType: .html) }
+                     // Automatic clipboard must not send this clip back to the phone.
+-                    self?.autoClipboard.noteReceived(text: text, changeCount: NSPasteboard.general.changeCount)
++                    self?.autoClipboard.noteReceived(text: text, changeCount: AppPasteboard.current.changeCount)
+                 }
+                 if message.kind == "clipboard.share" {
+                     let content = UNMutableNotificationContent()
+@@ -7817,7 +7817,8 @@ extension PairingCoordinator: BrowserSupportHost {
+ /// session, refuses new ones and turns on relay only: the phone left home), `restore-lan` ("host:port": ends
+ /// relay only and tunnel sessions, listens again and dials the trusted phone there over the LAN; the phone came
+ /// home, so the next `drop-lan` can be timed again), `clipboard` (sends this Mac's
+-/// clipboard), `send-file` (a path), `codes` (`local` or `cloud`: turns Codes from messages on with that engine, as
++/// clipboard, which is the instance's own pasteboard: AppPasteboard), `clipboard-text` (puts that text on it and sends it),
++/// `send-file` (a path), `codes` (`local` or `cloud`: turns Codes from messages on with that engine, as
+ /// the switch in Settings > Notifications does; `off` turns it off), `read-code` (a message's text, read with the
+ /// engine Codes from messages uses for text messages, through the same guard; status.json gets the outcome and the
+ /// time, never the code), `cancel-files` (Cancel on every transfer, as Cancel all), and `autoconfirm` (kept: "Codes
+@@ -7845,6 +7846,14 @@ extension PairingCoordinator {
+         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+     }
+ 
++    /// The instance's own pasteboard (AppPasteboard) for status.json: its text, change count and the last clipboard status.
++    private func testClipboardStatus() -> [String: Any] {
++        let pasteboard = AppPasteboard.current
++        let text: Any = pasteboard.string(forType: .string) ?? NSNull()
++        let status: Any = clipboardStatus ?? NSNull()
++        return ["text": text, "changeCount": pasteboard.changeCount, "status": status]
++    }
++
+     private func testControlTick() {
+         if let target = takeTestCommand("pair") {
+             let parts = target.split(separator: ":")
+@@ -7913,6 +7922,12 @@ extension PairingCoordinator {
+         }
+         screenTestCommands { takeTestCommand($0) }
+         if takeTestCommand("clipboard") != nil { sendClipboard() }
++        if let text = takeTestCommand("clipboard-text"), !text.isEmpty {
++            // The instance's own pasteboard (AppPasteboard), then Send clipboard.
++            AppPasteboard.current.clearContents()
++            AppPasteboard.current.setString(text, forType: .string)
++            sendClipboard()
++        }
+         if let engine = takeTestCommand("codes") {
+             if let chosen = CodeEngine(rawValue: engine) {
+                 settings.setCodesEngine(chosen)
+@@ -7966,6 +7981,7 @@ extension PairingCoordinator {
+                                      "lastRead": testLastRead ?? NSNull(),
+                                      "reveals": ["count": testReveals, "items": testRevealedItems, "waiting": receivedReveals.isWaiting],
+                                      "transfersWindowShown": testTransfersWindowShown,
++                                     "clipboard": testClipboardStatus(),
+                                      "screen": macScreen.testStatus(injector: macScreenTestInjector),
+                                      "phoneScreen": phoneScreenTestStatus()]
+         if let data = try? JSONSerialization.data(withJSONObject: status) {
+diff --git a/macos/Sources/BridgeyMac/PhoneCamera.swift b/macos/Sources/BridgeyMac/PhoneCamera.swift
+index fa4fda65..b7167e86 100644
+--- a/macos/Sources/BridgeyMac/PhoneCamera.swift
++++ b/macos/Sources/BridgeyMac/PhoneCamera.swift
+@@ -54,7 +54,7 @@ final class PhoneCamera: ObservableObject {
+     var send: (_ deviceID: String, _ payload: [String: Any]) -> Bool = { _, _ in false }
+     var copyImage: (URL) -> Void = { url in
+         guard imageFileFitsPixelLimit(url), let image = NSImage(contentsOf: url) else { return }
+-        let pasteboard = NSPasteboard.general
++        let pasteboard = AppPasteboard.current
+         pasteboard.clearContents()
+         pasteboard.writeObjects([image, url as NSURL])
+     }
+diff --git a/macos/Sources/BridgeyMac/QuickActions.swift b/macos/Sources/BridgeyMac/QuickActions.swift
+index bc5f6e62..5f5a94b1 100644
+--- a/macos/Sources/BridgeyMac/QuickActions.swift
++++ b/macos/Sources/BridgeyMac/QuickActions.swift
+@@ -47,8 +47,8 @@ final class QuickActions: ObservableObject {
+     private var sequence = 0
+ 
+     func sendClipboardLink() {
+-        guard !ClipboardOwnWrite.isLazy(NSPasteboard.general.changeCount),
+-              let link = NSPasteboard.general.string(forType: .string).flatMap(validatedWebLink) else {
++        guard !ClipboardOwnWrite.isLazy(AppPasteboard.current.changeCount),
++              let link = AppPasteboard.current.string(forType: .string).flatMap(validatedWebLink) else {
+             status = "Copy a valid http or https link first"; return
+         }
+         sendLink(link)
+diff --git a/macos/Sources/BridgeyMac/StreamPanel.swift b/macos/Sources/BridgeyMac/StreamPanel.swift
+index 535248c7..765196cd 100644
+--- a/macos/Sources/BridgeyMac/StreamPanel.swift
++++ b/macos/Sources/BridgeyMac/StreamPanel.swift
+@@ -1629,7 +1629,7 @@ struct PasteboardPreview: Equatable {
+     var hidden = false
+ 
+     @MainActor static func current(previous: PasteboardPreview? = nil) -> PasteboardPreview {
+-        let pasteboard = NSPasteboard.general
++        let pasteboard = AppPasteboard.current
+         if let previous, previous.changeCount == pasteboard.changeCount { return previous }
+         // A clipboard offer from the phone: describe it; reading it would fetch it.
+         if ClipboardOwnWrite.matches(pasteboard.changeCount) {

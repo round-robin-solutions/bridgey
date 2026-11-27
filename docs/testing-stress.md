@@ -99,6 +99,10 @@ target/debug/examples/stress run --app "target/debug/examples/stress app-control
   --work /tmp/stress-peer --mid 64M --big 128M --small 30
 ```
 
+The same runners take `--driver soak` (hours of mixed traffic with process samples) and `--driver accept` (an older
+build upgraded in place mid-file); see [acceptance-1.0.md](acceptance-1.0.md). `STRESS_MAC_BID`, `STRESS_MAC_PORT` and
+`STRESS_MAC_SERVICE` give a Mac run an instance of its own, so two runs can share a Mac.
+
 ## The report
 
 `report.json` has one entry per scenario: `ok`, `seconds`, `failures` (each a sentence), `metrics` and, for scenarios

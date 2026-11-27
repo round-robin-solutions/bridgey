@@ -164,7 +164,7 @@ struct ClipboardChangeDebouncer {
     var nextDeadline: Date? { pending?.due }
 }
 
-/// Polls `NSPasteboard.general.changeCount` about every 0.5 s while active; stopped otherwise.
+/// Polls `AppPasteboard.current.changeCount` about every 0.5 s while active; stopped otherwise.
 @MainActor
 final class AutoClipboardWatcher {
     static let pollInterval: TimeInterval = 0.5
@@ -182,7 +182,7 @@ final class AutoClipboardWatcher {
     private var timer: Timer?
     private var settleWork: DispatchWorkItem?
 
-    init(pasteboard: NSPasteboard = .general) {
+    init(pasteboard: NSPasteboard = AppPasteboard.current) {
         self.pasteboard = pasteboard
     }
 

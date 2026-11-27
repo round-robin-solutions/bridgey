@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Round Robin edition identifiers. Everything that would otherwise share state
@@ -47,4 +48,14 @@ enum TestInstance {
     /// Its own Bonjour type (`BridgeyTestServiceType`, such as `_bridgeyst._tcp.`), so no real Bridgey on the network
     /// lists it and it lists none of them; nil keeps `_bridgey._tcp.`.
     static let serviceType: String? = enabled ? (Bundle.main.object(forInfoDictionaryKey: "BridgeyTestServiceType") as? String).flatMap { $0.hasPrefix("_") ? $0 : nil } : nil
+}
+
+/// The pasteboard Bridgey's clipboard features read and write: the system clipboard, except in a debug test instance,
+/// which gets a private named pasteboard of its own. A test instance on a Mac that runs the real Bridgey would
+/// otherwise put test clips on the person's clipboard, and the real app's automatic clipboard would send them on to
+/// their devices (docs/acceptance-1.0.md).
+enum AppPasteboard {
+    static var current: NSPasteboard {
+        TestInstance.enabled ? NSPasteboard(name: NSPasteboard.Name("\(Edition.identifier).clipboard")) : .general
+    }
 }

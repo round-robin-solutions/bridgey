@@ -31,7 +31,15 @@
 //!                                                 own check, no device needed), driven by
 //!   stress app-control <control port> <verb> ...  as `--app`
 //!
+//!   stress soak ...                     hours of mixed traffic with process samples (stress/soak.rs)
+//!   stress accept ...                   upgrade acceptance across an app upgrade (stress/accept.rs)
+//!
 //! The peer's identity and pairing live in `<work>/state`, so a second run reconnects without pairing again.
+
+#[path = "stress/accept.rs"]
+mod accept;
+#[path = "stress/soak.rs"]
+mod soak;
 
 use bridgey_core::{Client, Config, Event, FileStorage, Next};
 use serde_json::{json, Map, Value};
@@ -333,7 +341,14 @@ struct PeerState {
     last_disconnect: Option<(Instant, String)>,
     paired: Option<(bool, String, Option<String>)>,
     code: Option<String>,
+    /// Pairing prompts seen since the peer started: a reconnect after an upgrade must show none.
+    pairing_prompts: u64,
     transfers: HashMap<u64, Transfer>,
+    /// Clipboard texts the app sent here (the newest last, at most 500), and the result of each send from here.
+    clips_in: std::collections::VecDeque<(Instant, String)>,
+    clip_results: HashMap<u64, String>,
+    errors: u64,
+    dropped: u64,
 }
 
 struct Shared {
@@ -375,6 +390,7 @@ impl Shared {
             Event::PairingCode { pairing, code, name, .. } => {
                 self.note(json!({"event": "code", "code": code, "name": name}));
                 st.code = Some(code);
+                st.pairing_prompts += 1;
                 let _ = client.confirm_pairing(pairing, true);
             }
             Event::PairingFinished { ok, reason, device_id, .. } => {
@@ -450,8 +466,26 @@ impl Shared {
                     t.name = name;
                 }
             }
-            Event::Error { text } => self.note(json!({"event": "error", "text": text})),
-            Event::Dropped { count } => self.note(json!({"event": "dropped", "count": count})),
+            Event::Clipboard { text, .. } => {
+                self.note(json!({"event": "clipboard", "chars": text.chars().count()}));
+                st.clips_in.push_back((now, text));
+                while st.clips_in.len() > 500 {
+                    st.clips_in.pop_front();
+                }
+            }
+            Event::ClipboardSent { request, status, .. } => {
+                let status = format!("{status:?}").to_ascii_lowercase();
+                self.note(json!({"event": "clipboard_sent", "request": request, "status": status}));
+                st.clip_results.insert(request, status);
+            }
+            Event::Error { text } => {
+                self.note(json!({"event": "error", "text": text}));
+                st.errors += 1;
+            }
+            Event::Dropped { count } => {
+                self.note(json!({"event": "dropped", "count": count}));
+                st.dropped += count;
+            }
             _ => {}
         }
         drop(st);
@@ -464,6 +498,8 @@ struct PeerConfig {
     platform: String,
     state: PathBuf,
     received: PathBuf,
+    /// Clipboard on (soak and acceptance runs); the stress scenarios keep it off.
+    clipboard: bool,
 }
 
 fn start_peer(cfg: &PeerConfig, sh: &Arc<Shared>) -> Result<Arc<Client>, String> {
@@ -471,9 +507,10 @@ fn start_peer(cfg: &PeerConfig, sh: &Arc<Shared>) -> Result<Arc<Client>, String>
     config.listen = false;
     config.discovery = false;
     config.receive_dir = Some(cfg.received.clone());
-    // Files only: no clipboard (nothing of the Mac's clipboard comes here) and no ping (it plays a sound there).
+    // Files, and the clipboard only when asked for (nothing of a real clipboard is involved: the apps under test send
+    // the texts they are told to). No ping: it plays a sound on the app's device.
     config.defaults.set("files", true);
-    config.defaults.set("clipboard", false);
+    config.defaults.set("clipboard", cfg.clipboard);
     config.defaults.set("ping", false);
     let storage = Arc::new(FileStorage::new(&cfg.state)?);
     let client = Arc::new(Client::start(config, storage).map_err(|e| format!("peer start: {e}"))?);
@@ -1459,93 +1496,86 @@ fn main() {
         Some("sha") if args.len() == 3 => println!("{}", generate(parse_size(&args[1]), args[2].parse().expect("seed"), |_| Ok(())).expect("generate")),
         Some("list") => println!("{}", ALL.join("\n")),
         Some("run") => std::process::exit(run(&args[1..])),
+        Some("soak") => std::process::exit(soak::main(&args[1..])),
+        Some("accept") => std::process::exit(accept::main(&args[1..])),
         Some("serve") if args.len() == 4 => serve(args[1].parse().expect("port"), args[2].parse().expect("control port"), Path::new(&args[3])),
         Some("app-control") if args.len() >= 3 => app_control(args[1].parse().expect("control port"), &args[2..]),
         _ => {
             eprintln!("usage: stress run --app \"<program> [args]\" --target HOST:PORT --work DIR [options] | gen PATH SIZE SEED | sha SIZE SEED | list");
+            eprintln!("       stress soak --app ... --target ... --work ... --minutes N [options] | accept --app ... --target ... --work ... [options]");
             eprintln!("       stress serve PORT CONTROL_PORT DIR | app-control CONTROL_PORT VERB [ARGS]");
             std::process::exit(2);
         }
     }
 }
 
-fn run(args: &[String]) -> i32 {
-    let mut app = None;
-    let mut target = None;
-    let mut work = None;
-    let mut report = None;
-    let mut platform = "android".to_string();
-    let mut name = "Bridgey stress peer".to_string();
-    let mut scenarios = "all".to_string();
-    let mut opts = Opts { target: "127.0.0.1:0".parse().unwrap(), proxy_port: 42_491, big: vec![1024 * MIB, 4096 * MIB], mid: 1024 * MIB, small: 200, rounds: 2, loops: 20, seed: now_unix() };
+/// The options every driver command shares (`run`, `soak`, `accept`); each flag takes one value.
+const COMMON_FLAGS: &[&str] = &["--app", "--target", "--work", "--report", "--peer-platform", "--name", "--big", "--mid", "--small", "--rounds", "--loops", "--seed", "--proxy-port"];
+
+fn parse_flags(args: &[String], extra: &[&str]) -> Result<HashMap<String, String>, String> {
+    let mut out = HashMap::new();
     let mut it = args.iter();
     while let Some(arg) = it.next() {
-        let mut value = || it.next().cloned().unwrap_or_else(|| panic!("{arg} needs a value"));
-        match arg.as_str() {
-            "--app" => app = Some(value()),
-            "--target" => target = Some(value()),
-            "--work" => work = Some(PathBuf::from(value())),
-            "--report" => report = Some(PathBuf::from(value())),
-            "--peer-platform" => platform = value(),
-            "--name" => name = value(),
-            "--scenarios" => scenarios = value(),
-            "--big" => opts.big = value().split(',').filter(|s| !s.is_empty()).map(parse_size).collect(),
-            "--mid" => opts.mid = parse_size(&value()),
-            "--small" => opts.small = value().parse().expect("--small"),
-            "--rounds" => opts.rounds = value().parse().expect("--rounds"),
-            "--loops" => opts.loops = value().parse().expect("--loops"),
-            "--seed" => opts.seed = value().parse().expect("--seed"),
-            "--proxy-port" => opts.proxy_port = value().parse().expect("--proxy-port"),
-            other => panic!("unknown argument {other}"),
+        if !COMMON_FLAGS.contains(&arg.as_str()) && !extra.contains(&arg.as_str()) {
+            return Err(format!("unknown argument {arg}"));
         }
+        let value = it.next().ok_or_else(|| format!("{arg} needs a value"))?;
+        out.insert(arg.clone(), value.clone());
     }
-    let (Some(app), Some(target), Some(work)) = (app, target, work) else {
-        eprintln!("run needs --app, --target and --work");
-        return 2;
+    Ok(out)
+}
+
+/// The peer, its proxy and the app's control program, from the shared options. `clipboard` turns the peer's clipboard on.
+fn start_run(flags: &HashMap<String, String>, clipboard: bool) -> Result<Run, String> {
+    let get = |k: &str| flags.get(k).cloned();
+    let mut opts = Opts { target: "127.0.0.1:0".parse().unwrap(), proxy_port: 42_491, big: vec![1024 * MIB, 4096 * MIB], mid: 1024 * MIB, small: 200, rounds: 2, loops: 20, seed: now_unix() };
+    if let Some(v) = get("--big") {
+        opts.big = v.split(',').filter(|s| !s.is_empty()).map(parse_size).collect();
+    }
+    if let Some(v) = get("--mid") {
+        opts.mid = parse_size(&v);
+    }
+    let number = |k: &str| -> Result<Option<u64>, String> { get(k).map(|v| v.parse::<u64>().map_err(|_| format!("{k} must be a number"))).transpose() };
+    if let Some(v) = number("--small")? {
+        opts.small = v as usize;
+    }
+    if let Some(v) = number("--rounds")? {
+        opts.rounds = v as usize;
+    }
+    if let Some(v) = number("--loops")? {
+        opts.loops = v as usize;
+    }
+    if let Some(v) = number("--seed")? {
+        opts.seed = v;
+    }
+    if let Some(v) = number("--proxy-port")? {
+        opts.proxy_port = u16::try_from(v).map_err(|_| "--proxy-port is a port".to_string())?;
+    }
+    let (Some(app), Some(target), Some(work)) = (get("--app"), get("--target"), get("--work").map(PathBuf::from)) else {
+        return Err("needs --app, --target and --work".into());
     };
-    opts.target = target.parse().expect("--target must be HOST:PORT with an IP address");
+    opts.target = target.parse().map_err(|_| "--target must be HOST:PORT with an IP address".to_string())?;
     let mut parts = app.split_whitespace().map(str::to_string);
-    let app = App { program: parts.next().expect("--app"), args: parts.collect() };
-    let names: Vec<String> = match scenarios.as_str() {
-        "all" => ALL.iter().map(|s| s.to_string()).collect(),
-        "quick" => QUICK.iter().map(|s| s.to_string()).collect(),
-        list => {
-            let mut v: Vec<String> = list.split(',').map(str::to_string).collect();
-            if v.first().map(String::as_str) != Some("pair") {
-                v.insert(0, "pair".into());
-            }
-            v
-        }
-    };
-    for n in &names {
-        assert!(ALL.contains(&n.as_str()), "unknown scenario {n} (stress list)");
-    }
+    let app = App { program: parts.next().ok_or("--app is empty")?, args: parts.collect() };
     let src = work.join("src");
     let received = work.join("received");
     let state = work.join("state");
     for d in [&src, &received, &state] {
-        std::fs::create_dir_all(d).expect("work folders");
+        std::fs::create_dir_all(d).map_err(|e| format!("work folders: {e}"))?;
     }
-    let report = report.unwrap_or_else(|| work.join("report.json"));
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(work.join("events.jsonl")).expect("events log");
+    let log = std::fs::OpenOptions::new().create(true).append(true).open(work.join("events.jsonl")).map_err(|e| format!("events log: {e}"))?;
     let sh = Arc::new(Shared { st: Mutex::new(PeerState::default()), cv: Condvar::new(), log: Mutex::new(log), t0: Instant::now() });
-    let cfg = PeerConfig { name, platform, state, received };
-    let proxy = match Proxy::start(opts.proxy_port, opts.target) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("proxy on port {}: {e}", opts.proxy_port);
-            return 1;
-        }
+    let cfg = PeerConfig {
+        name: get("--name").unwrap_or_else(|| "Bridgey stress peer".into()),
+        platform: get("--peer-platform").unwrap_or_else(|| "android".into()),
+        state,
+        received,
+        clipboard,
     };
-    let client = match start_peer(&cfg, &sh) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("{e}");
-            return 1;
-        }
-    };
+    let proxy = Proxy::start(opts.proxy_port, opts.target).map_err(|e| format!("proxy on port {}: {e}", opts.proxy_port))?;
+    let client = start_peer(&cfg, &sh)?;
     let seed = opts.seed;
-    let mut run = Run {
+    let run = Run {
         rng: Rng(Gen(seed)),
         opts,
         app,
@@ -1561,6 +1591,42 @@ fn run(args: &[String]) -> i32 {
         expected: HashMap::new(),
         sources: HashMap::new(),
     };
+    Ok(run)
+}
+
+fn run(args: &[String]) -> i32 {
+    let flags = match parse_flags(args, &["--scenarios"]) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("run: {e}");
+            return 2;
+        }
+    };
+    let scenarios = flags.get("--scenarios").cloned().unwrap_or_else(|| "all".into());
+    let names: Vec<String> = match scenarios.as_str() {
+        "all" => ALL.iter().map(|s| s.to_string()).collect(),
+        "quick" => QUICK.iter().map(|s| s.to_string()).collect(),
+        list => {
+            let mut v: Vec<String> = list.split(',').map(str::to_string).collect();
+            if v.first().map(String::as_str) != Some("pair") {
+                v.insert(0, "pair".into());
+            }
+            v
+        }
+    };
+    for n in &names {
+        assert!(ALL.contains(&n.as_str()), "unknown scenario {n} (stress list)");
+    }
+    let mut run = match start_run(&flags, false) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{e}");
+            return if e.starts_with("needs") { 2 } else { 1 };
+        }
+    };
+    let report = flags.get("--report").map(PathBuf::from).unwrap_or_else(|| run.cfg.state.parent().unwrap_or(Path::new(".")).join("report.json"));
+    let sh = run.sh.clone();
+    let seed = run.opts.seed;
     sh.note(json!({"event": "start", "seed": seed, "scenarios": names}));
     let started = now_unix();
     let mut results = Vec::new();
@@ -1625,6 +1691,9 @@ struct Standin {
     running: Mutex<HashMap<u64, Option<(PathBuf, String)>>>,
     retry: Mutex<Vec<(PathBuf, String)>>,
     device: Mutex<Option<String>>,
+    /// The newest clipboard text it received, and its "version" (raised by `upgrade`).
+    clip: Mutex<Option<String>>,
+    version: AtomicU64,
 }
 
 impl Standin {
@@ -1634,6 +1703,7 @@ impl Standin {
         config.discovery = false;
         config.receive_dir = Some(self.dir.join("received"));
         config.defaults.set("files", true);
+        config.defaults.set("clipboard", true);
         let storage = Arc::new(FileStorage::new(self.dir.join("state")).expect("state"));
         let client = Arc::new(Client::start(config, storage).expect("stand-in starts"));
         let (c, me) = (client.clone(), self.clone());
@@ -1660,6 +1730,7 @@ impl Standin {
                 let _ = c.confirm_pairing(pairing, true);
             }
             Event::Connected { device_id, .. } => *self.device.lock().unwrap() = Some(device_id),
+            Event::Clipboard { text, .. } => *self.clip.lock().unwrap() = Some(text),
             Event::Features { device_id, remote, .. } if remote.get("files") => {
                 let again: Vec<(PathBuf, String)> = std::mem::take(&mut *self.retry.lock().unwrap());
                 for (path, name) in again {
@@ -1736,6 +1807,38 @@ impl Standin {
                 ok
             }
             "status" => json!({"ok": true, "active": self.running.lock().unwrap().len(), "free": -1}),
+            // The soak and acceptance verbs (stress/soak.rs, stress/accept.rs), so the harness checks itself here too.
+            "clipboard-on" | "grants" => ok,
+            "clip-send" => {
+                let Some(device) = self.device.lock().unwrap().clone() else { return json!({"ok": false, "error": "not connected"}) };
+                match self.client().send_clipboard(&device, &rest.join(" ")) {
+                    Ok(_) => ok,
+                    Err(e) => json!({"ok": false, "error": e.to_string()}),
+                }
+            }
+            "clip-status" => json!({"ok": true, "text": self.clip.lock().unwrap().clone()}),
+            "proc" => {
+                let mut v = soak::self_metrics();
+                v["ok"] = json!(true);
+                v["pid"] = json!(std::process::id());
+                v
+            }
+            "settings" | "upgrade" => {
+                // A restart, as the apps restart to read settings or for an update; `upgrade` raises the version.
+                let from = self.version.load(Ordering::SeqCst);
+                let to = if verb == "upgrade" { self.version.fetch_add(1, Ordering::SeqCst) + 1 } else { from };
+                self.client().stop();
+                std::thread::sleep(Duration::from_millis(300));
+                self.start_client();
+                json!({"ok": true, "from": format!("standin-{from}"), "to": format!("standin-{to}")})
+            }
+            "snapshot" => {
+                let doc = json!({"ok": true, "versionName": format!("standin-{}", self.version.load(Ordering::SeqCst)), "versionCode": self.version.load(Ordering::SeqCst)});
+                match rest.first().map(|path| std::fs::write(path, doc.to_string())) {
+                    Some(Ok(())) => ok,
+                    _ => json!({"ok": false, "error": "snapshot needs a path it can write"}),
+                }
+            }
             "partials" => {
                 let parts: Vec<Value> = std::fs::read_dir(&received)
                     .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.starts_with(".bridgey-")).map(|n| json!({"name": n})).collect())
@@ -1781,6 +1884,8 @@ fn serve(port: u16, control_port: u16, dir: &Path) {
         running: Mutex::new(HashMap::new()),
         retry: Mutex::new(Vec::new()),
         device: Mutex::new(None),
+        clip: Mutex::new(None),
+        version: AtomicU64::new(1),
     });
     me.start_client();
     let listener = TcpListener::bind(("127.0.0.1", control_port)).expect("control port");

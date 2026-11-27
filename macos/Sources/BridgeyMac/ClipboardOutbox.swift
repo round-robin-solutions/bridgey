@@ -322,7 +322,7 @@ final class ClipboardOutbox {
     var transport = ClipboardOutboxTransport()
     /// Clipboard and Copy images and files are on for both devices.
     var available: () -> Bool = { false }
-    var pasteboardChangeCount: () -> Int = { NSPasteboard.general.changeCount }
+    var pasteboardChangeCount: () -> Int = { AppPasteboard.current.changeCount }
     let cache: ClipboardCache
     private var pushQueue: [(deviceID: String, index: Int)] = []
     private var pushing: String?

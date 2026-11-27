@@ -154,7 +154,7 @@ final class ClipboardInbox {
 
     init(
         cache: ClipboardCache,
-        pasteboard: NSPasteboard = .general,
+        pasteboard: NSPasteboard = AppPasteboard.current,
         clock: @escaping () -> Date = Date.init,
         showProgressAfter: TimeInterval = 0.3,
         blockedAfter: TimeInterval = 1

@@ -7,8 +7,14 @@
 # an emulator), or `adb` (`adb forward`, the default on a real device). The JSON report, the peer's event log and the app's log land in the output folder.
 #
 # Usage, on a host with adb, a running emulator and Rust:
-#   scripts/rr/stress-android.sh [--apk <stress apk>] [--serial <adb serial>] [--out <dir>] [--keep] [stress run options ...]
+#   scripts/rr/stress-android.sh [--apk <stress apk>] [--serial <adb serial>] [--out <dir>] [--keep] [--peer <driver>]
+#                                [--driver run|soak|accept] [--new-apk <stress apk>] [driver options ...]
 #   e.g. scripts/rr/stress-android.sh --apk app-stress.apk --scenarios quick --mid 256M --big 1G
+#        scripts/rr/stress-android.sh --driver soak --apk app-stress.apk --minutes 360 --max-file 64M
+#        scripts/rr/stress-android.sh --driver accept --apk old-stress.apk --new-apk app-stress.apk
+# --driver picks the driver command (docs/acceptance-1.0.md): `run` the stress scenarios (the default), `soak` hours of
+# mixed traffic with process samples, `accept` the upgrade acceptance (a fresh install of --apk, upgraded in place to
+# --new-apk mid-file). Soak and accept runs end with scripts/rr/acceptance.py judging the samples or snapshots.
 # Without --apk it builds one (./gradlew :app:assembleStress). It never boots, wipes or reconfigures the emulator:
 # whoever runs it brings one up (and holds its lock). adb is used to install and remove the stress build, forward
 # its port, start it, stop it, send its control broadcasts and read its log. Other Bridgey builds on the device hold
@@ -68,6 +74,8 @@ else:
         sleep 1; i=$((i + 1))
         [ $i -lt 60 ] || { echo '{"ok":false,"error":"the app did not start in 60 s"}'; exit 0; }
       done
+      # The acceptance commands hear received clipboard texts from their first use in a process: from the start.
+      broadcast clipboard-status >/dev/null
       echo '{"ok":true}' ;;
     status|partials) broadcast status | normalize "$verb" ;;
     received)
@@ -81,6 +89,67 @@ else:
       done
       printf '%s' "$answer" | normalize received "$@" ;;
     clean) broadcast clean ;;
+    # Upgrade acceptance and soak (docs/acceptance-1.0.md).
+    clipboard-on) broadcast clipboard-on ;;
+    clip-send)
+      case $1 in *"'"*) echo '{"ok":false,"error":"no quotes in clipboard texts"}'; exit 0 ;; esac
+      broadcast clipboard-send --es text "'$1'" ;;
+    clip-status) broadcast clipboard-status ;;
+    proc)
+      # The app's own figures (memory, threads, open files, heaps, CPU time), then what the system holds for it: wake
+      # locks now, and the alarms that woke the device for it since boot.
+      inside=$(broadcast proc $( [ "${1:-}" = gc ] && echo --ez gc true ))
+      uid=$(adb shell dumpsys package "$STRESS_APP_ID" | tr -d '\r' | sed -n 's/^ *userId=\([0-9]*\).*/\1/p' | head -n 1)
+      wakelocks=$(adb shell dumpsys power | tr -d '\r' | grep -c "uid=${uid:-none}[ )]" || true)
+      alarms=$(adb shell dumpsys alarm | tr -d '\r' | grep -F "$STRESS_APP_ID" | sed -n 's/.* \([0-9][0-9]*\) wakeups.*/\1/p' | head -n 1)
+      printf '%s' "$inside" | python3 -I -c '
+import json, sys
+s = json.loads(sys.stdin.read())
+if s.get("ok"):
+    s["wakelocks"] = int(sys.argv[1] or 0)
+    s["alarm_wakeups"] = int(sys.argv[2]) if sys.argv[2] else None
+    s["rss_kb"] = s.get("rssKb")
+print(json.dumps(s))
+' "$wakelocks" "${alarms:-}" ;;
+    grants)
+      # Per-Mac grants as Settings sets them: Share screen with Macs on, control Allow without asking, and Unattended
+      # access off (the default is on).
+      broadcast screen-on >/dev/null
+      broadcast control-grant --es mode always | grep -q '"ok":true' || { echo '{"ok":false,"error":"control-grant"}'; exit 0; }
+      broadcast control-unattended --es state off ;;
+    settings)
+      # Settings away from their defaults, written as the app stores them, then a restart so the app reads them.
+      for spec in "bridgey.settings device_name string Acceptance phone" "bridgey.settings connection.keep_wifi_awake boolean true" \
+        "bridgey.settings files.folder_include_hidden boolean true" "bridgey.settings clipboard.files.eager_limit long 7340032" \
+        "bridgey.ui reduce_motion boolean true" "bridgey.ui show_activity_previews boolean false" "bridgey.updates channel string nightly"; do
+        set -- $spec
+        file=$1 key=$2 type=$3
+        shift 3
+        broadcast pref-set --es file "$file" --es key "$key" --es type "$type" --es value "'$*'" | grep -q '"written":true' ||
+          { echo "{\"ok\":false,\"error\":\"pref-set $key\"}"; exit 0; }
+      done
+      adb shell am force-stop "$STRESS_APP_ID"
+      sh "$0" control start ;;
+    snapshot)
+      broadcast snapshot | python3 -I -c '
+import json, sys
+s = json.loads(sys.stdin.read())
+if not s.get("ok"):
+    print(json.dumps(s)); sys.exit(0)
+with open(sys.argv[1], "w") as f:
+    json.dump(s, f, indent=1, sort_keys=True)
+print(json.dumps({"ok": True, "versionCode": s.get("versionCode")}))
+' "$1" ;;
+    upgrade)
+      # As an update does: the newer build installed over the running one (the installer ends the old process), then
+      # opened again.
+      : "${STRESS_NEW_APK:?}"
+      version() { adb shell dumpsys package "$STRESS_APP_ID" | tr -d '\r' | sed -n 's/^ *versionName=//p' | head -n 1; }
+      from=$(version)
+      adb install -r "$STRESS_NEW_APK" >/dev/null 2>&1 || { echo '{"ok":false,"error":"adb install -r failed"}'; exit 0; }
+      to=$(version)
+      sh "$0" control start | grep -q '"ok":true' || { echo '{"ok":false,"error":"the new build did not start"}'; exit 0; }
+      printf '{"ok":true,"from":"%s","to":"%s"}\n' "$from" "$to" ;;
     *) echo '{"ok":false,"error":"unknown verb"}' ;;
   esac
   exit 0
@@ -94,15 +163,25 @@ WORK=${STRESS_WORK:-${RUNNER_TEMP:-/tmp}/bridgey-stress-android}
 OUT=""
 FORWARD=${STRESS_FORWARD_PORT:-42496}
 FORWARD_MODE=${STRESS_FORWARD:-auto}
+DRIVER=run
+NEW_APK=""
+PEER=""
 while [ $# -gt 0 ]; do
   case $1 in
     --apk) APK=$2; shift 2 ;;
     --serial) SERIAL=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --keep) KEEP=1; shift ;;
+    --driver) DRIVER=$2; shift 2 ;;
+    --new-apk) NEW_APK=$2; shift 2 ;;
+    --peer) PEER=$2; shift 2 ;;
     *) break ;;
   esac
 done
+case $DRIVER in run|soak|accept) ;; *) die "--driver is run, soak or accept" ;; esac
+if [ "$DRIVER" = accept ]; then
+  [ -n "$APK" ] && [ -f "$NEW_APK" ] || die "--driver accept needs --apk <older stress APK> and --new-apk <newer stress APK>"
+fi
 OUT=${OUT:-$WORK/out}
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}
 ADB=$(command -v adb || echo "$SDK/platform-tools/adb")
@@ -148,7 +227,10 @@ if [ -z "$APK" ]; then
   APK="$RR_ROOT/android/app/build/outputs/apk/stress/app-stress.apk"
 fi
 [ -f "$APK" ] || die "no APK at $APK"
-if [ ! -x "$WORK/peer/stress" ]; then
+if [ -n "$PEER" ]; then
+  mkdir -p "$WORK/peer"
+  cp "$PEER" "$WORK/peer/stress"
+elif [ ! -x "$WORK/peer/stress" ]; then
   echo "== building the scripted peer"
   . "$RR_ROOT/scripts/rr/rust-env.sh"
   cargo build --release --locked -p bridgey-client --example stress --manifest-path "$RR_ROOT/rust/Cargo.toml"
@@ -157,6 +239,11 @@ if [ ! -x "$WORK/peer/stress" ]; then
 fi
 
 echo "== installing $APP_ID on $SERIAL"
+# Soak and acceptance runs start from a fresh install with a fresh peer: an acceptance run must see the older build pair.
+if [ "$DRIVER" != run ]; then
+  "$ADB" uninstall "$APP_ID" </dev/null >/dev/null 2>&1 || true
+  rm -rf "$WORK/state"
+fi
 "$ADB" install -r -g "$APK" </dev/null >/dev/null
 # Any other Bridgey build listens on the same port inside the device: stopped for the run, its data untouched.
 for other in $("$ADB" shell pm list packages "$REAL_ID" </dev/null | tr -d '\r' | sed -n 's/^package://p'); do
@@ -172,15 +259,16 @@ else
 fi
 echo "== port $FORWARD reaches the app through $FORWARD_MODE"
 "$ADB" logcat -c </dev/null || true
-export STRESS_APP_ID="$APP_ID" STRESS_ADB="$ADB"
+export STRESS_APP_ID="$APP_ID" STRESS_ADB="$ADB" STRESS_NEW_APK="$NEW_APK"
 sh "$SELF" control start | grep -q '"ok":true' || die "the stress build did not start"
 PID=$("$ADB" shell pidof "$APP_ID" </dev/null | tr -d '\r')
 nohup "$ADB" logcat -v threadtime -s Bridgey:V AndroidRuntime:E ActivityManager:I > "$OUT/app.log" 2>&1 </dev/null &
 LOGCAT_PID=$!
-echo "== running the scenarios (app pid $PID)"
-rm -f "$WORK/events.jsonl"
+echo "== running the $DRIVER driver (app pid $PID)"
+rm -f "$WORK/events.jsonl" "$WORK"/before.json "$WORK"/after*.json
+case $DRIVER in run) REPORT=report.json ;; soak) REPORT=soak.json ;; accept) REPORT=accept.json ;; esac
 set +e
-"$WORK/peer/stress" run --app "sh $SELF control" --target "127.0.0.1:$FORWARD" --work "$WORK" --report "$OUT/report.json" \
+nice -n 5 "$WORK/peer/stress" "$DRIVER" --app "sh $SELF control" --target "127.0.0.1:$FORWARD" --work "$WORK" --report "$OUT/$REPORT" \
   --peer-platform macos "$@" &
 PEER_PID=$!
 wait "$PEER_PID"
@@ -190,5 +278,17 @@ set -e
 cp "$WORK/events.jsonl" "$OUT/events.jsonl" 2>/dev/null || true
 "$ADB" logcat -b crash -d </dev/null > "$OUT/crash.log" 2>/dev/null || true
 [ -s "$OUT/crash.log" ] && echo "the crash buffer is not empty: $OUT/crash.log"
-echo "report: $OUT/report.json"
+JUDGE=0
+case $DRIVER in
+  soak)
+    cp "$WORK/samples.jsonl" "$OUT/samples.jsonl" 2>/dev/null || true
+    python3 -I "$RR_ROOT/scripts/rr/acceptance.py" soak --platform android --report "$OUT/soak.json" --samples "$OUT/samples.jsonl" --out "$OUT" --crash-log "$OUT/crash.log" || JUDGE=$?
+    ;;
+  accept)
+    for f in before.json after.json after-traffic.json; do cp "$WORK/$f" "$OUT/$f" 2>/dev/null || true; done
+    python3 -I "$RR_ROOT/scripts/rr/acceptance.py" compare --platform android --dir "$OUT" || JUDGE=$?
+    ;;
+esac
+[ $STATUS = 0 ] && [ $JUDGE != 0 ] && STATUS=$JUDGE
+echo "report: $OUT/$REPORT"
 exit $STATUS

@@ -1629,7 +1629,7 @@ struct PasteboardPreview: Equatable {
     var hidden = false
 
     @MainActor static func current(previous: PasteboardPreview? = nil) -> PasteboardPreview {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = AppPasteboard.current
         if let previous, previous.changeCount == pasteboard.changeCount { return previous }
         // A clipboard offer from the phone: describe it; reading it would fetch it.
         if ClipboardOwnWrite.matches(pasteboard.changeCount) {

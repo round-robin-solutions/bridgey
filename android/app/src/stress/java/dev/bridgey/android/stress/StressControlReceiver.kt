@@ -57,6 +57,7 @@ import org.json.JSONObject
  * - `control-stop`: Stop on the indicator.
  * - `control-status`: phone control: phase, geometry, display size, inputs accepted and rejected, gestures, latency
  *   from arrival to dispatch and to completion, and whether Bridgey control is on and connected.
+ * - The upgrade acceptance and soak commands in [AcceptanceControl] (clipboard, process figures, storage snapshot).
  */
 class StressControlReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -140,7 +141,7 @@ internal object StressControl {
                 latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
                 ok().put("control", stats).put("state", hub.state.value.phase.name.lowercase())
             }
-            else -> JSONObject().put("ok", false).put("error", "unknown command")
+            else -> AcceptanceControl.handle(app, intent) ?: JSONObject().put("ok", false).put("error", "unknown command")
         }
     }
 

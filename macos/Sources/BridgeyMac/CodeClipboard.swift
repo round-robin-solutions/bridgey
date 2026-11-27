@@ -46,7 +46,7 @@ final class CodeClipboard {
     /// The change count right after our last write, while it may still be ours to clear.
     private(set) var pendingChangeCount: Int?
 
-    init(pasteboard: CodePasteboard = NSPasteboard.general, schedule: @escaping Scheduler = { delay, work in
+    init(pasteboard: CodePasteboard = AppPasteboard.current, schedule: @escaping Scheduler = { delay, work in
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { work() } }
     }) {
         self.pasteboard = pasteboard
