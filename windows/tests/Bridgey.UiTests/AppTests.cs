@@ -67,7 +67,7 @@ public sealed partial class AppTests : IDisposable
             foreach (var theme in new[] { "Light", "Dark" })
             {
                 var t = theme.ToLowerInvariant();
-                window = Launch(theme, setupDone: true);
+                window = Launch(theme, setupDone: true, textMessages: theme == "Dark");
                 Find(window, "HomeStatus");
                 if (theme == "Light") Shot(window, "home-empty-light");
 
@@ -394,7 +394,8 @@ public sealed partial class AppTests : IDisposable
         catch (Exception) { }
     }
 
-    private Window Launch(string theme, bool setupDone)
+    /// <summary>Starts the app with fresh settings; <paramref name="textMessages"/> keeps Text messages on from the light run.</summary>
+    private Window Launch(string theme, bool setupDone, bool textMessages = false)
     {
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "settings.json"), JsonSerializer.Serialize(new Dictionary<string, object>
@@ -403,6 +404,7 @@ public sealed partial class AppTests : IDisposable
             ["theme"] = theme,
             ["setupDone"] = setupDone,
             ["startAtSignIn"] = false,
+            ["textMessages"] = textMessages,
         }));
         var start = new ProcessStartInfo(_exe) { UseShellExecute = false };
         start.Environment["BRIDGEY_DATA_DIR"] = _data;
