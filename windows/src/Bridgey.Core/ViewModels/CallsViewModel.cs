@@ -58,6 +58,8 @@ public sealed partial class CallsViewModel : ObservableObject
             Raise(nameof(SelectedPhone));
             Raise(nameof(HasPhone));
             Raise(nameof(HasNoPhone));
+            Raise(nameof(PhoneName));
+            Raise(nameof(AudioText));
             Notice = null;
             AskingSimFor = null;
             Load();

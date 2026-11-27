@@ -79,19 +79,10 @@
 
             <!-- The field, the keypad, the SIM and Call. -->
             <StackPanel Spacing="14">
-                <Grid ColumnSpacing="4">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="QueryBox" PlaceholderText="Name or number" Text="{x:Bind Calls.Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             FontSize="{x:Bind views:CallsPage.FieldSize(Calls.QueryIsNumber), Mode=OneWay}" KeyDown="OnQueryKeyDown"
-                             AutomationProperties.Name="Name or number" AutomationProperties.AutomationId="CallsQuery" />
-                    <Button Grid.Column="1" Click="OnClear" Visibility="{x:Bind Calls.HasQuery, Mode=OneWay}" Style="{StaticResource RowAction}"
-                            AutomationProperties.Name="Clear" ToolTipService.ToolTip="Clear (Esc)">
-                        <FontIcon Glyph="&#xE711;" FontSize="12" />
-                    </Button>
-                </Grid>
+                <!-- The box's own clear button and Esc clear it. -->
+                <TextBox x:Name="QueryBox" PlaceholderText="Name or number" Text="{x:Bind Calls.Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         FontSize="{x:Bind views:CallsPage.FieldSize(Calls.QueryIsNumber), Mode=OneWay}" KeyDown="OnQueryKeyDown"
+                         AutomationProperties.Name="Name or number" AutomationProperties.AutomationId="CallsQuery" />
 
                 <Grid HorizontalAlignment="Center" RowSpacing="10" ColumnSpacing="14" AutomationProperties.Name="Keypad">
                     <Grid.ColumnDefinitions>
@@ -119,9 +110,16 @@
                     <Button Grid.Row="3" Grid.Column="2" Style="{StaticResource KeyButton}" Click="OnBackspace" AutomationProperties.Name="Delete"><FontIcon Glyph="&#xE750;" FontSize="16" /></Button>
                 </Grid>
 
+                <!-- A template rather than DisplayMemberPath: NativeAOT has no reflection binding. -->
                 <ComboBox HorizontalAlignment="Stretch" Header="Call from" ItemsSource="{x:Bind Calls.Sims}" SelectedItem="{x:Bind Calls.Sim, Mode=TwoWay}"
-                          DisplayMemberPath="Label" PlaceholderText="Ask each time" Visibility="{x:Bind Calls.HasSims, Mode=OneWay}"
-                          AutomationProperties.Name="Call from" AutomationProperties.AutomationId="CallsSim" />
+                          PlaceholderText="Ask each time" Visibility="{x:Bind Calls.HasSims, Mode=OneWay}"
+                          AutomationProperties.Name="Call from" AutomationProperties.AutomationId="CallsSim">
+                    <ComboBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:SimChoice">
+                            <TextBlock Text="{x:Bind Label}" />
+                        </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                </ComboBox>
 
                 <Button HorizontalAlignment="Stretch" Height="44" CornerRadius="22" Click="OnCall" IsEnabled="{x:Bind Calls.CanCall, Mode=OneWay}"
                         Background="{ThemeResource BrandGoodBrush}" Foreground="{ThemeResource BrandWindowBrush}"

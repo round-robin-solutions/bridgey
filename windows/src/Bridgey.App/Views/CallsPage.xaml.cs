@@ -36,12 +36,6 @@ public sealed partial class CallsPage : UserControl
 
     private void OnBackspace(object sender, RoutedEventArgs e) => Calls.Backspace();
 
-    private void OnClear(object sender, RoutedEventArgs e)
-    {
-        Calls.Clear();
-        QueryBox.Focus(FocusState.Programmatic);
-    }
-
     private void OnCall(object sender, RoutedEventArgs e) => Calls.CallPrimary();
 
     private void OnQueryKeyDown(object sender, KeyRoutedEventArgs e)
