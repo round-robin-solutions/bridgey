@@ -169,7 +169,7 @@
                                                 AutomationProperties.Name="{x:Bind Label, Mode=OneWay}">
                                         <!-- Theme brushes follow light and dark; a brush picked in code would not. -->
                                         <Grid>
-                                            <Border CornerRadius="16" Background="{ThemeResource BrandSurfaceAltBrush}" Visibility="{x:Bind Incoming, Mode=OneWay}" />
+                                            <Border CornerRadius="16" Background="{ThemeResource BrandBubbleBrush}" Visibility="{x:Bind Incoming, Mode=OneWay}" />
                                             <Border CornerRadius="16" Background="{ThemeResource BrandTintBlueBrush}" Visibility="{x:Bind Outgoing, Mode=OneWay}" />
                                             <StackPanel Spacing="6" Padding="12,8">
                                                 <Image Source="{x:Bind views:MessagesPage.Picture(Image), Mode=OneWay}" MaxHeight="280" MaxWidth="280" Stretch="Uniform"

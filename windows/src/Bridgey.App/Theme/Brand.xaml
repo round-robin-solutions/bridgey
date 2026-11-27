@@ -35,6 +35,8 @@
             <SolidColorBrush x:Key="BrandTintPurpleInkBrush" Color="#5A38BA" />
             <SolidColorBrush x:Key="BrandRingOffBrush" Color="#DCE3EC" />
             <SolidColorBrush x:Key="BrandCodeBrush" Color="#EEF2F7" />
+            <!-- A received message's bubble, set apart from the card it sits on. -->
+            <SolidColorBrush x:Key="BrandBubbleBrush" Color="#EEF2F7" />
         </ResourceDictionary>
 
         <ResourceDictionary x:Key="Dark">
@@ -68,6 +70,7 @@
             <SolidColorBrush x:Key="BrandTintPurpleInkBrush" Color="#CDBDFF" />
             <SolidColorBrush x:Key="BrandRingOffBrush" Color="#232A38" />
             <SolidColorBrush x:Key="BrandCodeBrush" Color="#151C29" />
+            <SolidColorBrush x:Key="BrandBubbleBrush" Color="#232A38" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 
