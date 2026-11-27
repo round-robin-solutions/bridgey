@@ -200,8 +200,15 @@
                             <TextBlock Grid.ColumnSpan="3" Text="Answer group conversations on your phone." Style="{StaticResource BrandSecondary}"
                                        Visibility="{x:Bind Messages.IsGroup, Mode=OneWay}" />
                             <ComboBox ItemsSource="{x:Bind Messages.Sims}" SelectedItem="{x:Bind Messages.Sim, Mode=TwoWay}"
-                                      DisplayMemberPath="Label" Visibility="{x:Bind views:MessagesPage.Both(Messages.HasSims, Messages.IsGroup), Mode=OneWay}"
-                                      AutomationProperties.Name="SIM" AutomationProperties.AutomationId="MessageSim" />
+                                      Visibility="{x:Bind views:MessagesPage.Both(Messages.HasSims, Messages.IsGroup), Mode=OneWay}"
+                                      AutomationProperties.Name="SIM" AutomationProperties.AutomationId="MessageSim">
+                                <!-- DisplayMemberPath binds by reflection, which NativeAOT removes. -->
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:SimChoice">
+                                        <TextBlock Text="{x:Bind Label}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
                             <TextBox x:Name="DraftBox" Grid.Column="1" PlaceholderText="Text message" Text="{x:Bind Messages.Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      MaxLength="2000" TextWrapping="Wrap" AcceptsReturn="True" MaxHeight="120" PreviewKeyDown="OnDraftKeyDown" Visibility="{x:Bind views:MessagesPage.Not(Messages.IsGroup), Mode=OneWay}"
                                      AutomationProperties.Name="Text message" AutomationProperties.AutomationId="MessageDraft" />
