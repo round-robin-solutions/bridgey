@@ -307,9 +307,77 @@ const MAX_INCOMING: usize = 4;
 const PROGRESS_EVERY: Duration = Duration::from_millis(500);
 /// How often a receiver reading a kept partial again sends `files.resume.wait`, well inside the sender's 120 s.
 const RESUME_WAIT_EVERY: Duration = Duration::from_secs(30);
+/// While a file comes in, free space is checked again after this many bytes.
+const SPACE_CHECK_EVERY: u64 = 4 * 1024 * 1024;
+/// The default floor: at least this much free on the inbox's volume...
+const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// ...or this share of the volume, whichever is more.
+const MIN_FREE_PERCENT: f64 = 5.0;
+
+/// What the inbox keeps free on its volume (`inbox.min_free`): a file is refused when taking it would leave less, and
+/// stopped when, while it comes in, what is still to arrive would.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MinFree {
+    /// Not set: 2 GiB or 5% of the volume, whichever is more.
+    Default,
+    Bytes(u64),
+    /// A share of the volume, 0 to 100.
+    Percent(f64),
+}
+
+impl MinFree {
+    /// `2G`, `500M`, `1T`, `4096` (bytes; K, M, G and T are powers of 1,024) or `10%`.
+    pub fn parse(raw: &str) -> Option<MinFree> {
+        let raw = raw.trim();
+        if let Some(p) = raw.strip_suffix('%') {
+            return p.trim().parse::<f64>().ok().filter(|p| (0.0..=100.0).contains(p)).map(MinFree::Percent);
+        }
+        let (digits, unit) = match raw.find(|c: char| !c.is_ascii_digit()) {
+            Some(i) => raw.split_at(i),
+            None => (raw, ""),
+        };
+        let shift = match unit.trim().to_ascii_uppercase().trim_end_matches("IB").trim_end_matches('B') {
+            "" => 0,
+            "K" => 10,
+            "M" => 20,
+            "G" => 30,
+            "T" => 40,
+            _ => return None,
+        };
+        digits.parse::<u64>().ok()?.checked_mul(1u64 << shift).map(MinFree::Bytes)
+    }
+
+    /// The floor on a volume of `total` bytes; never under the apps' 64 MiB margin.
+    pub fn floor(&self, total: u64) -> u64 {
+        let share = |p: f64| (total as f64 * p / 100.0) as u64;
+        let floor = match *self {
+            MinFree::Default => MIN_FREE_BYTES.max(share(MIN_FREE_PERCENT)),
+            MinFree::Bytes(b) => b,
+            MinFree::Percent(p) => share(p),
+        };
+        floor.max(transfer::FREE_SPACE_MARGIN)
+    }
+}
+
+/// Free and total bytes for this user on the volume holding a folder, or None when the system does not say.
+pub type SpaceProbe = Arc<dyn Fn(&Path) -> Option<(u64, u64)> + Send + Sync>;
+
+/// statvfs(3): what this user may still write (`f_bavail`), and the volume's size.
+pub fn volume_space(dir: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(dir.as_os_str().as_bytes()).ok()?;
+    // SAFETY: a zeroed statvfs is a valid out value and `path` is a NUL-terminated string that outlives the call.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return None;
+    }
+    #[allow(clippy::unnecessary_cast)]
+    let (frsize, avail, blocks) = (stat.f_frsize as u64, stat.f_bavail as u64, stat.f_blocks as u64);
+    Some((avail.saturating_mul(frsize), blocks.saturating_mul(frsize)))
+}
 
 /// Where files land and what the inbox takes (config.toml `inbox.*`, `transfers.resume`).
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct InboxConfig {
     /// `inbox.dir`, `~/bridgey-inbox` by default.
     pub dir: PathBuf,
@@ -319,6 +387,10 @@ pub struct InboxConfig {
     pub resume: bool,
     /// The kept partials' records (`state/file-resume.json`, 0600); None keeps them in memory.
     pub records: Option<PathBuf>,
+    /// `inbox.min_free`.
+    pub min_free: MinFree,
+    /// Free space on the inbox's volume: `volume_space`, or a stand-in in tests.
+    pub space: SpaceProbe,
 }
 
 /// What the inbox tells the daemon, for `bridgey transfers`, the log and the audit log. Never file contents.
@@ -328,6 +400,25 @@ pub enum Report {
     Progress { transfer_id: String, bytes: u64 },
     Saved { transfer_id: String, device: String, name: String, path: PathBuf, size: u64, resumed_from: u64 },
     Failed { transfer_id: String, device: String, name: String, reason: String },
+    /// Refused (`during` false) or stopped (`during` true) because it would leave less than `floor` free: `needed`
+    /// bytes still to come for it and the files already arriving, `free` on the volume.
+    NoSpace { transfer_id: String, device: String, name: String, size: u64, needed: u64, free: u64, floor: u64, during: bool },
+}
+
+impl Report {
+    /// The daemon's log line for a file that ended, or None. Sizes and the device only: never a name or contents.
+    pub fn log_line(&self, device_name: &str) -> Option<String> {
+        Some(match self {
+            Report::Saved { size, resumed_from, .. } if *resumed_from > 0 => format!("file from {device_name} saved ({size} bytes, {resumed_from} kept from before)"),
+            Report::Saved { size, .. } => format!("file from {device_name} saved ({size} bytes)"),
+            Report::Failed { reason, .. } => format!("file from {device_name} not saved: {}", crate::session::printable(reason, 32)),
+            Report::NoSpace { needed, free, floor, during, .. } => format!(
+                "file from {device_name} {}: insufficient_space ({needed} bytes still to come, {free} free, keeping {floor} free)",
+                if *during { "stopped" } else { "refused" }
+            ),
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -359,6 +450,8 @@ struct Incoming {
     checkpoint: u64,
     resumed_from: u64,
     reported: Instant,
+    /// Bytes written since free space was last checked.
+    unchecked: u64,
 }
 
 impl Incoming {
@@ -457,6 +550,16 @@ impl InboxState {
         if self.ended.len() > 64 {
             self.ended.pop_front();
         }
+    }
+
+    /// Taking `needed` more bytes, with what the files arriving still need, would leave less than the floor free on
+    /// the inbox's volume: (still to come, free, floor). Unknown free space takes the file, as the apps do.
+    fn short_of_room(&self, dir: &Path, needed: u64) -> Option<(u64, u64, u64)> {
+        let (free, total) = (self.config.space)(dir)?;
+        let floor = self.config.min_free.floor(total);
+        let arriving: u64 = self.incoming.values().map(|i| i.size.saturating_sub(i.received)).sum();
+        let coming = needed.saturating_add(arriving);
+        (free < coming.saturating_add(floor)).then_some((coming, free, floor))
     }
 }
 
@@ -579,6 +682,7 @@ impl Inbox {
             checkpoint: verified,
             resumed_from: 0,
             reported: Instant::now(),
+            unchecked: 0,
         };
         if resumable {
             // Only this device's partial of this very content, in the folder files land in now; never a path or ID from
@@ -592,6 +696,12 @@ impl Inbox {
                 let prefix: Option<[u8; 32]> = crypto::unb64(&r.prefix).and_then(|b| b.try_into().ok());
                 // Not through a link, and only a plain file of this user with one name (security review 1.0, F1).
                 let opened = transfer::open_partial(&part).and_then(|file| Ok((file.try_clone()?, file)));
+                // Only what is left of it has to fit; refused, the partial stays for a later attempt.
+                if let Some((needed, free, floor)) = st.short_of_room(&dir, size.saturating_sub(r.length)) {
+                    st.release(&part, true);
+                    self.tell(Report::NoSpace { transfer_id: transfer_id.into(), device: peer.into(), name: name.clone(), size, needed, free, floor, during: false });
+                    return cancel();
+                }
                 match (opened, prefix) {
                     (Ok((reader, file)), Some(prefix)) => {
                         st.incoming.insert(transfer_id.to_string(), new(part, file, Phase::Checking { length: r.length, prefix }, r.length));
@@ -606,10 +716,12 @@ impl Inbox {
                 }
             }
         }
-        // Room for this file and the ones already arriving, plus a margin (the apps' rule, 0.10 M6).
-        let arriving: u64 = st.incoming.values().map(|i| i.size.saturating_sub(i.received)).sum();
-        if transfer::free_space(&dir).is_some_and(|free| free < size.saturating_add(arriving).saturating_add(transfer::FREE_SPACE_MARGIN)) {
-            return refuse("storage");
+        // Room for this file and the ones already arriving, and the floor kept free on a server's volume
+        // (`inbox.min_free`; never less than the apps' 64 MiB margin, 0.10 M6). Refused as the apps refuse a file they
+        // cannot take: `files.cancel`.
+        if let Some((needed, free, floor)) = st.short_of_room(&dir, size) {
+            self.tell(Report::NoSpace { transfer_id: transfer_id.into(), device: peer.into(), name: name.clone(), size, needed, free, floor, during: false });
+            return cancel();
         }
         let part = transfer::part_path(&dir, transfer_id);
         let Ok(file) = create_partial(&part) else { return refuse("storage") };
@@ -745,6 +857,28 @@ impl Inbox {
         i.hasher.update(data);
         i.received += data.len() as u64;
         i.next_sequence += 1;
+        i.unchecked += data.len() as u64;
+        // Something else may be filling the volume: every few MiB, the rest of this file and the others arriving must
+        // still leave the floor free, or this one stops and its partial goes (resumable or not).
+        if i.unchecked >= SPACE_CHECK_EVERY {
+            i.unchecked = 0;
+            let dir = i.dir.clone();
+            if let Some((needed, free, floor)) = st.short_of_room(&dir, 0) {
+                let i = st.incoming.remove(id).unwrap();
+                let h = i.handle.clone();
+                let resumable = i.resumable;
+                let _ = fs::remove_file(&i.part);
+                if resumable {
+                    st.release(&i.part, false);
+                }
+                st.ended(id);
+                self.tell(Report::NoSpace { transfer_id: id.into(), device: i.peer.clone(), name: i.name.clone(), size: i.size, needed, free, floor, during: true });
+                drop(st);
+                h.send_outer("files.cancel", id, None);
+                return;
+            }
+        }
+        let Some(i) = st.incoming.get_mut(id) else { return };
         let h = i.handle.clone();
         let (received, sequence) = (i.received, i.next_sequence - 1);
         let report = i.reported.elapsed() >= PROGRESS_EVERY;

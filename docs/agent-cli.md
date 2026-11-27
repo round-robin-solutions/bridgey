@@ -67,13 +67,21 @@ above for servers with the grant.
 - **Inbox.** Files a paired device sends land in `~/bridgey-inbox` (`inbox.dir`), mode 0600, never overwriting.
   `bridgey transfers` lists them with their path. The audit log gets one `files.receive` line per file, with the size,
   never the name. `inbox.receive off` refuses every file (`files.rejected`).
+- **Free space.** A file is refused (`files.cancel`, as the apps refuse a file they cannot take) when taking it, with
+  what other files arriving still need, would leave less than the floor free on the inbox's volume. The floor is
+  `inbox.min_free`: a size (`2G`, `500M`) or a share of the volume (`10%`); unset, 2 GiB or 5% of the volume,
+  whichever is more, and never under the apps' 64 MiB. Every 4 MiB while a file comes in the check runs again; if
+  what is still to come no longer fits, the file stops and its partial is deleted, resumable or not. A resumed file
+  needs room only for what is left of it, and a refused resume keeps its partial. The daemon log and the audit log
+  record each refusal (`insufficient_space`) with the sizes and the device, never the name or contents.
+  `bridgey transfers` shows it as `refused`. files.v1 has no field for the reason, so the sender sees a cancel.
 - **Partial files** follow security review 1.0, F1. A new partial is created with `O_CREAT | O_EXCL | O_NOFOLLOW`,
   so it needs no owner or link check. A kept partial reopens only without following a link, as a plain file of this
   user with one name, and is read again through that same handle before a resume. A file is published only while
   its partial's name still names the file written. A cancel deletes the partial; a dropped session keeps whole
   verified blocks of a resumable file for 24 hours.
 - **Switches** in `config.toml`: `transfers.fast` and `transfers.resume` (both `on`; `off` is for tests),
-  `inbox.receive` (`on`) and `inbox.dir`. The daemon reads them when it starts.
+  `inbox.receive` (`on`), `inbox.dir` and `inbox.min_free`. The daemon reads them when it starts.
 
 Over loopback on rr-dev-1 (256 MiB to tmpfs, release build, median of five runs on a busy host), the CLI sent to
 `rust/client` at 56 MiB/s before and 179 MiB/s in binary frames, and took files from it at 156 MiB/s. JSON chunks
@@ -356,6 +364,7 @@ ask = "30m"
 [inbox]
 receive = "on"                                      # off refuses files from paired devices
 dir = "~/bridgey-inbox"
+min_free = "2G"                                     # or "10%"; unset: 2 GiB or 5% of the volume, whichever is more
 
 [transfers]
 fast = "on"                                         # off sends JSON chunks (tests)

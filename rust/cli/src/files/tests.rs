@@ -294,10 +294,25 @@ struct Received {
     dir: PathBuf,
 }
 
+/// A volume with room to spare, whatever the host's disks look like: 1 TiB free of 2 TiB.
+fn plenty() -> SpaceProbe {
+    Arc::new(|_: &Path| Some((1 << 40, 2 << 40)))
+}
+
+/// A volume of `total` bytes whose free space the test sets.
+fn volume(free: &Arc<AtomicU64>, total: u64) -> SpaceProbe {
+    let free = free.clone();
+    Arc::new(move |_: &Path| Some((free.load(Ordering::Relaxed), total)))
+}
+
 fn inbox(resume: bool) -> Received {
+    inbox_on(resume, plenty(), MinFree::Default)
+}
+
+fn inbox_on(resume: bool, space: SpaceProbe, min_free: MinFree) -> Received {
     let dir = temp("inbox");
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let inbox = Inbox::new(InboxConfig { dir: dir.join("in"), receive: true, resume, records: Some(dir.join("file-resume.json")) }, tx);
+    let inbox = Inbox::new(InboxConfig { dir: dir.join("in"), receive: true, resume, records: Some(dir.join("file-resume.json")), min_free, space }, tx);
     let reports: Arc<Mutex<Vec<Report>>> = Arc::default();
     let r = reports.clone();
     tokio::spawn(async move {
@@ -347,12 +362,11 @@ impl Received {
 async fn setup(client_fast: bool, switches: Switches, resume: bool, cut: (Option<u64>, Option<u64>)) -> (Shared, Received, Arc<Local>, Cli, Proxy) {
     let shared = Shared::start(client_fast).await;
     let p = proxy(shared.addr(), cut.0, cut.1).await;
-    let (received, me, cli) = pair(&shared, p.addr, switches, resume).await;
+    let (received, me, cli) = pair(&shared, p.addr, switches, inbox(resume)).await;
     (shared, received, me, cli, p)
 }
 
-async fn pair(shared: &Shared, addr: SocketAddr, switches: Switches, resume: bool) -> (Received, Arc<Local>, Cli) {
-    let received = inbox(resume);
+async fn pair(shared: &Shared, addr: SocketAddr, switches: Switches, received: Received) -> (Received, Arc<Local>, Cli) {
     let me = local("cli");
     shared.client.allow_pairing(Duration::from_secs(60));
     let cli = dial(&me, addr, &received.inbox, switches, 1).await;
@@ -762,7 +776,7 @@ async fn kept_partials_are_checked_before_a_resume() {
 async fn the_inbox_keeps_to_its_rules() {
     let dir = temp("rules");
     let (tx, _rx) = mpsc::unbounded_channel();
-    let off = Inbox::new(InboxConfig { dir: dir.join("in"), receive: false, resume: true, records: None }, tx);
+    let off = Inbox::new(InboxConfig { dir: dir.join("in"), receive: false, resume: true, records: None, min_free: MinFree::Default, space: plenty() }, tx);
     let (h, mut out) = Handle::for_tests(1);
     let id = crypto::uuid4();
     off.offer(&h, 1, PEER, true, &offer_message(&id), Some(&offer_plain(&id, b"abc", false)));
@@ -844,12 +858,159 @@ async fn records_survive_a_restart() {
     r.inbox.closed(1, "heartbeat_timeout");
     let kept = r.inbox.kept();
     assert_eq!((kept.len(), kept[0].length), (1, 2 * MIB as u64), "two whole blocks verified");
-    let config = InboxConfig { dir: r.files(), receive: true, resume: true, records: Some(r.dir.join("file-resume.json")) };
+    let config = InboxConfig { dir: r.files(), receive: true, resume: true, records: Some(r.dir.join("file-resume.json")), min_free: MinFree::Default, space: plenty() };
     let (tx, _rx) = mpsc::unbounded_channel();
     assert_eq!(Inbox::new(config.clone(), tx.clone()).kept(), kept, "read back at start");
     fs::remove_file(kept[0].part_path()).unwrap();
     assert!(Inbox::new(config, tx).kept().is_empty(), "a record without its partial is swept");
     let _ = fs::remove_dir_all(&r.dir);
+}
+
+// endregion
+
+// region Free space on a server (inbox.min_free)
+
+const GIB: u64 = 1024 * 1024 * 1024;
+
+#[test]
+fn the_floor_is_two_gib_or_five_percent_unless_set() {
+    assert_eq!(MinFree::Default.floor(10 * GIB), 2 * GIB, "a small volume keeps 2 GiB");
+    assert_eq!(MinFree::Default.floor(100 * GIB), 5 * GIB, "a large one keeps 5%");
+    assert_eq!(MinFree::Percent(10.0).floor(100 * GIB), 10 * GIB);
+    assert_eq!(MinFree::Bytes(GIB).floor(100 * GIB), GIB);
+    assert_eq!(MinFree::Bytes(0).floor(100 * GIB), transfer::FREE_SPACE_MARGIN, "never under the apps' 64 MiB margin");
+    for (raw, want) in [("2G", MinFree::Bytes(2 * GIB)), ("500M", MinFree::Bytes(500 << 20)), ("1T", MinFree::Bytes(1 << 40)), ("4096", MinFree::Bytes(4096)),
+                        ("2GiB", MinFree::Bytes(2 * GIB)), ("2 GB", MinFree::Bytes(2 * GIB)), ("10%", MinFree::Percent(10.0)), ("0", MinFree::Bytes(0))] {
+        assert_eq!(MinFree::parse(raw), Some(want), "{raw}");
+    }
+    for bad in ["", "lots", "-1G", "2X", "120%", "1.5G"] {
+        assert_eq!(MinFree::parse(bad), None, "{bad}");
+    }
+}
+
+/// An offer that would leave less than the floor free is declined as the apps decline a file they cannot take
+/// (`files.cancel`): nothing is created, and the refusal is reported with sizes only.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_that_would_leave_too_little_free_is_refused() {
+    let free = Arc::new(AtomicU64::new(3 * GIB));
+    let r = inbox_on(true, volume(&free, 10 * GIB), MinFree::Default);
+    let (h, mut out) = Handle::for_tests(1);
+    // 2 MiB fits (3 GiB free, 2 GiB kept).
+    let small = pattern(2 * MIB);
+    let first = crypto::uuid4();
+    r.inbox.offer(&h, 1, PEER, true, &offer_message(&first), Some(&offer_plain(&first, &small, false)));
+    assert_eq!(sent(&mut out), vec!["files.accept"]);
+    // 1 GiB more would leave about 2 GiB minus the first file's 2 MiB still to come: refused.
+    let big = crypto::uuid4();
+    let sha = crypto::b64(ring::digest::digest(&ring::digest::SHA256, b"x").as_ref());
+    let offer = json!({"transferId": big, "name": "backup.tar", "mimeType": "application/x-tar", "size": GIB, "sha256": sha}).to_string();
+    r.inbox.offer(&h, 1, PEER, true, &offer_message(&big), Some(offer.as_bytes()));
+    assert_eq!(sent(&mut out), vec!["files.cancel"]);
+    let report = r.wait("refused", |x| match x {
+        Report::NoSpace { transfer_id, needed, free, floor, during: false, .. } if *transfer_id == big => Some((*needed, *free, *floor)),
+        _ => None,
+    }).await;
+    assert_eq!(report, (GIB + 2 * MIB as u64, 3 * GIB, 2 * GIB), "what was still to come, what was free, the floor");
+    assert_eq!(names(&r.files()).len(), 1, "only the first file's partial");
+    let line = Report::NoSpace { transfer_id: big.clone(), device: PEER.into(), name: "backup.tar".into(), size: GIB, needed: report.0, free: report.1, floor: report.2, during: false }.log_line("7e57d00d").unwrap();
+    assert!(line.contains("refused: insufficient_space") && line.contains(&report.1.to_string()), "{line}");
+    assert!(!line.contains("backup"), "no file name in the log: {line}");
+    // A lower floor takes it; a volume that does not say takes it too, as the apps do.
+    let low = inbox_on(true, volume(&free, 10 * GIB), MinFree::Bytes(512 << 20));
+    let (h2, mut out2) = Handle::for_tests(2);
+    low.inbox.offer(&h2, 2, PEER, true, &offer_message(&big), Some(offer.as_bytes()));
+    assert_eq!(sent(&mut out2), vec!["files.accept"]);
+    let unknown = inbox_on(true, Arc::new(|_: &Path| None), MinFree::Default);
+    let (h3, mut out3) = Handle::for_tests(3);
+    unknown.inbox.offer(&h3, 3, PEER, true, &offer_message(&big), Some(offer.as_bytes()));
+    assert_eq!(sent(&mut out3), vec!["files.accept"]);
+}
+
+/// While a file comes in, free space is checked again every 4 MiB: when what is still to come would leave less than
+/// the floor, the file stops and its partial goes, resumable or not.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_file_stops_when_free_space_runs_low_while_it_comes_in() {
+    let free = Arc::new(AtomicU64::new(3 * GIB));
+    let r = inbox_on(true, volume(&free, 10 * GIB), MinFree::Default);
+    let (h, mut out) = Handle::for_tests(1);
+    let data = pattern(12 * MIB);
+    let id = crypto::uuid4();
+    r.inbox.offer(&h, 1, PEER, true, &offer_message(&id), Some(&offer_plain(&id, &data, true)));
+    assert_eq!(sent(&mut out), vec!["files.accept"]);
+    for (seq, block) in data.chunks(MIB).enumerate().take(4) {
+        r.inbox.chunk(1, PEER, &id, Some(seq as u64), block, fast::MAX_PLAINTEXT);
+    }
+    assert_eq!(sent(&mut out), vec!["files.chunk.ack"; 4], "checked at 4 MiB: room enough");
+    // Something else fills the volume: 2 GiB and 1 MiB free, with 4 MiB of this file still to come at the next check.
+    free.store(2 * GIB + MIB as u64, Ordering::Relaxed);
+    for (seq, block) in data.chunks(MIB).enumerate().skip(4).take(4) {
+        r.inbox.chunk(1, PEER, &id, Some(seq as u64), block, fast::MAX_PLAINTEXT);
+    }
+    let answers = sent(&mut out);
+    assert_eq!(answers.last().map(String::as_str), Some("files.cancel"), "{answers:?}");
+    assert_eq!(answers.iter().filter(|k| *k == "files.chunk.ack").count(), 3, "stopped at the 8 MiB check");
+    let (needed, during) = r.wait("stopped", |x| match x {
+        Report::NoSpace { needed, during, .. } => Some((*needed, *during)),
+        _ => None,
+    }).await;
+    assert_eq!((needed, during), (4 * MIB as u64, true));
+    assert_eq!(names(&r.files()), Vec::<String>::new(), "the partial went");
+    assert!(r.inbox.kept().is_empty(), "nothing kept for a later attempt");
+    r.inbox.chunk(1, PEER, &id, Some(8), &data[8 * MIB..9 * MIB], fast::MAX_PLAINTEXT);
+    assert!(sent(&mut out).is_empty(), "later chunks are dropped");
+}
+
+/// A resumed file needs room only for what is left of it; refused, its partial stays for a later attempt.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resume_without_room_keeps_its_partial() {
+    let free = Arc::new(AtomicU64::new(3 * GIB));
+    let r = inbox_on(true, volume(&free, 10 * GIB), MinFree::Default);
+    let data = pattern(3 * MIB);
+    let (h, _out) = Handle::for_tests(1);
+    let first = crypto::uuid4();
+    r.inbox.offer(&h, 1, PEER, true, &offer_message(&first), Some(&offer_plain(&first, &data, true)));
+    r.inbox.chunk(1, PEER, &first, Some(0), &data[..MIB], fast::MAX_PLAINTEXT);
+    r.inbox.chunk(1, PEER, &first, Some(1), &data[MIB..2 * MIB], fast::MAX_PLAINTEXT);
+    r.inbox.closed(1, "closed_by_peer");
+    assert_eq!(r.inbox.kept().len(), 1);
+    // 1 MiB is left to come; with 2 GiB and half a MiB free it does not fit.
+    free.store(2 * GIB + MIB as u64 / 2, Ordering::Relaxed);
+    let (h, mut out) = Handle::for_tests(2);
+    let second = crypto::uuid4();
+    r.inbox.offer(&h, 2, PEER, true, &offer_message(&second), Some(&offer_plain(&second, &data, true)));
+    assert_eq!(sent(&mut out), vec!["files.cancel"]);
+    let needed = r.wait("refused", |x| match x {
+        Report::NoSpace { needed, during: false, .. } => Some(*needed),
+        _ => None,
+    }).await;
+    assert_eq!(needed, MIB as u64, "only the rest has to fit");
+    let kept = r.inbox.kept();
+    assert_eq!(kept.len(), 1, "the partial is kept");
+    assert!(kept[0].part_path().exists());
+    // With room again, the next attempt resumes it.
+    free.store(3 * GIB, Ordering::Relaxed);
+    let third = crypto::uuid4();
+    r.inbox.offer(&h, 2, PEER, true, &offer_message(&third), Some(&offer_plain(&third, &data, true)));
+    assert!(settle(&mut out, "files.resume").await.iter().all(|k| k != "files.cancel"));
+}
+
+/// End to end: the session client's offer to a CLI whose inbox volume is short of room is declined, the client is
+/// told, and nothing lands in the inbox.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_client_is_declined_when_the_inbox_volume_is_short() {
+    let shared = Shared::start(true).await;
+    let free = Arc::new(AtomicU64::new(2 * GIB + 2 * MIB as u64));
+    let (received, me, _cli) = pair(&shared, shared.addr(), Switches::default(), inbox_on(true, volume(&free, 10 * GIB), MinFree::Default)).await;
+    let path = write(&shared.dir, "big.bin", &pattern(3 * MIB));
+    let t = shared.client.send_file(&me.device_id, &path, None, None).unwrap();
+    shared.wait("the client was declined", |e| matches!(e, CoreEvent::FileFailed { transfer, incoming: false, .. } if *transfer == t).then_some(())).await;
+    received.wait("refused", |x| matches!(x, Report::NoSpace { during: false, .. }).then_some(())).await;
+    assert_eq!(names(&received.files()), Vec::<String>::new());
+    // A smaller file still fits.
+    let path = write(&shared.dir, "small.bin", &pattern(MIB));
+    shared.client.send_file(&me.device_id, &path, None, None).unwrap();
+    assert_eq!(received.saved().await.0.file_name().unwrap(), "small.bin");
+    shared.stop().await;
 }
 
 // endregion
@@ -865,7 +1026,7 @@ async fn throughput() {
         let switches = Switches { fast, resume: false };
         // Straight to the client: no proxy in the way.
         let shared = Shared::start(fast).await;
-        let (received, me, cli) = pair(&shared, shared.addr(), switches, false).await;
+        let (received, me, cli) = pair(&shared, shared.addr(), switches, inbox(false)).await;
         let path = write(&received.dir, "bench.bin", &data);
         // Hashing for the offer is not timed (the base revision's measurement left it out too); the client's own
         // hashing pass is inside its time below.

@@ -265,7 +265,14 @@ impl Daemon {
         let switches = config.file_switches();
         let (report_tx, mut report_rx) = mpsc::unbounded_channel::<crate::files::Report>();
         let inbox = crate::files::Inbox::new(
-            crate::files::InboxConfig { dir: config.inbox_dir(), receive: config.switch("inbox.receive"), resume: switches.resume, records: Some(paths.state.join("file-resume.json")) },
+            crate::files::InboxConfig {
+                dir: config.inbox_dir(),
+                receive: config.switch("inbox.receive"),
+                resume: switches.resume,
+                records: Some(paths.state.join("file-resume.json")),
+                min_free: config.min_free(),
+                space: Arc::new(crate::files::volume_space),
+            },
             report_tx,
         );
         let daemon = Arc::new(Daemon {
@@ -418,8 +425,8 @@ impl Daemon {
         let mut st = self.st.lock().unwrap();
         let find = |st: &mut St, id: &str| st.transfers.iter().position(|t| t.transfer_id == id);
         // The audit log names devices as the commands' entries do.
-        let name = |st: &St, id: &str| st.trust.peers.get(id).map(|p| p.name.clone()).unwrap_or_else(|| short(id));
-        match r {
+        let name_of = |st: &St, id: &str| st.trust.peers.get(id).map(|p| p.name.clone()).unwrap_or_else(|| short(id));
+        match r.clone() {
             Report::Incoming { transfer_id, device, name, size } => {
                 let info = TransferInfo { transfer_id, device, name, bytes: 0, total: size, state: "receiving".into(), started_at: now_ms(), ended_at: None, incoming: true, path: None, resumed_from: None };
                 st.transfers.push(info);
@@ -435,9 +442,11 @@ impl Daemon {
                     (t.bytes, t.state, t.ended_at, t.path) = (size, "done".into(), Some(now_ms()), Some(path.display().to_string()));
                     t.resumed_from = (resumed_from > 0).then_some(resumed_from);
                 }
-                let who = name(&st, &device);
+                let who = name_of(&st, &device);
                 drop(st);
-                log(&format!("file from {} saved ({size} bytes{})", short(&device), if resumed_from > 0 { format!(", {resumed_from} kept from before") } else { String::new() }));
+                if let Some(line) = r.log_line(&short(&device)) {
+                    log(&line);
+                }
                 crate::audit::record(&self.paths, json!({"at": now_ms(), "command": "files.receive", "device": who, "outcome": "saved", "detail": format!("{size} bytes")}));
             }
             Report::Failed { transfer_id, device, reason, .. } => {
@@ -446,10 +455,37 @@ impl Daemon {
                     let state = if reason.starts_with("cancelled") { "cancelled" } else if reason == "interrupted" { "interrupted" } else { "failed" };
                     (t.state, t.ended_at) = (state.into(), Some(now_ms()));
                 }
-                let who = name(&st, &device);
+                let who = name_of(&st, &device);
                 drop(st);
-                log(&format!("file from {} not saved: {}", short(&device), crate::session::printable(&reason, 32)));
+                if let Some(line) = r.log_line(&short(&device)) {
+                    log(&line);
+                }
                 crate::audit::record(&self.paths, json!({"at": now_ms(), "command": "files.receive", "device": who, "outcome": crate::session::printable(&reason, 32)}));
+            }
+            Report::NoSpace { ref transfer_id, ref device, ref name, size, needed, free, floor, during } => {
+                match find(&mut st, transfer_id) {
+                    Some(i) => (st.transfers[i].state, st.transfers[i].ended_at) = ("refused".into(), Some(now_ms())),
+                    None => st.transfers.push(TransferInfo {
+                        transfer_id: transfer_id.clone(),
+                        device: device.clone(),
+                        name: name.clone(),
+                        bytes: 0,
+                        total: size,
+                        state: "refused".into(),
+                        started_at: now_ms(),
+                        ended_at: Some(now_ms()),
+                        incoming: true,
+                        path: None,
+                        resumed_from: None,
+                    }),
+                }
+                let who = name_of(&st, device);
+                drop(st);
+                if let Some(line) = r.log_line(&short(device)) {
+                    log(&line);
+                }
+                let detail = format!("{} {needed} bytes to come, {free} free, floor {floor}", if during { "stopped" } else { "refused" });
+                crate::audit::record(&self.paths, json!({"at": now_ms(), "command": "files.receive", "device": who, "outcome": "insufficient_space", "detail": detail}));
             }
         }
     }

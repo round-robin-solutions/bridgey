@@ -19,6 +19,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("daemon.idle_exit", "how long a background agent started by a command stays after its last use (10m); the service never exits"),
     ("inbox.receive", "on: take files paired devices send this install; off refuses them"),
     ("inbox.dir", "where received files land (~/bridgey-inbox)"),
+    ("inbox.min_free", "free space a received file must leave on the inbox's volume: a size (2G, 500M) or a share (10%); unset: 2G or 5%, whichever is more"),
     ("transfers.fast", "on: binary frames with devices that read them; off sends JSON chunks (for tests)"),
     ("transfers.resume", "on: interrupted files continue from what the receiver kept; off starts them again"),
 ];
@@ -75,6 +76,7 @@ impl Config {
             "control_url" if !(raw.starts_with("wss://") || raw.starts_with("ws://") || raw.is_empty()) => return Err("control_url starts with wss://".into()),
             "inbox.receive" | "transfers.fast" | "transfers.resume" if raw != "on" && raw != "off" => return Err(format!("{key} is on or off")),
             "inbox.dir" if !(raw.starts_with('/') || raw.starts_with("~/")) => return Err("inbox.dir is a full path (or starts with ~/)".into()),
+            "inbox.min_free" if crate::files::MinFree::parse(raw).is_none() => return Err("inbox.min_free is a size such as 2G or 500M, or a share such as 10%".into()),
             "device_name" if raw.chars().count() > 64 || raw.trim().is_empty() => return Err("device_name is 1 to 64 characters".into()),
             _ => Value::String(raw.into()),
         };
@@ -116,6 +118,11 @@ impl Config {
 
     pub fn file_switches(&self) -> crate::files::Switches {
         crate::files::Switches { fast: self.switch("transfers.fast"), resume: self.switch("transfers.resume") }
+    }
+
+    /// `inbox.min_free`, or the default floor when it is unset or unreadable.
+    pub fn min_free(&self) -> crate::files::MinFree {
+        self.str("inbox.min_free").and_then(|v| crate::files::MinFree::parse(&v)).unwrap_or(crate::files::MinFree::Default)
     }
 
     /// `inbox.dir` with `~/` as the home folder.
@@ -186,5 +193,13 @@ mod tests {
         assert!(c.set("inbox.dir", "relative/dir").is_err());
         c.set("inbox.dir", "/srv/in").unwrap();
         assert_eq!(c.inbox_dir(), std::path::PathBuf::from("/srv/in"));
+        assert_eq!(c.min_free(), crate::files::MinFree::Default);
+        c.set("inbox.min_free", "10%").unwrap();
+        assert_eq!(c.min_free(), crate::files::MinFree::Percent(10.0));
+        c.set("inbox.min_free", "500M").unwrap();
+        assert_eq!(c.min_free(), crate::files::MinFree::Bytes(500 * 1024 * 1024));
+        for bad in ["lots", "-1G", "120%", "2X", ""] {
+            assert!(c.set("inbox.min_free", bad).is_err(), "{bad}");
+        }
     }
 }
