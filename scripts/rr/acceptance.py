@@ -38,8 +38,15 @@ THRESHOLDS = {
     "threads_growth": 8,
     # Peaks during batches are by design (Kotlin's IO dispatcher alone may grow to 64 threads); runaway growth is not.
     "threads_peak_over": 96,
-    # The driver itself (the session client): resident memory growth per hour.
+    # Notifications the Android app shows at once: Android refuses an app's notifications past 50, which would hide
+    # pairing, call and control prompts.
+    "notifications_max": 20,
+    # The driver itself (the session client): resident memory growth per hour, and the last window over the first.
     "peer_rss_slope_mib_h": 16.0,
+    "peer_rss_growth_mib": 48.0,
+    # Slopes are judged on runs of at least this many hours; shorter runs are mostly warm-up (buffers and caches filling
+    # with the first large files), so they are judged on the windows' growth alone.
+    "slope_min_hours": 2.0,
     # Idle periods: the app's CPU time as a share of one core, and wakeups. A Mac test instance's control timer (five
     # status files a second) costs about 1.6 % of a core on its own (sampled 27 Nov 2026), hence the Mac's higher bar.
     "idle_cpu_percent": {"android": 2.0, "macos": 3.0},
@@ -335,6 +342,8 @@ def judge_soak(platform, report, samples, crash_log):
         return out
 
     after_warmup = lambda pts: [p for p in pts if p[0] >= warmup(t_end)]  # noqa: E731
+    long_run = t_end >= THRESHOLDS["slope_min_hours"] * 3600
+    judged = lambda slope, limit: slope is None or slope <= limit or not long_run  # noqa: E731
 
     rss = series("rss_kb", scale=1.0 / MIB_KB)
     footprint = series("footprint_kb", scale=1.0 / MIB_KB) if platform == "macos" else []
@@ -350,9 +359,10 @@ def judge_soak(platform, report, samples, crash_log):
                         "last_median": round(statistics.median(last), 1) if last else None, "max": round(max(v for _, v in memory), 1),
                         "slope_per_hour": round(slope, 2) if slope is not None else None, "since_minute": round(memory[0][0] / 60, 1)}
         limit_s, limit_g = THRESHOLDS["rss_slope_mib_h"][platform], THRESHOLDS["rss_growth_mib"][platform]
-        check(label, (slope is None or slope <= limit_s) and (growth is None or growth <= limit_g),
-              "slope %s MiB/h (limit %s), last window %s MiB over the first (limit %s)" % (
-                  None if slope is None else round(slope, 2), limit_s, None if growth is None else round(growth, 1), limit_g))
+        check(label, judged(slope, limit_s) and (growth is None or growth <= limit_g),
+              "slope %s MiB/h (limit %s%s), last window %s MiB over the first (limit %s)" % (
+                  None if slope is None else round(slope, 2), limit_s, "" if long_run else ", not judged under 2 hours",
+                  None if growth is None else round(growth, 1), limit_g))
     if platform == "android":
         heap = series("javaUsed", only_gc=True, scale=1.0 / (1024 * 1024))
         if heap:
@@ -362,7 +372,7 @@ def judge_soak(platform, report, samples, crash_log):
             metrics["java_heap_after_gc_mib"] = {"first_median": round(statistics.median(first), 2) if first else None,
                                                  "last_median": round(statistics.median(last), 2) if last else None,
                                                  "max": round(max(v for _, v in heap), 2), "slope_per_hour": None if slope is None else round(slope, 3)}
-            check("Java heap after GC", (slope is None or slope <= THRESHOLDS["heap_slope_mib_h"]) and (growth is None or growth <= THRESHOLDS["heap_growth_mib"]),
+            check("Java heap after GC", judged(slope, THRESHOLDS["heap_slope_mib_h"]) and (growth is None or growth <= THRESHOLDS["heap_growth_mib"]),
                   "slope %s MiB/h (limit %s), last window %s MiB over the first (limit %s)" % (
                       None if slope is None else round(slope, 3), THRESHOLDS["heap_slope_mib_h"], None if growth is None else round(growth, 2), THRESHOLDS["heap_growth_mib"]))
     for key, label, growth_limit, peak_limit in (("fds", "open files", "fds_growth", "fds_peak_over"), ("threads", "threads", "threads_growth", "threads_peak_over")):
@@ -382,9 +392,13 @@ def judge_soak(platform, report, samples, crash_log):
     peer = series("rss_kb", scale=1.0 / MIB_KB, source="peer")
     if peer:
         slope = slope_per_hour(after_warmup(peer))
+        first, last = windows(peer, t_end)
+        growth = (statistics.median(last) - statistics.median(first)) if first and last else None
         metrics["peer_rss_mib"] = {"start": round(peer[0][1], 1), "end": round(peer[-1][1], 1), "slope_per_hour": None if slope is None else round(slope, 2)}
-        check("driver memory (session client)", slope is None or slope <= THRESHOLDS["peer_rss_slope_mib_h"],
-              "slope %s MiB/h (limit %s)" % (None if slope is None else round(slope, 2), THRESHOLDS["peer_rss_slope_mib_h"]))
+        check("driver memory (session client)", judged(slope, THRESHOLDS["peer_rss_slope_mib_h"]) and (growth is None or growth <= THRESHOLDS["peer_rss_growth_mib"]),
+              "slope %s MiB/h (limit %s%s), last window %s MiB over the first (limit %s)" % (
+                  None if slope is None else round(slope, 2), THRESHOLDS["peer_rss_slope_mib_h"], "" if long_run else ", not judged under 2 hours",
+                  None if growth is None else round(growth, 1), THRESHOLDS["peer_rss_growth_mib"]))
 
     # Idle periods: consecutive samples both inside one idle period.
     idle_cpu, idle_seconds, idle_wake = 0.0, 0.0, 0.0
@@ -420,6 +434,11 @@ def judge_soak(platform, report, samples, crash_log):
         else:
             metrics["alarm_wakeups"] = {"note": "the system listed no wakeup alarms for the app"}
             check("alarm wakeups", True, "none listed for the app")
+        shown = series("notifications")
+        if shown:
+            peak = max(v for _, v in shown)
+            metrics["notifications"] = {"max": peak, "last": shown[-1][1]}
+            check("notifications shown", peak <= THRESHOLDS["notifications_max"], "at most %d at once (limit %d; Android refuses past 50)" % (peak, THRESHOLDS["notifications_max"]))
         locks = series("wakelocks")
         if locks:
             metrics["wakelocks_held"] = {"max": max(v for _, v in locks), "idle_max": max([s["app"].get("wakelocks", 0) for s in app if s.get("idle")] or [0])}

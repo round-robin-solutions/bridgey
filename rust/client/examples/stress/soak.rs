@@ -50,6 +50,8 @@ struct Clips {
     /// Not delivered with the link up all along: a failure.
     lost: u64,
     notes: Vec<String>,
+    /// How long each read-back took until the app held the text.
+    read_back_seconds: Vec<f64>,
 }
 
 /// This process's resident memory, threads and open files.
@@ -107,9 +109,19 @@ fn clip_loop(client: Arc<Client>, sh: Arc<Shared>, proxy: Arc<ProxyState>, app: 
                 c.to_app_delivered += 1;
                 drop(c);
                 if seq % 5 == 1 {
-                    let got = app.verb("clip-status").ok().and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_string));
+                    // Read back from the app, for up to three seconds: the Mac test instance reports its pasteboard in a
+                    // status file it rewrites five times a second, so the first read can come before the write.
+                    let t0 = Instant::now();
+                    let got = loop {
+                        let held = app.verb("clip-status").ok().and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_string));
+                        if held.as_deref() == Some(text.as_str()) || t0.elapsed() >= Duration::from_secs(3) {
+                            break held;
+                        }
+                        std::thread::sleep(Duration::from_millis(200));
+                    };
                     let mut c = clips.lock().unwrap();
                     c.to_app_checked += 1;
+                    c.read_back_seconds.push(secs(t0.elapsed()));
                     if got.as_deref() != Some(text.as_str()) && !flap_near(&sh, &proxy, at, Duration::from_secs(10)) {
                         c.to_app_check_failed += 1;
                         if c.notes.len() < 50 {
@@ -371,7 +383,9 @@ pub fn main(args: &[String]) -> i32 {
         "operations": {"total": ops.len(), "failed": failed_ops},
         "clipboard": {"to_app_sent": c.to_app_sent, "to_app_delivered": c.to_app_delivered, "to_app_checked": c.to_app_checked,
             "to_app_check_failed": c.to_app_check_failed, "from_app_sent": c.from_app_sent, "from_app_arrived": c.from_app_arrived,
-            "lost_in_flap": c.lost_in_flap, "lost": c.lost, "notes": c.notes},
+            "lost_in_flap": c.lost_in_flap, "lost": c.lost, "notes": c.notes,
+            "read_back_seconds": {"n": c.read_back_seconds.len(), "max": c.read_back_seconds.iter().cloned().fold(0.0, f64::max),
+                "mean": if c.read_back_seconds.is_empty() { 0.0 } else { c.read_back_seconds.iter().sum::<f64>() / c.read_back_seconds.len() as f64 }}},
         "transfers": {"outcomes": outcomes, "unfinished": unfinished},
         "peer": {"disconnects": st.disconnects, "errors": st.errors, "dropped": st.dropped, "pairing_prompts": st.pairing_prompts,
             "proxy_connections": run.proxy.st.accepted.load(Ordering::Relaxed)},

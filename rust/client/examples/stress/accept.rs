@@ -28,8 +28,7 @@ fn clip_both_ways(run: &mut Run, sc: &mut Scenario, label: &str) {
         let text = format!("acceptance {label} to app {i} {:08x}", run.rng.0.next() as u32);
         let delivered = run.client.send_clipboard(&device, &text).ok().and_then(|req| run.sh.wait(Duration::from_secs(15), |st| st.clip_results.remove(&req)));
         sc.check(delivered.as_deref() == Some("delivered"), format!("{label}: clipboard to the app: {delivered:?}"));
-        std::thread::sleep(Duration::from_millis(600));
-        let held = run.app.verb("clip-status").ok().and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_string));
+        let (held, _) = run.app_clip_holds(&text, Duration::from_secs(3));
         sc.check(held.as_deref() == Some(text.as_str()), format!("{label}: the app holds {held:?}, sent {text:?}"));
         let back = format!("acceptance {label} from app {i} {:08x}", run.rng.0.next() as u32);
         let asked = run.app.call("clip-send", std::slice::from_ref(&back));

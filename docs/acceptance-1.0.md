@@ -114,7 +114,9 @@ sent them on to the person's devices.
 ## Soak thresholds
 
 Windows leave out the first 20 minutes (or the first 15 % of a shorter run). "First" and "last" windows are an hour
-each on runs of three hours or more, a third of the rest on shorter ones.
+each on runs of three hours or more, a third of the rest on shorter ones. Slopes are judged on runs of two hours or
+more; a shorter run is mostly warm-up (buffers and caches filling with the first large files), so it is judged on how
+much the last window grew over the first.
 
 | Check | Pass when |
 | --- | --- |
@@ -124,9 +126,10 @@ each on runs of three hours or more, a third of the rest on shorter ones.
 | Java heap after GC (Android) | slope at most 2 MiB an hour, last window at most 12 MiB above the first |
 | Open files | last window's median at most 8 above the first's; never more than 48 above it |
 | Threads | last window's median at most 8 above the first's; never more than 96 above it (batches raise it for a moment by design: Kotlin's IO dispatcher alone may grow to 64 threads) |
-| Driver memory (session client) | slope at most 16 MiB an hour |
+| Driver memory (session client) | slope at most 16 MiB an hour, last window at most 48 MiB above the first |
 | CPU while idle | at most 2 % of one core across the quiet periods on Android, 3 % on the Mac (the test instance's control timer, five status files a second, takes about 1.6 % by itself) |
 | Wakeups | Android: at most 12 alarm wakeups an hour for the app; Mac: at most 20 idle wakeups a second while quiet |
+| Notifications (Android) | at most 20 shown at once (Android refuses an app's notifications past 50, which would hide pairing, call and control prompts) |
 | Throughput | per direction, the last window's median speed for files of 16 MiB or more at least half the first's (smaller files measure per-file round trips more than the link) |
 
 ## Results, 27 November 2026
@@ -164,7 +167,74 @@ text because the control receiver only started listening at its first command (i
 
 ### Soak
 
-SOAK_RESULTS
+Both ran for 380 minutes at the same time on the personal Mac, from 05:47 and 05:51 UTC, against this branch's build
+before the notification fix below (the fix was checked on its own afterwards).
+Android: files up to 64 MiB (the AVD has about 650 MB free). Mac: files up to 256 MiB.
+
+| | Android | Mac |
+| --- | --- | --- |
+| Operations | 315, none failed: 140 whole files, 37 batches of small files, 40 cancels, 40 cuts, 10 stalls, 19 reconnect bursts, 29 quiet periods | 339, none failed: 153 whole files, 40 batches, 53 cancels, 33 cuts, 14 stalls, 18 reconnect bursts, 28 quiet periods |
+| Transfers | 1,066: 976 done, 40 cancelled, 50 interrupted and resumed, none left unfinished | 1,254: 1,154 done, 53 cancelled, 47 interrupted and resumed, none left unfinished |
+| Clipboard | 1,143 texts each way; 1,130 and 1,130 arrived, 26 lost while the link was cut or held, none with it up; 226 read back on the app, all right | 1,143 and 1,142; 1,127 and 1,119 arrived, 39 lost in cuts, none with the link up; read-back: see below |
+| Reconnects | 137, no pairing prompt after the first | 122, none |
+| Crashes | none (one process ID for the whole run, empty crash buffer) | none |
+
+Against the thresholds (first window 20 to 80 minutes, last window the final hour):
+
+| Check | Android | Mac |
+| --- | --- | --- |
+| Memory | pass: resident size 149.9 MiB median in the first hour, 124.6 in the last, slope -4.0 MiB an hour | pass: footprint 70 MiB, then 74; slope +2.9 MiB an hour (resident size 116 to 486 MiB, mostly freed pages malloc keeps) |
+| Java heap after GC | pass: 6.26 then 6.31 MiB, slope +0.07 MiB an hour, at most 8.6 | |
+| Open files | pass: 172 then 172, at most 174 | pass: 71 then 71, at most 74 |
+| Threads | pass: 52 then 57, at most 86 during batches | pass: 11 then 11, at most 20 |
+| Driver memory | pass: 8.5 to 15.8 MiB, slope +0.6 MiB an hour | pass: 8.3 to 35.5 MiB, slope -0.2 MiB an hour |
+| CPU while idle | pass: 0.08 % of one core over 2 h 15 min of quiet periods | pass: 2.2 % (the test instance's own control timer is about 1.6 %, sampled; the installed app measured 0.6 % idle) |
+| Wakeups | pass: no wakeup alarms registered, no wake lock held at any sample | pass: 4.8 idle wakeups a second (the control timer adds 5 a second by design) |
+| Throughput | pass: from the phone 19.1 then 17.1 MiB/s (ratio 0.90); to the phone too few large files per window to compare, median 38 MiB/s | pass: from the Mac 742 then 695 MiB/s (0.94); to the Mac 674 then 367 MiB/s (0.55, near the 0.5 bar; see below) |
+| Report | pass | failed on the clipboard read-back: a harness timing gap, fixed and rerun (below) |
+
+Graphs (`rss.svg`, `java-heap.svg`, `fds.svg`, `threads.svg`, `throughput.svg`, `idle-wakeups.svg`), every sample and
+every operation are in `outputs/bridgey/acceptance/android-soak/` and `mac-soak/` in PA.
+
+**The Mac clipboard read-back.** The Mac acknowledged every text it was read back for, but 147 of 225 read-backs saw the
+text before it. The Mac test instance reports its pasteboard in a status file it rewrites five times a second, and the
+soak read it once, straight after the ack. Every miss held the immediately previous text, never an older one. The soak
+and the acceptance run now poll the read-back for up to 3 seconds. A 25-minute rerun with that change: 35 operations,
+134 files done, 112 texts each way delivered (6 lost in cuts), 23 of 23 read-backs right, the slowest after 0.37 s (one
+status file rewrite), every other check passed (`mac-soak-confirm/`). A 20-minute Android run on the fixed build passed
+every check with at most 11 notifications up (`android-soak-confirm/`).
+
+**Speed to the Mac late in the run.** Large files to the Mac ran at about 700 MiB/s for four hours, then about 400 for
+the last 90 minutes, while other jobs on the personal Mac (a video encode, a browser and Syncthing) raised its load to 8
+to 10. It is not the transfer history: straight after the soak, a fresh instance took 1 GiB at 742 to 923 MiB/s with
+1,500 history entries and 791 to 977 MiB/s with none (`mac-history-*`). Files from the Mac kept their speed.
+
+### Session client across versions
+
+The 1.0 Beta 11 session client (`rust/client`, as Windows, iOS and the CLI use it) against this branch's stand-in, and
+this branch's against the Beta 11 stand-in: the quick stress set (pair, 128 MiB both ways, 30 small files both ways,
+cancels, cuts, an app restart, 20 reconnects) passed 11 of 11 both ways.
+
+### Bugs found
+
+1. **Android: one notification per received file, until Android refuses Bridgey's notifications (fixed here).**
+   `ReceivedFileNotifier.show` posted a notification for every file, each with its own ID, none ever withdrawn. Android
+   keeps at most 50 per app: after a batch of 50 files, the system log reads "Package has already posted or enqueued
+   50 notifications. Not showing more." and every later Bridgey notification is dropped, including pairing codes,
+   calls and phone control prompts. The soak ran into it (49 received-file notifications up and that line in the log
+   when checked), and the system UI process used about half a core while files kept arriving. Now at most 8 stay up,
+   the oldest cancelled first (the files stay in Download/Bridgey and the activity stream): after 60 files on the
+   fixed build, 8 showed and nothing was refused (`android-notifications/`). The soak now samples the count (at most
+   20).
+2. **Mac test instances wrote to the person's clipboard (fixed here).** A debug test instance put received texts on
+   the Mac's clipboard, where the installed Bridgey's automatic clipboard would send them to the person's devices.
+   Test instances now have a pasteboard of their own (`AppPasteboard`); release builds are unchanged.
+3. **Harness gaps the first runs found (fixed here):** the Android control receiver heard texts only after its first
+   command in a new process; the Mac read-back raced the status file; the attach sheet's draft names its process, so
+   it differs after any restart; What's new markers move to the new version by design.
+
+No crash, lost setting, lost grant, lost history item, lost resume record, unfinished transfer or corrupted file in any
+run.
 
 ## RR CI
 
@@ -191,4 +261,4 @@ are in `outputs/bridgey/acceptance/ci-request.md` in PA.
   their own IDs and the local debug key, and the update is done by `adb install -r` or a bundle swap.
 - Connect anywhere tunnels and radios (as the stress tests), folder transfers (the session client has none), and
   screen sharing in the soak (the session client has no screen stream; the apps' own tests cover it).
-- A Mac update quits the app gracefully through Sparkle; here it gets TERM, which is harder on it, not easier.
+- A Mac update quits the app gracefully through Sparkle; here it gets TERM, a harder stop.

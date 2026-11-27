@@ -748,6 +748,19 @@ impl Run {
         Ok(v.get("partials").and_then(Value::as_array).cloned().unwrap_or_default().iter().map(|p| p.get("name").and_then(Value::as_str).unwrap_or("?").to_string()).collect())
     }
 
+    /// Waits up to `timeout` for the app to hold `text` as its newest received clipboard text (the Mac test instance
+    /// reports it in a status file it rewrites five times a second); returns what it held last and the seconds taken.
+    fn app_clip_holds(&self, text: &str, timeout: Duration) -> (Option<String>, f64) {
+        let t0 = Instant::now();
+        loop {
+            let held = self.app.verb("clip-status").ok().and_then(|v| v.get("text").and_then(Value::as_str).map(str::to_string));
+            if held.as_deref() == Some(text) || t0.elapsed() >= timeout {
+                return (held, secs(t0.elapsed()));
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
     fn app_active(&self) -> Result<u64, String> {
         Ok(self.app.verb("status")?.get("active").and_then(Value::as_u64).unwrap_or(0))
     }

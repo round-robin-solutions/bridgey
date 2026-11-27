@@ -94,6 +94,13 @@ class SoakTests(unittest.TestCase):
         self.assertFalse(verdict['open files'])
         self.assertFalse(verdict['no crash'])
 
+    def test_a_short_run_is_judged_on_growth_not_slope(self):
+        # Half an hour with 30 MiB of warm-up: an hourly slope says 60, the windows say little.
+        verdict, _ = self.judge(self.samples(0.5, 30))
+        self.assertTrue(verdict['resident memory'])
+        verdict, _ = self.judge(self.samples(0.5, 300))
+        self.assertFalse(verdict['resident memory'])
+
     def test_graphs_are_written(self):
         with tempfile.TemporaryDirectory() as d:
             samples = os.path.join(d, 'samples.jsonl')

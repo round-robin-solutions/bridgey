@@ -27,7 +27,8 @@ import org.json.JSONObject
  *   result lands in `clipboard-status`.
  * - `clipboard-status`: the sends' results, the newest text that came in and how many came in since these commands were
  *   first used in this process (counted where the activity stream hears of them).
- * - `proc` (`--ez gc true` collects garbage first): this process's resident memory, threads, open files and heaps.
+ * - `proc` (`--ez gc true` collects garbage first): this process's resident memory, threads, open files, heaps, CPU time
+ *   and how many notifications it shows (Android refuses an app's notifications past 50).
  * - `snapshot`: every SharedPreferences file (values of keys that may hold secrets as SHA-256), the private files the
  *   upgrade policy lists (hashes, sizes and their records), the version and install times, and what the app itself
  *   reads back: trusted devices, per-device switches, phone control grants and Unattended access.
@@ -85,7 +86,10 @@ internal object AcceptanceControl {
             .put("results", JSONArray(clipboardResults.toList().takeLast(20)))
             .put("text", lastReceived ?: JSONObject.NULL)
             .put("received", receivedCount.get())
-        "proc" -> proc(intent.getBooleanExtra("gc", false))
+        "proc" -> proc(intent.getBooleanExtra("gc", false)).put(
+            "notifications",
+            runCatching { app.getSystemService(android.app.NotificationManager::class.java).activeNotifications.size }.getOrDefault(-1),
+        )
         "snapshot" -> snapshot(app)
         "pref-set" -> prefSet(app, intent)
         "control-unattended" -> {
