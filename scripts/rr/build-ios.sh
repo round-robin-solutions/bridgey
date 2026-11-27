@@ -311,6 +311,13 @@ if [ "$UI_TESTS" = 1 ]; then
       FAILED="$FAILED screen-$1"
     fi
   done
+  # The app rang the phone, and stopped the phone ringing it (AlertsUITests), seen from the phone's side.
+  if grep -q '"event":"find","ring":true' "$LOGS/peer-phone.log" && grep -q '"event":"ringing","ringing":false' "$LOGS/peer-phone.log"; then
+    echo "phone peer: rung by the app and told it stopped ringing"
+  elif ! echo "$FAILED" | grep -q iphone-ui; then
+    echo "error: the phone peer never saw the app ring it or stop it ringing" >&2
+    FAILED="$FAILED peer-find"
+  fi
 
   if [ "$IPAD" = 1 ]; then
     step "iPad: screenshots"
