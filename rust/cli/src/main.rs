@@ -11,6 +11,7 @@ mod daemon;
 mod detect;
 mod doctor;
 mod errors;
+mod files;
 mod invite;
 mod ipc;
 mod ops;
@@ -578,7 +579,11 @@ async fn execute(ctx: &Ctx, command: Command) -> Result<(Value, String), CliErro
             let v = ctx.call("transfers", json!({})).await?;
             let mut t = String::new();
             for x in v["transfers"].as_array().cloned().unwrap_or_default() {
-                t.push_str(&format!("{}  {}  {}/{} bytes  {}  {}\n", daemon::short(x["transferId"].as_str().unwrap_or("")), x["name"].as_str().unwrap_or(""), x["bytes"], x["total"], x["state"].as_str().unwrap_or(""), time::relative(x["startedAt"].as_u64().unwrap_or(0), now)));
+                let way = if x["incoming"] == true { "in " } else { "out" };
+                t.push_str(&format!("{}  {way}  {}  {}/{} bytes  {}  {}\n", daemon::short(x["transferId"].as_str().unwrap_or("")), x["name"].as_str().unwrap_or(""), x["bytes"], x["total"], x["state"].as_str().unwrap_or(""), time::relative(x["startedAt"].as_u64().unwrap_or(0), now)));
+                if let Some(path) = x["path"].as_str() {
+                    t.push_str(&format!("          saved as {}\n", session::printable(path, 512)));
+                }
             }
             if t.is_empty() {
                 t = "No transfers since the background agent started.\n".into();

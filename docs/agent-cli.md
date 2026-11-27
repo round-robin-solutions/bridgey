@@ -51,10 +51,46 @@ and checked against the Mac's numbers. Design and threat model: [mesh-and-codes.
 setup: [agent-cli-setup.md](agent-cli-setup.md) section 6. This replaces "a sleeping Mac finds nothing new"
 above for servers with the grant.
 
+### Files (2026-11-27)
+
+`bridgey send` and files coming in use the session client's transfer code (`bridgey_core::fast`, `resume` and
+`transfer`, the same vectors as the apps):
+
+- **Binary frames** (`files_fast_draft1`, core in protocol v1). The CLI always advertises the key and reads binary frames
+  once a session is authenticated. To a device that shows the key it sends 256 KiB frames in the apps' byte window;
+  to one that does not (an older app, upstream Bridgey) it sends JSON chunks as before. Each file keeps the form it
+  started with.
+- **Resuming** (`files_resume_draft1`). A file over 1 MiB to a device that shows the key is offered resumable. If the
+  link drops, `send` exits with code 11 (`interrupted_resumable`); sending the same file again continues after what
+  the receiver kept. The phone does not offer resume to agent devices, so this applies to Windows, iOS and other
+  installs.
+- **Inbox.** Files a paired device sends land in `~/bridgey-inbox` (`inbox.dir`), mode 0600, never overwriting.
+  `bridgey transfers` lists them with their path. The audit log gets one `files.receive` line per file, with the size,
+  never the name. `inbox.receive off` refuses every file (`files.rejected`).
+- **Free space.** A file is refused (`files.cancel`, as the apps refuse a file they cannot take) when taking it, with
+  what other files arriving still need, would leave less than the floor free on the inbox's volume. The floor is
+  `inbox.min_free`: a size (`2G`, `500M`) or a share of the volume (`10%`); unset, 2 GiB or 5% of the volume,
+  whichever is more, and never under the apps' 64 MiB. Every 4 MiB while a file comes in the check runs again; if
+  what is still to come no longer fits, the file stops and its partial is deleted, resumable or not. A resumed file
+  needs room only for what is left of it, and a refused resume keeps its partial. The daemon log and the audit log
+  record each refusal (`insufficient_space`) with the sizes and the device, never the name or contents.
+  `bridgey transfers` shows it as `refused`. files.v1 has no field for the reason, so the sender sees a cancel.
+- **Partial files** follow security review 1.0, F1. A new partial is created with `O_CREAT | O_EXCL | O_NOFOLLOW`,
+  so it needs no owner or link check. A kept partial reopens only without following a link, as a plain file of this
+  user with one name, and is read again through that same handle before a resume. A file is published only while
+  its partial's name still names the file written. A cancel deletes the partial; a dropped session keeps whole
+  verified blocks of a resumable file for 24 hours.
+- **Switches** in `config.toml`: `transfers.fast` and `transfers.resume` (both `on`; `off` is for tests),
+  `inbox.receive` (`on`), `inbox.dir` and `inbox.min_free`. The daemon reads them when it starts.
+
+Over loopback on rr-dev-1 (256 MiB to tmpfs, release build, median of five runs on a busy host), the CLI sent to
+`rust/client` at 56 MiB/s before and 179 MiB/s in binary frames, and took files from it at 156 MiB/s. JSON chunks
+still run at about 70 MiB/s.
+
 **Not built in phase 1** (cut or left for phase 2): sending folders (`send` takes files; folders wait for
-the transfer engine), `--resume` and `bridgey transfer resume|cancel` (files.v1 has no resume),
+the transfer engine), `bridgey transfer resume|cancel` (resuming is sending the same file again),
 `clip set --sensitive`, the Keychain on macOS, the Homebrew formula, `.deb`, the notifications grant
-(always off), and phase 2's `inbox`, `watch`, `mcp` and `update`.
+(always off), and phase 2's `inbox` command (the inbox itself is built, above), `watch`, `mcp` and `update`.
 
 **Open questions (section 15), answered with the spec's recommendations until Rahul decides:** the
 binary is `bridgey`; `clip get` is in; agent files land in `Download/Bridgey/<device name>`; questions go
@@ -205,7 +241,7 @@ must ignore keys they do not know.
 | 8 | Not paired or unknown device |
 | 9 | Transfer failed (integrity, storage, cancelled on the phone) |
 | 10 | Incompatible: the phone lacks the capability (for example an old app version) |
-| 11 | Transfer interrupted but resumable; the JSON has `transferId` for `bridgey transfer resume` |
+| 11 | Transfer interrupted but resumable; send the same file again to continue (the JSON has the `transferId`) |
 | 130 | Interrupted (Ctrl-C) |
 
 ## 6. Grants
@@ -325,8 +361,14 @@ output = "text"                                     # or "json"
 connect = "10s"
 ask = "30m"
 
-[inbox]                                             # phase 2
+[inbox]
+receive = "on"                                      # off refuses files from paired devices
 dir = "~/bridgey-inbox"
+min_free = "2G"                                     # or "10%"; unset: 2 GiB or 5% of the volume, whichever is more
+
+[transfers]
+fast = "on"                                         # off sends JSON chunks (tests)
+resume = "on"                                       # off starts interrupted files again
 ```
 
 Files:

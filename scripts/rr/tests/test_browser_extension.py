@@ -195,6 +195,11 @@ class ToolchainTests(unittest.TestCase):
         if not tool:
             self.skipTest("cargo is not installed")
         env = dict(os.environ)
+        # As scripts/rr/rust-env.sh: the owned runner isolates HOME, not its installed tools, so rustup's toolchains and
+        # Cargo's home stay in the tool home.
+        home = os.environ.get("RR_CI_HOST_HOME") or os.environ.get("HOME", "")
+        env.setdefault("CARGO_HOME", str(Path(home) / ".cargo"))
+        env.setdefault("RUSTUP_HOME", str(Path(home) / ".rustup"))
         if os.environ.get("RR_CI_CPU"):
             env.setdefault("CARGO_BUILD_JOBS", os.environ["RR_CI_CPU"])
         result = subprocess.run([tool, "test", "--locked", "-p", "bridgey-browser-host", "--manifest-path", str(ROOT / "rust/Cargo.toml")],

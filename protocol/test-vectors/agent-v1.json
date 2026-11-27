@@ -2041,5 +2041,56 @@
    },
    "expect": "reject"
   }
+ ],
+ "agentFeatures": [
+  {
+   "name": "bridgey with binary frames and resume, no code model",
+   "plaintext": {
+    "version": 1,
+    "features": {
+     "clipboard": true,
+     "files": true,
+     "notifications": false,
+     "battery": true,
+     "find_device": true,
+     "ping": true,
+     "links": false,
+     "media": false,
+     "calls": false,
+     "connect_draft1": true,
+     "agent_draft1": true,
+     "notify_draft1": true,
+     "ask_draft1": true,
+     "clipboard_request_draft1": true,
+     "agent_codes_draft1": true,
+     "codes_detect_draft1": false,
+     "agent_notifications_draft1": true,
+     "files_fast_draft1": true,
+     "files_resume_draft1": true
+    }
+   },
+   "expect": {
+    "clipboard": true,
+    "files": true,
+    "notifications": false,
+    "battery": true,
+    "find_device": true,
+    "ping": true,
+    "links": false,
+    "media": false,
+    "calls": false,
+    "connect_draft1": true,
+    "agent_draft1": true,
+    "notify_draft1": true,
+    "ask_draft1": true,
+    "clipboard_request_draft1": true,
+    "agent_codes_draft1": true,
+    "codes_detect_draft1": false,
+    "agent_notifications_draft1": true,
+    "files_fast_draft1": true,
+    "files_resume_draft1": true
+   },
+   "write": true
+  }
  ]
 }

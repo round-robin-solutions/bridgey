@@ -101,7 +101,7 @@ Beta 2). The iOS app runs the same client but its first slice enables only pairi
 | `focus_sync_draft1` | extension | 0.9 Beta 1, 27 Oct | Android, Mac | 1 of 1 | |
 | `camera_draft1` | extension | 0.9 Beta 1, 27 Oct | Android, Mac | 2 of 2 | |
 | `updates_draft1` | extension | 0.10 Beta 4, 27 Oct | Android, Mac | 3 of 3 | Update all must keep working between any two v1 builds |
-| `files_fast_draft1` | core | 0.10 Beta 15, 30 Oct | Android, Mac, Windows, iOS (rust/client); CLI not yet | 9 of 9 | Core by Rahul's call (26 Nov); missing in a map means a pre-v1 or upstream peer |
+| `files_fast_draft1` | core | 0.10 Beta 15, 30 Oct | Android, Mac, Windows, iOS (rust/client), CLI | 9 of 9 | Core by Rahul's call (26 Nov); missing in a map means a pre-v1 or upstream peer |
 | `sms_draft1` | extension | 0.10 Beta 6, 27 Oct | Android, Mac | 18 of 18 | No change since 28 Oct (Beta 9 added the last kinds) |
 | `settings_sync_draft1` | extension | 0.10 Beta 12, 29 Oct | Android, Mac | 4 of 4 | Last shape change 30 Oct; unknown settings keys are skipped, so new settings need no key |
 | `connect_draft1` | extension | 0.10 Beta 13, 30 Oct | Android, Mac, Windows, CLI | 3 of 3 built kinds | Peer parts only ([open question 5](#open-questions-for-rahul)) |
@@ -116,7 +116,7 @@ Beta 2). The iOS app runs the same client but its first slice enables only pairi
 | `screen_draft1` | draft | 0.10 Beta 6, 27 Oct | Android, Mac | stream vectors exist | Labelled a view-only prototype; `screen.start` changed 25 Nov; the next roadmap item reworks screen sharing on the shared Rust rules |
 | `screen_control_draft1` | draft | 1.0 Beta 5, 25 Nov | Android, Mac | `display-v1.json` | 1 day old |
 | `phone_control_draft1` | draft | 1.0 Beta 6, 25 Nov | Android, Mac | `phone-control-v1.json` | 1 day old |
-| `files_resume_draft1` | draft | 1.0 Beta 4, 25 Nov | Android, Mac, Windows | `files-resume-v1.json` | 1 day old; folder resume designed, not built |
+| `files_resume_draft1` | draft | 1.0 Beta 4, 25 Nov | Android, Mac, Windows, CLI | `files-resume-v1.json` | 1 day old; folder resume designed, not built |
 | `lan_first_draft1` | draft | 1.0 Beta 2, 24 Nov | Android, Mac | behaviour only | 2 days old, already followed by `_draft2` |
 | `lan_first_draft2` | draft | 1.0 Beta 5, 25 Nov | Android, Mac | behaviour only | 1 day old |
 | `call_quiet_draft1` | draft | 0.11 Beta 1, 15 Nov | Android, Mac | `call-media-v1.json` | 11 days old |
@@ -376,8 +376,8 @@ sends or receives the kind):
   crowded with unknown keys could hide a known key that Android and the Mac read. It now reads every listed key first.
 - Macs advertised `handoff_takeover_draft1`, which `messages.json` did not list; it is listed now (draft), and
   `contract.py` fails on any unlisted `_draftN` key in app sources.
-- `messages.json` said the CLI implements `files.cancel.ack`; it neither sends nor reads it (no peer waits for it).
-  The entry now leaves `cli` out.
+- `messages.json` said the CLI implements `files.cancel.ack`; it neither sent nor read it (no peer waits for it).
+  The entry left `cli` out until the CLI took files in (27 November); it now sends it as the others do.
 - The CLI sent a few things the phone refuses as `invalid`: a notification `tag` or `from` over 64 characters, a text hint
   over 40, a `from` over 64 on a question, a service over 64 on a codes query, a zero timeout on `ask` and
   `clip get`, and a request over 4,096 bytes once encoded. It now refuses them before sending. It also drops what the
@@ -396,12 +396,15 @@ sends or receives the kind):
   fields of `clipboard.error` and `settings.ack` than Android; the Mac reads `version` `1.0` or `true` as 1 on `codes.*`,
   where `rust/client` refuses both. None changes what a conforming sender gets.
 
-### Before the flip: the CLI and fast transfers
+### Before the flip: the CLI and fast transfers (closed 27 November)
 
-With `files_fast_draft1` core, every v1 implementation must advertise and speak binary frames. Android, the Mac and
-`rust/client` (Windows and iOS) do. The `bridgey` CLI does not yet: it never advertises the key and refuses binary
-frames, so its file transfers use JSON chunks. The CLI needs binary frames (it can reuse `rust/client`'s frame code)
-before the freeze is switched on.
+With `files_fast_draft1` core, every v1 implementation must advertise and speak binary frames. Android, the Mac,
+`rust/client` (Windows and iOS) and now the `bridgey` CLI do. The CLI advertises the key, reads binary frames once a
+session is authenticated and sends its files in them to a peer that shows the key, with `rust/client`'s codec and
+stream reader rather than a copy. A peer without the key still gets JSON chunks. The CLI also takes files in now (its
+inbox) and resumes files both ways (`files_resume_draft1`). Its features map is pinned in `agent-v1.json`
+(`agentFeatures`), and its tests run every transfer against `rust/client` over loopback, both ways
+([agent-cli.md](agent-cli.md#files-2026-11-27)).
 
 ## Open questions for Rahul
 

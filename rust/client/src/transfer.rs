@@ -206,7 +206,7 @@ pub fn free_space(dir: &Path) -> Option<u64> {
 }
 
 /// Room kept free on the receiving volume beyond what the files arriving need (the Mac's rule, 0.10 M6).
-pub(crate) const FREE_SPACE_MARGIN: u64 = 64 * 1024 * 1024;
+pub const FREE_SPACE_MARGIN: u64 = 64 * 1024 * 1024;
 
 /// The hidden partial file for a transfer, beside where the file will land.
 pub fn part_path(dir: &Path, transfer_id: &str) -> PathBuf {

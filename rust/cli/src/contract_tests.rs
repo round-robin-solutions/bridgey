@@ -14,6 +14,7 @@ const SOURCES: &[(&str, &str)] = &[
     ("detect.rs", include_str!("detect.rs")),
     ("doctor.rs", include_str!("doctor.rs")),
     ("errors.rs", include_str!("errors.rs")),
+    ("files.rs", include_str!("files.rs")),
     ("invite.rs", include_str!("invite.rs")),
     ("ipc.rs", include_str!("ipc.rs")),
     ("main.rs", include_str!("main.rs")),
@@ -31,10 +32,10 @@ const SOURCES: &[(&str, &str)] = &[
 
 /// Literals shaped like a kind that are not message kinds: audit command names, the core's events and service names.
 /// Files and settings keys are recognised on their own.
-const NOT_KINDS: &[&str] = &["codes.detect", "connect.failed", "tunnel.closed", "in.roundrobin.bridgey.cli", "bridgey.service"];
+const NOT_KINDS: &[&str] = &["codes.detect", "files.receive", "connect.failed", "tunnel.closed", "in.roundrobin.bridgey.cli", "bridgey.service"];
 
 /// Calls that put a kind on the wire.
-const SENDS: &[&str] = &["send_json(", "send_json_id(", "send_raw_id(", "send_encrypted(", "Message::new("];
+const SENDS: &[&str] = &["send_json(", "send_json_id(", "send_raw_id(", "send_encrypted(", "send_outer(", "Message::new("];
 
 /// Kinds this command reads although the contract has only agents sending them, and why.
 const READ_AGAINST_DIRECTION: &[(&str, &str)] = &[
@@ -210,11 +211,12 @@ fn the_scan_sees_each_style() {
     let found: Vec<&str> = literals(sample).into_iter().map(|(_, l)| l).collect();
     assert_eq!(found, ["a.one", "b.two", "\\\"c.three\\\"", "d.four"]);
     assert!(is_kind("ask.request") && is_kind("files.chunk.ack") && !is_kind("Ask.x") && !is_kind("ask") && !is_kind("a..b"));
-    assert!(not_a_kind("audit.jsonl") && not_a_kind("timeouts.connect") && not_a_kind("codes.detect") && !not_a_kind("codes.query"));
+    assert!(not_a_kind("audit.jsonl") && not_a_kind("timeouts.connect") && not_a_kind("codes.detect") && not_a_kind("transfers.fast") && !not_a_kind("codes.query"));
     let (sent, handled) = scan();
     assert_eq!(sent.get("notify.post"), Some(&"ops.rs"), "send_json_id");
     assert_eq!(sent.get("pairing.offer"), Some(&"session.rs"), "Message::new");
     assert_eq!(handled.get("codes.candidate"), Some(&"daemon.rs"), "a match arm");
-    assert_eq!(handled.get("files.chunk.ack"), Some(&"ops.rs"), "r.kind ==");
+    assert_eq!(handled.get("files.chunk.ack"), Some(&"files.rs"), "a match on r.kind");
+    assert_eq!(sent.get("files.accept"), Some(&"files.rs"), "send_outer");
     assert!(!sent.contains_key("codes.candidate") && !handled.contains_key("notify.post"));
 }

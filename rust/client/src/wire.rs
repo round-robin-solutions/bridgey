@@ -4,6 +4,10 @@
 use crate::crypto::{b64, length_prefixed, unb64};
 use bridgey_connect_proto::derive::hmac_sha256;
 use serde_json::{Map, Value};
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::net::tcp::OwnedReadHalf;
+use tokio::sync::mpsc;
 
 pub const MAX_FRAME: usize = 65_536;
 const MAX_DEPTH: usize = 32;
@@ -182,6 +186,108 @@ impl Message {
         crate::crypto::ct_eq(&received, &expected)
     }
 }
+
+// MARK: reading a session's byte stream: JSON lines and binary frames (files_fast_draft1)
+
+/// Bytes read ahead of the session loop. Above the largest window a fast sender keeps unacknowledged (32 MiB), so the
+/// reader always drains the socket while the loop writes. It also bounds what a misbehaving peer can make this end hold.
+pub const READ_BUDGET: usize = 48 * 1024 * 1024;
+/// Frames read ahead of the session loop.
+pub const READ_QUEUE: usize = 4096;
+
+/// What the reader hands the session loop. Both the session client (session.rs) and the agent CLI read their streams
+/// with [read_frames] in a task of its own, so a frame split across several reads is never lost when another branch
+/// of the session's loop wins.
+pub enum ReadFrame {
+    /// One JSON frame, without its LF.
+    Line(Vec<u8>),
+    /// A binary frame (files_fast_draft1): its kind and body, the length already checked.
+    Binary { kind: u8, body: Vec<u8> },
+    End,
+    Failed(&'static str),
+}
+
+/// Aborts the reader task when the session loop returns.
+pub struct AbortOnDrop(pub tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Reads frames until the stream ends or a frame breaks the rules: JSON lines of at most 65,536 bytes, and binary
+/// frames whose header declares 1 to 1,048,677 bytes (any other length closes: the stream can no longer be split).
+/// Each frame takes its size from `budget` until the session loop has handled it.
+pub async fn read_frames(mut reader: BufReader<OwnedReadHalf>, tx: mpsc::Sender<(ReadFrame, Option<tokio::sync::OwnedSemaphorePermit>)>, budget: Arc<tokio::sync::Semaphore>) {
+    let mut line = Vec::with_capacity(4096);
+    loop {
+        let read = match read_frame(&mut reader, &mut line).await {
+            Ok(Some(Frame::Line)) => ReadFrame::Line(std::mem::replace(&mut line, Vec::with_capacity(4096))),
+            Ok(Some(Frame::Binary(kind, body))) => ReadFrame::Binary { kind, body },
+            Ok(None) => ReadFrame::End,
+            Err(reason) => ReadFrame::Failed(reason),
+        };
+        let size = match &read {
+            ReadFrame::Line(l) => l.len(),
+            ReadFrame::Binary { body, .. } => body.len(),
+            _ => 0,
+        };
+        let last = matches!(read, ReadFrame::End | ReadFrame::Failed(_));
+        let permit = budget.clone().acquire_many_owned(size.max(1) as u32).await.ok();
+        if tx.send((read, permit)).await.is_err() || last {
+            return;
+        }
+    }
+}
+
+enum Frame {
+    Line,
+    Binary(u8, Vec<u8>),
+}
+
+/// One frame. Ok(None) at the end of the stream.
+async fn read_frame(reader: &mut BufReader<OwnedReadHalf>, line: &mut Vec<u8>) -> Result<Option<Frame>, &'static str> {
+    line.clear();
+    loop {
+        let buf = match reader.fill_buf().await {
+            Ok(buf) => buf,
+            // Windows resets a connection the other end closed with data unread: between frames, that is the end.
+            Err(e) if line.is_empty() && matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => return Ok(None),
+            Err(_) => return Err("read_failed"),
+        };
+        if buf.is_empty() {
+            return if line.is_empty() { Ok(None) } else { Err("truncated") };
+        }
+        if line.is_empty() && buf[0] == crate::fast::MARKER {
+            let mut header = [0u8; crate::fast::HEADER];
+            reader.read_exact(&mut header).await.map_err(|_| "truncated")?;
+            let Some(len) = crate::fast::body_length(&header) else { return Err("bad_binary_length") };
+            let mut body = vec![0u8; len];
+            reader.read_exact(&mut body).await.map_err(|_| "truncated")?;
+            return Ok(Some(Frame::Binary(header[1], body)));
+        }
+        match buf.iter().position(|b| *b == b'\n') {
+            Some(i) => {
+                line.extend_from_slice(&buf[..i]);
+                reader.consume(i + 1);
+                if line.len() > MAX_FRAME {
+                    return Err("frame_too_large");
+                }
+                return Ok(Some(Frame::Line));
+            }
+            None => {
+                let n = buf.len();
+                line.extend_from_slice(buf);
+                reader.consume(n);
+                if line.len() > MAX_FRAME {
+                    return Err("frame_too_large");
+                }
+            }
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

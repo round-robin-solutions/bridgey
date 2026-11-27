@@ -398,10 +398,10 @@ Explicit Android share only. Requires Clipboard grants at both ends. Copies with
 | `files.complete` | upstream-v1 | core | either | files | yes | messageId | frame | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli, client |
 | `files.complete.ack` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
 | `files.cancel` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
-| `files.cancel.ack` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, client |
-| `files.resume` | edition-draft | draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, client |
-| `files.resume.ack` | edition-draft | draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, client |
-| `files.resume.wait` | edition-draft | draft | either | files_resume_draft1 | no | none | frame | sessionId, transferId | android, macos, client |
+| `files.cancel.ack` | upstream-v1 | core | either | files | no | none | frame | sessionId, transferId | android, macos, cli, client |
+| `files.resume` | edition-draft | draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli, client |
+| `files.resume.ack` | edition-draft | draft | either | files_resume_draft1 | yes | messageId | 1,024 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, cli, client |
+| `files.resume.wait` | edition-draft | draft | either | files_resume_draft1 | no | none | frame | sessionId, transferId | android, macos, cli, client |
 
 `files.offer`
 

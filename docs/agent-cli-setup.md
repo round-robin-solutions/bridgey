@@ -117,6 +117,13 @@ On a server that is on your Tailscale tailnet, `bridgey tailnet` lists the Bridg
 Both ends show the same six-digit code; confirm it on both. The Mac gives this server nothing (every feature stays
 off), and the phone's grants are not affected.
 
+**Files from those devices** land in `~/bridgey-inbox` on this server; `bridgey transfers` shows each one and where
+it was saved. To refuse them: `bridgey config set inbox.receive off`. To save them elsewhere:
+`bridgey config set inbox.dir /srv/inbox`. A file is refused when it would leave less than 2 GiB or 5% of that disk
+free, whichever is more; change that with `bridgey config set inbox.min_free 10G` (or `10%`). Restart the agent after
+any of these (`systemctl --user restart bridgey`).
+A big file that was cut off continues where it stopped when it is sent again.
+
 ## 6. Detect codes (optional)
 
 A server can read one-time codes for the phone when no Mac is reading, with the same model, prompt and
