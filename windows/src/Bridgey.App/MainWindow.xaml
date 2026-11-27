@@ -47,6 +47,11 @@
                             <FontIcon Glyph="&#xE717;" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
+                    <NavigationViewItem Content="Phone files" Tag="phonefiles" AutomationProperties.AutomationId="NavPhoneFiles">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8B7;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
                     <NavigationViewItem Content="Pair a device" Tag="pair" AutomationProperties.AutomationId="NavPair">
                         <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE710;" />

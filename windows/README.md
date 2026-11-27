@@ -27,6 +27,12 @@ WhatsApp voice and video calls, and the SIM to call from. The phone places each 
 or its earbuds. When the phone rings, a card over every page shows the caller with the phone's own Answer and Decline,
 then Hang up, until the call ends.
 
+**Phone files** browses the phone (when Let other devices browse this phone is on there): its photos and videos, recent
+files, and its folders, with thumbnails. **Download** brings the selection, files and whole folders, to the received
+files folder (**Download to…** asks where); a name already there gets a number, so nothing is overwritten. **Add files**,
+or a drop on the page, puts files from this PC in the folder being browsed, when the phone allows changes there. A
+folder the phone sends lands in the received files folder.
+
 Files go from the device card's **Send files**, by dragging them onto the window or a device card, from the
 notification area menu, or from Explorer: right-click, **Send to**, **Bridgey**. Received files go to
 Downloads\Bridgey (Settings > Files changes it) and are never overwritten: a second `photo.jpg` becomes
@@ -129,8 +135,10 @@ and `BRIDGEY_UPDATE_CURRENT_BUILD` point a separate profile's updater at a test 
 - MSIX and winget.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.
-- Phone files, and screen view and control (M3).
+- Screen view and control (M3).
 - Calls from tel: links in the browser extension and from other apps (the Mac asks first); call audio on this PC.
+- Phone files: previews, opening a file without downloading it, adding folders, and continuing a download or upload
+  that broke off (it stops, and the files that arrived stay).
 - Pinning, muting, archiving and deleting conversations, and searching them (the Mac has these).
 
 The activity list is in memory only for now.

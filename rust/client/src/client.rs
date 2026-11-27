@@ -1288,7 +1288,7 @@ impl Inner {
                 fail("unreadable");
                 continue;
             }
-            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256, blocks };
+            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256, blocks, folder: None };
             match self.feature_session(&device_id, "files") {
                 Ok((handle, _)) => {
                     // Handed over under the lock, so a cancel goes either here or to the session, never neither.
@@ -1565,6 +1565,10 @@ impl session::Host for Inner {
         }
     }
 
+    fn folder_entry(&self, peer: &str, offer: &session::FolderEntryOffer) -> Option<session::FolderTarget> {
+        crate::phone_files::folder_entry(self, peer, offer)
+    }
+
     fn phone_kind(&self, kind: &str) -> Option<crate::phone::Incoming> {
         crate::phone::incoming(kind).or_else(|| if self.simulating.load(Ordering::Relaxed) { crate::sim::incoming(kind) } else { None })
     }
@@ -1744,6 +1748,22 @@ impl session::Host for Inner {
     }
 
     fn event(&self, event: session::Event) {
+        // A file of a folder the phone's files feature sends or receives: its own bookkeeping, no file events for the host.
+        if let session::Event::FileIncoming { transfer, .. } | session::Event::FileProgress { transfer, .. } | session::Event::FileDone { transfer, .. } | session::Event::FileFailed { transfer, .. } = &event {
+            if crate::phone_files::owns(self, *transfer) {
+                match &event {
+                    session::Event::FileIncoming { transfer, device_id, .. } => {
+                        self.state.lock().unwrap().transfers.insert(*transfer, device_id.clone());
+                    }
+                    session::Event::FileDone { transfer, .. } | session::Event::FileFailed { transfer, .. } => {
+                        self.state.lock().unwrap().transfers.remove(transfer);
+                    }
+                    _ => {}
+                }
+                crate::phone_files::file_event(self, event);
+                return;
+            }
+        }
         match event {
             session::Event::Code { session, device_id, name, code } => {
                 let pairing = {
@@ -1923,6 +1943,32 @@ impl Inner {
     /// The device's latest feature map, while it is connected.
     pub(crate) fn remote_features(&self, device_id: &str) -> Option<FeatureMap> {
         self.state.lock().unwrap().remote.get(device_id).cloned()
+    }
+
+    /// A connected device's session, whatever the switches.
+    pub(crate) fn connected_handle(&self, device_id: &str) -> Option<Handle> {
+        self.connected_session(device_id).ok()
+    }
+
+    /// Hands a hashed file to a device's session (the phone's files feature sends folders this way). False when it is
+    /// not connected.
+    pub(crate) fn send_hashed_file(&self, device_id: &str, file: OutgoingFile) -> bool {
+        let Some(handle) = self.connected_handle(device_id) else { return false };
+        let transfer = file.transfer;
+        self.state.lock().unwrap().transfers.insert(transfer, device_id.to_string());
+        if handle.send_file(file) {
+            return true;
+        }
+        self.state.lock().unwrap().transfers.remove(&transfer);
+        false
+    }
+
+    /// Stops a transfer in either direction (the session tells the other device).
+    pub(crate) fn cancel_transfer(&self, transfer: u64) {
+        let device = self.state.lock().unwrap().transfers.get(&transfer).cloned();
+        if let Some(handle) = device.and_then(|d| self.connected_handle(&d)) {
+            handle.cancel_file(transfer);
+        }
     }
 
     /// Either side's switches changed for a device: each phone feature looks again.

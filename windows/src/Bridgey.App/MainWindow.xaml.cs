@@ -11,13 +11,13 @@ using Windows.Graphics;
 namespace Bridgey;
 
 /// <summary>
-/// The window: Mica where Windows has it, the edition's title bar, Home, Notifications, Messages, Calls, Pair a device and
-/// Settings, and the phone's call card over every page. Pages are made
+/// The window: Mica where Windows has it, the edition's title bar, Home, Notifications, Messages, Calls, Phone files, Pair
+/// a device and Settings, and the phone's call card over every page. Pages are made
 /// once and kept, and change with a short fade and rise. Closing hides it to the notification area.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications", MessagesPage = "messages", CallsPage = "calls";
+    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications", MessagesPage = "messages", CallsPage = "calls", PhoneFilesPage = "phonefiles";
 
     private readonly Dictionary<string, FrameworkElement> _pages = new();
     private string _current = "";
@@ -93,6 +93,7 @@ public sealed partial class MainWindow : Window
             NotificationsPage => new Views.NotificationsPage(),
             MessagesPage => new Views.MessagesPage(),
             CallsPage => new Views.CallsPage(),
+            PhoneFilesPage => new Views.PhoneFilesPage(),
             _ => new Views.HomePage(),
         };
         _pages[key] = page;

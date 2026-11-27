@@ -14,6 +14,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
     private bool _linksReady;
     private bool _messagesReady;
     private bool _callsReady;
+    private bool _phoneFilesReady;
     private bool _away;
     private bool _clipboardAllowed = true;
     private string _status = "Not connected";
@@ -128,6 +129,13 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
             owner.SetCallsAllowed(this, value);
             Raise();
         }
+    }
+
+    /// <summary>Files on at both ends and the device lets this PC browse it (files_browse_draft1).</summary>
+    public bool PhoneFilesReady
+    {
+        get => _phoneFilesReady;
+        set => Set(ref _phoneFilesReady, value);
     }
 
     /// <summary>Connect away from home is set up with this device (it can reach this PC on other networks).</summary>

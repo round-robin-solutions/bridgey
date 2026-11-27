@@ -166,6 +166,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
             Changed();
             Raise();
             FeatureDefaultChanged?.Invoke("files", value);
+            FeatureDefaultChanged?.Invoke("folders_receive_draft1", value);
         }
     }
 
@@ -292,6 +293,8 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
     [
         ("clipboard", settings.Clipboard),
         ("files", settings.Files),
+        // Folders from the phone (downloads from Phone files, and folders it sends), as the Mac advertises them.
+        ("folders_receive_draft1", settings.Files),
         ("battery", settings.Battery),
         ("find_device", settings.FindDevice),
         ("ping", settings.Ping),

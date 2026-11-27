@@ -29,7 +29,8 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Self-update for direct downloads (the channel feed's `windows` entry; size, SHA-256 and the release key's Ed25519 signature) | Play/APK updater | Sparkle | none | yes (`update.rs`, `bridgey_update_check` and `bridgey_update_verify`, no client needed) |
 | Text messages (`sms_draft1`: conversations, sync, sends, MMS pictures, contacts, Mark as read, Block on phone) | phone side | yes | none | yes, the desktop side, from Windows M3 (`sms.rs`): the Mac's sync rules and cache, kept in the host's storage |
 | The Calls window (`dialer_draft1`: status, contact search, recent calls, calls through the phone or its WhatsApp) and calls (`calls.request`) | phone side | yes | none | yes, the desktop side, from Windows M3 (`calls.rs`): the Mac's search, list and SIM rules; memory only |
-| Everything else (folders, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
+| Phone files (`files_browse_draft1`: places, folders, photos and recent documents, thumbnails) and folders from the phone (`folders_draft1` receiving, `into` downloads) and to it (`into` uploads) | phone side | yes | none | yes, the desktop side, from Windows M3 (`phone_files.rs`, `folders.rs`): files to the folder being browsed; no folder journal or resume yet |
+| Everything else (sending folders with a root, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
 
 ## How it works
 
@@ -86,6 +87,18 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   is typed: a typed number, contacts, then recent calls once per number), `call` (`address`, `subId`, `prefer` ask,
   sim1 or sim2), `whatsapp` (`dataId`, `video`). Events: `changed`, `call` (sent, started, confirm, refused with its
   reason, or no_answer).
+- Phone files (area 3, `phone_files.rs`) asks in two lanes with the phone's budgets (browse: 4 in flight and 40 per
+  10 s; media: 4 active and 60 per 10 s), and each answer must start within 8 s. Ops: `status`, `places`, `list`
+  (`placeId`, `path`, `cursor`, `sort`, `descending`), `media` (`media`, `files` or `recent`), `thumbnails` (up to 64
+  `{key, ref}`, `replaces`), `cancel`, `download` (up to 100 refs, `folder` or the receive folder), `cancel_download`,
+  `upload` (`placeId`, `path`, files), `cancel_upload`. Events: `status`, `places`, `list`, `media`, `thumbnails` (one per
+  batch, base64), `download` and `upload` (progress and outcome). A download is a folder transfer from the phone with
+  `into`: the session's file engine writes each entry (binary frames or JSON chunks, verified against the manifest)
+  under a name the folder receiver chose in that folder, and a clash becomes "name (1).ext"; nothing is merged or
+  overwritten. A folder the phone sends on its own lands in the receive folder under its own (numbered) name. An
+  upload offers the files with `into` to the folder being browsed, each name made portable. A folder that breaks off
+  is not resumed (the phone hears `resume_unavailable`); the files saved stay. The host advertises
+  `folders_receive_draft1` with Files (a switch, so iOS sends nothing new).
 - ABI 1 grows only at the end: `BridgeyConfig` fields after `data_dir` are read only when `struct_size` covers
   them, and new event kinds are skipped by hosts that don't know them.
 - Ownership: client handles are `uint64_t`, so a stopped or freed handle is refused rather than dereferenced.
@@ -134,7 +147,14 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   `src/calls/tests.rs`, with the Mac's list and SIM rules. `tests/calls.rs` runs a session against a simulated phone:
   recent calls, a contact search, the SIM question, a call started, a WhatsApp call waiting for a tap, an emergency
   number refused, a call request when only `calls` is on, and an agent that never gets calls.
-- `protocol/messages.json` lists `client` for the 76 kinds it speaks; a test fails if the sources and the list
+- Phone files: every group of `browse-v1.json` (pages, download answers, thumbnails, previews and ranges read; media
+  lists and cancels written), the `browseRef` group of `protocol-v1.json`, and `folders-v1.json` (portable names, paths,
+  conflict names, case clashes, the manifest digest, a manifest's pages and the receiver's checks) are checked in
+  `src/phone_files/tests.rs` and `src/folders.rs`. Names that need NFC composition are left to the host (Windows
+  composes the names it uploads), so the vectors with combining marks are skipped. `tests/phone_files.rs` runs a session
+  against a client that answers as a phone: places, folders, photos, thumbnails, the lanes under load, a download of a
+  file and a folder tree that lands verified next to a file of the same name, and an upload of two files.
+- `protocol/messages.json` lists `client` for the 98 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The
@@ -146,5 +166,5 @@ recorded session is regenerated with `BRIDGEY_WRITE_VECTORS=1 cargo test -p brid
   and shared code.
 - Tailnet discovery (Tailscale's own addresses are learned through `connect.addresses`).
 - Remote pairing by invite (the agent CLI's); pairing stays on the local network.
-- Clipboard files, folders and resuming a file.
+- Clipboard files, sending folders with a root, resuming a folder, and resuming a file.
 - Link-local IPv6 addresses from DNS-SD are skipped (no scope ID is tracked).

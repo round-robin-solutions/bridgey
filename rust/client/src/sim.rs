@@ -8,10 +8,12 @@ use crate::phone::Incoming;
 
 /// The kinds a desktop sends that a simulated phone takes.
 pub(crate) fn incoming(kind: &str) -> Option<Incoming> {
-    crate::sms::sim_incoming(kind).or_else(|| crate::calls::sim_incoming(kind))
+    crate::sms::sim_incoming(kind).or_else(|| crate::calls::sim_incoming(kind)).or_else(|| crate::phone_files::sim_incoming(kind))
 }
 
 /// A request from the desktop; true when it was a simulated phone's to answer.
 pub(crate) fn receive(inner: &Inner, device_id: &str, kind: &str, plain: &[u8]) -> bool {
-    crate::sms::sim_receive(inner, device_id, kind, plain) || crate::calls::sim_receive(inner, device_id, kind, plain)
+    crate::sms::sim_receive(inner, device_id, kind, plain)
+        || crate::calls::sim_receive(inner, device_id, kind, plain)
+        || crate::phone_files::sim_receive(inner, device_id, kind, plain)
 }

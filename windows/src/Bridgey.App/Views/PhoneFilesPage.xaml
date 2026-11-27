@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Bridgey.Views.PhoneFilesPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Bridgey.ViewModels"
+    xmlns:views="using:Bridgey.Views">
+
+    <Grid x:Name="PageRoot" Padding="32,20,32,24" RowSpacing="12" AllowDrop="True" DragOver="OnDragOver" Drop="OnDrop">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Phone files" Style="{StaticResource BrandHeadline}" AutomationProperties.AutomationId="PhoneFilesTitle" />
+                <TextBlock Text="{x:Bind Files.Status, Mode=OneWay}" Style="{StaticResource BrandSecondary}" Visibility="{x:Bind Files.HasStatus, Mode=OneWay}"
+                           AutomationProperties.AutomationId="PhoneFilesStatus" />
+            </StackPanel>
+            <ComboBox Grid.Column="1" VerticalAlignment="Center" MinWidth="160" ItemsSource="{x:Bind Files.Phones}"
+                      SelectedItem="{x:Bind Files.SelectedPhone, Mode=TwoWay}" Visibility="{x:Bind Files.HasManyPhones, Mode=OneWay}"
+                      AutomationProperties.Name="Phone" AutomationProperties.AutomationId="PhoneFilesPhone" />
+        </Grid>
+
+        <InfoBar x:Name="NoticeBar" Grid.Row="1" IsOpen="{x:Bind Files.HasNotice, Mode=OneWay}" Severity="Warning"
+                 Message="{x:Bind Files.Notice, Mode=OneWay}" CloseButtonClick="OnNoticeClosed" AutomationProperties.AutomationId="PhoneFilesNotice" />
+
+        <!-- No phone shares its files yet. -->
+        <TextBlock Grid.Row="2" Grid.RowSpan="2" Text="Pair a phone, then turn on Let other devices browse this phone in Bridgey on it."
+                   Style="{StaticResource BrandBody}" MaxWidth="440" HorizontalAlignment="Left" Visibility="{x:Bind Files.HasNoPhone, Mode=OneWay}"
+                   AutomationProperties.AutomationId="PhoneFilesOff" />
+
+        <!-- Sections, the way back up, and what to do with the selection. -->
+        <StackPanel Grid.Row="2" Spacing="8" Visibility="{x:Bind Files.HasPhone, Mode=OneWay}">
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <SelectorBar x:Name="Sections" SelectionChanged="OnSectionChanged" AutomationProperties.Name="Show" AutomationProperties.AutomationId="PhoneFilesSections">
+                    <SelectorBarItem Text="Photos and videos" AutomationProperties.AutomationId="SectionPhotos" />
+                    <SelectorBarItem Text="Files" AutomationProperties.AutomationId="SectionDocuments" />
+                    <SelectorBarItem Text="Folders" IsSelected="True" AutomationProperties.AutomationId="SectionFolders" />
+                    <SelectorBarItem Text="Recent" AutomationProperties.AutomationId="SectionRecent" />
+                </SelectorBar>
+                <Button x:Name="UploadButton" Grid.Column="1" VerticalAlignment="Center" Click="OnUpload" Visibility="{x:Bind Files.CanUpload, Mode=OneWay}"
+                        AutomationProperties.AutomationId="AddFiles" ToolTipService.ToolTip="Add files to this folder on the phone">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE898;" FontSize="14" />
+                        <TextBlock Text="Add files" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="DownloadToButton" Grid.Column="2" VerticalAlignment="Center" Content="Download to…" Click="OnDownloadTo" IsEnabled="False"
+                        AutomationProperties.AutomationId="DownloadSelectedTo" />
+                <Button x:Name="DownloadButton" Grid.Column="3" VerticalAlignment="Center" Style="{StaticResource AccentButtonStyle}" Click="OnDownload" IsEnabled="False"
+                        AutomationProperties.AutomationId="DownloadSelected" ToolTipService.ToolTip="Download to your received files folder">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE896;" FontSize="14" />
+                        <TextBlock Text="Download" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+            <Grid ColumnSpacing="8" Visibility="{x:Bind Files.InFolders, Mode=OneWay}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Click="OnUp" IsEnabled="{x:Bind Files.InPlace, Mode=OneWay}" AutomationProperties.Name="Up one level" AutomationProperties.AutomationId="FolderUp"
+                        ToolTipService.ToolTip="Up one level (Alt+Up)">
+                    <Button.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Menu" Key="Up" />
+                    </Button.KeyboardAccelerators>
+                    <FontIcon Glyph="&#xE74A;" FontSize="14" />
+                </Button>
+                <BreadcrumbBar Grid.Column="1" VerticalAlignment="Center" ItemsSource="{x:Bind Files.Crumbs}" ItemClicked="OnCrumb"
+                               AutomationProperties.Name="Folder" AutomationProperties.AutomationId="PhoneFilesPath" />
+                <ComboBox Grid.Column="2" VerticalAlignment="Center" SelectedIndex="{x:Bind Files.SortIndex, Mode=TwoWay}" Visibility="{x:Bind Files.InPlace, Mode=OneWay}"
+                          AutomationProperties.Name="Sort by" AutomationProperties.AutomationId="PhoneFilesSort">
+                    <ComboBoxItem Content="Name" />
+                    <ComboBoxItem Content="Date modified" />
+                    <ComboBoxItem Content="Size" />
+                    <ComboBoxItem Content="Kind" />
+                </ComboBox>
+            </Grid>
+        </StackPanel>
+
+        <Grid Grid.Row="3" Visibility="{x:Bind Files.HasPhone, Mode=OneWay}">
+            <TextBlock Text="{x:Bind Files.EmptyText, Mode=OneWay}" Style="{StaticResource BrandSecondary}" Margin="12,8"
+                       Visibility="{x:Bind Files.IsEmpty, Mode=OneWay}" AutomationProperties.AutomationId="PhoneFilesEmpty" />
+            <ProgressRing IsActive="{x:Bind Files.Loading, Mode=OneWay}" Width="28" Height="28" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,24,0,0"
+                          AutomationProperties.Name="Loading" />
+            <ListView x:Name="FileList" ItemsSource="{x:Bind Files.Items}" SelectionMode="Extended" SelectionChanged="OnSelectionChanged"
+                      DoubleTapped="OnDoubleTapped" KeyDown="OnListKeyDown" Visibility="{x:Bind Files.HasItems, Mode=OneWay}"
+                      AutomationProperties.Name="Phone files" AutomationProperties.AutomationId="PhoneFileList">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:PhoneFileItem">
+                        <Grid ColumnSpacing="12" Padding="0,6" AutomationProperties.Name="{x:Bind Label}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="40" Height="40" CornerRadius="8" Background="{ThemeResource BrandSurfaceAltBrush}">
+                                <Grid>
+                                    <FontIcon Glyph="{x:Bind Glyph}" FontSize="18" Foreground="{ThemeResource BrandPrimaryBrush}" Visibility="{x:Bind ShowsGlyph, Mode=OneWay}" />
+                                    <Image Source="{x:Bind views:PhoneFilesPage.Picture(Thumbnail), Mode=OneWay}" Stretch="UniformToFill" Visibility="{x:Bind HasThumbnail, Mode=OneWay}" />
+                                </Grid>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="{x:Bind Name}" Foreground="{ThemeResource BrandOnBrush}" TextTrimming="CharacterEllipsis" MaxLines="1" />
+                                <TextBlock Text="{x:Bind Detail}" Style="{StaticResource BrandSecondary}" TextTrimming="CharacterEllipsis" MaxLines="1" TextWrapping="NoWrap" />
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+                <ListView.Footer>
+                    <Button Content="Show more" HorizontalAlignment="Center" Margin="0,8" Click="OnMore" Visibility="{x:Bind Files.HasMore, Mode=OneWay}"
+                            AutomationProperties.AutomationId="PhoneFilesMore" />
+                </ListView.Footer>
+            </ListView>
+        </Grid>
+
+        <!-- Downloads and uploads from here. -->
+        <ItemsRepeater x:Name="ActivityList" Grid.Row="4" ItemsSource="{x:Bind Files.Activities}" Visibility="{x:Bind Files.HasActivities, Mode=OneWay}"
+                       AutomationProperties.Name="Transfers" AutomationProperties.AutomationId="PhoneFilesActivity">
+            <ItemsRepeater.Layout>
+                <StackLayout Spacing="8" />
+            </ItemsRepeater.Layout>
+            <ItemsRepeater.ItemTemplate>
+                <DataTemplate x:DataType="vm:FileActivity">
+                    <Border Style="{StaticResource BrandCard}" Padding="14,10" AutomationProperties.Name="{x:Bind Heading}">
+                        <Grid ColumnSpacing="12" RowSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{x:Bind Heading}" Foreground="{ThemeResource BrandOnBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind Text, Mode=OneWay}" Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Content="Cancel" Click="{x:Bind Cancel}" Visibility="{x:Bind Running, Mode=OneWay}" />
+                                <Button Content="Show in folder" Click="{x:Bind ShowFolder}" Visibility="{x:Bind CanShow, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="ShowDownload" />
+                                <Button Click="{x:Bind Clear}" Visibility="{x:Bind Finished, Mode=OneWay}" AutomationProperties.Name="Clear" ToolTipService.ToolTip="Clear">
+                                    <FontIcon Glyph="&#xE711;" FontSize="12" />
+                                </Button>
+                            </StackPanel>
+                            <ProgressBar Grid.Row="1" Grid.ColumnSpan="2" Value="{x:Bind Progress, Mode=OneWay}" Maximum="100" Visibility="{x:Bind Running, Mode=OneWay}"
+                                         AutomationProperties.Name="{x:Bind Heading}" />
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsRepeater.ItemTemplate>
+        </ItemsRepeater>
+    </Grid>
+</UserControl>

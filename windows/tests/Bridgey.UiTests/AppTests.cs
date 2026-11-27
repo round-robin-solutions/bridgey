@@ -98,6 +98,7 @@ public sealed partial class AppTests : IDisposable
                     Links(window);
                     TextMessages(window);
                     CallsWindow(window);
+                    PhoneFiles(window);
                 }
                 else
                 {
@@ -139,6 +140,13 @@ public sealed partial class AppTests : IDisposable
                     Shot(window, "call-card-dark");
                     PeerCommand("unnotify call-dark");
                     WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("CallCaller")) is null ? "ok" : null, "the call card gone");
+                    // Phone files: the peer's places, then a folder, in dark.
+                    Click(window, "NavPhoneFiles");
+                    var darkPlace = WaitFor(() => Find(window, "PhoneFileList").FindFirstDescendant(c => c.ByName("Download/Bridgey")), "the phone's places in the dark run");
+                    darkPlace.DoubleClick();
+                    WaitFor(() => Find(window, "PhoneFileList").FindFirstDescendant(c => c.ByName("Trip")), "the phone's top folder in the dark run");
+                    Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
+                    Shot(window, "phone-files-dark");
                     PeerCommand($"notify {NotificationJson("dark-1", "Asha", "Lunch at one?", reply: true)}");
                     Click(window, "NavNotifications");
                     Find(window, "ReplyBox");
@@ -434,6 +442,39 @@ public sealed partial class AppTests : IDisposable
         Shot(window, "call-card-light");
         PeerCommand("unnotify call-1");
         WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("CallCaller")) is null ? "ok" : null, "the call card gone");
+    }
+
+    /// <summary>
+    /// Phone files with the peer acting as a phone (--phone): its places, a folder and its photos with thumbnails, and a
+    /// download that lands in this PC's receive folder.
+    /// </summary>
+    private void PhoneFiles(Window window)
+    {
+        Click(window, "NavPhoneFiles");
+        var list = Find(window, "PhoneFileList");
+        var place = WaitFor(() => list.FindFirstDescendant(c => c.ByName("Download/Bridgey")), "the phone's places");
+        Shot(window, "phone-files-places-light");
+        place.DoubleClick();
+        var trip = WaitFor(() => list.FindFirstDescendant(c => c.ByName("Trip")), "the phone's top folder");
+        trip.DoubleClick();
+        var photo = WaitFor(() => list.FindFirstDescendant(c => c.ByName("IMG_0002.jpg")), "the photos in Trip");
+        Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
+        Shot(window, "phone-files-light");
+
+        if (photo.Patterns.SelectionItem.IsSupported) photo.Patterns.SelectionItem.Pattern.Select();
+        else photo.Click();
+        WaitFor(() => Find(window, "DownloadSelected").IsEnabled ? "ok" : null, "Download enabled for the selection");
+        Click(window, "DownloadSelected");
+        var landed = Path.Combine(_inbox, "IMG_0002.jpg");
+        WaitFor(() => File.Exists(landed) && new FileInfo(landed).Length == 2048 ? "ok" : null, "the photo downloaded to the receive folder");
+        Find(window, "ShowDownload");
+        Shot(window, "phone-files-downloaded-light");
+
+        Click(window, "SectionPhotos");
+        WaitFor(() => list.FindFirstDescendant(c => c.ByName("IMG_0001.jpg")), "the phone's photos");
+        Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
+        Shot(window, "phone-files-photos-light");
+        Click(window, "SectionFolders");
     }
 
     private void PeerCommand(string line)
