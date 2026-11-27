@@ -3,8 +3,8 @@
 Status: draft, November 2026 (roadmap v0.8). The wire rules are in
 [protocol.md](protocol.md#draft-resuming-files-files_resume_draft1); the shared vectors are
 `protocol/test-vectors/files-resume-v1.json` (written by `protocol/tools/resume_vectors.py`). Built in the session
-client (`rust/client`, the engine Windows and iOS use), the Android app and the Mac app, which all check the same
-vectors. Folders are designed, not built.
+client (`rust/client`, the engine Windows and iOS use), the Android app, the Mac app and the `bridgey` agent CLI
+(on the session client's code), which all check the same vectors. Folders are designed, not built.
 
 ## What it does
 

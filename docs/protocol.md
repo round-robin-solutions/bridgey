@@ -2312,7 +2312,8 @@ original keys `clipboard` (Set your clipboard), `files`, `battery`, `find_device
 `ping`) and `notifications` (always `false` for ordinary broadcasts), plus the draft keys above. The phone never
 pushes its own clipboard, notifications, files, text messages or settings to an agent device, whatever
 the maps say. Agents receive only answers to their requests, `battery.update` while Battery is granted,
-and `agent.*` messages.
+and `agent.*` messages. Other paired devices (a Mac or another server over the tailnet, Windows) may send an agent
+files with `files.v1`; the `bridgey` command saves them in its inbox ([agent-cli.md](agent-cli.md#files-2026-11-27)).
 
 ### Notification snapshots (`agent_notifications_draft1`)
 
@@ -2581,7 +2582,7 @@ Wi-Fi power saving can still slow a transfer; the speed test reports `screenOn`.
 ## Draft: resuming files (`files_resume_draft1`)
 
 **Draft, edition only.** Design and trade-offs: [file-resume.md](file-resume.md). Built in the session client
-(`rust/client`, used by Windows and iOS), the Android app and the Mac app. Shared vectors:
+(`rust/client`, used by Windows and iOS), the Android app, the Mac app and the agent CLI. Shared vectors:
 `protocol/test-vectors/files-resume-v1.json`. Peers without the key keep [Files](#files-filesv1) as it is: an
 interruption deletes the partial file and a retry sends every byte again.
 

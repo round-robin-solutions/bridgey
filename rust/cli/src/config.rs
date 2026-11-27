@@ -17,7 +17,14 @@ pub const KEYS: &[(&str, &str)] = &[
     ("timeouts.ask", "how long ask waits by default (30m)"),
     ("tcp_port", "the port bridgey pair --allow listens on (42458)"),
     ("daemon.idle_exit", "how long a background agent started by a command stays after its last use (10m); the service never exits"),
+    ("inbox.receive", "on: take files paired devices send this install; off refuses them"),
+    ("inbox.dir", "where received files land (~/bridgey-inbox)"),
+    ("transfers.fast", "on: binary frames with devices that read them; off sends JSON chunks (for tests)"),
+    ("transfers.resume", "on: interrupted files continue from what the receiver kept; off starts them again"),
 ];
+
+/// Where received files land without `inbox.dir`.
+pub const DEFAULT_INBOX: &str = "~/bridgey-inbox";
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -66,6 +73,8 @@ impl Config {
                 Value::String(raw.into())
             }
             "control_url" if !(raw.starts_with("wss://") || raw.starts_with("ws://") || raw.is_empty()) => return Err("control_url starts with wss://".into()),
+            "inbox.receive" | "transfers.fast" | "transfers.resume" if raw != "on" && raw != "off" => return Err(format!("{key} is on or off")),
+            "inbox.dir" if !(raw.starts_with('/') || raw.starts_with("~/")) => return Err("inbox.dir is a full path (or starts with ~/)".into()),
             "device_name" if raw.chars().count() > 64 || raw.trim().is_empty() => return Err("device_name is 1 to 64 characters".into()),
             _ => Value::String(raw.into()),
         };
@@ -98,6 +107,24 @@ impl Config {
 
     pub fn json_output(&self) -> bool {
         self.str("output").as_deref() == Some("json")
+    }
+
+    /// An on/off key: on unless it says off.
+    pub fn switch(&self, key: &str) -> bool {
+        self.str(key).as_deref() != Some("off")
+    }
+
+    pub fn file_switches(&self) -> crate::files::Switches {
+        crate::files::Switches { fast: self.switch("transfers.fast"), resume: self.switch("transfers.resume") }
+    }
+
+    /// `inbox.dir` with `~/` as the home folder.
+    pub fn inbox_dir(&self) -> std::path::PathBuf {
+        let raw = self.str("inbox.dir").unwrap_or_else(|| DEFAULT_INBOX.into());
+        match raw.strip_prefix("~/") {
+            Some(rest) => std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into()).join(rest),
+            None => raw.into(),
+        }
     }
 }
 
@@ -148,5 +175,16 @@ mod tests {
         assert!(c.set("nope", "x").is_err());
         assert!(c.set("output", "xml").is_err());
         assert_eq!(c.control_url(), DEFAULT_CONTROL_URL);
+        // File switches are on until turned off; the inbox defaults to ~/bridgey-inbox.
+        assert_eq!(c.file_switches(), crate::files::Switches { fast: true, resume: true });
+        assert!(c.switch("inbox.receive"));
+        c.set("transfers.fast", "off").unwrap();
+        c.set("inbox.receive", "off").unwrap();
+        assert!(!c.file_switches().fast && c.file_switches().resume && !c.switch("inbox.receive"));
+        assert!(c.set("transfers.resume", "maybe").is_err());
+        assert!(c.inbox_dir().ends_with("bridgey-inbox"));
+        assert!(c.set("inbox.dir", "relative/dir").is_err());
+        c.set("inbox.dir", "/srv/in").unwrap();
+        assert_eq!(c.inbox_dir(), std::path::PathBuf::from("/srv/in"));
     }
 }

@@ -47,6 +47,10 @@ pub const OWN_FEATURES: &[(&str, bool)] = &[
     // Detect codes: true only while this build has the model runner and a model is installed (detect.rs).
     ("codes_detect_draft1", false),
     ("agent_notifications_draft1", true),
+    // Capabilities, as in the apps: binary file frames (core in protocol v1) and resuming files. `transfers.fast` and
+    // `transfers.resume` in config.toml can turn them off for a test.
+    ("files_fast_draft1", true),
+    ("files_resume_draft1", true),
 ];
 
 /// Grant name (as `bridgey grants` shows it) to the phone's feature key and the words the phone uses.
@@ -86,6 +90,8 @@ pub struct Reply {
     pub kind: String,
     pub message: Message,
     pub payload: Option<Value>,
+    /// The decrypted bytes `payload` was read from (`files.resume` checks them as they came).
+    pub plaintext: Option<Vec<u8>>,
 }
 
 struct Live {
@@ -128,6 +134,15 @@ pub struct TransferInfo {
     pub started_at: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<u64>,
+    /// A file a paired device sent here (the inbox), not one this install sent.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub incoming: bool,
+    /// Where a received file was saved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Bytes the receiver already had from an earlier attempt (files_resume_draft1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resumed_from: Option<u64>,
 }
 
 #[derive(Default)]
@@ -176,6 +191,9 @@ pub struct Daemon {
     pub stop: Notify,
     detector: std::sync::OnceLock<Arc<crate::detect::Detector>>,
     detect_slots: crate::detect::DetectSlots,
+    /// Files paired devices send here.
+    pub inbox: crate::files::Inbox,
+    pub switches: crate::files::Switches,
 }
 
 pub struct WaitGuard<'a> {
@@ -244,6 +262,12 @@ impl Daemon {
                 }, answer: None }))
             })
             .collect();
+        let switches = config.file_switches();
+        let (report_tx, mut report_rx) = mpsc::unbounded_channel::<crate::files::Report>();
+        let inbox = crate::files::Inbox::new(
+            crate::files::InboxConfig { dir: config.inbox_dir(), receive: config.switch("inbox.receive"), resume: switches.resume, records: Some(paths.state.join("file-resume.json")) },
+            report_tx,
+        );
         let daemon = Arc::new(Daemon {
             paths: paths.clone(),
             config,
@@ -262,6 +286,8 @@ impl Daemon {
             stop: Notify::new(),
             detector: std::sync::OnceLock::new(),
             detect_slots: crate::detect::DetectSlots::new(DETECT_IN_FLIGHT),
+            inbox,
+            switches,
         });
         log(&format!("bridgey {VERSION} daemon started (profile {}, device {}, udp {}, {})", paths.profile, short(&daemon.local.device_id), daemon.node.udp_port(), if service { "service" } else { "on demand" }));
         daemon.sync_peers();
@@ -284,6 +310,14 @@ impl Daemon {
         {
             let d = daemon.clone();
             tokio::spawn(async move { d.housekeeping().await });
+        }
+        {
+            let d = daemon.clone();
+            tokio::spawn(async move {
+                while let Some(r) = report_rx.recv().await {
+                    d.on_inbox(r);
+                }
+            });
         }
         let socket = paths.socket();
         let _ = std::fs::remove_file(&socket);
@@ -330,7 +364,7 @@ impl Daemon {
             tokio::time::sleep(Duration::from_secs(15)).await;
             let busy = self.clients.load(Ordering::Relaxed) > 0 || {
                 let st = self.st.lock().unwrap();
-                !st.waiters.is_empty() || !st.invites.is_empty() || st.transfers.iter().any(|t| t.state == "sending")
+                !st.waiters.is_empty() || !st.invites.is_empty() || st.transfers.iter().any(|t| t.state == "sending" || t.state == "receiving")
             };
             if busy {
                 *self.last_used.lock().unwrap() = Instant::now();
@@ -375,8 +409,49 @@ impl Daemon {
     fn own_features(&self) -> Value {
         let detect = crate::detect::available(&self.paths);
         self.st.lock().unwrap().detect_advertised = detect;
-        let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(if *k == "codes_detect_draft1" { detect } else { *v }))).collect();
-        json!({"version": 1, "features": features})
+        own_features(detect, self.switches)
+    }
+
+    /// A file the inbox took, saved or lost: `bridgey transfers`, the log and the audit log (sizes, never names).
+    fn on_inbox(&self, r: crate::files::Report) {
+        use crate::files::Report;
+        let mut st = self.st.lock().unwrap();
+        let find = |st: &mut St, id: &str| st.transfers.iter().position(|t| t.transfer_id == id);
+        // The audit log names devices as the commands' entries do.
+        let name = |st: &St, id: &str| st.trust.peers.get(id).map(|p| p.name.clone()).unwrap_or_else(|| short(id));
+        match r {
+            Report::Incoming { transfer_id, device, name, size } => {
+                let info = TransferInfo { transfer_id, device, name, bytes: 0, total: size, state: "receiving".into(), started_at: now_ms(), ended_at: None, incoming: true, path: None, resumed_from: None };
+                st.transfers.push(info);
+            }
+            Report::Progress { transfer_id, bytes } => {
+                if let Some(i) = find(&mut st, &transfer_id) {
+                    st.transfers[i].bytes = bytes;
+                }
+            }
+            Report::Saved { transfer_id, device, path, size, resumed_from, .. } => {
+                if let Some(i) = find(&mut st, &transfer_id) {
+                    let t = &mut st.transfers[i];
+                    (t.bytes, t.state, t.ended_at, t.path) = (size, "done".into(), Some(now_ms()), Some(path.display().to_string()));
+                    t.resumed_from = (resumed_from > 0).then_some(resumed_from);
+                }
+                let who = name(&st, &device);
+                drop(st);
+                log(&format!("file from {} saved ({size} bytes{})", short(&device), if resumed_from > 0 { format!(", {resumed_from} kept from before") } else { String::new() }));
+                crate::audit::record(&self.paths, json!({"at": now_ms(), "command": "files.receive", "device": who, "outcome": "saved", "detail": format!("{size} bytes")}));
+            }
+            Report::Failed { transfer_id, device, reason, .. } => {
+                if let Some(i) = find(&mut st, &transfer_id) {
+                    let t = &mut st.transfers[i];
+                    let state = if reason.starts_with("cancelled") { "cancelled" } else if reason == "interrupted" { "interrupted" } else { "failed" };
+                    (t.state, t.ended_at) = (state.into(), Some(now_ms()));
+                }
+                let who = name(&st, &device);
+                drop(st);
+                log(&format!("file from {} not saved: {}", short(&device), crate::session::printable(&reason, 32)));
+                crate::audit::record(&self.paths, json!({"at": now_ms(), "command": "files.receive", "device": who, "outcome": crate::session::printable(&reason, 32)}));
+            }
+        }
     }
 
     /// `codes.candidate` from a phone that granted Detect codes: read it with the shared reader off the async threads,
@@ -602,6 +677,11 @@ impl Daemon {
                 self.changed.notify_waiters();
             }
             Event::Frame { local_id, peer_id, message, plaintext } => self.on_frame(local_id, &peer_id, *message, plaintext),
+            Event::Chunk { local_id, peer_id, transfer_id, sequence, data } => {
+                if self.current(&peer_id, local_id).is_some() {
+                    self.inbox.chunk(local_id, &peer_id, &transfer_id, Some(sequence), &data, bridgey_core::fast::MAX_PLAINTEXT);
+                }
+            }
             Event::Closed { local_id, peer_id, reason, authenticated } => {
                 let mut st = self.st.lock().unwrap();
                 if let Some(tx) = st.direct.remove(&local_id) {
@@ -624,6 +704,8 @@ impl Daemon {
                     }
                 }
                 drop(st);
+                // Files coming in on this session: resumable ones keep what is verified, the rest go.
+                self.inbox.closed(local_id, &reason);
                 log(&format!("session {local_id} closed: {}", crate::session::printable(&reason, 64)));
                 self.sync_peers();
                 self.changed.notify_waiters();
@@ -744,6 +826,13 @@ impl Daemon {
                 self.on_candidate(peer, handle, payload);
                 return;
             }
+            // Files a paired device sends here (the inbox); answers to this install's own sends go to their waiters.
+            k if k.starts_with("files.") => {
+                let resume = || self.features(peer).get(bridgey_core::resume::FEATURE) == Some(&Value::Bool(true));
+                if crate::files::route(&self.inbox, &handle, local_id, peer, resume, &m, plaintext.as_deref()) {
+                    return;
+                }
+            }
             "agent.grants" => {
                 // Known grant names and fields only, bounded: the phone's words are shown, never trusted.
                 if let Some(grants) = payload.as_ref().and_then(crate::payloads::grants) {
@@ -800,7 +889,7 @@ impl Daemon {
         let Some(key) = key.map(|k| format!("{peer}|{k}")) else { return };
         let tx = self.st.lock().unwrap().waiters.get(&key).cloned();
         if let Some(tx) = tx {
-            let _ = tx.send(Reply { kind: m.kind.clone(), message: m, payload });
+            let _ = tx.send(Reply { kind: m.kind.clone(), message: m, payload, plaintext });
         }
     }
 
@@ -1058,6 +1147,8 @@ impl Daemon {
         st.features.remove(peer);
         st.battery.remove(peer);
         drop(st);
+        // Partials it sent for a later attempt go with it.
+        self.inbox.forget(peer);
         self.sync_peers();
         had
     }
@@ -1071,6 +1162,32 @@ impl Daemon {
     }
 
     // endregion
+}
+
+/// This install's features.update: the fixed map, with Detect codes as `detect` says and the file capabilities as the
+/// switches say.
+pub fn own_features(detect: bool, switches: crate::files::Switches) -> Value {
+    let value = |k: &str, v: bool| match k {
+        "codes_detect_draft1" => detect,
+        "files_fast_draft1" => switches.fast,
+        "files_resume_draft1" => switches.resume,
+        _ => v,
+    };
+    let features: Map<String, Value> = OWN_FEATURES.iter().map(|(k, v)| (k.to_string(), Value::Bool(value(k, *v)))).collect();
+    json!({"version": 1, "features": features})
+}
+
+/// The error for a refusal in `agent.request_result`, or None for `ok`.
+pub fn refusal(p: &Value, peer: &str, me: &str) -> Option<CliError> {
+    Some(match p["status"].as_str().unwrap_or("") {
+        "ok" => return None,
+        "not_granted" => not_granted(peer, p["grant"].as_str().unwrap_or("that"), me),
+        "rate_limited" => CliError::new("rate_limited", format!("{peer} is limiting requests from this device; try again later")).with("retryAfterMs", p["retryAfterMs"].as_u64().unwrap_or(0)),
+        "busy" => CliError::new("rate_limited", format!("{peer} already has too many open requests from this device")).with("retryAfterMs", 0),
+        "invalid" => CliError::new("usage", format!("{peer} refused the request as invalid (a field over its limit?)")),
+        "unknown" => CliError::new("failed", format!("{peer} does not know that request")),
+        other => CliError::new("incompatible", format!("{peer} cannot do this ({})", crate::session::printable(other, 32))),
+    })
 }
 
 pub fn not_granted(phone: &str, grant: &str, me: &str) -> CliError {

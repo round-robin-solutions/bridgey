@@ -11,7 +11,7 @@ use crate::fast::{self, Pacer};
 use crate::features::{self, FeatureMap};
 use crate::resume::{self, Running};
 use crate::transfer::{self, FILE_CHUNK, MAX_CHUNK_IN, MAX_FILE, QUICK_MAX};
-use crate::wire::{Message, MAX_FRAME};
+use crate::wire::{read_frames, AbortOnDrop, Message, ReadFrame, MAX_FRAME, READ_BUDGET, READ_QUEUE};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Notify};
@@ -55,10 +55,6 @@ const ACK_STALL: Duration = Duration::from_secs(30);
 const MAX_INCOMING: usize = 4;
 /// Progress events at most this often per transfer.
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
-/// Bytes read ahead of the session loop. Above the largest window a fast sender keeps unacknowledged (32 MiB), so the
-/// reader always drains the socket while the loop writes. It also bounds what a misbehaving peer can make this end hold.
-const READ_BUDGET: usize = 48 * 1024 * 1024;
-const READ_QUEUE: usize = 4096;
 /// What every find-device message carries: Android takes no other alert ID (PairingCoordinator.kt).
 pub const FIND_ALERT: &str = "active";
 
@@ -2095,96 +2091,6 @@ pub fn clipboard_rich(plain: &[u8]) -> Option<(String, Option<String>)> {
 }
 
 /// What the reader task hands the session loop.
-enum ReadFrame {
-    /// One JSON frame, without its LF.
-    Line(Vec<u8>),
-    /// A binary frame (files_fast_draft1): its kind and body, the length already checked.
-    Binary { kind: u8, body: Vec<u8> },
-    End,
-    Failed(&'static str),
-}
-
-/// Aborts the reader task when the session loop returns.
-struct AbortOnDrop(tokio::task::JoinHandle<()>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// Reads frames until the stream ends or a frame breaks the rules: JSON lines of at most 65,536 bytes, and binary
-/// frames whose header declares 1 to 1,048,677 bytes (any other length closes: the stream can no longer be split).
-/// Each frame takes its size from `budget` until the session loop has handled it.
-async fn read_frames(mut reader: BufReader<OwnedReadHalf>, tx: mpsc::Sender<(ReadFrame, Option<tokio::sync::OwnedSemaphorePermit>)>, budget: Arc<tokio::sync::Semaphore>) {
-    let mut line = Vec::with_capacity(4096);
-    loop {
-        let read = match read_frame(&mut reader, &mut line).await {
-            Ok(Some(Frame::Line)) => ReadFrame::Line(std::mem::replace(&mut line, Vec::with_capacity(4096))),
-            Ok(Some(Frame::Binary(kind, body))) => ReadFrame::Binary { kind, body },
-            Ok(None) => ReadFrame::End,
-            Err(reason) => ReadFrame::Failed(reason),
-        };
-        let size = match &read {
-            ReadFrame::Line(l) => l.len(),
-            ReadFrame::Binary { body, .. } => body.len(),
-            _ => 0,
-        };
-        let last = matches!(read, ReadFrame::End | ReadFrame::Failed(_));
-        let permit = budget.clone().acquire_many_owned(size.max(1) as u32).await.ok();
-        if tx.send((read, permit)).await.is_err() || last {
-            return;
-        }
-    }
-}
-
-enum Frame {
-    Line,
-    Binary(u8, Vec<u8>),
-}
-
-/// One frame. Ok(None) at the end of the stream.
-async fn read_frame(reader: &mut BufReader<OwnedReadHalf>, line: &mut Vec<u8>) -> Result<Option<Frame>, &'static str> {
-    line.clear();
-    loop {
-        let buf = match reader.fill_buf().await {
-            Ok(buf) => buf,
-            // Windows resets a connection the other end closed with data unread: between frames, that is the end.
-            Err(e) if line.is_empty() && matches!(e.kind(), std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted) => return Ok(None),
-            Err(_) => return Err("read_failed"),
-        };
-        if buf.is_empty() {
-            return if line.is_empty() { Ok(None) } else { Err("truncated") };
-        }
-        if line.is_empty() && buf[0] == fast::MARKER {
-            let mut header = [0u8; fast::HEADER];
-            reader.read_exact(&mut header).await.map_err(|_| "truncated")?;
-            let Some(len) = fast::body_length(&header) else { return Err("bad_binary_length") };
-            let mut body = vec![0u8; len];
-            reader.read_exact(&mut body).await.map_err(|_| "truncated")?;
-            return Ok(Some(Frame::Binary(header[1], body)));
-        }
-        match buf.iter().position(|b| *b == b'\n') {
-            Some(i) => {
-                line.extend_from_slice(&buf[..i]);
-                reader.consume(i + 1);
-                if line.len() > MAX_FRAME {
-                    return Err("frame_too_large");
-                }
-                return Ok(Some(Frame::Line));
-            }
-            None => {
-                let n = buf.len();
-                line.extend_from_slice(buf);
-                reader.consume(n);
-                if line.len() > MAX_FRAME {
-                    return Err("frame_too_large");
-                }
-            }
-        }
-    }
-}
-
 /// `battery.update`: `level` an integer 0 to 100 and `isCharging` a boolean, or nothing.
 pub fn battery(plain: &[u8]) -> Option<(u8, bool)> {
     let Ok(Value::Object(o)) = serde_json::from_slice::<Value>(plain) else { return None };

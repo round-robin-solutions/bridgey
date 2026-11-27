@@ -1,7 +1,7 @@
 //! What each command does inside the daemon. A client sends `{"cmd": ..., "args": {...}}`; each op streams
 //! events and returns its result, which `serve` writes and records in the audit log.
 
-use crate::daemon::{not_granted, relay_name, Ask, Daemon, InviteEvent, Reply, TransferInfo, GRANTS};
+use crate::daemon::{not_granted, refusal, relay_name, Ask, Daemon, InviteEvent, Reply, TransferInfo, GRANTS};
 use crate::errors::CliError;
 use crate::ipc::Conn;
 use crate::payloads;
@@ -67,18 +67,10 @@ fn device_json(p: &Peer) -> Value {
 /// A reply, or timeout. Refusals (agent.request_result) become errors.
 async fn next_reply(rx: &mut mpsc::UnboundedReceiver<Reply>, timeout: Duration, peer: &Peer, me: &str) -> Result<Reply, CliError> {
     match tokio::time::timeout(timeout, rx.recv()).await {
-        Ok(Some(r)) if r.kind == "agent.request_result" => {
-            let p = r.payload.clone().unwrap_or(Value::Null);
-            match p["status"].as_str().unwrap_or("") {
-                "ok" => Ok(r),
-                "not_granted" => Err(not_granted(&peer.name, p["grant"].as_str().unwrap_or("that"), me)),
-                "rate_limited" => Err(CliError::new("rate_limited", format!("{} is limiting requests from this device; try again later", peer.name)).with("retryAfterMs", p["retryAfterMs"].as_u64().unwrap_or(0))),
-                "busy" => Err(CliError::new("rate_limited", format!("{} already has too many open requests from this device", peer.name)).with("retryAfterMs", 0)),
-                "invalid" => Err(CliError::new("usage", format!("{} refused the request as invalid (a field over its limit?)", peer.name))),
-                "unknown" => Err(CliError::new("failed", format!("{} does not know that request", peer.name))),
-                other => Err(CliError::new("incompatible", format!("{} cannot do this ({})", peer.name, crate::session::printable(other, 32)))),
-            }
-        }
+        Ok(Some(r)) if r.kind == "agent.request_result" => match refusal(r.payload.as_ref().unwrap_or(&Value::Null), &peer.name, me) {
+            None => Ok(r),
+            Some(e) => Err(e),
+        },
         Ok(Some(r)) => Ok(r),
         Ok(None) => Err(CliError::new("unreachable", "the session ended")),
         Err(_) => Err(CliError::new("timeout", format!("{} did not answer in time", peer.name))),
@@ -792,7 +784,7 @@ impl Daemon {
         let mut sent = Vec::new();
         let mut total = 0u64;
         for (path, size) in files {
-            let r = self.send_one(&peer, &h, &path, size, out).await;
+            let r = self.send_one(&peer, &h, &path, out).await;
             match r {
                 Ok(v) => {
                     total += size;
@@ -807,123 +799,74 @@ impl Daemon {
         Ok(json!({"device": device_json(&peer), "files": sent.len(), "bytes": total, "transfers": sent}))
     }
 
-    async fn send_one(&self, peer: &Peer, h: &crate::session::Handle, path: &str, size: u64, out: &mut Out) -> Result<Value, CliError> {
-        use tokio::io::AsyncReadExt as _;
-        const CHUNK: usize = 24 * 1024;
-        const WINDOW: i64 = 64;
+    async fn send_one(&self, peer: &Peer, h: &crate::session::Handle, path: &str, out: &mut Out) -> Result<Value, CliError> {
         let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
-        let hash = {
-            let owned = path.to_string();
-            tokio::task::spawn_blocking(move || -> std::io::Result<String> {
-                use std::io::Read;
-                let mut f = std::fs::File::open(&owned)?;
-                let mut ctx = ring::digest::Context::new(&ring::digest::SHA256);
-                let mut buf = vec![0u8; 256 * 1024];
-                loop {
-                    let n = f.read(&mut buf)?;
-                    if n == 0 {
-                        break;
-                    }
-                    ctx.update(&buf[..n]);
-                }
-                Ok(crate::crypto::b64(ctx.finish().as_ref()))
-            })
-            .await
-            .map_err(|_| CliError::new("failed", "hash"))?
-            .map_err(|e| CliError::new("usage", format!("{path}: {e}")))?
-        };
+        let file = crate::files::prepare(std::path::Path::new(path)).await.map_err(|e| CliError::new("usage", format!("{path}: {e}")))?;
+        // Binary frames and a resumable offer when the device shows them, decided once for the whole file.
+        let plan = crate::files::Plan::new(&self.features(&peer.device_id), file.size, self.switches);
         let id = crate::crypto::uuid4();
         let mid = crate::crypto::uuid4();
         let mime = mime_for(&name);
-        let mut info = TransferInfo { transfer_id: id.clone(), device: peer.device_id.clone(), name: name.clone(), bytes: 0, total: size, state: "offered".into(), started_at: now_ms(), ended_at: None };
+        let mut info = TransferInfo {
+            transfer_id: id.clone(),
+            device: peer.device_id.clone(),
+            name: name.clone(),
+            bytes: 0,
+            total: file.size,
+            state: "offered".into(),
+            started_at: now_ms(),
+            ended_at: None,
+            incoming: false,
+            path: None,
+            resumed_from: None,
+        };
         self.transfer_update(info.clone());
         let (_g, mut rx) = self.wait_for(&peer.device_id, vec![format!("xfer:{id}"), format!("msg:{mid}")]);
-        h.send_json_id("files.offer", &json!({"transferId": id, "name": name, "mimeType": mime, "size": size, "sha256": hash}), &mid, Some(id.clone()));
-        let fail = |info: &mut TransferInfo, state: &str| {
-            info.state = state.into();
-            info.ended_at = Some(now_ms());
-            self.transfer_update(info.clone());
-        };
-        let accept = next_reply(&mut rx, Duration::from_secs(60), peer, &self.local.name()).await;
-        match accept {
-            Ok(r) if r.kind == "files.accept" => {}
-            Ok(r) if r.kind == "files.rejected" => {
-                fail(&mut info, "rejected");
-                return Err(not_granted(&peer.name, "files", &self.local.name()));
-            }
-            Ok(r) => {
-                fail(&mut info, "failed");
-                return Err(CliError::new("transfer_failed", format!("{} answered {}", peer.name, r.kind)));
-            }
-            Err(e) => {
-                fail(&mut info, "failed");
-                return Err(e);
-            }
-        }
-        info.state = "sending".into();
-        self.transfer_update(info.clone());
-        let mut file = tokio::fs::File::open(path).await.map_err(|e| CliError::new("transfer_failed", e.to_string()))?;
-        let mut seq: i64 = 0;
-        let mut acked: i64 = -1;
-        let mut buf = vec![0u8; CHUNK];
-        let mut sent_bytes = 0u64;
+        let me = self.local.name();
+        let o = crate::files::Outgoing { transfer_id: &id, offer_id: &mid, path: std::path::Path::new(path), name: &name, mime, file: &file, plan, peer_name: &peer.name, me: &me };
+        let (progress_tx, mut progress) = mpsc::unbounded_channel();
+        let sending = crate::files::send(h, &mut rx, &o, &progress_tx);
+        tokio::pin!(sending);
         let mut last_event = std::time::Instant::now();
-        let started = std::time::Instant::now();
-        loop {
-            while seq - acked > WINDOW {
-                match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                    Ok(Some(r)) if r.kind == "files.chunk.ack" => acked = acked.max(r.message.sequence.unwrap_or(-1).min(seq - 1)),
-                    Ok(Some(r)) if r.kind == "files.cancel" => {
-                        fail(&mut info, "cancelled");
-                        return Err(CliError::new("transfer_failed", "cancelled on the phone"));
+        let mut started = std::time::Instant::now();
+        let mut from = 0u64;
+        let result = loop {
+            tokio::select! {
+                r = &mut sending => break r,
+                Some(p) = progress.recv() => match p {
+                    crate::files::Progress::Accepted { from: f } => {
+                        (info.state, info.bytes, from, started) = ("sending".into(), f, f, std::time::Instant::now());
+                        info.resumed_from = (f > 0).then_some(f);
+                        self.transfer_update(info.clone());
                     }
-                    Ok(Some(_)) => {}
-                    _ => {
-                        fail(&mut info, "interrupted");
-                        return Err(CliError::new("transfer_failed", "the transfer stalled"));
+                    crate::files::Progress::Sent(bytes) => {
+                        info.bytes = bytes;
+                        if last_event.elapsed() > Duration::from_millis(500) {
+                            last_event = std::time::Instant::now();
+                            self.transfer_update(info.clone());
+                            let rate = ((bytes - from) as f64 / started.elapsed().as_secs_f64().max(0.001)) as u64;
+                            out.event(json!({"event": "progress", "transferId": id, "bytes": bytes, "total": file.size, "rate": rate})).await;
+                        }
                     }
+                },
+            }
+        };
+        match result {
+            Ok(resumed_from) => {
+                (info.state, info.bytes, info.ended_at) = ("done".into(), file.size, Some(now_ms()));
+                self.transfer_update(info);
+                let mut v = json!({"transferId": id, "name": name, "bytes": file.size, "sha256": file.sha256});
+                if resumed_from > 0 {
+                    v["resumedFrom"] = json!(resumed_from);
                 }
+                Ok(v)
             }
-            let n = file.read(&mut buf).await.map_err(|e| CliError::new("transfer_failed", e.to_string()))?;
-            if n == 0 {
-                break;
-            }
-            if !h.send_chunk(&id, seq, buf[..n].to_vec()) {
-                fail(&mut info, "interrupted");
-                return Err(CliError::new("transfer_failed", "the session ended"));
-            }
-            seq += 1;
-            sent_bytes += n as u64;
-            if last_event.elapsed() > Duration::from_millis(500) {
-                last_event = std::time::Instant::now();
-                info.bytes = sent_bytes;
-                self.transfer_update(info.clone());
-                let rate = (sent_bytes as f64 / started.elapsed().as_secs_f64().max(0.001)) as u64;
-                out.event(json!({"event": "progress", "transferId": id, "bytes": sent_bytes, "total": size, "rate": rate})).await;
+            Err(f) => {
+                (info.state, info.ended_at) = (f.state.into(), Some(now_ms()));
+                self.transfer_update(info);
+                Err(f.error)
             }
         }
-        let done_mid = crate::crypto::uuid4();
-        h.send_json_id("files.complete", &json!({"transferId": id, "sha256": hash}), &done_mid, Some(id.clone()));
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-        loop {
-            match tokio::time::timeout_at(deadline, rx.recv()).await {
-                Ok(Some(r)) if r.kind == "files.complete.ack" => break,
-                Ok(Some(r)) if r.kind == "files.cancel" => {
-                    fail(&mut info, "failed");
-                    return Err(CliError::new("transfer_failed", "the phone could not verify the file"));
-                }
-                Ok(Some(_)) => {}
-                _ => {
-                    fail(&mut info, "failed");
-                    return Err(CliError::new("transfer_failed", "no confirmation from the phone"));
-                }
-            }
-        }
-        info.state = "done".into();
-        info.bytes = size;
-        info.ended_at = Some(now_ms());
-        self.transfer_update(info);
-        Ok(json!({"transferId": id, "name": name, "bytes": size, "sha256": hash}))
     }
 }
 

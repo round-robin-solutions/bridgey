@@ -5638,7 +5638,8 @@
     "agentNotificationsResult/version 2": "b1835e27dcf4c670",
     "codesCancel/a held query": "289a53e287f54252",
     "codesCancel/queryId not a UUID": "6a546be617194062",
-    "codesCancel/version 2": "a63cb3638a15354a"
+    "codesCancel/version 2": "a63cb3638a15354a",
+    "agentFeatures/bridgey with binary frames and resume, no code model": "c7484d21b08d6bb9"
    }
   },
   "protocol/test-vectors/agents-mirror-v1.json": {

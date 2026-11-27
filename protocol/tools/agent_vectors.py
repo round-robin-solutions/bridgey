@@ -190,6 +190,14 @@ def w(name, plaintext, expect, **extra):
     return case(name, plaintext, expect, write=True, **extra)
 
 
+agent_map = {key: on for key, on in [
+    ("clipboard", True), ("files", True), ("notifications", False), ("battery", True), ("find_device", True), ("ping", True),
+    ("links", False), ("media", False), ("calls", False), ("connect_draft1", True), ("agent_draft1", True),
+    ("notify_draft1", True), ("ask_draft1", True), ("clipboard_request_draft1", True), ("agent_codes_draft1", True),
+    ("codes_detect_draft1", False), ("agent_notifications_draft1", True), ("files_fast_draft1", True),
+    ("files_resume_draft1", True),
+]}
+
 grants_all = ["files", "clipboard", "clipboard_request", "notify", "ask", "ring", "battery", "codes", "codes_detect", "notifications"]
 notification = {"id": "0|com.example.ci|1|null|10123", "packageName": "com.example.ci", "applicationName": "RR CI", "title": "Nightly passed",
                 "text": "bridgey 0.3.0\nall lanes green", "postedAt": T}
@@ -287,6 +295,13 @@ vectors.update({
         w("a held query", {"version": 1, "queryId": U}, {"queryId": U}),
         case("queryId not a UUID", {"version": 1, "queryId": "q1"}, "reject"),
         case("version 2", {"version": 2, "queryId": U}, "reject"),
+    ],
+    # The features.update an agent sends: what it can do. files_fast_draft1 is core in protocol v1, so an agent shows it
+    # like every v1 device and its files go in binary frames; it also resumes files. rust/cli checks it advertises
+    # exactly the newest case (codes_detect_draft1 is true only with a code model). The cases are frozen with agent
+    # devices: when the map changes, add a case for the new map and keep the old ones, which older installs still send.
+    "agentFeatures": [
+        w("bridgey with binary frames and resume, no code model", {"version": 1, "features": agent_map}, agent_map),
     ],
 })
 

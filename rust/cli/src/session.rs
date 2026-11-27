@@ -7,13 +7,18 @@
 //! - **Invite** (remote pairing, docs/protocol.md "agent devices"): this end is the responder of exactly one
 //!   committed first pairing from a device it does not trust. The code is shown to the person at the terminal,
 //!   who must confirm it; the transcript also binds the invite secret.
+//!
+//! Once authenticated the session also reads binary frames (files_fast_draft1, docs/protocol.md "Fast transfers"),
+//! with the session client's codec (`bridgey_core::fast`) and its stream reader, and sends file chunks as binary
+//! frames when the sender asks for them.
 
 use crate::crypto::{self, Ephemeral, SigningKey};
-use crate::wire::{Message, MAX_FRAME};
+use crate::wire::{read_frames, AbortOnDrop, Message, ReadFrame, MAX_FRAME, READ_BUDGET, READ_QUEUE};
+use bridgey_core::fast;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, oneshot};
 
@@ -76,6 +81,8 @@ pub enum Outgoing {
     Encrypted { kind: String, plaintext: Vec<u8>, message_id: String, transfer_id: Option<String>, sequence: Option<i64> },
     /// A files.chunk: outer transferId, sequence and a fresh messageId, and the encrypted chunk.
     Chunk { transfer_id: String, sequence: i64, plaintext: Vec<u8> },
+    /// A file chunk as a binary frame (files_fast_draft1), sealed with the frame key.
+    FastChunk { transfer_id: String, sequence: u64, plaintext: Vec<u8> },
     /// An outer-only message (acks, files.accept, ...); sessionId is filled in.
     Plain(Box<Message>),
     Close(&'static str),
@@ -112,6 +119,19 @@ impl Handle {
         self.tx.send(Outgoing::Chunk { transfer_id: transfer_id.into(), sequence, plaintext }).is_ok()
     }
 
+    /// A file chunk as a binary frame; only to a peer whose latest map shows files_fast_draft1.
+    pub fn send_fast_chunk(&self, transfer_id: &str, sequence: u64, plaintext: Vec<u8>) -> bool {
+        self.tx.send(Outgoing::FastChunk { transfer_id: transfer_id.into(), sequence, plaintext }).is_ok()
+    }
+
+    /// A transfer control message with nothing encrypted (`files.accept`, `files.chunk.ack`, `files.cancel`, ...).
+    pub fn send_outer(&self, kind: &str, transfer_id: &str, sequence: Option<i64>) -> bool {
+        let mut m = Message::new(kind, "");
+        m.transfer_id = Some(transfer_id.into());
+        m.sequence = sequence;
+        self.tx.send(Outgoing::Plain(Box::new(m))).is_ok()
+    }
+
 
     pub fn close(&self, why: &'static str) {
         let _ = self.tx.send(Outgoing::Close(why));
@@ -119,6 +139,13 @@ impl Handle {
 
     pub fn is_open(&self) -> bool {
         !self.tx.is_closed()
+    }
+
+    /// A handle with no session behind it: what goes out arrives on the receiver (tests).
+    #[cfg(test)]
+    pub fn for_tests(local_id: u64) -> (Handle, mpsc::UnboundedReceiver<Outgoing>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        (Handle { local_id, tx }, rx)
     }
 }
 
@@ -128,6 +155,8 @@ pub enum Event {
     Authenticated { local_id: u64, peer: AuthPeer, handle: Handle, invite: bool, direct: bool, tunnel: String },
     /// A frame that passed the tag and replay checks; `plaintext` when it had an encrypted payload that opened.
     Frame { local_id: u64, peer_id: String, message: Box<Message>, plaintext: Option<Vec<u8>> },
+    /// A file chunk that came as a binary frame: its tag verified and its sequence rose for this transfer ID.
+    Chunk { local_id: u64, peer_id: String, transfer_id: String, sequence: u64, data: Vec<u8> },
     Closed { local_id: u64, peer_id: Option<String>, reason: String, authenticated: bool },
 }
 
@@ -143,6 +172,9 @@ struct State {
     prk: Option<[u8; 32]>,
     key: Option<[u8; 32]>,
     envelope: Option<[u8; 32]>,
+    /// The binary frame key (files_fast_draft1), from the session key; protocol 2 only.
+    fast_key: Option<[u8; 32]>,
+    fast_replay: fast::ReplayGuard,
     local_confirmed: bool,
     remote_confirmed: bool,
     remote_identity: Option<String>,
@@ -191,7 +223,7 @@ async fn run(mut spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::U
     };
     let _ = stream.set_nodelay(true);
     let (read, mut write) = stream.into_split();
-    let mut reader = BufReader::with_capacity(MAX_FRAME + 2, read);
+    let reader = BufReader::with_capacity(MAX_FRAME + 2, read);
     let (tx, mut rx) = mpsc::unbounded_channel::<Outgoing>();
     let mut st = State {
         id: if spec.quic_client { crypto::uuid4() } else { String::new() },
@@ -205,6 +237,8 @@ async fn run(mut spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::U
         prk: None,
         key: None,
         envelope: None,
+        fast_key: None,
+        fast_replay: fast::ReplayGuard::default(),
         local_confirmed: false,
         remote_confirmed: false,
         remote_identity: None,
@@ -244,7 +278,10 @@ async fn run(mut spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::U
     let mut heartbeat = tokio::time::interval(HEARTBEAT);
     heartbeat.tick().await;
     let mut last_heard = tokio::time::Instant::now();
-    let mut line = Vec::with_capacity(4096);
+    // Reads run in their own task, as in the session client: reading a frame is not cancel-safe, and a binary frame
+    // of up to 1 MiB takes many reads while other branches of the loop below win.
+    let (frames_tx, mut frames) = mpsc::channel::<(ReadFrame, Option<tokio::sync::OwnedSemaphorePermit>)>(READ_QUEUE);
+    let _reading = AbortOnDrop(tokio::spawn(read_frames(reader, frames_tx, Arc::new(tokio::sync::Semaphore::new(READ_BUDGET)))));
     loop {
         let code_wait = async {
             match code_deadline {
@@ -253,18 +290,29 @@ async fn run(mut spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::U
             }
         };
         tokio::select! {
-            read = read_line(&mut reader, &mut line) => {
-                match read {
-                    Ok(true) => {}
-                    Ok(false) => return Err((if st.authenticated { "closed_by_peer".into() } else { "closed_before_pairing".into() }, peer_of(&st), st.authenticated)),
-                    Err(reason) => return Err((reason.into(), peer_of(&st), st.authenticated)),
-                }
-                last_heard = tokio::time::Instant::now();
-                let message = match Message::decode(&line) {
-                    Ok(m) => m,
-                    Err(_) => return Err(("bad_frame".into(), peer_of(&st), st.authenticated)),
+            read = frames.recv() => {
+                // The permit goes back to the reader's budget once this frame is handled.
+                let Some((read, _permit)) = read else { return Err(("read_failed".into(), peer_of(&st), st.authenticated)) };
+                let step = match read {
+                    ReadFrame::End => return Err((if st.authenticated { "closed_by_peer".into() } else { "closed_before_pairing".into() }, peer_of(&st), st.authenticated)),
+                    ReadFrame::Failed(reason) => return Err((reason.into(), peer_of(&st), st.authenticated)),
+                    ReadFrame::Line(line) => {
+                        last_heard = tokio::time::Instant::now();
+                        let message = match Message::decode(&line) {
+                            Ok(m) => m,
+                            Err(_) => return Err(("bad_frame".into(), peer_of(&st), st.authenticated)),
+                        };
+                        receive(&mut st, &spec, &local, &pins, &invite_hash, message, &mut write, &events, &tx, &code_tx).await
+                    }
+                    ReadFrame::Binary { kind, body } => {
+                        // Before authentication the marker is just an invalid JSON frame, as it always was.
+                        if !st.authenticated {
+                            return Err(("bad_frame".into(), peer_of(&st), false));
+                        }
+                        last_heard = tokio::time::Instant::now();
+                        binary(&mut st, &spec, kind, &body, &events)
+                    }
                 };
-                let step = receive(&mut st, &spec, &local, &pins, &invite_hash, message, &mut write, &events, &tx, &code_tx).await;
                 match step {
                     Step::Continue => if st.authenticated { code_deadline = None },
                     Step::AwaitCode => code_deadline = Some(tokio::time::Instant::now() + CODE_TIMEOUT),
@@ -300,6 +348,15 @@ async fn run(mut spec: Spec, local: Arc<Local>, pins: PinLookup, events: mpsc::U
                 let Some(out) = out else { continue };
                 let m = match out {
                     Outgoing::Close(why) => return Ok((why.into(), peer_of(&st), st.authenticated)),
+                    Outgoing::FastChunk { transfer_id, sequence, plaintext } => {
+                        // Sealed with the frame key: the AES-GCM tag stands in for the envelope tag.
+                        let Some(key) = st.fast_key else { continue };
+                        let Some(frame) = fast::seal(fast::KIND_CHUNK, &transfer_id, sequence, &plaintext, &key, &local.device_id, None) else { continue };
+                        if write.write_all(&frame).await.is_err() {
+                            return Err(("send_failed".into(), peer_of(&st), st.authenticated));
+                        }
+                        continue;
+                    }
                     Outgoing::Plain(m) => { let mut m = *m; m.session_id = st.id.clone(); m }
                     Outgoing::Chunk { transfer_id, sequence, plaintext } => {
                         let Some(key) = st.key else { continue };
@@ -363,39 +420,6 @@ async fn write_frame(write: &mut tokio::net::tcp::OwnedWriteHalf, m: &Message) -
     let mut text = m.encode();
     text.push('\n');
     write.write_all(text.as_bytes()).await
-}
-
-/// Reads one line of at most 65,536 bytes into `line` (without the LF). Ok(false) at the end of the stream.
-async fn read_line(reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>, line: &mut Vec<u8>) -> Result<bool, &'static str> {
-    line.clear();
-    loop {
-        let buf = reader.fill_buf().await.map_err(|_| "read_failed")?;
-        if buf.is_empty() {
-            return if line.is_empty() { Ok(false) } else { Err("truncated") };
-        }
-        if line.is_empty() && buf[0] == 0xB1 {
-            // A binary frame: this command never advertises files_fast_draft1, so the peer must not send one.
-            return Err("binary_frame");
-        }
-        match buf.iter().position(|b| *b == b'\n') {
-            Some(i) => {
-                line.extend_from_slice(&buf[..i]);
-                reader.consume(i + 1);
-                if line.len() > MAX_FRAME {
-                    return Err("frame_too_large");
-                }
-                return Ok(true);
-            }
-            None => {
-                let n = buf.len();
-                line.extend_from_slice(buf);
-                reader.consume(n);
-                if line.len() > MAX_FRAME {
-                    return Err("frame_too_large");
-                }
-            }
-        }
-    }
 }
 
 enum Step {
@@ -705,7 +729,27 @@ fn set_key(st: &mut State, prk: [u8; 32], key: [u8; 32]) {
     st.key = Some(key);
     if st.remote_protocol >= crypto::PROTOCOL_VERSION {
         st.envelope = Some(crypto::envelope_key(&key));
+        st.fast_key = Some(fast::frame_key(&key));
     }
+}
+
+/// A binary frame on an authenticated session (files_fast_draft1). A frame that fails its tag, is malformed inside or
+/// replays counts as a bad frame; speed test bytes and unknown kinds whose tag verifies are skipped (this command
+/// never runs a speed test). A file chunk goes to the daemon, which checks it belongs to a file coming in.
+fn binary(st: &mut State, spec: &Spec, kind: u8, body: &[u8], events: &mpsc::UnboundedSender<Event>) -> Step {
+    let Some(key) = st.fast_key else { return bad(st) };
+    let frame = match fast::open_body(kind, body, &key, &st.remote_id) {
+        Ok(f) => f,
+        Err(_) => return bad(st),
+    };
+    if frame.kind != fast::KIND_CHUNK {
+        return Step::Continue;
+    }
+    if !st.fast_replay.accept(frame.kind, &frame.id, frame.sequence) {
+        return bad(st);
+    }
+    let _ = events.send(Event::Chunk { local_id: spec.local_id, peer_id: st.remote_id.clone(), transfer_id: frame.id, sequence: frame.sequence, data: frame.plaintext });
+    Step::Continue
 }
 
 fn bad(st: &mut State) -> Step {
@@ -751,7 +795,7 @@ mod tailnet_pairing_tests {
                     handle.close("done");
                 }
                 Event::Closed { reason, .. } => return (code, peer, reason),
-                Event::Frame { .. } => {}
+                Event::Frame { .. } | Event::Chunk { .. } => {}
             }
         }
         (code, peer, "events_ended".into())
