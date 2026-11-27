@@ -4,6 +4,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -394,7 +395,8 @@ private fun MacTextComposer(actions: MacScreenActions, modifier: Modifier = Modi
     }
     val hint = stringResource(R.string.display_type_hint)
     Row(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.surface1).padding(start = 16.dp, end = 4.dp),
+        modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.surface1)
+            .border(1.dp, fieldBorderColor, RoundedCornerShape(24.dp)).padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f).heightIn(min = 48.dp), contentAlignment = Alignment.CenterStart) {

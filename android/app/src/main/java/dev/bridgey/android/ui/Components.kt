@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -406,15 +408,27 @@ fun BarIconButton(icon: ImageVector, contentDescription: String, onClick: () -> 
     }
 }
 
-/** Outlined pill button (Check now, Clear). At least 48 dp tall to touch, 40 dp drawn. */
+/**
+ * Outlined pill button (Check now, Clear). At least 48 dp tall to touch, 40 dp drawn. [label] is what TalkBack says
+ * instead of [text] when the word alone repeats on a page ("Clear activity", "Clear logs" for two Clear buttons).
+ */
 @Composable
-fun OutlinePillButton(text: String, icon: ImageVector?, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, contentColor: Color = BridgeyTheme.colors.onSurface) {
+fun OutlinePillButton(
+    text: String,
+    icon: ImageVector?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentColor: Color = BridgeyTheme.colors.onSurface,
+    label: String? = null,
+) {
     val colors = BridgeyTheme.colors
     Box(
         modifier
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(24.dp))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .spokenLabel(label),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -427,29 +441,64 @@ fun OutlinePillButton(text: String, icon: ImageVector?, onClick: () -> Unit, mod
         ) {
             val fg = if (enabled) contentColor else colors.onSurfaceVariant
             if (icon != null) Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp))
-            Text(text, style = BridgeyType.label, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis)
+            Text(text, style = BridgeyType.label, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.hiddenWhenLabelled(label))
         }
     }
 }
 
-/** Tonal pill used for small inline actions on cards (Cancel, Retry, Open, Stop). */
+/** Tonal pill used for small inline actions on cards (Cancel, Retry, Open, Stop). [label] as for [OutlinePillButton]. */
 @Composable
-fun TonalPillButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Tint = Tint.BLUE) {
+fun TonalPillButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, tint: Tint = Tint.BLUE, label: String? = null) {
     val (bg, fg) = BridgeyTheme.colors.tint(tint)
     Box(
         modifier
             .heightIn(min = 48.dp)
             .widthIn(min = 48.dp)
             .clip(RoundedCornerShape(24.dp))
-            .clickable(role = Role.Button, onClick = onClick),
+            .clickable(role = Role.Button, onClick = onClick)
+            .spokenLabel(label),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier.heightIn(min = 36.dp).clip(RoundedCornerShape(18.dp)).background(bg).padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center,
-        ) { Text(text, style = BridgeyType.label, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
+        ) {
+            Text(text, style = BridgeyType.label, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                modifier = Modifier.hiddenWhenLabelled(label))
+        }
     }
 }
+
+/** A button's spoken name when it differs from the word on it. */
+private fun Modifier.spokenLabel(label: String?): Modifier = if (label == null) this else semantics { contentDescription = label }
+
+/** The word on a labelled button is not read as well (the label already says it, and more). */
+private fun Modifier.hiddenWhenLabelled(label: String?): Modifier = if (label == null) this else clearAndSetSemantics {}
+
+/**
+ * Every text field's colours. Unfocused, the border is onSurfaceVariant (7.3:1 to 8.1:1 against the page and cards in
+ * light and dark), so the field's edge passes the 3:1 controls need; focused, it is primary. [container] fills it.
+ */
+@Composable
+fun bridgeyTextFieldColors(container: Color = Color.Transparent): TextFieldColors {
+    val colors = BridgeyTheme.colors
+    return OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = colors.primary,
+        unfocusedBorderColor = colors.onSurfaceVariant,
+        focusedContainerColor = container,
+        unfocusedContainerColor = container,
+        cursorColor = colors.primary,
+        focusedLabelColor = colors.primary,
+        unfocusedLabelColor = colors.onSurfaceVariant,
+        focusedPlaceholderColor = colors.onSurfaceVariant,
+        unfocusedPlaceholderColor = colors.onSurfaceVariant,
+    )
+}
+
+/** The edge of a pill-shaped text field (search, the composers): the same 3:1 colour as [bridgeyTextFieldColors]. */
+val fieldBorderColor: Color
+    @Composable get() = BridgeyTheme.colors.onSurfaceVariant
 
 /** Status pill (Up to date, Update available). */
 @Composable

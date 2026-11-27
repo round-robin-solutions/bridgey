@@ -448,7 +448,7 @@ private fun TextComposer(enabled: Boolean, actions: RemoteActions, modifier: Mod
     val label = stringResource(R.string.remote_text_label)
     Row(
         modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(colors.composer)
-            .border(1.dp, colors.composerOutline, RoundedCornerShape(28.dp)).padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            .border(1.dp, fieldBorderColor, RoundedCornerShape(28.dp)).padding(start = 20.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {

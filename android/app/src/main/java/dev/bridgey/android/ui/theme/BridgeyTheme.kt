@@ -17,6 +17,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.sp
 import dev.bridgey.android.R
 
@@ -160,30 +162,65 @@ private const val INTER_FEATURES = "cv11, ss01"
 
 /** Text styles from the mockup, in sp. Headings are Space Grotesk 600; everything people read or tap is Inter. */
 object BridgeyType {
+    /**
+     * A style and its Russian twin with automatic hyphenation. Russian runs long and its words break mid-word at large
+     * text sizes ("Автоматическ/ий"); with a hyphen they read as words. English keeps its wrapping as it was.
+     */
+    @Immutable
+    class Hyphenated(private val plain: TextStyle) {
+        private val hyphenated = plain.copy(hyphens = Hyphens.Auto)
+        val current: TextStyle
+            @Composable @ReadOnlyComposable get() = if (hyphenatesWords()) hyphenated else plain
+    }
+
     private val body = TextStyle(fontFamily = Inter, fontFeatureSettings = INTER_FEATURES)
     private val heading = TextStyle(fontFamily = SpaceGrotesk, fontWeight = FontWeight.SemiBold)
 
-    val brand = heading.copy(fontSize = 24.sp, lineHeight = 24.sp, letterSpacing = (-0.24).sp)
-    val pageTitle = heading.copy(fontSize = 22.sp, lineHeight = 28.sp)
-    val deviceName = heading.copy(fontSize = 24.sp, lineHeight = 30.sp)
-    val cardTitle = heading.copy(fontSize = 20.sp, lineHeight = 26.sp)
-    val brandSub = body.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.22.sp)
-    val section = body.copy(fontSize = 13.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.52.sp)
+    private val brandStyle = Hyphenated(heading.copy(fontSize = 24.sp, lineHeight = 24.sp, letterSpacing = (-0.24).sp))
+    val brand: TextStyle @Composable @ReadOnlyComposable get() = brandStyle.current
+    private val pageTitleStyle = Hyphenated(heading.copy(fontSize = 22.sp, lineHeight = 28.sp))
+    val pageTitle: TextStyle @Composable @ReadOnlyComposable get() = pageTitleStyle.current
+    private val deviceNameStyle = Hyphenated(heading.copy(fontSize = 24.sp, lineHeight = 30.sp))
+    val deviceName: TextStyle @Composable @ReadOnlyComposable get() = deviceNameStyle.current
+    private val cardTitleStyle = Hyphenated(heading.copy(fontSize = 20.sp, lineHeight = 26.sp))
+    val cardTitle: TextStyle @Composable @ReadOnlyComposable get() = cardTitleStyle.current
+    private val brandSubStyle = Hyphenated(body.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.22.sp))
+    val brandSub: TextStyle @Composable @ReadOnlyComposable get() = brandSubStyle.current
+    private val sectionStyle = Hyphenated(body.copy(fontSize = 13.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.52.sp))
+    val section: TextStyle @Composable @ReadOnlyComposable get() = sectionStyle.current
     /** A list's group heading ("Today", "Paired devices"): sentence case, untracked, as on the Mac's Settings cards. */
-    val listHeader = body.copy(fontSize = 13.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
-    val rowTitle = body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-    val itemTitle = body.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
-    val itemBody = body.copy(fontSize = 13.sp, lineHeight = 18.sp)
-    val small = body.copy(fontSize = 12.sp, lineHeight = 16.sp)
-    val smallStrong = body.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold)
-    val tiny = body.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold)
-    val tinyLabel = body.copy(fontSize = 11.sp, lineHeight = 13.sp)
-    val label = body.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold)
-    val chip = body.copy(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
-    val button = body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold)
-    val field = body.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium)
-    val bodyText = body.copy(fontSize = 14.sp, lineHeight = 20.sp)
+    private val listHeaderStyle = Hyphenated(body.copy(fontSize = 13.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold))
+    val listHeader: TextStyle @Composable @ReadOnlyComposable get() = listHeaderStyle.current
+    private val rowTitleStyle = Hyphenated(body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold))
+    val rowTitle: TextStyle @Composable @ReadOnlyComposable get() = rowTitleStyle.current
+    private val itemTitleStyle = Hyphenated(body.copy(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold))
+    val itemTitle: TextStyle @Composable @ReadOnlyComposable get() = itemTitleStyle.current
+    private val itemBodyStyle = Hyphenated(body.copy(fontSize = 13.sp, lineHeight = 18.sp))
+    val itemBody: TextStyle @Composable @ReadOnlyComposable get() = itemBodyStyle.current
+    private val smallStyle = Hyphenated(body.copy(fontSize = 12.sp, lineHeight = 16.sp))
+    val small: TextStyle @Composable @ReadOnlyComposable get() = smallStyle.current
+    private val smallStrongStyle = Hyphenated(body.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold))
+    val smallStrong: TextStyle @Composable @ReadOnlyComposable get() = smallStrongStyle.current
+    private val tinyStyle = Hyphenated(body.copy(fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold))
+    val tiny: TextStyle @Composable @ReadOnlyComposable get() = tinyStyle.current
+    private val tinyLabelStyle = Hyphenated(body.copy(fontSize = 11.sp, lineHeight = 13.sp))
+    val tinyLabel: TextStyle @Composable @ReadOnlyComposable get() = tinyLabelStyle.current
+    private val labelStyle = Hyphenated(body.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold))
+    val label: TextStyle @Composable @ReadOnlyComposable get() = labelStyle.current
+    private val chipStyle = Hyphenated(body.copy(fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium))
+    val chip: TextStyle @Composable @ReadOnlyComposable get() = chipStyle.current
+    private val buttonStyle = Hyphenated(body.copy(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold))
+    val button: TextStyle @Composable @ReadOnlyComposable get() = buttonStyle.current
+    private val fieldStyle = Hyphenated(body.copy(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.Medium))
+    val field: TextStyle @Composable @ReadOnlyComposable get() = fieldStyle.current
+    private val bodyTextStyle = Hyphenated(body.copy(fontSize = 14.sp, lineHeight = 20.sp))
+    val bodyText: TextStyle @Composable @ReadOnlyComposable get() = bodyTextStyle.current
 }
+
+/** Languages whose text breaks long words with a hyphen: Russian only, for now. */
+@Composable
+@ReadOnlyComposable
+internal fun hyphenatesWords(): Boolean = LocalConfiguration.current.locales[0]?.language == "ru"
 
 private fun materialTypography(): Typography {
     val base = Typography()
@@ -275,7 +312,10 @@ fun BridgeyTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () 
         CompositionLocalProvider(
             LocalBridgeyColors provides colors,
             LocalContentColor provides colors.onSurface,
-            LocalTextStyle provides TextStyle(fontFamily = Inter, fontFeatureSettings = INTER_FEATURES),
+            LocalTextStyle provides TextStyle(
+                fontFamily = Inter, fontFeatureSettings = INTER_FEATURES,
+                hyphens = if (hyphenatesWords()) Hyphens.Auto else Hyphens.Unspecified,
+            ),
             content = content,
         )
     }

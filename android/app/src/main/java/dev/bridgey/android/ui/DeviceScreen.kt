@@ -634,7 +634,7 @@ private fun DeviceComposer(state: DeviceState, actions: DeviceActions) {
     }
     val hint = stringResource(if (canSend) R.string.composer_clipboard_hint else R.string.composer_unavailable, state.ring.name)
     val fieldLabel = stringResource(R.string.composer_message_label)
-    ComposerSurface {
+    ComposerSurface(field = true) {
         BarIconButton(
             BridgeyIcons.AttachFile,
             stringResource(R.string.composer_attach),

@@ -524,6 +524,16 @@ enum TransfersText {
         String(format: L10n.text("transfers.window.speed", fallback: "%@/s"), bytes(Int64(bytesPerSecond.rounded())))
     }
 
+    /// The detail after a file's name while it moves, in the app's language:
+    /// "42% · 12 MB / 30 MB · 3 MB/s · 2 min left" ("42 % · 12 МБ / 30 МБ · 3 МБ/с · Осталось 2 мин").
+    static func progressDetail(transferred: Int64, total: Int64, bytesPerSecond: Double) -> String {
+        let percent = total == 0 ? 100 : min(100, Int(transferred * 100 / total))
+        let left = timeLeft(remaining: max(0, total - transferred), bytesPerSecond: bytesPerSecond)
+            ?? L10n.text("progress.calculating", fallback: "calculating time left")
+        return [String(format: L10n.text("progress.percent", fallback: "%d%%"), percent),
+                "\(bytes(transferred)) / \(bytes(total))", speed(bytesPerSecond), left].joined(separator: " \u{00B7} ")
+    }
+
     /// "3 s left", "2 min left", "1 h 5 min left". Nil when it cannot be said yet.
     static func timeLeft(remaining: Int64, bytesPerSecond: Double?) -> String? {
         guard let bytesPerSecond, bytesPerSecond >= 1, remaining > 0 else { return nil }
