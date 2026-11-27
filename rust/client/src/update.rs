@@ -1,12 +1,13 @@
-//! Self-update for desktop clients without a store (Windows now; Linux later), on the edition's Stable, Beta and
-//! Nightly feeds (`<UPDATE_FEED_BASE_URL>/<channel>.json`, written by scripts/rr/rrrelease.py). Rahul's standard for
-//! direct downloads: a trusted feed, then the download's size, SHA-256 and signature checked before anything is
-//! installed, and the person confirms.
+//! Self-update for desktop clients without a store (Windows and Linux), on the edition's Stable, Beta and Nightly feeds
+//! (`<UPDATE_FEED_BASE_URL>/<channel>.json`, written by scripts/rr/rrrelease.py). Rahul's standard for direct
+//! downloads: a trusted feed, then the download's size, SHA-256 and signature checked before anything is installed,
+//! and the person confirms.
 //!
 //! A feed's `windows` entry: `version`, `build`, `minimumOsBuild`, and per architecture (`x64`, `arm64`) `url`,
 //! `sha256` (hex), `size` and `edSignature`: Ed25519 over the zip, by the release key that signs the Mac's Sparkle
-//! updates. Builds are UTC build times (YYDDDHHMM), so a higher build is newer on every channel; a channel switch never
-//! goes back to an older build.
+//! updates. The `linux` entry has the same fields per AppImage architecture (`x86_64`, `aarch64`), without
+//! `minimumOsBuild`. Builds are UTC build times (YYDDDHHMM), so a higher build is newer on every channel; a channel
+//! switch never goes back to an older build.
 
 use ring::digest::{Context, SHA256};
 use serde_json::{json, Value};
@@ -53,6 +54,16 @@ pub fn matches_channel(version: &str, channel: &str) -> bool {
 /// What the feed offers this device, or None when it has nothing newer. Err when the feed is not one to trust
 /// (wrong app or channel, an asset outside the release repository, malformed fields).
 pub fn check(feed: &str, app_id: &str, channel: &str, arch: &str, current_build: u64, trusted_prefix: &str) -> Result<Option<Offer>, String> {
+    check_platform(feed, "windows", app_id, channel, arch, current_build, trusted_prefix)
+}
+
+/// `check` for a platform's own entry: `windows` or `linux`.
+pub fn check_platform(feed: &str, platform: &str, app_id: &str, channel: &str, arch: &str, current_build: u64, trusted_prefix: &str) -> Result<Option<Offer>, String> {
+    let label = match platform {
+        "windows" => "Windows",
+        "linux" => "Linux",
+        _ => return Err("unknown platform".into()),
+    };
     let Ok(Value::Object(f)) = serde_json::from_str::<Value>(feed) else { return Err("the feed is not JSON".into()) };
     if f.get("schema").and_then(Value::as_i64) != Some(SCHEMA) {
         return Err("unsupported feed schema".into());
@@ -66,12 +77,12 @@ pub fn check(feed: &str, app_id: &str, channel: &str, arch: &str, current_build:
     if !trusted_prefix.starts_with("https://") && !trusted_prefix.starts_with("http://127.0.0.1:") {
         return Err("the trusted prefix must be HTTPS".into());
     }
-    let Some(Value::Object(w)) = f.get("windows") else { return Ok(None) };
+    let Some(Value::Object(w)) = f.get(platform) else { return Ok(None) };
     let version = w.get("version").and_then(Value::as_str).unwrap_or("");
     if !matches_channel(version, channel) {
-        return Err(format!("the Windows version {version:?} is not a {channel} version"));
+        return Err(format!("the {label} version {version:?} is not a {channel} version"));
     }
-    let build = w.get("build").and_then(Value::as_u64).filter(|b| *b > 0).ok_or("the Windows build is invalid")?;
+    let build = w.get("build").and_then(Value::as_u64).filter(|b| *b > 0).ok_or(format!("the {label} build is invalid"))?;
     if build <= current_build {
         return Ok(None);
     }
@@ -160,6 +171,28 @@ mod tests {
         assert!(check(&feed(263201050, &sha, MAX_SIZE + 1, &sig), "in.roundrobin.bridgey", "beta", "x64", 1, PREFIX).is_err());
         let no_windows = json!({"schema": 1, "app": "in.roundrobin.bridgey", "channel": "beta"}).to_string();
         assert_eq!(check(&no_windows, "in.roundrobin.bridgey", "beta", "x64", 1, PREFIX).unwrap(), None);
+    }
+
+    #[test]
+    fn linux_reads_its_own_entry() {
+        let sig = crate::crypto::b64(&[1u8; 64]);
+        let sha = "b".repeat(64);
+        let feed = json!({
+            "schema": 1, "app": "in.roundrobin.bridgey", "channel": "beta",
+            "windows": {"version": "1.1.0-beta.2", "build": 263201050, "minimumOsBuild": 19041,
+                "x64": {"url": format!("{PREFIX}v1.1.0-beta.2/w.zip"), "sha256": "a".repeat(64), "size": 10, "edSignature": sig}},
+            "linux": {"version": "1.1.0-beta.2", "build": 263201050,
+                "x86_64": {"url": format!("{PREFIX}v1.1.0-beta.2/Bridgey-RR-1.1.0-beta.2-linux-x86_64.AppImage"), "sha256": sha, "size": 2000, "edSignature": sig}},
+        })
+        .to_string();
+        let offer = check_platform(&feed, "linux", "in.roundrobin.bridgey", "beta", "x86_64", 1, PREFIX).unwrap().unwrap();
+        assert!(offer.url.ends_with("linux-x86_64.AppImage"));
+        assert_eq!(offer.size, 2000);
+        assert_eq!(check_platform(&feed, "linux", "in.roundrobin.bridgey", "beta", "aarch64", 1, PREFIX).unwrap(), None, "no aarch64 AppImage");
+        assert_eq!(check(&feed, "in.roundrobin.bridgey", "beta", "x64", 1, PREFIX).unwrap().unwrap().size, 10, "Windows is unchanged");
+        let windows_only = json!({"schema": 1, "app": "in.roundrobin.bridgey", "channel": "beta"}).to_string();
+        assert_eq!(check_platform(&windows_only, "linux", "in.roundrobin.bridgey", "beta", "x86_64", 1, PREFIX).unwrap(), None);
+        assert!(check_platform(&feed, "macos", "in.roundrobin.bridgey", "beta", "x86_64", 1, PREFIX).is_err());
     }
 
     #[test]

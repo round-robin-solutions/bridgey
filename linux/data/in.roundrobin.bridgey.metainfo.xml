@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>in.roundrobin.bridgey</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Bridgey by Round Robin</name>
+  <summary>Your phone and this computer, together</summary>
+  <summary xml:lang="ru">Телефон и этот компьютер вместе</summary>
+  <description>
+    <p>Copy on one, paste on the other. Get your phone's notifications here, send files either way and ring a lost phone.</p>
+    <p xml:lang="ru">Копируйте на одном устройстве, вставляйте на другом. Получайте уведомления телефона здесь, отправляйте файлы в обе стороны и находите телефон звонком.</p>
+  </description>
+  <launchable type="desktop-id">in.roundrobin.bridgey.desktop</launchable>
+  <url type="homepage">https://github.com/round-robin-solutions/bridgey</url>
+  <developer id="in.roundrobin"><name>Round Robin</name></developer>
+  <content_rating type="oars-1.1"/>
+</component>
