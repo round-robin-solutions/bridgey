@@ -702,7 +702,8 @@ public sealed partial class FileActivity(PhoneFilesViewModel owner, string id, b
     public string DeviceId { get; } = device;
     public required string Title { get; init; }
 
-    public string Heading => IsDownload ? $"Downloading {Title}" : $"Adding {Title}";
+    /// <summary>"Downloading photo.jpg" while it runs; the name alone once it ended (the line below says how).</summary>
+    public string Heading => !_running ? Title : IsDownload ? $"Downloading {Title}" : $"Adding {Title}";
 
     public string Text
     {
@@ -725,6 +726,7 @@ public sealed partial class FileActivity(PhoneFilesViewModel owner, string id, b
             if (!Set(ref _running, value)) return;
             Raise(nameof(Finished));
             Raise(nameof(CanShow));
+            Raise(nameof(Heading));
         }
     }
 

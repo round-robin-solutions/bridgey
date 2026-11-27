@@ -108,6 +108,7 @@ public sealed class PhoneFilesViewModelTests
         Assert.True(row.Running);
         Event("download", """{"requestId":"r-download","state":"done","files":3,"filesDone":3,"bytes":2097152,"total":2097152,"folder":"D:\\Here","renamed":1}""");
         Assert.False(row.Running);
+        Assert.Equal("notes.txt", row.Heading);
         Assert.True(row.CanShow);
         Assert.Equal("Done. Items with names already in the folder were numbered.", row.Text);
 
