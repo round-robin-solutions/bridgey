@@ -20,6 +20,7 @@
     <!-- A feature card's row of device chips. -->
     <string name="settings_card_devices">Devices</string>
     <string name="settings_more_options">More options</string>
+    <string name="settings_more_options_for">More options for %1$s</string>
     <string name="settings_expanded">Expanded</string>
     <string name="settings_collapsed">Collapsed</string>
     <!-- TalkBack on a device chip: "Work MacBook, Clipboard". -->

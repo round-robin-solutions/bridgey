@@ -71,40 +71,35 @@ fun UpdatePrompts(updater: AppUpdater) {
     if (state.promptVisible && update != null) {
         AlertDialog(
             onDismissRequest = updater::later,
-            title = { Text("Update available") },
+            title = { Text(stringResource(R.string.update_prompt_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Bridgey by Round Robin ${VersionNames.label(update.versionName)} is ready to install.")
+                    Text(stringResource(R.string.update_prompt_body, VersionNames.label(update.versionName)))
                     if (update.notes.isNotBlank()) ReleaseNotesList(update.notes, update.versionName)
                     if (update.notesUrl.isNotEmpty()) {
-                        TextButton(onClick = { uriHandler.openUri(update.notesUrl) }) { Text("Read release notes") }
+                        TextButton(onClick = { uriHandler.openUri(update.notesUrl) }) { Text(stringResource(R.string.updates_full_notes)) }
                     }
                 }
             },
-            confirmButton = { Button(onClick = updater::install) { Text("Install") } },
-            dismissButton = { TextButton(onClick = updater::later) { Text("Later") } },
+            confirmButton = { Button(onClick = updater::install) { Text(stringResource(R.string.updates_install)) } },
+            dismissButton = { TextButton(onClick = updater::later) { Text(stringResource(R.string.updates_later)) } },
         )
     }
 
     if (state.needsInstallPermission) {
         AlertDialog(
             onDismissRequest = updater::dismissInstallPermission,
-            title = { Text("Allow Bridgey to install updates") },
-            text = {
-                Text(
-                    "Android asks before an app installs its own updates. Open Install unknown apps, " +
-                        "turn on Allow from this source for Bridgey by Round Robin, then come back and tap Install again.",
-                )
-            },
+            title = { Text(stringResource(R.string.update_attention_permission_title)) },
+            text = { Text(stringResource(R.string.update_permission_body)) },
             confirmButton = {
                 Button(onClick = {
                     updater.dismissInstallPermission()
                     context.startActivity(
                         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")),
                     )
-                }) { Text("Open settings") }
+                }) { Text(stringResource(R.string.update_permission_open)) }
             },
-            dismissButton = { TextButton(onClick = updater::dismissInstallPermission) { Text("Not now") } },
+            dismissButton = { TextButton(onClick = updater::dismissInstallPermission) { Text(stringResource(R.string.action_not_now)) } },
         )
     }
 }

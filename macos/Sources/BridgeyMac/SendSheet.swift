@@ -987,7 +987,7 @@ final class SendSheetModel: ObservableObject {
             refreshOptimization()
             onClose()
         } else {
-            state.status = pairing.fileTransferStatus ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")
+            state.status = pairing.fileTransferStatus.map(StatusText.localized) ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")
         }
     }
 }

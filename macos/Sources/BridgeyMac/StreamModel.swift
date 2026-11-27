@@ -220,7 +220,7 @@ enum ActivityText {
         if showPreviews, item.kind == .notificationsShown, let app = item.appName {
             return item.count == 1
                 ? format("stream.alert.app", "1 %@ alert", app)
-                : String.localizedStringWithFormat(L10n.text("stream.alerts.app", fallback: "%1$d %2$@ alerts"), item.count, app)
+                : L10n.plural("stream.alerts.app", fallback: "%1$d %2$@ alerts", item.count, app)
         }
         if showPreviews, item.kind == .callShown, let caller = item.preview {
             return format("stream.call.from", "Call from %@", caller)
@@ -243,11 +243,11 @@ enum ActivityText {
         case .notificationsShown:
             return item.count == 1
                 ? L10n.text("stream.alert", fallback: "1 alert")
-                : String.localizedStringWithFormat(L10n.text("stream.alerts", fallback: "%d alerts"), item.count)
+                : L10n.plural("stream.alerts", fallback: "%d alerts", item.count)
         case .callShown:
             return item.count == 1
                 ? L10n.text("stream.call", fallback: "Incoming call")
-                : String.localizedStringWithFormat(L10n.text("stream.calls", fallback: "%d calls"), item.count)
+                : L10n.plural("stream.calls", fallback: "%d calls", item.count)
         case .callStarted: return format("stream.call.started", "Call placed on %@", device)
         case .pingSent: return format("stream.ping.sent", "Pinged %@", device)
         case .pingReceived: return format("stream.ping.received", "Ping from %@", device)

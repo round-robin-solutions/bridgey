@@ -1,5 +1,6 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -182,7 +183,7 @@ fun HomeScreen(state: HomeState, actions: HomeActions, snackbar: SnackbarHostSta
 private fun HomeAppBar(openSettings: () -> Unit, lookForDevices: () -> Unit, rediscovering: Boolean) {
     val colors = BridgeyTheme.colors
     Row(
-        Modifier.fillMaxWidth().height(64.dp).padding(start = 20.dp, end = 8.dp),
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(start = 20.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -202,11 +203,15 @@ private fun HomeAppBar(openSettings: () -> Unit, lookForDevices: () -> Unit, red
     }
 }
 
+/** A ring's column: 92 dp, 128 dp with large text so names and statuses fit (the strip scrolls sideways). */
+@Composable
+private fun ringWidth() = if (largeText()) 128.dp else 92.dp
+
 /** Device rings: 92 dp columns, centred, scrolling sideways after five. */
 @Composable
 private fun RingStrip(state: HomeState, actions: HomeActions) {
     LazyRow(
-        Modifier.fillMaxWidth().height(112.dp),
+        Modifier.fillMaxWidth().heightIn(min = 112.dp),
         contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
     ) {
@@ -227,7 +232,7 @@ private fun RingItem(ring: DeviceRing, selected: Boolean, actions: HomeActions) 
     val status = if (ring.trusted) ringStatusLabel(ring) else stringResource(R.string.ring_new)
     Column(
         Modifier
-            .width(92.dp)
+            .width(ringWidth())
             .clip(RoundedCornerShape(16.dp))
             .then(
                 if (ring.trusted) {
@@ -252,11 +257,12 @@ private fun RingItem(ring: DeviceRing, selected: Boolean, actions: HomeActions) 
         Text(
             ring.name,
             style = BridgeyType.smallStrong,
-            maxLines = 1,
+            maxLines = if (largeText()) 2 else 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
             color = colors.onSurface,
-            modifier = Modifier.padding(top = 8.dp),
+            // The ring's description already says the name and status: read once.
+            modifier = Modifier.padding(top = 8.dp).clearAndSetSemantics {},
         )
         Text(
             status,
@@ -264,7 +270,8 @@ private fun RingItem(ring: DeviceRing, selected: Boolean, actions: HomeActions) 
             color = if (ring.trusted) ringStateColor(ring.state) else colors.onTintBlue,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 2.dp),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 2.dp).clearAndSetSemantics {},
         )
     }
 }
@@ -274,14 +281,14 @@ private fun AddRing(onAdd: () -> Unit) {
     val colors = BridgeyTheme.colors
     Column(
         Modifier
-            .width(92.dp)
+            .width(ringWidth())
             .clip(RoundedCornerShape(16.dp))
             .clickable(onClickLabel = stringResource(R.string.ring_add_description), role = Role.Button, onClick = onAdd),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         DeviceGlyph(RingStyle.ADD, BridgeyIcons.Add, 60.dp, Modifier.padding(top = 6.dp))
-        Text(stringResource(R.string.ring_add), style = BridgeyType.smallStrong, color = colors.onSurface, modifier = Modifier.padding(top = 8.dp))
-        Text(stringResource(R.string.ring_pair), style = BridgeyType.tiny, color = colors.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
+        Text(stringResource(R.string.ring_add), style = BridgeyType.smallStrong, color = colors.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+        Text(stringResource(R.string.ring_pair), style = BridgeyType.tiny, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
     }
 }
 
@@ -321,7 +328,7 @@ private fun FilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     ) {
         Row(
             Modifier
-                .height(32.dp)
+                .heightIn(min = 32.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .then(if (selected) Modifier.background(colors.tintBlue) else Modifier.border(1.dp, colors.outline, RoundedCornerShape(10.dp)))
                 .padding(horizontal = 11.dp)
@@ -346,8 +353,8 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
         Box(Modifier.weight(1f)) {
             Row(
                 Modifier
-                    .widthIn(max = 220.dp)
-                    .height(48.dp)
+                    .widthIn(max = if (largeText()) 320.dp else 220.dp)
+                    .heightIn(min = 48.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .clickable(enabled = state.rings.count { it.trusted } > 0, onClickLabel = stringResource(R.string.composer_pick_device), role = Role.Button) { picking = true }
                     .padding(horizontal = 6.dp),
@@ -364,7 +371,7 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
                     Text(
                         target?.name ?: stringResource(R.string.composer_no_device),
                         style = BridgeyType.label,
-                        maxLines = 1,
+                        maxLines = if (largeText()) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
@@ -396,15 +403,21 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
                 }
             }
         }
-        GradientButton(
-            text = stringResource(R.string.composer_send_clipboard),
-            icon = BridgeyIcons.ContentPaste,
-            onClick = actions.sendClipboard,
-            enabled = state.canSendClipboard,
-            height = 48.dp,
-            textStyle = BridgeyType.label,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-        )
+        if (largeText()) {
+            // Large text: the icon alone (its name is read out), so the device picker keeps its room.
+            GradientCircleButton(BridgeyIcons.ContentPaste, stringResource(R.string.composer_send_clipboard), actions.sendClipboard, enabled = state.canSendClipboard)
+        } else {
+            GradientButton(
+                text = stringResource(R.string.composer_send_clipboard),
+                icon = BridgeyIcons.ContentPaste,
+                onClick = actions.sendClipboard,
+                enabled = state.canSendClipboard,
+                height = 48.dp,
+                textStyle = BridgeyType.label,
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                modifier = Modifier.weight(1f, fill = false),
+            )
+        }
     }
 }
 
@@ -416,7 +429,7 @@ fun ComposerSurface(content: @Composable androidx.compose.foundation.layout.RowS
         Modifier
             .padding(horizontal = 16.dp)
             .fillMaxWidth()
-            .height(64.dp)
+            .heightIn(min = 64.dp)
             .shadow(if (colors.isDark) 16.dp else 8.dp, RoundedCornerShape(32.dp), ambientColor = Color.Black.copy(alpha = if (colors.isDark) 1f else 0.2f), spotColor = Color.Black.copy(alpha = if (colors.isDark) 0.5f else 0.2f))
             .clip(RoundedCornerShape(32.dp))
             .background(colors.composer)

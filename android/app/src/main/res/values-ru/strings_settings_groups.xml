@@ -20,6 +20,7 @@
     <string name="settings_group_app_summary">Обновления, синхронизация, о приложении</string>
     <string name="settings_card_devices">Устройства</string>
     <string name="settings_more_options">Другие параметры</string>
+    <string name="settings_more_options_for">Другие параметры: %1$s</string>
     <string name="settings_expanded">Развёрнуто</string>
     <string name="settings_collapsed">Свёрнуто</string>
     <string name="settings_chip_description">%1$s, %2$s</string>

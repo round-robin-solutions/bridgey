@@ -1,5 +1,7 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.foundation.layout.heightIn
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -193,7 +195,9 @@ private fun LauncherChip(label: String, icon: ImageVector, running: Boolean, onC
     val alpha = if (running) 0.6f else 1f
     Row(
         Modifier
-            .height(40.dp)
+            // Drawn 40 dp tall; the touch target is 48 dp.
+            .minimumInteractiveComponentSize()
+            .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(colors.surface1)
             .clickable(enabled = !running, role = Role.Button, onClick = onClick)

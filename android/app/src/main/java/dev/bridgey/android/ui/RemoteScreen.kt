@@ -1,5 +1,7 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.foundation.layout.IntrinsicSize
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.AnimatedContent
@@ -206,7 +208,8 @@ private fun RemoteBar(state: RemoteScreenState, actions: RemoteActions) {
 @Composable
 private fun ModeTabs(mode: RemoteMode, onMode: (RemoteMode) -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
-    Box(modifier.fillMaxWidth().height(48.dp)) {
+    // 48 dp, taller when large text wraps a label.
+    Box(modifier.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 48.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
             RemoteMode.entries.forEach { entry ->
                 val selected = entry == mode
@@ -225,6 +228,7 @@ private fun ModeTabs(mode: RemoteMode, onMode: (RemoteMode) -> Unit, modifier: M
                         stringResource(if (entry == RemoteMode.TOUCHPAD) R.string.remote_mode_touchpad else R.string.remote_mode_slides),
                         style = BridgeyType.label,
                         color = if (selected) colors.onSurface else colors.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 12.dp),
                     )
                 }
             }
@@ -416,7 +420,9 @@ private fun SpecialKeysRow(enabled: Boolean, actions: RemoteActions, modifier: M
                 contentAlignment = Alignment.Center,
             ) {
                 Row(
-                    Modifier.height(40.dp).clip(RoundedCornerShape(12.dp)).background(colors.surface2).padding(horizontal = 12.dp),
+                    // The key's description is its label: the row's text is not read again.
+                    Modifier.heightIn(min = 40.dp).clip(RoundedCornerShape(12.dp)).background(colors.surface2).padding(horizontal = 12.dp)
+                        .clearAndSetSemantics {},
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {

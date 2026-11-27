@@ -57,6 +57,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -587,7 +589,7 @@ class MainActivity : ComponentActivity() {
                 writeText(report, Charsets.UTF_8)
             }
         }.getOrElse {
-            android.widget.Toast.makeText(this, "Could not create diagnostics file", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, R.string.diagnostics_export_failed, android.widget.Toast.LENGTH_LONG).show()
             return
         }
         val reportUri = FileProvider.getUriForFile(
@@ -598,12 +600,12 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(
             Intent(Intent.ACTION_SEND).apply {
                 type = "application/json"
-                putExtra(Intent.EXTRA_SUBJECT, "Bridgey diagnostics")
+                putExtra(Intent.EXTRA_SUBJECT, getString(R.string.diagnostics_export_subject))
                 putExtra(Intent.EXTRA_STREAM, reportUri)
-                clipData = ClipData.newUri(contentResolver, "Bridgey diagnostics", reportUri)
+                clipData = ClipData.newUri(contentResolver, getString(R.string.diagnostics_export_subject), reportUri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             },
-            "Export Bridgey diagnostics",
+            getString(R.string.diagnostics_export_title),
         ))
     }
 }
@@ -611,14 +613,16 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun UnsupportedProfile() = ScreenBackdrop(bandHeight = 0.dp) {
     Column(Modifier.fillMaxSize().statusBarsPadding().padding(28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Bridgey", style = MaterialTheme.typography.headlineLarge)
-        Text("Already active in the main phone profile", style = MaterialTheme.typography.titleLarge)
-        Text("Open Bridgey from the main profile to avoid showing this phone twice.", color = BridgeyTheme.colors.onSurfaceVariant)
+        Text(stringResource(R.string.brand_name), style = MaterialTheme.typography.headlineLarge)
+        Text(stringResource(R.string.profile_duplicate_title), style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+        Text(stringResource(R.string.profile_duplicate_body), color = BridgeyTheme.colors.onSurfaceVariant)
     }
 }
 
 /** Status texts from the coordinator that report progress or success: the stream already shows those. */
-private val QuietStatuses = setOf("Delivered", "Sending…", "Pinging Mac…", "Ping delivered", "Media command completed")
+private val QuietStatuses = listOf(
+    R.string.status_delivered, R.string.status_sending, R.string.ping_status_delivered, R.string.quick_media_done, R.string.quick_link_delivered,
+)
 
 internal val PermissionOrder = listOf(
     listOf(BridgeyFeature.CLIPBOARD),
@@ -756,7 +760,7 @@ private fun BridgeyApp(
         merge(pairing.clipboardStatus.drop(1), pairing.pingStatus.drop(1), pairing.quickActions.status.drop(1), screenshotAccess.messages)
             .filterNotNull()
             .collect { status ->
-                if (status !in QuietStatuses && !status.startsWith("Link delivered")) {
+                if (QuietStatuses.none { context.getString(it) == status }) {
                     snackbar.currentSnackbarData?.dismiss()
                     snackbar.showSnackbar(status)
                 }

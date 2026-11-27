@@ -26,7 +26,7 @@ class BridgeyConnectionService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var notificationManager: NotificationManager
     private var supportedProfile = true
-    private var lastStatus = "Not connected · waiting for paired device"
+    private var lastStatus = ""
     private var wifiKeeper: WifiKeeper? = null
     private var localClipboardAction: ClipboardContextAction? = null
     private var pendingLocalClipboardAction: PendingIntent? = null
@@ -41,30 +41,33 @@ class BridgeyConnectionService : Service() {
         }
         notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Bridgey clipboard", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Keeps paired Bridgey devices connected"
+            NotificationChannel(CHANNEL_ID, getString(R.string.channel_connection), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = getString(R.string.channel_connection_detail)
                 setSound(null, null)
                 enableVibration(false)
             },
         )
         notificationManager.createNotificationChannel(
-            NotificationChannel(TRANSFER_CHANNEL_ID, "File transfers", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shows active Bridgey file transfers and cancellation"
+            NotificationChannel(TRANSFER_CHANNEL_ID, getString(R.string.channel_transfers), NotificationManager.IMPORTANCE_LOW).apply {
+                description = getString(R.string.channel_transfers_detail)
                 setSound(null, null)
                 enableVibration(false)
             },
         )
         notificationManager.createNotificationChannel(
-            NotificationChannel(FIND_CHANNEL_ID, "Find device", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Shows when another Bridgey device is finding this phone"
+            NotificationChannel(FIND_CHANNEL_ID, getString(R.string.channel_find), NotificationManager.IMPORTANCE_HIGH).apply {
+                description = getString(R.string.channel_find_detail)
                 setSound(null, null)
                 enableVibration(false)
             },
         )
+        lastStatus = getString(R.string.service_status_waiting)
         startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
         serviceScope.launch {
             val pairing = (application as BridgeyApplication).pairing
-            combine(pairing.connections, pairing.pairingFlow) { connections, flow -> connectionStatus(connections, flow) }
+            combine(pairing.connections, pairing.pairingFlow) { connections, flow ->
+                connectionStatus(connections, flow) { id, args -> getString(id, *args.toTypedArray()) }
+            }
                 .distinctUntilChanged()
                 .collect { status ->
                     lastStatus = status
@@ -159,7 +162,7 @@ class BridgeyConnectionService : Service() {
                 .setCategory(android.app.Notification.CATEGORY_PROGRESS)
                 .addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
-                    if (folder != null) getString(R.string.action_cancel) else "Cancel this file",
+                    getString(if (folder != null) R.string.action_cancel else R.string.file_notification_cancel),
                     cancelTransfer,
                 )
             transfer.progressPercent?.let { builder.setProgress(100, it, false) }
@@ -247,7 +250,7 @@ class BridgeyConnectionService : Service() {
         val detail = transfer.status.substringAfter(": ", transfer.status)
         return detail
             .replace(Regex("^(Sending|Receiving)\\s+${Regex.escape(transfer.name)}:?\\s*"), "")
-            .ifBlank { if (transfer.progressPercent == null) "Preparing…" else "Transferring…" }
+            .ifBlank { getString(if (transfer.progressPercent == null) R.string.file_status_preparing else R.string.file_status_transferring) }
     }
 
     private fun transferNotificationId(transferId: String) = 50_000 + (transferId.hashCode() and 0x0fff)
@@ -296,7 +299,7 @@ class BridgeyConnectionService : Service() {
         )
         val notification = android.app.Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-            .setContentTitle("Bridgey")
+            .setContentTitle(getString(R.string.brand_name))
             .setContentText(status)
             .setCategory(android.app.Notification.CATEGORY_SERVICE)
             .setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
@@ -348,13 +351,13 @@ class BridgeyConnectionService : Service() {
         )
         return android.app.Notification.Builder(this, FIND_CHANNEL_ID)
             .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-            .setContentTitle("Bridgey is finding this phone")
-            .setContentText("Your Mac requested a sound")
+            .setContentTitle(getString(R.string.find_notification_title))
+            .setContentText(getString(R.string.find_notification_text))
             .setCategory(android.app.Notification.CATEGORY_ALARM)
             .setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", stop)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.action_stop), stop)
             .build()
     }
 
@@ -558,7 +561,7 @@ class ClipboardCaptureActivity : Activity() {
                 val message = if (result == ClipboardSendResult.DELIVERED) {
                     appContext.getString(R.string.screenshot_sent, peerName)
                 } else {
-                    sendResultMessage(result)
+                    sendResultMessage(appContext, result)
                 }
                 Toast.makeText(appContext, message, Toast.LENGTH_SHORT).show()
             }
@@ -570,27 +573,29 @@ class ClipboardCaptureActivity : Activity() {
         if (clip == null || clip == LocalClip.Own) {
             Toast.makeText(
                 appContext,
-                if (clip == null) "Clipboard is empty" else "This clip came from your Mac",
+                appContext.getString(if (clip == null) R.string.clip_status_empty else R.string.clip_status_own),
                 Toast.LENGTH_SHORT,
             ).show()
             return
         }
         pairing.sendClip(clip, deviceId) { result ->
             Handler(Looper.getMainLooper()).post {
-                Toast.makeText(appContext, sendResultMessage(result), Toast.LENGTH_SHORT).show()
+                Toast.makeText(appContext, sendResultMessage(appContext, result), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-    private fun sendResultMessage(result: ClipboardSendResult): String = when (result) {
-        ClipboardSendResult.DELIVERED -> "Clipboard sent to Mac"
-        ClipboardSendResult.EMPTY -> "Clipboard is empty"
-        ClipboardSendResult.DISABLED -> "Clipboard is turned off on one of your devices"
-        ClipboardSendResult.NOT_CONNECTED -> "Not connected — clipboard not sent"
-        ClipboardSendResult.CONNECTION_LOST -> "Send failed — connection lost"
-        ClipboardSendResult.NO_ACKNOWLEDGEMENT -> "Mac did not confirm delivery"
-        ClipboardSendResult.TOO_LARGE -> "Clipboard exceeds 32 KiB. Send it as a file."
-    }
+    private fun sendResultMessage(context: android.content.Context, result: ClipboardSendResult): String = context.getString(
+        when (result) {
+            ClipboardSendResult.DELIVERED -> R.string.clip_status_sent_to_mac
+            ClipboardSendResult.EMPTY -> R.string.clip_status_empty
+            ClipboardSendResult.DISABLED -> R.string.clip_status_off_somewhere
+            ClipboardSendResult.NOT_CONNECTED -> R.string.clip_status_clipboard_not_sent
+            ClipboardSendResult.CONNECTION_LOST -> R.string.clip_status_connection_lost
+            ClipboardSendResult.NO_ACKNOWLEDGEMENT -> R.string.clip_status_mac_no_ack
+            ClipboardSendResult.TOO_LARGE -> R.string.clip_status_too_large_short
+        },
+    )
 
     private fun close() {
         if (isFinishing) return

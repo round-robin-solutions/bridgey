@@ -48,6 +48,11 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -326,7 +331,8 @@ fun SwitchRow(
         compact = compact,
         detailWarning = detailWarning,
         synced = synced,
-        modifier = Modifier.semantics(mergeDescendants = true) {},
+        // The switch inside has no click of its own, so the row says whether it is on.
+        modifier = Modifier.semantics(mergeDescendants = true) { toggleableState = ToggleableState(checked) },
         onClick = if (enabled) ({ onCheckedChange(!checked) }) else null,
         role = Role.Switch,
     ) {
@@ -350,7 +356,7 @@ fun GradientButton(
     Row(
         modifier
             .pressScale(interaction)
-            .height(height)
+            .heightIn(min = height)
             .shadow(if (enabled) 10.dp else 0.dp, RoundedCornerShape(height / 2), ambientColor = Color(0xFF54C7F5), spotColor = Color(0xFF54C7F5))
             .clip(RoundedCornerShape(height / 2))
             .drawBehind {
@@ -363,7 +369,7 @@ fun GradientButton(
     ) {
         val fg = if (enabled) Aurora.OnGradient else BridgeyTheme.colors.onSurfaceVariant
         if (icon != null) Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(20.dp))
-        Text(text, style = textStyle, color = fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(text, style = textStyle, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
     }
 }
 
@@ -413,7 +419,7 @@ fun OutlinePillButton(text: String, icon: ImageVector?, onClick: () -> Unit, mod
     ) {
         Row(
             Modifier
-                .height(40.dp)
+                .heightIn(min = 40.dp)
                 .border(1.dp, colors.outline, RoundedCornerShape(20.dp))
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -421,7 +427,7 @@ fun OutlinePillButton(text: String, icon: ImageVector?, onClick: () -> Unit, mod
         ) {
             val fg = if (enabled) contentColor else colors.onSurfaceVariant
             if (icon != null) Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp))
-            Text(text, style = BridgeyType.label, color = fg, maxLines = 1)
+            Text(text, style = BridgeyType.label, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -439,9 +445,9 @@ fun TonalPillButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.height(36.dp).clip(RoundedCornerShape(18.dp)).background(bg).padding(horizontal = 14.dp),
+            Modifier.heightIn(min = 36.dp).clip(RoundedCornerShape(18.dp)).background(bg).padding(horizontal = 14.dp),
             contentAlignment = Alignment.Center,
-        ) { Text(text, style = BridgeyType.label, color = fg, maxLines = 1) }
+        ) { Text(text, style = BridgeyType.label, color = fg, maxLines = if (largeText()) 2 else 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center) }
     }
 }
 
@@ -450,7 +456,7 @@ fun TonalPillButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
 fun StatusPill(text: String, icon: ImageVector?, tint: Tint) {
     val (bg, fg) = BridgeyTheme.colors.tint(tint)
     Row(
-        Modifier.height(24.dp).clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp),
+        Modifier.heightIn(min = 24.dp).clip(RoundedCornerShape(12.dp)).background(bg).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -477,7 +483,7 @@ fun RoutePill(state: RingState, label: String? = null, route: dev.bridgey.androi
     }
     Crossfade(state, animationSpec = LocalMotion.current.fadeSpec(), label = "route") { shown ->
         Row(
-            Modifier.height(26.dp).clip(RoundedCornerShape(13.dp)).background(bg).padding(start = 8.dp, end = 10.dp),
+            Modifier.heightIn(min = 26.dp).clip(RoundedCornerShape(13.dp)).background(bg).padding(start = 8.dp, end = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
@@ -521,7 +527,7 @@ fun ringStateColor(state: RingState): Color {
 @Composable
 fun PageBar(title: String?, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = 4.dp),
+        Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 56.dp).padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BarIconButton(BridgeyIcons.ArrowBack, stringResource(R.string.action_back), onBack)
@@ -530,7 +536,7 @@ fun PageBar(title: String?, onBack: () -> Unit, actions: @Composable RowScope.()
                 title,
                 style = BridgeyType.pageTitle,
                 modifier = Modifier.weight(1f).padding(start = 4.dp).semantics { heading() },
-                maxLines = 1,
+                maxLines = if (largeText()) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
             )
         } else {
@@ -564,3 +570,26 @@ fun Modifier.describedAs(description: String): Modifier = clearAndSetSemantics {
 val ScreenWidthCap = 600.dp
 
 fun Modifier.capWidth(): Modifier = widthIn(max = ScreenWidthCap)
+
+/** Large text (font scale 130% or more): rows let titles and details wrap instead of cutting them short. */
+@Composable
+fun largeText(): Boolean = LocalDensity.current.fontScale >= 1.3f
+
+/**
+ * A screen's or card's buttons, end-aligned on one line when they fit ([horizontalArrangement] SpaceBetween puts a
+ * link at the start and the main button at the end). When they do not (large text, a long translation) the last ones
+ * move to the next line instead of squeezing a button's label away.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ButtonRow(
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(8.dp, Alignment.End),
+    content: @Composable () -> Unit,
+) {
+    FlowRow(
+        modifier.fillMaxWidth(),
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) { content() }
+}

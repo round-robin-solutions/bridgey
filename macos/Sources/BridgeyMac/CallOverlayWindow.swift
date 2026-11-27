@@ -364,11 +364,12 @@ struct CallOverlayView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Hide call controls; they remain available in Bridgey")
+                    .help(L10n.text("callcard.hide.help", fallback: "Hide call controls; they remain available in Bridgey"))
+                    .accessibilityLabel(L10n.text("callcard.hide", fallback: "Hide call controls"))
                 }
 
                 if call.actions.isEmpty {
-                    Text("Use the phone to control this call.")
+                    Text(L10n.text("callcard.usePhone", fallback: "Use the phone to control this call."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

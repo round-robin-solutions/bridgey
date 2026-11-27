@@ -100,14 +100,14 @@ final class TransfersWindowScreenshots: XCTestCase {
     }
 
     /// The live card's fixture rows and speeds.
-    private func feed(_ live: Bool) -> TransfersLiveFeed {
+    func feed(_ live: Bool) -> TransfersLiveFeed {
         guard live else { return TransfersLiveFeed() }
         let names = [phone: "OnePlus 11 5G", mac: "Personal Mac", pixel: "Pixel 8"]
         return TransfersLiveFeed(live: TransferLiveList.ordered(liveRows).map { TransferLive.make($0, deviceName: { names[$0] ?? $0 }) },
                                  speeds: ["live-video": 21_400_000, "live-folder": 18_900_000])
     }
 
-    private func state(live: Bool = true, empty: Bool = false) -> TransfersWindowState {
+    func state(live: Bool = true, empty: Bool = false) -> TransfersWindowState {
         var state = TransfersWindowState()
         state.now = now
         state.connected = [TransferDevice(id: phone, name: "OnePlus 11 5G"), TransferDevice(id: pixel, name: "Pixel 8")]

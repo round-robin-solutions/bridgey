@@ -68,11 +68,13 @@ internal const val TRANSFER_INTERRUPTED_STATUS = "Transfer interrupted. Reconnec
 
 internal fun recoverInterruptedTransfers(
     transfers: Map<String, FileTransferState>,
+    /** The line the card shows, in the phone's language (R.string.file_status_interrupted_retry). */
+    status: String = TRANSFER_INTERRUPTED_STATUS,
 ): Map<String, FileTransferState> = transfers
     .mapValues { (_, transfer) ->
         // Folders report their own interruption (their journal decides whether they resume).
         if (transfer.active && transfer.kind == TransferKind.FILE) transfer.copy(
-            status = TRANSFER_INTERRUPTED_STATUS,
+            status = status,
             active = false,
             progressPercent = null,
             queued = false,

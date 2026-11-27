@@ -418,18 +418,19 @@ struct BrandSwitchStyle: ToggleStyle {
             guard isEnabled else { return }
             withAnimation(BrandMotion.animation(BrandMotion.small, reduce: reduce)) { configuration.isOn.toggle() }
         }
-        return HStack(spacing: 12) {
-            configuration.label
-                .frame(maxWidth: .infinity, alignment: .leading)
-            track(isOn: configuration.isOn)
+        // A button, not a tap gesture: Tab reaches it with Keyboard navigation on and Space turns it on or off.
+        return Button(action: toggle) {
+            HStack(spacing: 12) {
+                configuration.label
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                track(isOn: configuration.isOn)
+            }
+            .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: toggle)
+        .buttonStyle(.plain)
         .opacity(isEnabled ? 1 : 0.45)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityValue(configuration.isOn ? Text("On") : Text("Off"))
-        .accessibilityAction(.default, toggle)
+        .switchAccessibility(isOn: configuration.isOn)
     }
 
     private func track(isOn: Bool) -> some View {
@@ -445,6 +446,27 @@ struct BrandSwitchStyle: ToggleStyle {
         .frame(width: 52, height: 32)
         .scaleEffect(scale)
         .frame(width: 52 * scale, height: 32 * scale)
+    }
+}
+
+extension View {
+    /// What VoiceOver says for the app's drawn switches and chips: a toggle (a button before macOS 14) and its state
+    /// in the app's language.
+    func switchAccessibility(isOn: Bool) -> some View {
+        modifier(SwitchAccessibility(isOn: isOn))
+    }
+}
+
+private struct SwitchAccessibility: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        let value = content.accessibilityValue(isOn ? L10n.text("action.on", fallback: "On") : L10n.text("action.off", fallback: "Off"))
+        if #available(macOS 14, *) {
+            value.accessibilityAddTraits(.isToggle)
+        } else {
+            value.accessibilityAddTraits(.isButton)
+        }
     }
 }
 

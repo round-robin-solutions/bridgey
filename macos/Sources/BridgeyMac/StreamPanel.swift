@@ -510,6 +510,8 @@ private struct DeviceChip: View {
                     .font(BrandFont.body(13, .semibold))
                     .foregroundStyle(c.on)
                     .lineLimit(1)
+                    // Two chips share the row: "OnePlus 11" shrinks a little before it is cut.
+                    .minimumScaleFactor(0.8)
                 // The long form ("Reconnecting… (last seen 02:56)") when the chip is wide enough.
                 ViewThatFits(in: .horizontal) {
                     Text(ringStatusDetail(ring, now: now))
@@ -533,6 +535,8 @@ private struct DeviceChip: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(statusColor)
                     .padding(.leading, 4)
+                    // The status line already says "Same Wi-Fi".
+                    .accessibilityHidden(true)
             }
         }
         .padding(.leading, 6)
@@ -896,6 +900,8 @@ private struct FolderLiveCard: View {
                 }
                 .buttonStyle(.plain)
                 .help(L10n.text("folders.details.toggle", fallback: "Show files"))
+                .accessibilityLabel(L10n.text("folders.details.toggle", fallback: "Show files"))
+                .accessibilityValue(isExpanded ? L10n.text("settings.more.open", fallback: "Expanded") : L10n.text("settings.more.closed", fallback: "Collapsed"))
             }
             if showsBar {
                 UpdateProgressBar(progress: folder.progress.bytesTotal > 0 ? Double(folder.progress.bytesDone) / Double(folder.progress.bytesTotal) : (folder.hashing ?? 0))
@@ -1338,7 +1344,9 @@ private struct SendBar: View {
                 Text(label)
                     .font(BrandFont.body(11))
                     .foregroundStyle(c.on2)
-                    .lineLimit(1)
+                    // Status lines and Russian run long: a second line rather than a cut-off sentence.
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(line)
                     .font(BrandFont.body(13, .medium))
                     .foregroundStyle(model.clipboardLine == nil || model.clipboardHidden ? c.on2 : c.on)
@@ -1519,7 +1527,7 @@ struct BridgeyPanel: View {
         let fileStatus: String? = pairing.fileTransferActive ? nil : pairing.fileTransferStatus
         let statuses: [String?] = [pairing.rediscoverStatus, pairing.clipboardStatus, pairing.callStatus, pairing.pingStatus,
                                    quickActions.status, camera.status, phoneScreen.status, fileStatus]
-        model.status = statuses.lazy.compactMap { $0 }.first
+        model.status = statuses.lazy.compactMap { $0 }.first.map(StatusText.localized)
         if pairing.isFeatureAvailable(.notifications) && !pairing.notificationsAuthorized {
             model.notificationPrompt = pairing.notificationPermissionDetermined ? .openSettings : .request
         }

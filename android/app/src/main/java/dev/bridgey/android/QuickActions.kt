@@ -9,7 +9,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -35,7 +37,8 @@ internal fun validatedWebLink(value: String): String? {
 data class MacMediaState(
     val player: String = "", val title: String = "", val artist: String = "",
     val playing: Boolean = false, val position: Int = 0, val duration: Int = 0, val volume: Int = 0,
-    val detail: String = "Choose a player in Bridgey Settings on your Mac, under Media",
+    /** The Mac's own explanation, in the Mac's language; empty before it reports (the card says to choose a player). */
+    val detail: String = "",
     val artwork: String? = null,
     val controls: Set<String>? = null,
 ) {
@@ -133,14 +136,18 @@ class QuickActions(
     @Volatile private var linkSender: String? = null
     private fun linkAllowed(): Boolean = linkSender?.let { availableFor(BridgeyFeature.LINKS, it) } ?: available(BridgeyFeature.LINKS)
     private val mutableStatus = MutableStateFlow<String?>(null)
+    /** The last request's result, as the snackbar says it (in the phone's language). */
     val status = mutableStatus.asStateFlow()
+    private val mutableLinkDelivered = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+    /** A link reached the selected device and waits there (Activity records it; the snackbar stays quiet). */
+    val linkDelivered = mutableLinkDelivered.asSharedFlow()
     private val mutableMedia = MutableStateFlow(MacMediaState())
     val media = mutableMedia.asStateFlow()
     private val pending = mutableMapOf<String, Pair<String, Job>>()
     private var sequence = 0L
 
     @Synchronized fun request(feature: BridgeyFeature, action: String, value: String = "") {
-        if (!available(feature)) { mutableStatus.value = "Feature is unavailable on one of your devices"; return }
+        if (!available(feature)) { mutableStatus.value = context.getString(R.string.quick_unavailable); return }
         if (feature.key in pending) return
         val id = UUID.randomUUID().toString()
         val expiry = scope.launch {
@@ -148,18 +155,18 @@ class QuickActions(
             synchronized(this@QuickActions) {
                 if (pending[feature.key]?.first == id) {
                     pending.remove(feature.key)
-                    mutableStatus.value = "The other device did not confirm the request"
+                    mutableStatus.value = context.getString(R.string.quick_not_confirmed)
                     if (feature == BridgeyFeature.LINKS) linkResult(LinkSendResult.Outcome.NOT_CONFIRMED)
                 }
             }
         }
         pending[feature.key] = id to expiry
         sequence += 1
-        mutableStatus.value = "Sending…"
+        mutableStatus.value = context.getString(R.string.status_sending)
         if (!send("quick.request", JSONObject().put("version", 1).put("requestId", id)
                 .put("feature", feature.key).put("action", action).put("value", value).put("sequence", sequence))) {
             pending.remove(feature.key)?.second?.cancel()
-            mutableStatus.value = "Not connected — request not sent"
+            mutableStatus.value = context.getString(R.string.quick_not_sent)
             if (feature == BridgeyFeature.LINKS) linkResult(LinkSendResult.Outcome.NOT_SENT)
         }
     }
@@ -172,7 +179,7 @@ class QuickActions(
     fun sendLink(value: String, open: Boolean = false) {
         val url = validatedWebLink(value)
         if (url == null) {
-            mutableStatus.value = "Copy a valid http or https link first"
+            mutableStatus.value = context.getString(R.string.quick_invalid_link)
             if (open) linkResult(LinkSendResult.Outcome.NOT_SENT)
             return
         }
@@ -228,11 +235,14 @@ class QuickActions(
                         },
                     )
                 }
-                mutableStatus.value = if (accepted) {
-                    if (opened) "Link opened on the other device"
-                    else if (feature == "links") "Link delivered — waiting for the user to open it" else "Media command completed"
-                } else if (feature == "media") "The device could not do that. Check its player and try again."
-                else "Link declined — check settings or dismiss the previous link"
+                if (accepted && !opened && feature == "links") mutableLinkDelivered.tryEmit(Unit)
+                mutableStatus.value = context.getString(
+                    if (accepted) {
+                        if (opened) R.string.quick_link_opened
+                        else if (feature == "links") R.string.quick_link_delivered else R.string.quick_media_done
+                    } else if (feature == "media") R.string.quick_media_failed
+                    else R.string.quick_link_declined,
+                )
             }
             "media.state" -> {
                 if (!available(BridgeyFeature.MEDIA)) return
@@ -246,7 +256,7 @@ class QuickActions(
         if (!linkAllowed()) { dismissLink(); return }
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             .onSuccess { mutableLink.value = null }
-            .onFailure { mutableStatus.value = "No browser available" }
+            .onFailure { mutableStatus.value = context.getString(R.string.quick_no_browser) }
     }
     fun dismissLink() { mutableLink.value = null }
     @Synchronized fun policyChanged() {

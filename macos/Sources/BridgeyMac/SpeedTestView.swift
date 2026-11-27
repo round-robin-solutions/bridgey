@@ -101,7 +101,7 @@ struct SpeedTestCard: View {
 
 enum SpeedFormat {
     static func megabytes(_ bytesPerSecond: Double) -> String {
-        String(format: L10n.text("speed.mbps", fallback: "%.1f MB/s"), bytesPerSecond / 1_000_000)
+        String(format: L10n.text("speed.mbps", fallback: "%.1f MB/s"), locale: .current, bytesPerSecond / 1_000_000)
     }
 
     static func link(_ link: SpeedLink?) -> String {

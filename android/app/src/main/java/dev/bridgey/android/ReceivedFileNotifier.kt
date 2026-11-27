@@ -33,8 +33,8 @@ object ReceivedFileNotifier {
     fun show(context: Context, name: String, uri: Uri) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Received files", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Files received from paired Bridgey devices"
+            NotificationChannel(CHANNEL_ID, context.getString(R.string.channel_received), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = context.getString(R.string.channel_received_detail)
             },
         )
         val intent = Intent()
@@ -54,7 +54,7 @@ object ReceivedFileNotifier {
             uri.toString().hashCode(),
             Notification.Builder(context, CHANNEL_ID)
                 .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-                .setContentTitle("File received")
+                .setContentTitle(context.getString(R.string.received_notification_title))
                 .setContentText(name)
                 .setSubText("Download/Bridgey")
                 .setContentIntent(pendingIntent)
@@ -89,7 +89,7 @@ class OpenReceivedFileActivity : Activity() {
                 }
             }
             if (fileIntent == null || runCatching { startActivity(fileIntent) }.isFailure) {
-                Toast.makeText(this, "File saved to Download/Bridgey", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, R.string.received_notification_saved, Toast.LENGTH_LONG).show()
             }
         }
         finish()

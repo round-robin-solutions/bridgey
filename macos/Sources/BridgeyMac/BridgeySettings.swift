@@ -545,8 +545,8 @@ final class BridgeySettings: ObservableObject {
 
     func chooseReceiveFolder() {
         let panel = NSOpenPanel()
-        panel.title = "Choose where Bridgey saves received files"
-        panel.prompt = "Choose"
+        panel.title = L10n.text("settings.receiveFolder.choose", fallback: "Choose where Bridgey saves received files")
+        panel.prompt = L10n.text("settings.receiveFolder.prompt", fallback: "Choose")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false

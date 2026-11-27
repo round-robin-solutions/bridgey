@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Russian plural forms for stream counts; the matching .strings entries are fallbacks. -->
+<!-- Russian plural forms (one, few, many); the matching .strings entries are fallbacks. -->
 <plist version="1.0">
 <dict>
 	<key>stream.alerts</key>
@@ -141,6 +141,121 @@
 			<string>%d устройств не обновились</string>
 			<key>other</key>
 			<string>%d устройства не обновились</string>
+		</dict>
+	</dict>
+	<key>phonefiles.counts</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$#@folders@, %2$#@files@</string>
+		<key>folders</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%1$d папка</string>
+			<key>few</key>
+			<string>%1$d папки</string>
+			<key>many</key>
+			<string>%1$d папок</string>
+			<key>other</key>
+			<string>%1$d папки</string>
+		</dict>
+		<key>files</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%2$d файл</string>
+			<key>few</key>
+			<string>%2$d файла</string>
+			<key>many</key>
+			<string>%2$d файлов</string>
+			<key>other</key>
+			<string>%2$d файла</string>
+		</dict>
+	</dict>
+	<key>phonefiles.shown</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@items@</string>
+		<key>items</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%d объект</string>
+			<key>few</key>
+			<string>%d объекта</string>
+			<key>many</key>
+			<string>%d объектов</string>
+			<key>other</key>
+			<string>%d объекта</string>
+		</dict>
+	</dict>
+	<key>phonefiles.progress.files</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$d из %2$#@files@, %3$@ из %4$@</string>
+		<key>files</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%2$d файла</string>
+			<key>few</key>
+			<string>%2$d файлов</string>
+			<key>many</key>
+			<string>%2$d файлов</string>
+			<key>other</key>
+			<string>%2$d файла</string>
+		</dict>
+	</dict>
+	<key>sync.choose.count</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%1$d из %2$#@settings@</string>
+		<key>settings</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>%2$d настройки</string>
+			<key>few</key>
+			<string>%2$d настроек</string>
+			<key>many</key>
+			<string>%2$d настроек</string>
+			<key>other</key>
+			<string>%2$d настройки</string>
+		</dict>
+	</dict>
+	<key>developer.tapsLeft</key>
+	<dict>
+		<key>NSStringLocalizedFormatKey</key>
+		<string>%#@clicks@</string>
+		<key>clicks</key>
+		<dict>
+			<key>NSStringFormatSpecTypeKey</key>
+			<string>NSStringPluralRuleType</string>
+			<key>NSStringFormatValueTypeKey</key>
+			<string>d</string>
+			<key>one</key>
+			<string>Ещё %d нажатие, и откроются настройки для разработчиков</string>
+			<key>few</key>
+			<string>Ещё %d нажатия, и откроются настройки для разработчиков</string>
+			<key>many</key>
+			<string>Ещё %d нажатий, и откроются настройки для разработчиков</string>
+			<key>other</key>
+			<string>Ещё %d нажатия, и откроются настройки для разработчиков</string>
 		</dict>
 	</dict>
 </dict>

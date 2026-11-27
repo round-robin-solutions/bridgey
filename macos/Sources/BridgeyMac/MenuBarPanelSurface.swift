@@ -25,7 +25,7 @@ struct FileTransfersSummaryButton: View {
             // Keep Spacer horizontal: a multi-view button label has no explicit
             // layout axis and must not participate in the panel's vertical sizing.
             HStack {
-                Label("File transfers", systemImage: "arrow.left.arrow.right.circle")
+                Label(L10n.text("panel.fileTransfers", fallback: "File transfers"), systemImage: "arrow.left.arrow.right.circle")
                 Spacer()
                 Text("\(count)").foregroundStyle(.secondary)
             }

@@ -10,7 +10,7 @@ extension L10n {
     /// Setup, permissions, reset and What's new text: the `Setup` table (en.lproj/Setup.strings,
     /// ru.lproj/Setup.strings), kept apart from Localizable.strings so branches do not collide.
     static func setup(_ key: String, fallback: String) -> String {
-        NSLocalizedString(key, tableName: "Setup", bundle: .main, value: fallback, comment: "")
+        NSLocalizedString(key, tableName: "Setup", bundle: bundle, value: fallback, comment: "")
     }
 }
 

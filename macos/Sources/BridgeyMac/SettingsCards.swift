@@ -321,9 +321,8 @@ struct FeatureCard<Content: View, More: View>: View {
             .opacity(toggle.enabled ? 1 : 0.45)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(name))
-            .accessibilityHint(toggle.title == name ? Text("") : Text(toggle.title))
-            .accessibilityValue(toggle.isOn ? Text("On") : Text("Off"))
-            .accessibilityAddTraits(.isButton)
+            .modifier(OptionalHint(text: toggle.title == name ? nil : toggle.title))
+            .switchAccessibility(isOn: toggle.isOn)
             .settingsSearchAnchor(toggle.title)
         } else {
             HStack(spacing: 12) { headerText(synced: false) }
@@ -401,6 +400,15 @@ extension FeatureCard where More == EmptyView {
         self.content = content()
         more = EmptyView()
         hasMore = false
+    }
+}
+
+/// A hint only when there is something to add: an empty hint still makes VoiceOver pause.
+private struct OptionalHint: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text, !text.isEmpty { content.accessibilityHint(Text(text)) } else { content }
     }
 }
 
@@ -530,10 +538,10 @@ struct DeviceChoiceChipView: View {
         .disabled(!chip.enabled)
         .opacity(chip.enabled && isEnabled ? 1 : 0.45)
         .help(chip.note ?? "")
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(String(format: L10n.text("settings.chip.label", fallback: "%1$@, %2$@"), chip.name, feature))
-        .accessibilityValue(on ? Text("On") : Text("Off"))
-        .accessibilityHint(chip.note.map { Text($0) } ?? Text(""))
-        .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
+        .modifier(OptionalHint(text: chip.note))
+        .switchAccessibility(isOn: on)
     }
 }
 

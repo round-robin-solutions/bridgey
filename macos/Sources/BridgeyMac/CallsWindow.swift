@@ -434,6 +434,7 @@ private struct DialPad: View {
                 }
                 .buttonStyle(.plain)
                 .help(L10n.text("calls.clear", fallback: "Clear (Esc)"))
+                .accessibilityLabel(L10n.text("action.clear", fallback: "Clear"))
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
@@ -596,6 +597,7 @@ private struct SimQuestion: View {
         }
         Button(action: actions.cancelSim) { Image(systemName: "xmark") }
             .buttonStyle(PillButtonStyle(kind: .neutral, height: 40))
+            .accessibilityLabel(L10n.text("action.cancel", fallback: "Cancel"))
             .help(L10n.text("action.cancel", fallback: "Cancel"))
     }
 }
@@ -683,6 +685,7 @@ private struct CallsList: View {
                     Spacer(minLength: 0)
                     Button(action: actions.dismissNotice) { Image(systemName: "xmark").font(.system(size: 10, weight: .bold)) }
                         .buttonStyle(.plain).foregroundStyle(c.on2)
+                        .accessibilityLabel(L10n.text("action.dismiss", fallback: "Dismiss"))
                 }
                 .id(notice.id)
                 .transition(reduce ? .opacity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity))

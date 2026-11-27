@@ -42,6 +42,7 @@
     <string name="setup_summary_choices">Ваш выбор</string>
     <string name="setup_summary_not_allowed">Нет доступа</string>
     <string name="setup_summary_change">Изменить в настройках</string>
+    <string name="setup_summary_change_for">Изменить «%1$s» в настройках</string>
     <string name="setup_summary_empty">Вы оставили значения по умолчанию. Всё можно изменить в настройках.</string>
     <string name="setup_summary_start">Начать пользоваться Bridgey</string>
 

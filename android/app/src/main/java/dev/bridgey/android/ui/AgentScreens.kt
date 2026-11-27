@@ -1,5 +1,10 @@
 package dev.bridgey.android.ui
 
+import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -245,7 +250,8 @@ private fun AgentHeader(state: AgentPageState) {
 @Composable
 private fun AgentTabs(tab: AgentTab, onTab: (AgentTab) -> Unit, modifier: Modifier = Modifier) {
     val colors = BridgeyTheme.colors
-    Box(modifier.fillMaxWidth().height(48.dp)) {
+    // 48 dp, taller when large text wraps a label.
+    Box(modifier.fillMaxWidth().height(IntrinsicSize.Min).heightIn(min = 48.dp)) {
         Row(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
             AgentTab.entries.forEach { entry ->
                 val selected = entry == tab
@@ -256,8 +262,10 @@ private fun AgentTabs(tab: AgentTab, onTab: (AgentTab) -> Unit, modifier: Modifi
                 ) {
                     Text(
                         stringResource(if (entry == AgentTab.PERMISSIONS) R.string.agent_tab_permissions else R.string.agent_tab_activity),
-                        style = BridgeyType.label,
+                        style = BridgeyType.label.copy(hyphens = Hyphens.Auto),
                         color = if (selected) colors.onSurface else colors.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
                     )
                 }
             }
@@ -356,7 +364,8 @@ private fun AgentPermissions(
                             tint = if (on) grantTint(view.grant) else Tint.NEUTRAL,
                             compact = true,
                             detailWarning = view.state == GrantShown.WAITING,
-                            modifier = Modifier.semantics(mergeDescendants = true) {}.testTag("agent-grant-${view.grant.key}"),
+                            // The switch inside has no click of its own, so the row says whether it is on.
+                            modifier = Modifier.semantics(mergeDescendants = true) { toggleableState = ToggleableState(on) }.testTag("agent-grant-${view.grant.key}"),
                             onClick = if (grantable) ({ onSwitch(view.grant, !on) }) else null,
                             role = Role.Switch,
                         ) {

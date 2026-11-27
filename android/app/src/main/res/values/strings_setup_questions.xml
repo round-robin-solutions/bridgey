@@ -46,6 +46,7 @@
     <string name="setup_summary_choices">Your choices</string>
     <string name="setup_summary_not_allowed">Not allowed</string>
     <string name="setup_summary_change">Change in Settings</string>
+    <string name="setup_summary_change_for">Change %1$s in Settings</string>
     <string name="setup_summary_empty">You kept the defaults. Everything can be changed in Settings.</string>
     <string name="setup_summary_start">Start using Bridgey</string>
 

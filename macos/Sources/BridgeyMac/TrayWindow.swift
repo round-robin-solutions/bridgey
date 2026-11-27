@@ -333,7 +333,7 @@ final class TrayModel: ObservableObject {
         let (urls, texts) = store.sendables(forSending: true)
         let payloads: [DropPayload] = (urls.isEmpty ? [] : [.files(urls)]) + texts.map { DropPayload.text($0) }
         guard let handle = SendDispatcher.send(payloads, to: target, pairing: pairing, optimization: state.optimization) else {
-            state.status = pairing.fileTransferStatus ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")
+            state.status = pairing.fileTransferStatus.map(StatusText.localized) ?? L10n.text("sendsheet.failed", fallback: "Could not send. Check the connection.")
             return
         }
         preferences.rememberDevice(target)

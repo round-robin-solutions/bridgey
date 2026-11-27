@@ -629,8 +629,8 @@ class AppUpdater(
         ) return
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(NOTIFICATION_CHANNEL_ID, "App updates", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Tells you when a new Bridgey by Round Robin version is ready"
+            NotificationChannel(NOTIFICATION_CHANNEL_ID, context.getString(R.string.channel_updates), NotificationManager.IMPORTANCE_LOW).apply {
+                description = context.getString(R.string.channel_updates_detail)
             },
         )
         val open = PendingIntent.getActivity(
@@ -646,8 +646,8 @@ class AppUpdater(
             NOTIFICATION_ID,
             android.app.Notification.Builder(context, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_bridgey_notification)
-                .setContentTitle("Update available")
-                .setContentText("Bridgey by Round Robin ${VersionNames.label(update.versionName)} is ready to install.")
+                .setContentTitle(context.getString(R.string.update_prompt_title))
+                .setContentText(context.getString(R.string.update_prompt_body, VersionNames.label(update.versionName)))
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build(),

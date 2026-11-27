@@ -145,7 +145,7 @@ private struct LocalAgentCodeSwitch: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focused ? c.tbi : hovered ? c.olv : .clear, lineWidth: focused ? 2 : 1))
         .accessibilityLabel(LocalAgentCodesText.toggle)
         .accessibilityHint(LocalAgentCodesText.detail)
-        .accessibilityValue(isOn ? L10n.text("action.on", fallback: "On") : L10n.text("action.off", fallback: "Off"))
+        .switchAccessibility(isOn: isOn)
         .settingsSearchAnchor(LocalAgentCodesText.toggle)
     }
 }

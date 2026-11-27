@@ -56,7 +56,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
@@ -165,7 +167,7 @@ private fun QuestionFrame(
         Column(Modifier.fillMaxSize()) {
             OnBand {
                 Row(
-                    Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = 4.dp),
+                    Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 56.dp).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (showBack) {
@@ -177,7 +179,8 @@ private fun QuestionFrame(
                         stringResource(R.string.setup_advanced_title),
                         style = BridgeyType.pageTitle,
                         modifier = Modifier.weight(1f).padding(start = 4.dp).semantics { heading() },
-                        maxLines = 1,
+                        maxLines = if (largeText()) 2 else 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     BarIconButton(BridgeyIcons.Close, stringResource(R.string.setup_leave_action), actions.leave)
                 }
@@ -228,15 +231,13 @@ private fun StepsLeft(state: SetupUiState) {
     }
 }
 
-/** Section, title and the one line of context. */
-private fun LazyListScope.questionHeading(@StringRes eyebrowRes: Int, @StringRes titleRes: Int, @StringRes contextRes: Int) {
+/** Title and the one line of context (no section label above the title: the top bar already names the setup). */
+private fun LazyListScope.questionHeading(@StringRes titleRes: Int, @StringRes contextRes: Int) {
     item(key = "heading") {
         val colors = BridgeyTheme.colors
-        val eyebrow = stringResource(eyebrowRes)
         val title = stringResource(titleRes)
         val context = stringResource(contextRes)
         Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 16.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(eyebrow.uppercase(), style = BridgeyType.section, color = colors.primary)
             Text(title, style = BridgeyType.deviceName, color = colors.onSurface, modifier = Modifier.semantics { heading() })
             Text(context, style = BridgeyType.bodyText, color = colors.onSurfaceVariant)
         }
@@ -274,7 +275,7 @@ private fun AnswerButton(label: String, detail: String?, selected: Boolean, curr
 /** "More options" on the left, "Not now" on the right. */
 @Composable
 private fun QuestionFooter(moreOptions: (() -> Unit)?, notNow: () -> Unit, notNowLabel: String = stringResource(R.string.setup_not_now)) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+    ButtonRow(horizontalArrangement = if (moreOptions != null) Arrangement.SpaceBetween else Arrangement.End) {
         if (moreOptions != null) {
             Text(
                 stringResource(R.string.setup_more_options),
@@ -284,7 +285,6 @@ private fun QuestionFooter(moreOptions: (() -> Unit)?, notNow: () -> Unit, notNo
                     .padding(horizontal = 12.dp, vertical = 14.dp),
             )
         }
-        Spacer(Modifier.weight(1f))
         OutlinePillButton(notNowLabel, null, notNow)
     }
 }
@@ -305,7 +305,7 @@ private fun QuestionPage(question: SetupQuestion, state: SetupUiState, actions: 
             )
         },
     ) {
-        questionHeading(question.section.title, question.title, question.context)
+        questionHeading(question.title, question.context)
         when {
             question.id == "pair" -> pairQuestion(state, actions)
             question.multiPick -> item(key = "pick") { AppPicker(question, state, actions, given) }
@@ -384,9 +384,8 @@ private fun AppPicker(question: SetupQuestion, state: SetupUiState, actions: Set
                 if (on) Icon(BridgeyIcons.Check, null, tint = colors.primary, modifier = Modifier.size(22.dp))
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ButtonRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             OutlinePillButton(stringResource(R.string.setup_a_notification_apps_none), null, { actions.event(SetupEvent.Answer(question.id, Answers.NONE)) })
-            Spacer(Modifier.weight(1f))
             GradientButton(
                 stringResource(R.string.setup_a_done), null,
                 { actions.event(SetupEvent.Answer(question.id, Answers.PICKED + set.sorted().joinToString(","))) },
@@ -405,7 +404,7 @@ private fun SwitchesPage(state: SetupUiState, actions: SetupActions) {
     QuestionFrame(
         state, actions,
         footer = {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            ButtonRow(horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
                     stringResource(R.string.setup_switches_details),
                     style = BridgeyType.label,
@@ -413,12 +412,11 @@ private fun SwitchesPage(state: SetupUiState, actions: SetupActions) {
                     modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).clickable(role = Role.Button) { actions.openPage("GENERAL") }
                         .padding(horizontal = 12.dp, vertical = 14.dp),
                 )
-                Spacer(Modifier.weight(1f))
                 GradientButton(stringResource(R.string.setup_continue), null, { actions.event(SetupEvent.Continue) }, height = 48.dp, textStyle = BridgeyType.label)
             }
         },
     ) {
-        questionHeading(R.string.setup_advanced_title, R.string.setup_switches_title, R.string.setup_switches_context)
+        questionHeading(R.string.setup_switches_title, R.string.setup_switches_context)
         item(key = "switches") {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 features.forEachIndexed { index, feature ->
@@ -450,16 +448,15 @@ private fun PermissionsPage(state: SetupUiState, actions: SetupActions) {
     QuestionFrame(
         state, actions,
         footer = {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ButtonRow(horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinePillButton(stringResource(R.string.setup_continue), null, { actions.event(SetupEvent.Continue) })
-                Spacer(Modifier.weight(1f))
                 if (open.isNotEmpty()) {
                     GradientButton(stringResource(R.string.setup_allow_all), null, actions.allowAll, height = 48.dp, textStyle = BridgeyType.label)
                 }
             }
         },
     ) {
-        questionHeading(R.string.setup_advanced_title, R.string.setup_permissions_title, R.string.setup_permissions_context)
+        questionHeading(R.string.setup_permissions_title, R.string.setup_permissions_context)
         needed.forEach { permission ->
             item(key = "perm.${permission.kind.name}") {
                 val (icon, tint) = permissionIcon(permission.kind)
@@ -539,7 +536,7 @@ private fun IntroPage(state: SetupUiState, actions: SetupActions) {
             )
         },
     ) {
-        questionHeading(R.string.setup_advanced_title, R.string.setup_intro_title, R.string.setup_intro_body)
+        questionHeading(R.string.setup_intro_title, R.string.setup_intro_body)
         item(key = "bundles") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp)) {
                 Text(stringResource(R.string.setup_intro_bundles), style = BridgeyType.smallStrong, color = colors.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp))
@@ -641,9 +638,8 @@ private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
         state, actions,
         progress = false,
         footer = {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ButtonRow(horizontalArrangement = Arrangement.SpaceBetween) {
                 OutlinePillButton(stringResource(R.string.setup_open_settings), null, actions.openSettings)
-                Spacer(Modifier.weight(1f))
                 GradientButton(stringResource(R.string.setup_summary_start), null, actions.start, height = 48.dp, textStyle = BridgeyType.label)
             }
         },
@@ -698,7 +694,7 @@ private fun SummaryPage(state: SetupUiState, actions: SetupActions) {
 
 @Composable
 private fun SummaryLabel(text: String) {
-    Text(text.uppercase(), style = BridgeyType.section, color = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, top = 14.dp).semantics { heading() })
+    Text(text, style = BridgeyType.listHeader, color = BridgeyTheme.colors.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp, top = 14.dp).semantics { heading() })
 }
 
 /** A feature that is on: its switch, and Change in Settings under it. */
@@ -718,7 +714,8 @@ private fun FeatureOnRow(item: SummaryItem.FeatureOn, actions: SetupActions) {
             }
             BridgeySwitch(checked = item.on, onCheckedChange = null)
         }
-        TextButton(onClick = { actions.openPage(item.feature.page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
+        val change = stringResource(R.string.setup_summary_change_for, stringResource(item.feature.title))
+        TextButton(onClick = { actions.openPage(item.feature.page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp).semantics { contentDescription = change }) {
             Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
         }
     }
@@ -741,7 +738,8 @@ private fun SyncSummaryRow(item: SummaryItem.Sync, actions: SetupActions, modifi
             }
             BridgeySwitch(checked = item.on, onCheckedChange = null)
         }
-        TextButton(onClick = { actions.openPage("GENERAL") }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
+        val change = stringResource(R.string.setup_summary_change_for, stringResource(R.string.setup_summary_sync))
+        TextButton(onClick = { actions.openPage("GENERAL") }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp).semantics { contentDescription = change }) {
             Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
         }
     }
@@ -757,7 +755,8 @@ private fun SummaryRow(title: String, detail: String, page: String?, actions: Se
             Text(detail, style = BridgeyType.itemBody, color = if (warning) colors.warn else colors.onSurfaceVariant)
         }
         if (page != null) {
-            TextButton(onClick = { actions.openPage(page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp)) {
+            val change = stringResource(R.string.setup_summary_change_for, title)
+            TextButton(onClick = { actions.openPage(page) }, modifier = Modifier.padding(start = 6.dp, bottom = 4.dp).semantics { contentDescription = change }) {
                 Text(stringResource(R.string.setup_summary_change), style = BridgeyType.label, color = colors.primary)
             }
         }

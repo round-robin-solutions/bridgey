@@ -678,6 +678,8 @@ struct LicenceSheet: View {
         .padding(22)
         .frame(width: 560, height: 520)
         .background(c.isDark ? Color(hex: 0x0A101D) : c.bg)
+        // Escape closes it too: Done is the only way out.
+        .onExitCommand(perform: done)
     }
 }
 

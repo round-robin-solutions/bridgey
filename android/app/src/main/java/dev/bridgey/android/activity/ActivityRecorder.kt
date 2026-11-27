@@ -13,7 +13,6 @@ import dev.bridgey.android.PeerActivity
 import dev.bridgey.android.PeerEvent
 import dev.bridgey.android.ClipboardSendResult
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /** How a finished transfer ends up in the stream. */
@@ -111,10 +110,8 @@ class ActivityRecorder(
         pairing.activityListener = { event -> synchronized(clipGroups) { recordPeerEvent(log, event, showPreviews(), clipGroups) } }
         // Ping sent, Find Mac and Find phone arrive as PeerEvents tagged with their own device.
         scope.launch {
-            pairing.quickActions.status.drop(1).collect { status ->
-                if (status?.startsWith("Link delivered") == true) {
-                    connected()?.let { log.record(ActivityKind.LINK_SENT, it.deviceId, it.peerName) }
-                }
+            pairing.quickActions.linkDelivered.collect {
+                connected()?.let { log.record(ActivityKind.LINK_SENT, it.deviceId, it.peerName) }
             }
         }
         scope.launch {
