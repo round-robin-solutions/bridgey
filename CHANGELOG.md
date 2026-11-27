@@ -2,6 +2,10 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 13 (1.0.0-beta.13), 27 November 2026
+
+- The phone keeps at most 8 received-file notifications, so after many files Android no longer blocks Bridgey's other notifications, such as pairing codes, calls and control requests. Received files stay in Download/Bridgey and in Activity.
+
 ## 1.0 Beta 12 (1.0.0-beta.12), 27 November 2026
 
 - Bridgey works better with VoiceOver, TalkBack and the keyboard: every switch in Mac Settings can be reached with Tab and turned with Space, switches say whether they're on, and devices are read once.
