@@ -301,6 +301,16 @@ if [ "$UI_TESTS" = 1 ]; then
     echo "error: the peer never received the app's text" >&2
     FAILED="$FAILED peer"
   fi
+  # The screen tests' touches reached the peers' simulated phone and Mac.
+  for check in "phone touch" "mac button"; do
+    set -- $check
+    if grep '"sim_input"' "$LOGS/peer-$1.log" | grep -q "\"op\":\"$2\""; then
+      echo "peer $1 received: $2"
+    elif ! echo "$FAILED" | grep -q iphone-ui; then
+      echo "error: the $1 peer never received the screen's $2" >&2
+      FAILED="$FAILED screen-$1"
+    fi
+  done
 
   if [ "$IPAD" = 1 ]; then
     step "iPad: screenshots"
