@@ -67,7 +67,7 @@ public sealed partial class AppTests : IDisposable
             foreach (var theme in new[] { "Light", "Dark" })
             {
                 var t = theme.ToLowerInvariant();
-                window = Launch(theme, setupDone: true, textMessages: theme == "Dark");
+                window = Launch(theme, setupDone: true, textMessages: theme == "Dark", calls: theme == "Dark");
                 Find(window, "HomeStatus");
                 if (theme == "Light") Shot(window, "home-empty-light");
 
@@ -97,6 +97,7 @@ public sealed partial class AppTests : IDisposable
                     PhoneNotifications(window);
                     Links(window);
                     TextMessages(window);
+                    CallsWindow(window);
                 }
                 else
                 {
@@ -127,6 +128,17 @@ public sealed partial class AppTests : IDisposable
                     WaitFor(() => window.FindFirstDescendant(c => c.ByName("See you at 6", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the conversation");
                     Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
                     Shot(window, "messages-thread-dark");
+                    // The Calls window stays on, and the phone's call shows on its card.
+                    Click(window, "NavCalls");
+                    WaitFor(() => Find(window, "CallRows").FindFirstDescendant(c => c.ByName("Anna Kapoor", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "recent calls in the dark run");
+                    Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
+                    Shot(window, "calls-dark");
+                    PeerCommand($"notify {CallJson("call-dark", "Anna Kapoor")}");
+                    Find(window, "CallCaller");
+                    Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(1));
+                    Shot(window, "call-card-dark");
+                    PeerCommand("unnotify call-dark");
+                    WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("CallCaller")) is null ? "ok" : null, "the call card gone");
                     PeerCommand($"notify {NotificationJson("dark-1", "Asha", "Lunch at one?", reply: true)}");
                     Click(window, "NavNotifications");
                     Find(window, "ReplyBox");
@@ -369,6 +381,61 @@ public sealed partial class AppTests : IDisposable
         Assert.Equal("+447700900123", Find(window, "MessageTo").AsTextBox().Text);
     }
 
+    /// <summary>A phone call's notification, as the phone's dialer posts it: Answer and Decline.</summary>
+    private static string CallJson(string id, string caller) => JsonSerializer.Serialize(new Dictionary<string, object>
+    {
+        ["packageName"] = "com.google.android.dialer", ["applicationName"] = "Phone", ["notificationId"] = id, ["title"] = caller,
+        ["text"] = "Incoming call", ["timestamp"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ["callType"] = "incoming",
+        ["actions"] = new object[]
+        {
+            new Dictionary<string, object> { ["actionToken"] = new string('c', 64), ["title"] = "Answer", ["allowsReply"] = false },
+            new Dictionary<string, object> { ["actionToken"] = new string('d', 64), ["title"] = "Decline", ["allowsReply"] = false },
+        },
+    });
+
+    /// <summary>
+    /// The Calls window with the peer acting as a phone (--phone): turn it on and allow the phone, recent calls load,
+    /// a search finds a contact, a typed number asks for a SIM and calls, and the phone's incoming call shows on the card.
+    /// </summary>
+    private void CallsWindow(Window window)
+    {
+        Click(window, "NavCalls");
+        Find(window, "CallsSettings");
+        Shot(window, "calls-off-light");
+        Click(window, "CallsSettings");
+        var on = Find(window, "CallsWindowOn");
+        if (on.Patterns.Toggle.IsSupported) on.Patterns.Toggle.Pattern.Toggle();
+        var allowed = Find(window, "CallsAllowed");
+        if (allowed.Patterns.Toggle.IsSupported) allowed.Patterns.Toggle.Pattern.Toggle();
+        Shot(window, "settings-calls-light");
+
+        Click(window, "NavCalls");
+        var rows = Find(window, "CallRows");
+        WaitFor(() => rows.FindFirstDescendant(c => c.ByName("Anna Kapoor", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "recent calls");
+        Shot(window, "calls-light");
+
+        Find(window, "CallsQuery").AsTextBox().Text = "anna";
+        WaitFor(() => rows.FindFirstDescendant(c => c.ByName("WhatsApp video call")), "the contact with WhatsApp");
+        Shot(window, "calls-search-light");
+
+        // Two SIMs and Ask each time: which SIM, then the call.
+        Find(window, "CallsQuery").AsTextBox().Text = "+44 20 7946 0000";
+        Click(window, "CallButton");
+        var question = Find(window, "SimQuestion");
+        var vodafone = WaitFor(() => question.FindFirstDescendant(c => c.ByName("Vodafone")), "the SIM question");
+        Shot(window, "calls-sim-light");
+        vodafone.Click();
+        WaitFor(() => Find(window, "CallsNotice").FindFirstDescendant(c => c.ByName("Calling on", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the call started");
+        Shot(window, "calls-started-light");
+
+        // The phone's incoming call: the card with the phone's own buttons, until the phone takes it away.
+        PeerCommand($"notify {CallJson("call-1", "Anna Kapoor")}");
+        WaitFor(() => Find(window, "CallCaller").Name == "Anna Kapoor" ? "ok" : null, "the caller on the card");
+        Shot(window, "call-card-light");
+        PeerCommand("unnotify call-1");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByAutomationId("CallCaller")) is null ? "ok" : null, "the call card gone");
+    }
+
     private void PeerCommand(string line)
     {
         _peer!.StandardInput.WriteLine(line);
@@ -394,8 +461,11 @@ public sealed partial class AppTests : IDisposable
         catch (Exception) { }
     }
 
-    /// <summary>Starts the app with fresh settings; <paramref name="textMessages"/> keeps Text messages on from the light run.</summary>
-    private Window Launch(string theme, bool setupDone, bool textMessages = false)
+    /// <summary>
+    /// Starts the app with fresh settings; <paramref name="textMessages"/> keeps Text messages on from the light run and
+    /// <paramref name="calls"/> the Calls window, with the peer allowed.
+    /// </summary>
+    private Window Launch(string theme, bool setupDone, bool textMessages = false, bool calls = false)
     {
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "settings.json"), JsonSerializer.Serialize(new Dictionary<string, object>
@@ -405,6 +475,8 @@ public sealed partial class AppTests : IDisposable
             ["setupDone"] = setupDone,
             ["startAtSignIn"] = false,
             ["textMessages"] = textMessages,
+            ["callsWindow"] = calls,
+            ["callsAllowed"] = calls && _peerId is { } peer ? new[] { peer } : Array.Empty<string>(),
         }));
         var start = new ProcessStartInfo(_exe) { UseShellExecute = false };
         start.Environment["BRIDGEY_DATA_DIR"] = _data;
@@ -536,8 +608,11 @@ public sealed partial class AppTests : IDisposable
         };
         _peer.BeginOutputReadLine();
         _peer.BeginErrorReadLine();
-        PeerEvent("ready");
+        _peerId = PeerEvent("ready").GetProperty("deviceId").GetString();
     }
+
+    /// <summary>The peer's device ID, so a relaunch can keep it allowed in the Calls window.</summary>
+    private string? _peerId;
 
     private JsonElement PeerEvent(string kind, Func<JsonElement, bool>? match = null)
     {

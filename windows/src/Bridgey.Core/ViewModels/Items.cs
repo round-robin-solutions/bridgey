@@ -13,6 +13,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
     private bool _ringing;
     private bool _linksReady;
     private bool _messagesReady;
+    private bool _callsReady;
     private bool _away;
     private bool _clipboardAllowed = true;
     private string _status = "Not connected";
@@ -110,6 +111,25 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         set => Set(ref _messagesReady, value);
     }
 
+    /// <summary>This PC can call through the device: the Calls window, or calls without it, on at both ends.</summary>
+    public bool CallsReady
+    {
+        get => _callsReady;
+        set => Set(ref _callsReady, value);
+    }
+
+    /// <summary>This PC may call through the device (Settings > Calls; each phone off until allowed).</summary>
+    public bool CallsAllowed
+    {
+        get => owner.Settings.IsCallsAllowed(Id);
+        set
+        {
+            if (value == CallsAllowed) return;
+            owner.SetCallsAllowed(this, value);
+            Raise();
+        }
+    }
+
     /// <summary>Connect away from home is set up with this device (it can reach this PC on other networks).</summary>
     public bool Away
     {
@@ -176,11 +196,13 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         new(owner, id, "links", "Links"),
         new(owner, id, "media", "Media controls"),
         new(owner, id, "sms_draft1", "Text messages"),
+        new(owner, id, "dialer_draft1", "Calls window"),
     ];
 
     internal void ShowSwitches(Dictionary<string, bool> local)
     {
-        foreach (var s in Switches) s.Show(local.TryGetValue(s.Key, out var on) && on);
+        // The Calls window switch is the phone's allowance; the key itself is on only while Settings > Calls is on too.
+        foreach (var s in Switches) s.Show(s.Key == "dialer_draft1" ? CallsAllowed : local.TryGetValue(s.Key, out var on) && on);
     }
 
     /// <summary>This PC's own Clipboard switch for this device (Settings > Devices).</summary>

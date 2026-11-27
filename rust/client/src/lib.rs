@@ -6,6 +6,7 @@
 //! The codec and cryptography are the ones the agent CLI has spoken with both apps since 0.10; the CLI now
 //! uses them from here.
 
+pub mod calls;
 pub mod client;
 pub mod codes;
 pub mod crypto;

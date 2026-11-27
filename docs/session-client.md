@@ -28,7 +28,8 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Connect away from home (`connect_draft1`: `connect.setup`, `connect.addresses`, tunnel sessions with `bridgey-auth-v2`) | yes | yes | CLI and the core | yes: the core's node runs in the client, pair secrets and learned addresses are kept with each trusted device, tunnels carry protocol 2 reconnects only |
 | Self-update for direct downloads (the channel feed's `windows` entry; size, SHA-256 and the release key's Ed25519 signature) | Play/APK updater | Sparkle | none | yes (`update.rs`, `bridgey_update_check` and `bridgey_update_verify`, no client needed) |
 | Text messages (`sms_draft1`: conversations, sync, sends, MMS pictures, contacts, Mark as read, Block on phone) | phone side | yes | none | yes, the desktop side, from Windows M3 (`sms.rs`): the Mac's sync rules and cache, kept in the host's storage |
-| Everything else (calls, folders, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
+| The Calls window (`dialer_draft1`: status, contact search, recent calls, calls through the phone or its WhatsApp) and calls (`calls.request`) | phone side | yes | none | yes, the desktop side, from Windows M3 (`calls.rs`): the Mac's search, list and SIM rules; memory only |
+| Everything else (folders, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
 
 ## How it works
 
@@ -77,6 +78,14 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   Events: `status`, `changed`, `send`, `image` (base64, kept in the host's memory only), `contacts`, `notice`,
   `reply_failed`. Notifications carry `smsReply` and `smsThreadId`, so a text's notification can be answered and
   opens its conversation.
+- The Calls window (area 2, `calls.rs`) follows the Mac: the phone's `dialer.status` brings its recent calls; a search
+  goes 120 ms after typing stops and an answer to an older one is dropped; one call at a time, at most one every 3 s;
+  with two SIMs and nothing chosen, a call answers `choose_sim` so the host asks. A phone without the Calls window for
+  this device but with `calls` on still takes a number as `calls.request` (answered outer-only with its own message
+  ID). Never for agent devices; nothing is kept on disk. Ops: `state`, `recents`, `search`, `rows` (the list for what
+  is typed: a typed number, contacts, then recent calls once per number), `call` (`address`, `subId`, `prefer` ask,
+  sim1 or sim2), `whatsapp` (`dataId`, `video`). Events: `changed`, `call` (sent, started, confirm, refused with its
+  reason, or no_answer).
 - ABI 1 grows only at the end: `BridgeyConfig` fields after `data_dir` are read only when `struct_size` covers
   them, and new event kinds are skipped by hosts that don't know them.
 - Ownership: client handles are `uint64_t`, so a stopped or freed handle is refused rather than dereferenced.
@@ -121,7 +130,11 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   `tests/sms.rs` runs a session against a client that answers as a phone (`simulate_phone_for_tests`, also the
   scripted peer's `--phone`): conversations, a send to delivered, a refused send, a picture, contacts, Mark as read,
   Block on phone, and the cache going when Text messages is turned off.
-- `protocol/messages.json` lists `client` for the 65 kinds it speaks; a test fails if the sources and the list
+- The Calls window: every group of `dialer-v1.json` and the callsRequest group of `protocol-v1.json` are checked in
+  `src/calls/tests.rs`, with the Mac's list and SIM rules. `tests/calls.rs` runs a session against a simulated phone:
+  recent calls, a contact search, the SIM question, a call started, a WhatsApp call waiting for a tap, an emergency
+  number refused, a call request when only `calls` is on, and an agent that never gets calls.
+- `protocol/messages.json` lists `client` for the 76 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The

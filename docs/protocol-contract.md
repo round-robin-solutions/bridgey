@@ -867,10 +867,10 @@ messageId is the request's ID. Senders time out after five seconds.
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `calls.request` | upstream-v1 | extension | mac-to-phone | calls | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `calls.started` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
-| `calls.confirmation_required` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
-| `calls.rejected` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
+| `calls.request` | upstream-v1 | extension | mac-to-phone | calls | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `calls.started` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos, client |
+| `calls.confirmation_required` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos, client |
+| `calls.rejected` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos, client |
 | `calls.quiet_state` | edition-draft | draft | either | call_quiet_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `calls.quiet_result` | edition-draft | draft | either | call_quiet_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
@@ -2257,13 +2257,13 @@ Applied as if switched on the phone, recorded as changed on that Mac.
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `dialer.status` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.contacts` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.contacts_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.recents` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.recents_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.call` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.call_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.status` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.contacts` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.contacts_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.recents` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.recents_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.call` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.call_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `dialer.status`
 

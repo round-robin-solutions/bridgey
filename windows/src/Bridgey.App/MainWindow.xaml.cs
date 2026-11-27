@@ -11,12 +11,13 @@ using Windows.Graphics;
 namespace Bridgey;
 
 /// <summary>
-/// The window: Mica where Windows has it, the edition's title bar, Home, Notifications, Messages, Pair a device and Settings. Pages are made
+/// The window: Mica where Windows has it, the edition's title bar, Home, Notifications, Messages, Calls, Pair a device and
+/// Settings, and the phone's call card over every page. Pages are made
 /// once and kept, and change with a short fade and rise. Closing hides it to the notification area.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications", MessagesPage = "messages";
+    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications", MessagesPage = "messages", CallsPage = "calls";
 
     private readonly Dictionary<string, FrameworkElement> _pages = new();
     private string _current = "";
@@ -45,6 +46,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += OnClosing;
 
         ApplyTheme();
+        Motion.ShowHide(CallCard);
         Navigate(App.Model.Settings.SetupDone ? HomePage : SetupPage);
     }
 
@@ -90,6 +92,7 @@ public sealed partial class MainWindow : Window
             SetupPage => new Views.SetupPage(),
             NotificationsPage => new Views.NotificationsPage(),
             MessagesPage => new Views.MessagesPage(),
+            CallsPage => new Views.CallsPage(),
             _ => new Views.HomePage(),
         };
         _pages[key] = page;
@@ -123,6 +126,10 @@ public sealed partial class MainWindow : Window
         Navigate(SettingsPage);
         if (Page(SettingsPage) is Views.SettingsPage settings) settings.Show(section);
     }
+
+    public ViewModels.CallsViewModel Calls => App.Model.Calls;
+
+    private void OnHideCall(object sender, RoutedEventArgs e) => Calls.Card?.Hide();
 
     /// <summary>A conversation from a text message notification.</summary>
     public void OpenConversation(string deviceId, long threadId)

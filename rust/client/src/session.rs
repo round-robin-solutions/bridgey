@@ -217,6 +217,8 @@ pub enum Command {
     Link { url: String, request_id: String, open: bool },
     /// Any other encrypted message (battery, find, ...): `plaintext` becomes the AES-GCM payload.
     Encrypted { kind: &'static str, plaintext: Vec<u8>, message_id: String },
+    /// An outer-only answer that echoes the request's message ID (`calls.started` and its siblings).
+    Plain { kind: &'static str, message_id: String },
     Close(&'static str),
     /// The session's own: a kept partial has been re-read.
     #[doc(hidden)]
@@ -273,6 +275,10 @@ impl Handle {
     /// Queues an encrypted message, or false when the queue is full or the session ended.
     pub fn send_encrypted(&self, kind: &'static str, plaintext: Vec<u8>, message_id: String) -> bool {
         self.tx.try_send(Command::Encrypted { kind, plaintext, message_id }).is_ok()
+    }
+    /// Queues an outer-only answer echoing a request's message ID, or false when the session ended.
+    pub fn send_plain(&self, kind: &'static str, message_id: String) -> bool {
+        self.tx.try_send(Command::Plain { kind, message_id }).is_ok()
     }
     pub fn close(&self, why: &'static str) {
         let _ = self.tx.try_send(Command::Close(why));
@@ -720,6 +726,12 @@ impl Session {
                 }
                 self.encrypted(kind, &plaintext, message_id).await
             }
+            Command::Plain { kind, message_id } => {
+                if !self.st.authenticated {
+                    return Step::Continue;
+                }
+                self.plain(kind, Some(message_id)).await
+            }
             Command::Link { url, request_id, open } => {
                 if !self.st.authenticated {
                     return Step::Continue;
@@ -1097,7 +1109,7 @@ impl Session {
         if id.len() > 128 {
             return None;
         }
-        if matches!(m.kind.as_str(), "heartbeat.pong" | "ping.ack" | "clipboard.ack" | "clipboard.rejected") {
+        if matches!(m.kind.as_str(), "heartbeat.pong" | "ping.ack" | "clipboard.ack" | "clipboard.rejected" | "calls.started" | "calls.confirmation_required" | "calls.rejected") {
             return Some(true);
         }
         if self.st.seen.contains(id) {
@@ -1366,16 +1378,33 @@ impl Session {
                 self.host.event(Event::QuickResult { device_id, request_id: request_id.to_string(), accepted, opened });
                 Step::Continue
             }
+            // The phone's answers to `calls.request` (upstream calls.v1): outer only, echoing the request's message ID,
+            // which is all they carry.
+            "calls.started" | "calls.confirmation_required" | "calls.rejected" => {
+                let Some(message_id) = m.message_id.clone() else { return Step::Continue };
+                if !self.host.policy(&device_id).get("calls") {
+                    return Step::Continue;
+                }
+                let kind = match m.kind.as_str() {
+                    "calls.started" => "calls.started",
+                    "calls.confirmation_required" => "calls.confirmation_required",
+                    _ => "calls.rejected",
+                };
+                self.host.event(Event::Payload { device_id, kind, plain: message_id.into_bytes() });
+                Step::Continue
+            }
             // The phone's own features (phone.rs). Drafts: a payload that does not open, or is over its kind's limit, is
             // dropped and the session stays.
             kind if self.host.phone_kind(kind).is_some() => {
                 let spec = self.host.phone_kind(kind).unwrap();
-                if m.message_id.is_none() {
-                    return Step::Continue;
-                }
-                let Some(plain) = self.open(&m).filter(|p| p.len() <= spec.max) else { return Step::Continue };
+                let Some(message_id) = m.message_id.clone() else { return Step::Continue };
+                let Some(mut plain) = self.open(&m).filter(|p| p.len() <= spec.max) else { return Step::Continue };
                 if !self.host.policy(&device_id).get(spec.feature) {
                     return Step::Continue;
+                }
+                // A request answered with its own message ID (a simulated phone's calls.request) carries it along.
+                if spec.with_message_id {
+                    plain = json!({"messageId": message_id, "plaintext": String::from_utf8_lossy(&plain)}).to_string().into_bytes();
                 }
                 self.host.event(Event::Payload { device_id, kind: spec.kind, plain });
                 Step::Continue
@@ -2181,7 +2210,7 @@ mod tests {
         let session = include_str!("session.rs");
         let client = include_str!("client.rs");
         // The phone's own features (phone.rs), each in its own module.
-        let areas = [include_str!("sms.rs")];
+        let areas = [include_str!("sms.rs"), include_str!("calls.rs")];
         let mut code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
         for area in areas {
             code.push_str(area.split("#[cfg(test)]\nmod tests").next().unwrap());

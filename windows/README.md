@@ -21,6 +21,12 @@ message to a number or a contact the phone finds, and Mark as read, which the ph
 notification opens its conversation, and its Reply goes through the phone even when the messaging app has none.
 Conversations are kept encrypted for the Windows user (Settings > Text messages > Keep conversations on this PC).
 
+**Calls** calls through the phone (the Calls window, off until you turn it on and allow each phone, here and in
+Bridgey on the phone): a keypad and a field for a name or number, the phone's recent calls, its contacts with their
+WhatsApp voice and video calls, and the SIM to call from. The phone places each call, so call audio stays on the phone
+or its earbuds. When the phone rings, a card over every page shows the caller with the phone's own Answer and Decline,
+then Hang up, until the call ends.
+
 Files go from the device card's **Send files**, by dragging them onto the window or a device card, from the
 notification area menu, or from Explorer: right-click, **Send to**, **Bridgey**. Received files go to
 Downloads\Bridgey (Settings > Files changes it) and are never overwritten: a second `photo.jpg` becomes
@@ -94,11 +100,13 @@ The settings that change the app's behaviour are in Settings:
   when I'm using this PC (on);
 - Away from home: Connect away from home, on, and its status;
 - Text messages, off, and Keep conversations on this PC (on);
+- the Calls window, off, the phones it may call through (each off until allowed), Call from (Ask each time), Show
+  WhatsApp calls (on) and Recent calls (last 20);
 - Links (on) and Open links right away (on), Browser extensions (off: the extension's native messaging host for
   Chrome, Edge, Brave and Firefox, [docs](../docs/browser-extensions.md)), Media controls (off), Battery, Find device
   and Ping (on);
-- for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links, Media controls and
-  Text messages switches;
+- for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links, Media controls,
+  Text messages and Calls window switches;
 - Updates: the channel (the build's own: Beta for a beta), Check for updates when Bridgey opens (on, at most every
   six hours), Check now and Install;
 - start at sign-in, on by default;
@@ -121,7 +129,8 @@ and `BRIDGEY_UPDATE_CURRENT_BUILD` point a separate profile's updater at a test 
 - MSIX and winget.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.
-- Calls, phone files, and screen view and control (M3).
+- Phone files, and screen view and control (M3).
+- Calls from tel: links in the browser extension and from other apps (the Mac asks first); call audio on this PC.
 - Pinning, muting, archiving and deleting conversations, and searching them (the Mac has these).
 
 The activity list is in memory only for now.

@@ -1078,7 +1078,7 @@ impl Inner {
     }
 
     /// The session of a connected device, whatever its switches.
-    fn connected_session(&self, device_id: &str) -> Result<Handle, ClientError> {
+    pub(crate) fn connected_session(&self, device_id: &str) -> Result<Handle, ClientError> {
         let id = device_id.to_ascii_lowercase();
         let st = self.state.lock().unwrap();
         let session = st.connected.get(&id).ok_or(ClientError::NotConnected)?;
@@ -1092,7 +1092,7 @@ impl Inner {
         }
     }
 
-    fn feature_session(&self, device_id: &str, feature: &str) -> Result<(Handle, String), ClientError> {
+    pub(crate) fn feature_session(&self, device_id: &str, feature: &str) -> Result<(Handle, String), ClientError> {
         let id = device_id.to_ascii_lowercase();
         let st = self.state.lock().unwrap();
         let session = st.connected.get(&id).ok_or(ClientError::NotConnected)?;

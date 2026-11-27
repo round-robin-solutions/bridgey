@@ -48,7 +48,7 @@ public sealed partial class SettingsPage : UserControl
     }
 
     private IEnumerable<FrameworkElement> SectionPanels() =>
-        new FrameworkElement[] { ThisPc, DevicesSection, AwaySection, ClipboardSection, NotificationsSection, MessagesSection, FilesSection, MediaSection, PrivacySection, UpdatesSection, GeneralSection, AboutSection };
+        new FrameworkElement[] { ThisPc, DevicesSection, AwaySection, ClipboardSection, NotificationsSection, CallsSection, MessagesSection, FilesSection, MediaSection, PrivacySection, UpdatesSection, GeneralSection, AboutSection };
 
     private async void OnCheckUpdates(object sender, RoutedEventArgs e) => await Updates.CheckAsync();
 

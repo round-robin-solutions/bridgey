@@ -20,7 +20,8 @@
 //!        [--receive-dir <folder>] [--seconds 300] [--phone]
 //!
 //! `--phone` answers the other device's requests for the phone's own features as a phone would, with canned
-//! conversations (Text messages), so an app's windows for them can be tested without a phone.
+//! conversations (Text messages), an address book and call log (the Calls window), so an app's windows for them can be
+//! tested without a phone.
 //!   peer --sign-update <file>    a test release key's signature over a file (self-update tests), then exit
 //!
 //! Files, battery, find device and notifications (with routing, presence and code status) are on. It never touches a real device's settings: identity and trust live in
@@ -82,6 +83,8 @@ fn main() {
     }
     if phone {
         config.defaults.set("sms_draft1", true);
+        config.defaults.set("dialer_draft1", true);
+        config.defaults.set("calls", true);
     }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
     client.simulate_phone_for_tests(phone);

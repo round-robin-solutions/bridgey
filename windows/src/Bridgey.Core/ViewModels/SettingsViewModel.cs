@@ -14,7 +14,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         new("clipboard", "Clipboard", "\uE77F", true),
         new("notifications", "Notifications", "\uEA8F", true),
         new("messages", "Text messages", "\uE8BD", true),
-        new("calls", "Calls", "\uE717", false),
+        new("calls", "Calls", "\uE717", true),
         new("files", "Files", "\uE8B7", true),
         new("media", "Media and actions", "\uE768", true),
         new("remoteControl", "Remote control", "\uE7C9", false),
@@ -333,6 +333,84 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
             Changed();
             Raise();
             KeepConversationsChanged?.Invoke(value);
+        }
+    }
+
+    /// <summary>The Calls window switch, a phone's allowance, or one of the window's choices changed.</summary>
+    public event Action? CallsChanged;
+
+    /// <summary>The Calls window, off until chosen. Each phone needs allowing too.</summary>
+    public bool CallsWindow
+    {
+        get => settings.CallsWindow;
+        set
+        {
+            if (value == settings.CallsWindow) return;
+            settings.CallsWindow = value;
+            Changed();
+            Raise();
+            CallsChanged?.Invoke();
+        }
+    }
+
+    public bool IsCallsAllowed(string deviceId) => settings.CallsAllowed.Contains(deviceId);
+
+    public void SetCallsAllowed(string deviceId, bool on)
+    {
+        if (on == IsCallsAllowed(deviceId)) return;
+        if (on) settings.CallsAllowed.Add(deviceId);
+        else settings.CallsAllowed.Remove(deviceId);
+        Changed();
+        CallsChanged?.Invoke();
+    }
+
+    /// <summary>The SIM to call from: ask, sim1 or sim2.</summary>
+    public string CallsSim => settings.CallsSim is "sim1" or "sim2" ? settings.CallsSim : "ask";
+
+    /// <summary>Ask each time, SIM 1, SIM 2 (the order in Settings).</summary>
+    public int CallsSimIndex
+    {
+        get => CallsSim switch { "sim1" => 1, "sim2" => 2, _ => 0 };
+        set
+        {
+            var sim = value switch { 1 => "sim1", 2 => "sim2", _ => "ask" };
+            if (sim == settings.CallsSim) return;
+            settings.CallsSim = sim;
+            Changed();
+            Raise();
+            CallsChanged?.Invoke();
+        }
+    }
+
+    public bool CallsShowWhatsApp
+    {
+        get => settings.CallsShowWhatsApp;
+        set
+        {
+            if (value == settings.CallsShowWhatsApp) return;
+            settings.CallsShowWhatsApp = value;
+            Changed();
+            Raise();
+            CallsChanged?.Invoke();
+        }
+    }
+
+    public static IReadOnlyList<int> CallsRecentChoices { get; } = [10, 20, 50];
+
+    public int CallsRecentCount => CallsRecentChoices.Contains(settings.CallsRecentCount) ? settings.CallsRecentCount : 20;
+
+    /// <summary>Last 10, 20 or 50 (the order in Settings).</summary>
+    public int CallsRecentIndex
+    {
+        get => Math.Max(0, CallsRecentChoices.ToList().IndexOf(CallsRecentCount));
+        set
+        {
+            var count = CallsRecentChoices[Math.Clamp(value, 0, CallsRecentChoices.Count - 1)];
+            if (count == settings.CallsRecentCount) return;
+            settings.CallsRecentCount = count;
+            Changed();
+            Raise();
+            CallsChanged?.Invoke();
         }
     }
 

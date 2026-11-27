@@ -74,7 +74,7 @@ pub fn incoming(kind: &str) -> Option<Incoming> {
         "sms.blocked_numbers_result" => ("sms.blocked_numbers_result", SMALL),
         _ => return None,
     };
-    Some(Incoming { area: Area::Sms, kind, feature: FEATURE, max })
+    Some(Incoming { area: Area::Sms, kind, feature: FEATURE, max, with_message_id: false })
 }
 
 // MARK: - Model
@@ -1715,7 +1715,7 @@ pub(crate) fn sim_incoming(kind: &str) -> Option<Incoming> {
         "sms.blocked_numbers" => ("sms.blocked_numbers", SMALL),
         _ => return None,
     };
-    Some(Incoming { area: Area::Sms, kind, feature: FEATURE, max })
+    Some(Incoming { area: Area::Sms, kind, feature: FEATURE, max, with_message_id: false })
 }
 
 /// The simulated phone's conversations (fixed, so tests know what to expect).
