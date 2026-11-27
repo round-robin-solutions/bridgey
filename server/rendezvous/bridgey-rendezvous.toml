@@ -10,7 +10,8 @@ environment = "production"
 # What clients sign in a single-flight sign-in (hello in the upgrade request); nginx forwards another Host.
 public_host = "connect.roundrobin.in"
 # The Cloudflare credentials out, kept across restarts. The image makes the folder; a volume mounted there keeps it
-# across deploys too. Without the file a start assumes the budget's worth is out, expiring over 12 hours.
+# across deploys too. Without the file a start assumes the budget's worth is out, expiring over the warm
+# grant lifetime (6 hours).
 state_file = "/var/lib/bridgey-rendezvous/cloudflare-credentials.json"
 
 [limits]
@@ -24,8 +25,11 @@ connections_per_ip = 32
 max_connections = 20000
 pow_bits = 0
 grant_lifetime_s = 7200
-# A node's own (warm) relay credentials; it renews them in their last hour.
-warm_grant_lifetime_s = 43200
+# A node's own (warm) relay credentials; it renews them in their last hour, so a connected node mints about every
+# 5 hours. 6 hours (12 until 2026-11-27): a phone asleep longer has lost its allocation and NAT mapping anyway and asks
+# for new credentials in the sign-in that wakes it, while a replaced or abandoned Cloudflare credential holds a budget
+# slot for half as long.
+warm_grant_lifetime_s = 21600
 auth_timeout_s = 10
 # Any message, per connection: past it they are dropped, past twice it the connection closes (one lock serves all).
 messages_per_minute = 600
@@ -59,15 +63,18 @@ usage_max_age_s = 3600
 # 0: the last window_days days (covers any billing month); set the billing day here once it is confirmed.
 cycle_day = 0
 window_days = 31
-# Credentials out at once are budgeted so that, each at budget_kbps (the top of Cloudflare's per-client rate) until
+# Credentials out at once are budgeted so that, each at budget_kbps until
 # the next reading plus budget_extra_s, they stay under hard_gb. At a reading the excess is revoked: replaced
 # credentials first, then session ones, a node's live warm one last; all of them at the hard cap. A stale reading
 # stops minting and revokes nothing. 0 turns the budget and revocations off. Per address (IPv4, or IPv6 /64):
 # mints_per_ip_hour.
-budget_kbps = 100000
+# 40000 since 2026-11-27 (100000 before): the pace clients keep to (max_kbps above), so the budget is about 158
+# credentials instead of 63 with nothing used.
+budget_kbps = 40000
 budget_extra_s = 300
 mints_per_ip_hour = 30
 
+# Mumbai: rr-dev-2 (206.51.227.16), compose bridgey-relay-in, since 2026-11-27.
 [[relays]]
 id = "bom"
 kind = "coturn"

@@ -1216,7 +1216,7 @@ Relaying to the peer is UDP only, IPv4 only.
 **Credentials.** The control service calls
 `POST https://rtc.live.cloudflare.com/v1/turn/keys/{keyId}/credentials/generate-ice-servers` with
 `{"ttl":7200}` ([credentials](https://developers.cloudflare.com/realtime/turn/generate-credentials/)), or the warm
-lifetime (12 hours) for a node's own relay. The maximum lifetime is 48 hours. A grant ends early through
+lifetime (6 hours; 12 until 2026-11-27) for a node's own relay. The maximum lifetime is 48 hours. A grant ends early through
 `.../credentials/{username}/revoke`: since the 1.0 security review the service keeps every credential it minted
 until it expires and revokes those the usage no longer leaves room for (below). The answer lists a STUN entry and a TURN entry with
 `turn:...:3478?transport=udp`, `turn:...:3478?transport=tcp`, `turns:...:5349?transport=tcp`,
