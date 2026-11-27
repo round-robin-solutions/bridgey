@@ -308,6 +308,12 @@ fn inbox(resume: bool) -> Received {
     Received { inbox, reports, dir }
 }
 
+impl Drop for Received {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
 impl Received {
     fn files(&self) -> PathBuf {
         self.dir.join("in")
