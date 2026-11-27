@@ -18,12 +18,14 @@ final class DemoClient: CoreClient {
     }
 
     func snapshot() throws -> CoreSnapshot {
-        let on = ["clipboard": true, "files": true, "links": true, "ping": true]
+        let on = ["clipboard": true, "files": true, "links": true, "ping": true, "battery": true, "find_device": true, "notifications": true]
+        let mac = on.merging(["screen_control_draft1": true]) { $1 }
+        let pixel = on.merging(["screen_draft1": true, "phone_control_draft1": true, "sms_draft1": true, "files_browse_draft1": true]) { $1 }
         return CoreSnapshot(
             deviceId: deviceID, name: "Rahul’s iPhone", platform: "ios", port: 42_458, allowPairingSeconds: 0, defaults: on,
             devices: [
-                .init(deviceId: Self.mac, name: "MacBook Pro", platform: "macos", connected: true, pairedAtMs: nil, lastConnectedMs: nil, local: on, remote: on),
-                .init(deviceId: Self.pixel, name: "Pixel 9", platform: "android", connected: true, pairedAtMs: nil, lastConnectedMs: nil, local: on, remote: on),
+                .init(deviceId: Self.mac, name: "MacBook Pro", platform: "macos", connected: true, pairedAtMs: nil, lastConnectedMs: nil, local: on, remote: mac),
+                .init(deviceId: Self.pixel, name: "Pixel 9", platform: "android", connected: true, pairedAtMs: nil, lastConnectedMs: nil, local: on, remote: pixel),
                 .init(deviceId: Self.pc, name: "Studio PC", platform: "windows", connected: false, pairedAtMs: nil, lastConnectedMs: nil, local: on, remote: nil),
             ],
             nearby: [
@@ -111,6 +113,8 @@ final class DemoClient: CoreClient {
         if screen == "pair" {
             model.showDemoCode()
         }
+        model.handle(CoreEvent(kind: .battery, status: 76, id: 0, deviceID: pixel))
+        model.handle(CoreEvent(kind: .battery, status: 54, id: 1, deviceID: mac))
         seedScreen(model, screen: screen)
         seedMessages(model, screen: screen)
         seedPhoneFiles(model, screen: screen)
