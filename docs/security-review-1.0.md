@@ -56,7 +56,7 @@ review of this branch (PR #67) are listed under [After review](#after-review).
 | I1 | High | Windows | Another Windows user could reach the browser pipe | Fixed |
 | C2 | Medium | Control service | One client could stall the service's single lock; memory grew without bound | Fixed, deploy pending |
 | C3 | Medium | Core, apps | Dials to addresses learned on another network are not pinned (privacy) | Open, needs a wire change |
-| C4 | Medium | Relays | coturn could relay to its own host's addresses | Open, host firewall rule at redeploy |
+| C4 | Medium | Relays | coturn could relay to its own host's addresses | Fixed 27 Nov: host firewall rule on both relay hosts |
 | F2 | Medium | Windows | Received files had no mark of the web; one click ran them | Fixed |
 | F3 | Medium | Android, Mac | Any paired device could start speed tests without limit | Fixed |
 | S1 | Medium | Mac | The touchpad could press Allow on the screen prompt | Fixed |
@@ -65,7 +65,7 @@ review of this branch (PR #67) are listed under [After review](#after-review).
 | I4 | Medium | Codes worker | 0.10 F1: one client could use up the relay; unbounded chunked read | Fixed, deploy pending |
 | C5 | Low | Core | Unauthenticated direct tunnels could crowd out ICE tunnels | Fixed (QUIC Retry open) |
 | C6 | Low | Control service | `X-Real-IP` believed from any peer | Fixed, deploy pending |
-| C7 | Low | Control service | `/v1/status` is public | Open, needs Rahul |
+| C7 | Low | Control service | `/v1/status` is public | Fixed 27 Nov: tailnet only at the edge; port 18450 was already unreachable from outside |
 | C8 | Low | Relays | Relay logs kept without a limit | Fixed, deploy pending |
 | C9 | Low | Core | Timing events carried IP addresses | Fixed |
 | C10 | Low | Core, Mac | Learned addresses not checked against their kind; restricted devices get a pair secret | Open |
