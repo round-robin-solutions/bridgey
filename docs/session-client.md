@@ -121,7 +121,7 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   `tests/sms.rs` runs a session against a client that answers as a phone (`simulate_phone_for_tests`, also the
   scripted peer's `--phone`): conversations, a send to delivered, a refused send, a picture, contacts, Mark as read,
   Block on phone, and the cache going when Text messages is turned off.
-- `protocol/messages.json` lists `client` for the 62 kinds it speaks; a test fails if the sources and the list
+- `protocol/messages.json` lists `client` for the 65 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The

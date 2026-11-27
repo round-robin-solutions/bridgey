@@ -7,9 +7,9 @@
 //!   dropped and the session stays, as for every draft.
 //! - The area's module checks and decodes it, keeps what it needs in memory, and tells the host what changed with one
 //!   event kind per area (`Event::Phone`): `what` names the change, `json` carries the detail.
-//! - The host asks with one JSON command per call (`bridgey_sms`, `bridgey_calls`, `bridgey_phone_files`,
-//!   `bridgey_screen`) and gets a JSON answer at once: `{"ok": true, ...}` or `{"ok": false, "error": "..."}`. Requests
-//!   to the phone answer later through events, matched by the request ID the command returned.
+//! - The host asks with one JSON command per call (`bridgey_phone` with the area, `Client::phone` in Rust) and gets a
+//!   JSON answer at once: `{"ok": true, ...}` or `{"ok": false, "error": "..."}`. Requests to the phone answer later
+//!   through events, matched by the request ID the command returned.
 //!
 //! Content is sensitive: nothing in these modules logs message text, numbers, names or file names.
 
