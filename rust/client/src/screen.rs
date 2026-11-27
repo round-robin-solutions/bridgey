@@ -486,7 +486,7 @@ pub(crate) struct FrameQueue {
 
 impl FrameQueue {
     /// Adds a frame; when the host has fallen behind, the waiting ones go and their numbers come back (to acknowledge).
-    fn push(&self, frame: Frame) -> Vec<u32> {
+    pub(crate) fn push(&self, frame: Frame) -> Vec<u32> {
         let mut q = self.q.lock().unwrap();
         let mut dropped = Vec::new();
         if q.0.len() >= QUEUED {
@@ -498,13 +498,13 @@ impl FrameQueue {
         dropped
     }
 
-    fn close(&self) {
+    pub(crate) fn close(&self) {
         self.q.lock().unwrap().1 = true;
         self.cv.notify_all();
     }
 
     /// The next frame, None after the timeout, Err once the stream ended and nothing is left.
-    fn take(&self, timeout: Duration) -> Result<Option<Frame>, ()> {
+    pub(crate) fn take(&self, timeout: Duration) -> Result<Option<Frame>, ()> {
         let deadline = Instant::now() + timeout;
         let mut q = self.q.lock().unwrap();
         loop {
@@ -522,7 +522,7 @@ impl FrameQueue {
         }
     }
 
-    fn put_back(&self, frame: Frame) {
+    pub(crate) fn put_back(&self, frame: Frame) {
         self.q.lock().unwrap().0.push_front(frame);
     }
 }
@@ -533,6 +533,10 @@ impl FrameQueue {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     Touch { contact: u8, phase: sc::TouchPhase, x: f64, y: f64 },
+    /// The pointer moved (a Mac's screen, display.rs): coalesced as a finger's movement is.
+    Pointer { x: f64, y: f64 },
+    /// A mouse button pressed or released where it is (a Mac's screen, display.rs).
+    Button { button: sc::Button, down: bool, x: f64, y: f64 },
     /// Stream pixels the content moves, positive right and down (the content follows the fingers).
     Scroll { dx: i64, dy: i64, x: f64, y: f64 },
     Navigate(sc::Navigation),
@@ -543,6 +547,7 @@ pub enum Action {
 #[derive(Clone, Debug, PartialEq)]
 enum Entry {
     Move { contact: u8, x: f64, y: f64 },
+    Pointer { x: f64, y: f64 },
     Scroll { dx: i64, dy: i64, x: f64, y: f64 },
     Discrete(sc::Input),
 }
@@ -593,6 +598,7 @@ pub struct Sender {
     last_heartbeat: u64,
     contacts: std::collections::BTreeSet<u8>,
     keys: Vec<sc::Key>,
+    buttons: Vec<sc::Button>,
     /// Refused here: unsupported, invalid, an unmatched transition or a full queue.
     pub dropped: u64,
 }
@@ -636,6 +642,7 @@ impl Sender {
             last_heartbeat: now,
             contacts: Default::default(),
             keys: vec![],
+            buttons: vec![],
             dropped: 0,
         }
     }
@@ -679,6 +686,7 @@ impl Sender {
         self.queue.clear();
         self.contacts.clear();
         self.keys.clear();
+        self.buttons.clear();
         self.geometry = generation;
         self.last_heartbeat = now;
         self.packet(sc::Input::GeometryAck {}).into_iter().collect()
@@ -691,6 +699,8 @@ impl Sender {
         }
         let accepted = match action {
             Action::Touch { contact, phase, x, y } => self.input.touch && contact < 10 && coordinate(x) && coordinate(y) && self.touch(contact, phase, x, y),
+            Action::Pointer { x, y } => self.input.pointer && coordinate(x) && coordinate(y) && self.pointer(x, y),
+            Action::Button { button, down, x, y } => self.input.pointer && coordinate(x) && coordinate(y) && self.button(button, down, x, y),
             Action::Scroll { dx, dy, x, y } => self.input.pointer && coordinate(x) && coordinate(y) && (dx != 0 || dy != 0) && self.scroll(dx, dy, x, y),
             Action::Navigate(n) => self.input.navigation && self.queue.len() < MAX_QUEUE && {
                 self.queue.push_back(Entry::Discrete(sc::Input::Navigate { action: n }));
@@ -741,6 +751,10 @@ impl Sender {
                 Entry::Move { contact, x, y } => {
                     self.queue.pop_front();
                     sc::Input::Touch { contact, phase: sc::TouchPhase::Move, x, y }
+                }
+                Entry::Pointer { x, y } => {
+                    self.queue.pop_front();
+                    sc::Input::Pointer { x, y }
                 }
                 Entry::Discrete(input) => {
                     self.queue.pop_front();
@@ -829,6 +843,43 @@ impl Sender {
         }
     }
 
+    /// The newest pointer position replaces one not sent yet, unless a transition is between.
+    fn pointer(&mut self, x: f64, y: f64) -> bool {
+        for entry in self.queue.iter_mut().rev() {
+            match entry {
+                Entry::Discrete(_) => break,
+                Entry::Pointer { .. } => {
+                    *entry = Entry::Pointer { x, y };
+                    return true;
+                }
+                _ => continue,
+            }
+        }
+        if self.queue.len() >= MAX_QUEUE {
+            return false;
+        }
+        self.queue.push_back(Entry::Pointer { x, y });
+        true
+    }
+
+    fn button(&mut self, button: sc::Button, down: bool, x: f64, y: f64) -> bool {
+        let held = self.buttons.contains(&button);
+        if held == down {
+            return false;
+        }
+        if down {
+            if self.queue.len() >= MAX_QUEUE {
+                return false;
+            }
+            self.buttons.push(button);
+        } else {
+            self.buttons.retain(|b| *b != button);
+        }
+        // A release always goes: dropping it would leave the button held on the Mac.
+        self.queue.push_back(Entry::Discrete(sc::Input::Button { button, down, x, y }));
+        true
+    }
+
     fn scroll(&mut self, dx: i64, dy: i64, x: f64, y: f64) -> bool {
         if let Some(Entry::Scroll { dx: ox, dy: oy, .. }) = self.queue.back().cloned() {
             *self.queue.back_mut().unwrap() = Entry::Scroll { dx: ox + dx, dy: oy + dy, x, y };
@@ -897,6 +948,7 @@ impl Sender {
         self.queue.clear();
         self.contacts.clear();
         self.keys.clear();
+        self.buttons.clear();
     }
 }
 
@@ -1645,10 +1697,10 @@ pub(crate) fn forgotten(inner: &Inner, device_id: &str) {
 // MARK: - A simulated phone (sim.rs): a synthetic test clip, stats, control and the input it gets
 
 /// A 96 by 160 testsrc2 clip from ffmpeg (10 frames, key frames 1 and 6, SPS and PPS repeated), never a real screen.
-const SIM_CLIP: &[u8] = include_bytes!("../tests/fixtures/screen.h264");
+pub(crate) const SIM_CLIP: &[u8] = include_bytes!("../tests/fixtures/screen.h264");
 
 /// The clip's access units: NAL units up to and including each picture slice.
-fn sim_frames() -> Vec<(bool, bool, Vec<u8>)> {
+pub(crate) fn sim_frames() -> Vec<(bool, bool, Vec<u8>)> {
     let data = SIM_CLIP;
     let mut starts = Vec::new();
     let mut i = 0;
