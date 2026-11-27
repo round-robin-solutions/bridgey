@@ -27,7 +27,8 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | The phone's media controls (`quick.request` media, `media.state`) and links the phone asks to open at once (`links_open_draft1`) | yes | yes | none | yes, the desktop side, from Windows M2: Open links right away opens at most one link every 3 s per device; media commands go to the host and are answered once the player has acted; `media.state` on change and every ten seconds while playing |
 | Connect away from home (`connect_draft1`: `connect.setup`, `connect.addresses`, tunnel sessions with `bridgey-auth-v2`) | yes | yes | CLI and the core | yes: the core's node runs in the client, pair secrets and learned addresses are kept with each trusted device, tunnels carry protocol 2 reconnects only |
 | Self-update for direct downloads (the channel feed's `windows` entry; size, SHA-256 and the release key's Ed25519 signature) | Play/APK updater | Sparkle | none | yes (`update.rs`, `bridgey_update_check` and `bridgey_update_verify`, no client needed) |
-| Everything else (calls, SMS, folders, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
+| Text messages (`sms_draft1`: conversations, sync, sends, MMS pictures, contacts, Mark as read, Block on phone) | phone side | yes | none | yes, the desktop side, from Windows M3 (`sms.rs`): the Mac's sync rules and cache, kept in the host's storage |
+| Everything else (calls, folders, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
 
 ## How it works
 
@@ -62,6 +63,20 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   the resume offset.
 - Battery and find device: `bridgey_set_battery`, `bridgey_find`, `bridgey_find_stopped`, and the `Battery`,
   `FindRequested` and `FindState` events.
+- The phone's own features (`phone.rs`, one module per area) take JSON commands through
+  `bridgey_phone(handle, area, device_id, command)`, which answers at once (`{"ok":true,...}` or
+  `{"ok":false,"error":...}`), and report changes as one event kind per area (`name` says what changed, `text` holds
+  JSON). The library keeps each area's state and talks to the phone; the host only shows it.
+- Text messages (area 1, `sms.rs`) follows the Mac: without a cache, the phone's cursor is the starting point and the
+  newest 30 conversations load; with one, `sms.sync` from the cursor on connect and after each `sms.changed`. At most
+  200 conversations and the newest 200 messages of each are kept in the host's storage under `sms-<device>` (DPAPI on
+  Windows), written at most once a second, and deleted when Text messages goes off at either end or the phone is
+  forgotten (`keep` off stores nothing). Ops: `status`, `threads` (unread first; `filter: unread`), `refresh`,
+  `older_threads`, `open`, `close`, `messages`, `older_messages`, `send` (to a conversation, a number or an SMS
+  notification), `retry`, `discard`, `image`, `contacts`, `mark_read`, `mark_unread`, `block`, `forget`, `keep`.
+  Events: `status`, `changed`, `send`, `image` (base64, kept in the host's memory only), `contacts`, `notice`,
+  `reply_failed`. Notifications carry `smsReply` and `smsThreadId`, so a text's notification can be answered and
+  opens its conversation.
 - ABI 1 grows only at the end: `BridgeyConfig` fields after `data_dir` are read only when `struct_size` covers
   them, and new event kinds are skipped by hosts that don't know them.
 - Ownership: client handles are `uint64_t`, so a stopped or freed handle is refused rather than dereferenced.
@@ -101,7 +116,12 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   from home, cuts the local network and checks that the session comes back over a QUIC tunnel.
 - The codes rules reader shows the right code for every sample in `otp-samples.json` that has one (30 of 30) and
   nothing for the 12 without.
-- `protocol/messages.json` lists `client` for the 44 kinds it speaks; a test fails if the sources and the list
+- Text messages: every `sms*` group of `protocol-v1.json` (what the desktop reads from the phone, and the requests
+  and sends it writes) is checked in `src/sms/tests.rs`, with the cache's merge, read and unread-first rules.
+  `tests/sms.rs` runs a session against a client that answers as a phone (`simulate_phone_for_tests`, also the
+  scripted peer's `--phone`): conversations, a send to delivered, a refused send, a picture, contacts, Mark as read,
+  Block on phone, and the cache going when Text messages is turned off.
+- `protocol/messages.json` lists `client` for the 65 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The

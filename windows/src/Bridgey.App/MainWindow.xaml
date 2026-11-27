@@ -36,6 +36,11 @@
                             <FontIcon Glyph="&#xEA8F;" />
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
+                    <NavigationViewItem Content="Messages" Tag="messages" AutomationProperties.AutomationId="NavMessages">
+                        <NavigationViewItem.Icon>
+                            <FontIcon Glyph="&#xE8BD;" />
+                        </NavigationViewItem.Icon>
+                    </NavigationViewItem>
                     <NavigationViewItem Content="Pair a device" Tag="pair" AutomationProperties.AutomationId="NavPair">
                         <NavigationViewItem.Icon>
                             <FontIcon Glyph="&#xE710;" />

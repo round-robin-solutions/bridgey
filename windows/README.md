@@ -15,6 +15,12 @@ in the last two minutes, or the PC is locked; never keys or apps) and keeps noti
 showing a banner. Codes from messages (off by default) shows one-time codes with Copy code. Windows finds them with
 rules on this PC, where the Mac asks its model; nothing is sent anywhere.
 
+**Messages** shows the phone's texts (Text messages, off until you turn it on here and for this PC on the phone):
+conversations with unread ones first, each conversation with its pictures, sending and replying from either SIM, a new
+message to a number or a contact the phone finds, and Mark as read, which the phone passes to its messaging app. A text's
+notification opens its conversation, and its Reply goes through the phone even when the messaging app has none.
+Conversations are kept encrypted for the Windows user (Settings > Text messages > Keep conversations on this PC).
+
 Files go from the device card's **Send files**, by dragging them onto the window or a device card, from the
 notification area menu, or from Explorer: right-click, **Send to**, **Bridgey**. Received files go to
 Downloads\Bridgey (Settings > Files changes it) and are never overwritten: a second `photo.jpg` becomes
@@ -87,11 +93,12 @@ The settings that change the app's behaviour are in Settings:
   encrypted), Codes from messages (off), Also read codes in email (off), Copy codes automatically (off), and Share
   when I'm using this PC (on);
 - Away from home: Connect away from home, on, and its status;
+- Text messages, off, and Keep conversations on this PC (on);
 - Links (on) and Open links right away (on), Browser extensions (off: the extension's native messaging host for
   Chrome, Edge, Brave and Firefox, [docs](../docs/browser-extensions.md)), Media controls (off), Battery, Find device
   and Ping (on);
-- for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links and Media controls
-  switches;
+- for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links, Media controls and
+  Text messages switches;
 - Updates: the channel (the build's own: Beta for a beta), Check for updates when Bridgey opens (on, at most every
   six hours), Check now and Install;
 - start at sign-in, on by default;
@@ -112,9 +119,9 @@ and `BRIDGEY_UPDATE_CURRENT_BUILD` point a separate profile's updater at a test 
 
 - Signing: Azure Trusted Signing or another certificate is a later decision.
 - MSIX and winget.
-- Replying to text messages from the Messages window (M3); a notification's own Reply works now.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.
-- Messages, calls, phone files, and screen view and control (M3).
+- Calls, phone files, and screen view and control (M3).
+- Pinning, muting, archiving and deleting conversations, and searching them (the Mac has these).
 
 The activity list is in memory only for now.

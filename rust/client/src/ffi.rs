@@ -109,7 +109,8 @@ pub enum BridgeyEventKind {
     FindState = 25,
     /// A phone notification. device_id, status = 1 quiet (history only: no banner, no sound) or 0, text = JSON:
     /// packageName, applicationName, notificationId, title, text, timestamp, icon (base64 PNG), callType, actions
-    /// ([{token, title, allowsReply}]), quiet, redacted, code ({code, service, channel} when one was found).
+    /// ([{token, title, allowsReply}]), quiet, redacted, code ({code, service, channel} when one was found), smsReply
+    /// and smsThreadId (Text messages: answer with an sms send to the notification, open the conversation).
     Notification = 26,
     /// The phone's notification went away. device_id, text = notificationId, status = 1 when a call ended.
     NotificationRemoved = 27,
@@ -126,6 +127,29 @@ pub enum BridgeyEventKind {
     /// Connect away from home. text = off, disabled, connecting, unreachable or online, extra = JSON array of the
     /// paired device IDs the control service says are online.
     ConnectState = 31,
+    /// The phone's text messages (BRIDGEY_PHONE_AREA_SMS). device_id, name = what changed, id = the request it
+    /// answers (0 for none), text = JSON detail. docs/session-client.md lists each area's events.
+    Sms = 32,
+    /// The Calls window (BRIDGEY_PHONE_AREA_CALLS), as Sms.
+    Calls = 33,
+    /// The phone's files (BRIDGEY_PHONE_AREA_PHONE_FILES), as Sms.
+    PhoneFiles = 34,
+    /// The phone's screen (BRIDGEY_PHONE_AREA_SCREEN), as Sms.
+    Screen = 35,
+}
+
+/// Which of the phone's own features a `bridgey_phone` command is for.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BridgeyPhoneArea {
+    /// Text messages (`sms_draft1`).
+    Sms = 1,
+    /// The Calls window (`dialer_draft1`) and calls (`calls`).
+    Calls = 2,
+    /// The phone's files (`files_browse_draft1`).
+    PhoneFiles = 3,
+    /// The phone's screen (`screen_draft1`, `phone_control_draft1`).
+    Screen = 4,
 }
 
 /// Bytes owned by the library: UTF-8, NUL-terminated for convenience, `len` without the NUL. `ptr` is NULL when
@@ -348,6 +372,15 @@ fn to_c(event: Event) -> BridgeyEvent {
         Event::CodesAdvertise { device_id, service_uuid, start, linked } => (K::CodesAdvertise, i32::from(start), u64::from(linked), Some(device_id), None, Some(service_uuid), None),
         Event::ConnectState { state, online } => (K::ConnectState, 0, 0, None, None, Some(state), Some(serde_json::Value::from(online).to_string())),
         Event::MediaCommand { device_id, request_id, action, value } => (K::MediaCommand, value.unwrap_or(0) as i32, u64::from(value.is_some()), Some(device_id), Some(action), Some(request_id), None),
+        Event::Phone { area, device_id, what, id, json } => {
+            let kind = match area {
+                crate::phone::Area::Sms => K::Sms,
+                crate::phone::Area::Calls => K::Calls,
+                crate::phone::Area::PhoneFiles => K::PhoneFiles,
+                crate::phone::Area::Screen => K::Screen,
+            };
+            (kind, 0, id, Some(device_id), Some(what), Some(json), None)
+        }
     };
     BridgeyEvent { kind, status, id, device_id: owned(device_id), name: owned(name), text: owned(text), extra: owned(extra), bytes, total }
 }
@@ -984,6 +1017,31 @@ pub unsafe extern "C" fn bridgey_update_verify(path: *const c_char, sha256: *con
         }
     })
     .unwrap_or_else(|_| give("internal error".into()))
+}
+
+/// A command for one of the phone's own features (`area`, a BridgeyPhoneArea) with a trusted device: `command` is
+/// JSON with an `op` (each area's ops are in docs/session-client.md). Returns the answer as JSON, `{"ok":true,...}`
+/// or `{"ok":false,"error":...}`; free it with bridgey_string_free. Answers from the phone arrive later as events of
+/// the area's kind. NULL for a stopped handle.
+///
+/// # Safety
+/// `device_id` and `command` are NUL-terminated strings valid for the call.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_phone(handle: u64, area: u32, device_id: *const c_char, command: *const c_char) -> *mut c_char {
+    std::panic::catch_unwind(|| {
+        let Some(c) = client(handle) else { return std::ptr::null_mut() };
+        let area = match area {
+            1 => crate::phone::Area::Sms,
+            2 => crate::phone::Area::Calls,
+            3 => crate::phone::Area::PhoneFiles,
+            4 => crate::phone::Area::Screen,
+            _ => return give(crate::phone::error("invalid").to_string()),
+        };
+        let (Ok(Some(id)), Ok(Some(command))) = (arg(device_id), arg(command)) else { return give(crate::phone::error("invalid").to_string()) };
+        let Ok(command) = serde_json::from_str::<serde_json::Value>(command) else { return give(crate::phone::error("invalid").to_string()) };
+        give(c.phone(area, id, &command).to_string())
+    })
+    .unwrap_or(std::ptr::null_mut())
 }
 
 /// Copies `len` bytes into the buffer a storage `load` callback was given.

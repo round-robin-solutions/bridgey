@@ -47,10 +47,15 @@ public sealed partial class NotificationItem : ObservableObject
     public bool Quiet { get; set; }
     public FoundCode? Code { get; set; }
     public List<PhoneAction> Actions { get; set; } = new();
+    /// <summary>Text messages: the phone can answer this SMS notification itself (used when it has no Reply of its own).</summary>
+    public bool SmsReply { get; set; }
+    /// <summary>Text messages: the conversation it belongs to.</summary>
+    public long? SmsThreadId { get; set; }
 
     public List<NotificationActionItem> Buttons => Actions.Where(a => !a.AllowsReply).Select(a => new NotificationActionItem(this, a)).ToList();
     public PhoneAction? ReplyAction => Actions.FirstOrDefault(a => a.AllowsReply);
-    public bool CanReply => _active && ReplyAction is not null;
+    /// <summary>The app's own Reply, or (Text messages) the phone's SMS reply to this notification.</summary>
+    public bool CanReply => _active && (ReplyAction is not null || (SmsReply && CallType is null));
     public bool HasCode => Code is not null;
     public string CodeText => Code is { } c ? c.Code : "";
     public bool HasText => Text.Length > 0;
@@ -319,6 +324,8 @@ public sealed partial class NotificationsViewModel : ObservableObject
             Quiet = n.Quiet,
             Code = n.Code,
             Actions = n.Actions,
+            SmsReply = n.SmsReply,
+            SmsThreadId = n.SmsThreadId,
         };
         Items.Insert(0, item);
         Trim();
@@ -399,10 +406,22 @@ public sealed partial class NotificationsViewModel : ObservableObject
 
     internal void SetMuted(string package, bool muted) => _settings.SetAppMuted(package, muted);
 
+    /// <summary>Text messages: sends a reply to an SMS notification through the phone (set by the main view model).</summary>
+    internal Func<string, string, string, bool>? SmsReply { get; set; }
+
     internal void Reply(NotificationItem item, string text)
     {
-        if (item.ReplyAction is not { } action || text.Trim().Length == 0) return;
-        if (RunAction(item, action.Token, text.Trim())) item.Reply = "";
+        if (text.Trim().Length == 0) return;
+        if (item.ReplyAction is { } action)
+        {
+            if (RunAction(item, action.Token, text.Trim())) item.Reply = "";
+            return;
+        }
+        if (item.SmsReply && SmsReply is { } send)
+        {
+            if (send(item.DeviceId, item.NotificationId, text.Trim())) item.Reply = "";
+            else Notice = $"{item.DeviceName} isn't connected.";
+        }
     }
 
     /// <summary>Runs one of the phone's actions; true when it went.</summary>
@@ -454,6 +473,9 @@ public sealed partial class NotificationsViewModel : ObservableObject
                 break;
             case "copyCode" when item?.Code is { } code:
                 _clipboard.SetText(code.Code);
+                break;
+            case "smsReply" when reply is { Length: > 0 }:
+                SmsReply?.Invoke(deviceId, notificationId, reply);
                 break;
         }
     }

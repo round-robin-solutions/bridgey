@@ -26,18 +26,27 @@ internal sealed class PhoneNotifier(Notifications notifications) : IPhoneNotifie
     public void Show(NotificationItem item)
     {
         var builder = new AppNotificationBuilder()
-            .AddArgument("action", "openNotifications")
             .AddText(item.Title.Length > 0 ? item.Title : item.AppName)
             .SetAttributionText($"{item.AppName} on {item.DeviceName}");
+        // A text message opens its conversation; anything else opens Notifications.
+        if (item.SmsThreadId is { } thread) builder.AddArgument("action", "openConversation").AddArgument("device", item.DeviceId).AddArgument("thread", thread.ToString());
+        else builder.AddArgument("action", "openNotifications");
         if (item.Text.Length > 0) builder.AddText(item.Text);
         if (Icon(item) is { } icon) builder.SetAppLogoOverride(icon, AppNotificationImageCrop.Circle);
         if (item.CallType == "incoming") builder.SetScenario(AppNotificationScenario.IncomingCall);
+        var replies = item.ReplyAction is not null || (item.SmsReply && item.CallType is null);
         if (item.ReplyAction is { } reply)
         {
             builder.AddTextBox("reply", "Reply", "");
             builder.AddButton(Button(reply.Title.Length > 0 ? reply.Title : "Reply", item, "phoneAction").AddArgument("token", reply.Token).SetInputId("reply"));
         }
-        foreach (var action in item.Actions.Where(a => !a.AllowsReply).Take(MaxButtons - (item.ReplyAction is null ? 0 : 1)))
+        else if (replies)
+        {
+            // Text messages: the messaging app has no Reply of its own, so the phone sends the answer as a text.
+            builder.AddTextBox("reply", "Reply", "");
+            builder.AddButton(Button("Reply", item, "smsReply").SetInputId("reply"));
+        }
+        foreach (var action in item.Actions.Where(a => !a.AllowsReply).Take(MaxButtons - (replies ? 1 : 0)))
             builder.AddButton(Button(action.Title, item, "phoneAction").AddArgument("token", action.Token));
         builder.AddButton(Button("Dismiss", item, "phoneDismiss"));
         notifications.Show(builder, item.Title.Length > 0 ? item.Title : item.AppName, item.Text, Tag(item.NotificationId), Group(item.DeviceId));

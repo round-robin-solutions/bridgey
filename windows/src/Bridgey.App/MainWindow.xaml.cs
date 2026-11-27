@@ -11,12 +11,12 @@ using Windows.Graphics;
 namespace Bridgey;
 
 /// <summary>
-/// The window: Mica where Windows has it, the edition's title bar, Home, Pair a device and Settings. Pages are made
+/// The window: Mica where Windows has it, the edition's title bar, Home, Notifications, Messages, Pair a device and Settings. Pages are made
 /// once and kept, and change with a short fade and rise. Closing hides it to the notification area.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications";
+    public const string HomePage = "home", PairPage = "pair", SettingsPage = "settings", SetupPage = "setup", NotificationsPage = "notifications", MessagesPage = "messages";
 
     private readonly Dictionary<string, FrameworkElement> _pages = new();
     private string _current = "";
@@ -89,6 +89,7 @@ public sealed partial class MainWindow : Window
             SettingsPage => new Views.SettingsPage(),
             SetupPage => new Views.SetupPage(),
             NotificationsPage => new Views.NotificationsPage(),
+            MessagesPage => new Views.MessagesPage(),
             _ => new Views.HomePage(),
         };
         _pages[key] = page;
@@ -113,6 +114,22 @@ public sealed partial class MainWindow : Window
         _navigating = true;
         Nav.SelectedItem = Nav.MenuItems.Concat(Nav.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(i => (string)i.Tag == key);
         _navigating = false;
+    }
+
+    /// <summary>Settings, at one section (Text messages from the Messages page).</summary>
+    public void OpenSettings(string section)
+    {
+        ShowAnimated();
+        Navigate(SettingsPage);
+        if (Page(SettingsPage) is Views.SettingsPage settings) settings.Show(section);
+    }
+
+    /// <summary>A conversation from a text message notification.</summary>
+    public void OpenConversation(string deviceId, long threadId)
+    {
+        ShowAnimated();
+        Navigate(MessagesPage);
+        App.Model.Messages.Open(deviceId, threadId);
     }
 
     private nint Hwnd => WinRT.Interop.WindowNative.GetWindowHandle(this);

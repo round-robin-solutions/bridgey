@@ -152,7 +152,8 @@ enum BridgeyEventKind
   BRIDGEY_EVENT_KIND_FIND_STATE = 25,
   // A phone notification. device_id, status = 1 quiet (history only: no banner, no sound) or 0, text = JSON:
   // packageName, applicationName, notificationId, title, text, timestamp, icon (base64 PNG), callType, actions
-  // ([{token, title, allowsReply}]), quiet, redacted, code ({code, service, channel} when one was found).
+  // ([{token, title, allowsReply}]), quiet, redacted, code ({code, service, channel} when one was found), smsReply
+  // and smsThreadId (Text messages: answer with an sms send to the notification, open the conversation).
   BRIDGEY_EVENT_KIND_NOTIFICATION = 26,
   // The phone's notification went away. device_id, text = notificationId, status = 1 when a call ended.
   BRIDGEY_EVENT_KIND_NOTIFICATION_REMOVED = 27,
@@ -169,6 +170,15 @@ enum BridgeyEventKind
   // Connect away from home. text = off, disabled, connecting, unreachable or online, extra = JSON array of the
   // paired device IDs the control service says are online.
   BRIDGEY_EVENT_KIND_CONNECT_STATE = 31,
+  // The phone's text messages (BRIDGEY_PHONE_AREA_SMS). device_id, name = what changed, id = the request it
+  // answers (0 for none), text = JSON detail. docs/session-client.md lists each area's events.
+  BRIDGEY_EVENT_KIND_SMS = 32,
+  // The Calls window (BRIDGEY_PHONE_AREA_CALLS), as Sms.
+  BRIDGEY_EVENT_KIND_CALLS = 33,
+  // The phone's files (BRIDGEY_PHONE_AREA_PHONE_FILES), as Sms.
+  BRIDGEY_EVENT_KIND_PHONE_FILES = 34,
+  // The phone's screen (BRIDGEY_PHONE_AREA_SCREEN), as Sms.
+  BRIDGEY_EVENT_KIND_SCREEN = 35,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -197,6 +207,29 @@ enum BridgeySendStatus
 typedef enum BridgeySendStatus BridgeySendStatus;
 #else
 typedef int32_t BridgeySendStatus;
+#endif // __STDC_VERSION__ >= 202311L
+#endif // __cplusplus
+
+// Which of the phone's own features a `bridgey_phone` command is for.
+enum BridgeyPhoneArea
+#if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+  : uint32_t
+#endif // defined(__cplusplus) || __STDC_VERSION__ >= 202311L
+ {
+  // Text messages (`sms_draft1`).
+  BRIDGEY_PHONE_AREA_SMS = 1,
+  // The Calls window (`dialer_draft1`) and calls (`calls`).
+  BRIDGEY_PHONE_AREA_CALLS = 2,
+  // The phone's files (`files_browse_draft1`).
+  BRIDGEY_PHONE_AREA_PHONE_FILES = 3,
+  // The phone's screen (`screen_draft1`, `phone_control_draft1`).
+  BRIDGEY_PHONE_AREA_SCREEN = 4,
+};
+#ifndef __cplusplus
+#if __STDC_VERSION__ >= 202311L
+typedef enum BridgeyPhoneArea BridgeyPhoneArea;
+#else
+typedef uint32_t BridgeyPhoneArea;
 #endif // __STDC_VERSION__ >= 202311L
 #endif // __cplusplus
 
@@ -550,6 +583,18 @@ char *bridgey_update_verify(const char *path,
                             uint64_t size,
                             const char *signature,
                             const char *public_key);
+
+// A command for one of the phone's own features (`area`, a BridgeyPhoneArea) with a trusted device: `command` is
+// JSON with an `op` (each area's ops are in docs/session-client.md). Returns the answer as JSON, `{"ok":true,...}`
+// or `{"ok":false,"error":...}`; free it with bridgey_string_free. Answers from the phone arrive later as events of
+// the area's kind. NULL for a stopped handle.
+//
+// # Safety
+// `device_id` and `command` are NUL-terminated strings valid for the call.
+char *bridgey_phone(uint64_t handle,
+                    uint32_t area,
+                    const char *device_id,
+                    const char *command);
 
 // Copies `len` bytes into the buffer a storage `load` callback was given.
 //

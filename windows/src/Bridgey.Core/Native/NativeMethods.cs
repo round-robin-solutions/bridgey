@@ -136,6 +136,9 @@ internal static unsafe partial class NativeMethods
     [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
     public static partial byte* bridgey_update_verify(string path, string sha256, ulong size, string signature, string publicKey);
 
+    [LibraryImport(Library, StringMarshalling = StringMarshalling.Utf8)]
+    public static partial byte* bridgey_phone(ulong handle, uint area, string deviceId, string command);
+
     [LibraryImport(Library)]
     public static partial int bridgey_buffer_set(nint buffer, byte* data, nuint length);
 }

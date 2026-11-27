@@ -67,7 +67,7 @@ public sealed partial class AppTests : IDisposable
             foreach (var theme in new[] { "Light", "Dark" })
             {
                 var t = theme.ToLowerInvariant();
-                window = Launch(theme, setupDone: true);
+                window = Launch(theme, setupDone: true, textMessages: theme == "Dark");
                 Find(window, "HomeStatus");
                 if (theme == "Light") Shot(window, "home-empty-light");
 
@@ -96,6 +96,7 @@ public sealed partial class AppTests : IDisposable
                     FilesBatteryAndFind(window);
                     PhoneNotifications(window);
                     Links(window);
+                    TextMessages(window);
                 }
                 else
                 {
@@ -119,6 +120,13 @@ public sealed partial class AppTests : IDisposable
 
                 if (theme == "Dark")
                 {
+                    // Text messages stays on, and the conversations come back from the encrypted cache.
+                    Click(window, "NavMessages");
+                    var asha = WaitFor(() => Find(window, "Conversations").FindFirstDescendant(c => c.ByName("Asha", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the conversations in the dark run");
+                    asha.Click();
+                    WaitFor(() => window.FindFirstDescendant(c => c.ByName("See you at 6", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the conversation");
+                    Wait.UntilInputIsProcessed(TimeSpan.FromSeconds(2));
+                    Shot(window, "messages-thread-dark");
                     PeerCommand($"notify {NotificationJson("dark-1", "Asha", "Lunch at one?", reply: true)}");
                     Click(window, "NavNotifications");
                     Find(window, "ReplyBox");
@@ -319,6 +327,48 @@ public sealed partial class AppTests : IDisposable
         Assert.Equal("https://roundrobin.in/bridgey", link.GetProperty("url").GetString());
     }
 
+    /// <summary>
+    /// Text messages with the peer acting as a phone (--phone): turn it on, the conversations load unread first, a
+    /// conversation opens with its picture, and a text goes and is delivered.
+    /// </summary>
+    private void TextMessages(Window window)
+    {
+        Click(window, "NavMessages");
+        Find(window, "MessagesSettings");
+        Shot(window, "messages-off-light");
+        Click(window, "MessagesSettings");
+        var on = Find(window, "TextMessagesOn");
+        if (on.Patterns.Toggle.IsSupported) on.Patterns.Toggle.Pattern.Toggle();
+        Shot(window, "settings-messages-light");
+
+        Click(window, "NavMessages");
+        var list = Find(window, "Conversations");
+        var asha = WaitFor(() => list.FindFirstDescendant(c => c.ByName("Asha", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "Asha's conversation");
+        Assert.Contains("2 unread", asha.Name);
+        Shot(window, "messages-light");
+
+        asha.Click();
+        WaitFor(() => window.FindFirstDescendant(c => c.ByName("See you at 6", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the conversation's messages");
+        var draft = Find(window, "MessageDraft").AsTextBox();
+        draft.Text = "On my way";
+        Click(window, "SendMessage");
+        WaitFor(() => window.FindFirstDescendant(c => c.ByName("Delivered", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the text delivered");
+        Shot(window, "messages-thread-light");
+
+        // A picture message.
+        var ravi = WaitFor(() => list.FindFirstDescendant(c => c.ByName("Ravi", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "Ravi's conversation");
+        ravi.Click();
+        WaitFor(() => window.FindFirstDescendant(c => c.ByName("Picture")), "the picture");
+
+        // A new message to a contact the phone finds.
+        Click(window, "NewMessage");
+        Find(window, "MessageTo").AsTextBox().Text = "As";
+        var contact = WaitFor(() => Find(window, "MessageContacts").FindFirstDescendant(c => c.ByName("Asha")), "the contact");
+        Shot(window, "messages-new-light");
+        contact.Click();
+        Assert.Equal("+447700900123", Find(window, "MessageTo").AsTextBox().Text);
+    }
+
     private void PeerCommand(string line)
     {
         _peer!.StandardInput.WriteLine(line);
@@ -344,7 +394,8 @@ public sealed partial class AppTests : IDisposable
         catch (Exception) { }
     }
 
-    private Window Launch(string theme, bool setupDone)
+    /// <summary>Starts the app with fresh settings; <paramref name="textMessages"/> keeps Text messages on from the light run.</summary>
+    private Window Launch(string theme, bool setupDone, bool textMessages = false)
     {
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "settings.json"), JsonSerializer.Serialize(new Dictionary<string, object>
@@ -353,6 +404,7 @@ public sealed partial class AppTests : IDisposable
             ["theme"] = theme,
             ["setupDone"] = setupDone,
             ["startAtSignIn"] = false,
+            ["textMessages"] = textMessages,
         }));
         var start = new ProcessStartInfo(_exe) { UseShellExecute = false };
         start.Environment["BRIDGEY_DATA_DIR"] = _data;
@@ -468,7 +520,7 @@ public sealed partial class AppTests : IDisposable
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             RedirectStandardInput = true,
-            ArgumentList = { "--name", PeerName, "--port", PeerPort.ToString(), "--allow", "--discover", "--send", FromPeer, "--seconds", "900", "--receive-dir", _peerInbox },
+            ArgumentList = { "--name", PeerName, "--port", PeerPort.ToString(), "--allow", "--discover", "--send", FromPeer, "--seconds", "900", "--receive-dir", _peerInbox, "--phone" },
         };
         _peer = Process.Start(start) ?? throw new InvalidOperationException("peer did not start");
         _peer.OutputDataReceived += (_, e) =>
