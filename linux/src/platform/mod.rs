@@ -7,6 +7,7 @@ pub mod battery;
 pub mod clipboard;
 pub mod datacontrol;
 pub mod integration;
+pub mod launch;
 pub mod media;
 pub mod notify;
 pub mod presence;

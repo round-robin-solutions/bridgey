@@ -101,6 +101,7 @@ class App:
         cmd = [exe]
         if os.environ.get("UI_SMOKE_GDB"):
             cmd = ["gdb", "-q", "-batch", "-ex", "set debuginfod enabled on", "-ex", "run", "-ex", "bt 12", "--args", exe]
+        self.env = env
         self.proc = subprocess.Popen(cmd, env=env, stdout=self.log, stderr=subprocess.STDOUT)
         wait("the control socket", lambda: os.path.exists(self.sock), 20)
 
@@ -202,6 +203,61 @@ class Notifications:
         self.proc.kill()
 
 
+MPRIS_PLAYER = r'''
+import sys
+from gi.repository import Gio, GLib
+XML = """<node>
+<interface name="org.mpris.MediaPlayer2"><property name="Identity" type="s" access="read"/></interface>
+<interface name="org.mpris.MediaPlayer2.Player">
+<method name="PlayPause"/><method name="Pause"/><method name="Next"/><method name="Previous"/>
+<method name="SetPosition"><arg type="o" direction="in"/><arg type="x" direction="in"/></method>
+<property name="PlaybackStatus" type="s" access="read"/><property name="Metadata" type="a{sv}" access="read"/>
+<property name="Position" type="x" access="read"/><property name="Volume" type="d" access="readwrite"/>
+<property name="CanGoNext" type="b" access="read"/><property name="CanGoPrevious" type="b" access="read"/><property name="CanSeek" type="b" access="read"/>
+</interface></node>"""
+node = Gio.DBusNodeInfo.new_for_xml(XML)
+state = {"playing": True}
+out = open(sys.argv[1], "a")
+def call(conn, sender, path, iface, method, params, inv):
+    out.write(method + "\n"); out.flush()
+    if method == "PlayPause":
+        state["playing"] = not state["playing"]
+    inv.return_value(None)
+def get(conn, sender, path, iface, prop):
+    return {
+        "Identity": GLib.Variant("s", "Test player"),
+        "PlaybackStatus": GLib.Variant("s", "Playing" if state["playing"] else "Paused"),
+        "Metadata": GLib.Variant("a{sv}", {"xesam:title": GLib.Variant("s", "Test song"), "xesam:artist": GLib.Variant("as", ["Test artist"]),
+                                            "mpris:length": GLib.Variant("x", 200000000), "mpris:trackid": GLib.Variant("o", "/t/1")}),
+        "Position": GLib.Variant("x", 1000000), "Volume": GLib.Variant("d", 0.5),
+        "CanGoNext": GLib.Variant("b", True), "CanGoPrevious": GLib.Variant("b", True), "CanSeek": GLib.Variant("b", True),
+    }.get(prop)
+def acquired(conn, name):
+    for i in node.interfaces:
+        conn.register_object("/org/mpris/MediaPlayer2", i, call, get, None)
+Gio.bus_own_name(Gio.BusType.SESSION, "org.mpris.MediaPlayer2.bridgeytest", Gio.BusNameOwnerFlags.NONE, acquired, None, None)
+GLib.MainLoop().run()
+'''
+
+
+class Player:
+    """A stand-in media player on MPRIS that records the commands it gets."""
+
+    def __init__(self, folder):
+        self.file = folder / "player.log"
+        self.file.touch()
+        script = folder / "player.py"
+        script.write_text(MPRIS_PLAYER)
+        self.proc = subprocess.Popen([sys.executable, str(script), str(self.file)])
+        time.sleep(0.8)
+
+    def calls(self):
+        return self.file.read_text().split()
+
+    def stop(self):
+        self.proc.kill()
+
+
 class Clipboard:
     def __init__(self, wayland):
         self.wayland = wayland
@@ -295,6 +351,7 @@ def run(args, lang, theme, full):
     out.mkdir(parents=True, exist_ok=True)
     shot = lambda name: app.ctl(f"screenshot {out / f'{name}-{lang}-{theme}.png'}")
     notes = Notifications(tmp)
+    player = Player(tmp)
     peer_recv = tmp / "peer-received"
     peer_recv.mkdir()
     app_port, peer_port = args.port, args.port + 1
@@ -382,11 +439,15 @@ def run(args, lang, theme, full):
         mine.write_bytes(data[::-1])
         app.ctl(f"send-file {mine}")
         wait("the file at the phone", lambda: (peer_recv / "from-computer.bin").exists() and (peer_recv / "from-computer.bin").read_bytes() == data[::-1], 60)
+        # Send to Bridgey runs a second copy with --send: it hands the files to the running app (single instance)
+        # and exits.
         shell = tmp / "shell.txt"
         shell.write_text("Send to Bridgey")
-        app.ctl(f"send-from-shell {shell}")
+        second = subprocess.run([args.app, "--send", str(shell)], env=app.env, capture_output=True, timeout=30)
+        assert second.returncode == 0, second
         wait("Send to Bridgey", lambda: (peer_recv / "shell.txt").exists())
-        results.append("files both ways and Send to")
+        assert app.proc.poll() is None, "the first app still runs"
+        results.append("files both ways, and Send to through a second copy (single instance)")
 
         # This computer's clipboard to the phone, automatically and in the background.
         app.ctl("set automaticClipboard true")
@@ -401,8 +462,13 @@ def run(args, lang, theme, full):
         app.ctl("show")
         results.append("copied image as a file")
 
+        # The phone's media buttons reach this computer's player (MPRIS).
+        app.ctl("set media true")
         peer.send("media toggle")
-        time.sleep(1)
+        wait("PlayPause at the player", lambda: "PlayPause" in player.calls(), 15)
+        peer.send("media next")
+        wait("Next at the player", lambda: "Next" in player.calls(), 15)
+        results.append("media controls")
 
         if full:
             missing = app.ctl("a11y")["unlabelled"]
@@ -430,6 +496,7 @@ def run(args, lang, theme, full):
         app.stop()
         peer.stop()
         notes.stop()
+        player.stop()
 
     if full and not args.skip_update:
         results.append(update_check(args, tmp, out, lang, theme))

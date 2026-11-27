@@ -3,7 +3,7 @@
 //! here as a small WAV file in the cache.
 
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
 
 /// A 1.2 s two-note chime, 16-bit mono at 22,050 Hz, fading in and out.
@@ -75,7 +75,7 @@ impl Ringer {
                         return;
                     }
                 }
-                let spawned = Command::new(player).arg(&path).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+                let spawned = super::launch::command(player).arg(&path).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
                 let Ok(c) = spawned else { return };
                 *child.lock().unwrap() = Some(c);
                 loop {

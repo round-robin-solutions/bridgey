@@ -41,6 +41,14 @@ pub struct X11Clipboard {
     window: Window,
     atoms: Arc<Atoms>,
     text: Arc<Mutex<Option<Vec<u8>>>>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for X11Clipboard {
+    /// The app dropped its handle (Work in the background turned off): the watcher ends within a second.
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 impl X11Clipboard {
@@ -79,10 +87,11 @@ pub fn start(tx: UiTx) -> Result<X11Clipboard, String> {
     conn.xfixes_select_selection_input(window, atoms.clipboard, xfixes::SelectionEventMask::SET_SELECTION_OWNER).map_err(|e| e.to_string())?;
     conn.flush().map_err(|e| e.to_string())?;
     let text = Arc::new(Mutex::new(None::<Vec<u8>>));
-    let me = X11Clipboard { conn: conn.clone(), window, atoms: atoms.clone(), text: text.clone() };
+    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let me = X11Clipboard { conn: conn.clone(), window, atoms: atoms.clone(), text: text.clone(), stop: stop.clone() };
     std::thread::Builder::new()
         .name("bridgey-x11-clipboard".into())
-        .spawn(move || run(conn, window, atoms, text, tx))
+        .spawn(move || run(conn, window, atoms, text, tx, stop))
         .map_err(|e| e.to_string())?;
     Ok(me)
 }
@@ -92,10 +101,21 @@ fn names(conn: &RustConnection, atoms: &[Atom]) -> Vec<String> {
     cookies.into_iter().filter_map(|c| c.reply().ok()).map(|r| String::from_utf8_lossy(&r.name).to_string()).collect()
 }
 
-fn run(conn: Arc<RustConnection>, window: Window, atoms: Arc<Atoms>, text: Arc<Mutex<Option<Vec<u8>>>>, tx: UiTx) {
+fn run(conn: Arc<RustConnection>, window: Window, atoms: Arc<Atoms>, text: Arc<Mutex<Option<Vec<u8>>>>, tx: UiTx, stop: Arc<std::sync::atomic::AtomicBool>) {
     let fd = conn.stream().as_raw_fd();
     let mut reading = Reading::Idle;
+    // What is on the clipboard already, so Send copied item has it (Automatic clipboard sends only later copies).
+    if conn.get_selection_owner(atoms.clipboard).ok().and_then(|c| c.reply().ok()).is_some_and(|r| r.owner != x11rb::NONE && r.owner != window) {
+        let _ = conn.convert_selection(window, atoms.clipboard, atoms.targets, atoms.prop, x11rb::CURRENT_TIME);
+        let _ = conn.flush();
+        reading = Reading::Targets { since: Instant::now() };
+    }
     loop {
+        if stop.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = conn.destroy_window(window);
+            let _ = conn.flush();
+            return;
+        }
         let event = match conn.poll_for_event() {
             Ok(Some(e)) => e,
             Ok(None) => {

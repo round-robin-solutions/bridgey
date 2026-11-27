@@ -206,9 +206,13 @@ macro_rules! backend {
                         } else {
                             drop(guard);
                         }
-                        if fds[1].revents & libc::POLLIN != 0 {
+                        if fds[1].revents & (libc::POLLIN | libc::POLLHUP) != 0 {
                             let mut sink = [0u8; 64];
-                            unsafe { libc::read(wake_r.as_raw_fd(), sink.as_mut_ptr().cast(), sink.len()) };
+                            let n = unsafe { libc::read(wake_r.as_raw_fd(), sink.as_mut_ptr().cast(), sink.len()) };
+                            if n == 0 {
+                                // The app dropped its handle (Work in the background turned off): this watcher ends.
+                                return;
+                            }
                             while let Ok(cmd) = cmd_rx.try_recv() {
                                 match cmd {
                                     Cmd::SetText(text) => {

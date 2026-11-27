@@ -42,10 +42,14 @@ class ReleaseFixture:
         self.win_x64.write_bytes(b"win-x64-bytes" * 100)
         self.win_arm64 = root / "win-arm64.zip"
         self.win_arm64.write_bytes(b"win-arm64-bytes" * 100)
+        self.linux_x86_64 = root / "linux-x86_64.AppImage"
+        self.linux_x86_64.write_bytes(b"linux-x86_64-bytes" * 100)
+        self.linux_aarch64 = root / "linux-aarch64.AppImage"
+        self.linux_aarch64.write_bytes(b"linux-aarch64-bytes" * 100)
         self.notes = root / "notes.md"
         self.notes.write_text("Adds update channels.\nFixes <tags> & things.")
 
-    def assemble(self, dist, channel, version, build, tag, previous=None, apk=True, mac=True, published="2026-10-25T13:15:00Z", windows=True, windows_build=None):
+    def assemble(self, dist, channel, version, build, tag, previous=None, apk=True, mac=True, published="2026-10-25T13:15:00Z", windows=True, windows_build=None, linux=False, linux_arches=("x86_64", "aarch64")):
         argv = [
             "assemble", "--channel", channel, "--version", version, "--build", str(build), "--tag", tag,
             "--dist", str(dist), "--notes-file", str(self.notes), "--published", published,
@@ -59,6 +63,9 @@ class ReleaseFixture:
             argv += ["--windows-x64", str(self.win_x64), "--windows-arm64", str(self.win_arm64)]
             if windows_build:
                 argv += ["--windows-build", str(windows_build)]
+        if linux:
+            for arch in linux_arches:
+                argv += [f"--linux-{arch}", str(getattr(self, f"linux_{arch}"))]
         if previous:
             argv += ["--previous-channels", str(previous)]
         return rrrelease.main(argv)
@@ -198,6 +205,51 @@ class AssembleTests(unittest.TestCase):
         self.assertNotIn("android", feed)
         self.assertEqual(feed["windows"]["version"], "1.0.0-nightly.20261116")
         self.assertIn("SHA256SUMS ok", rrrelease.verify(dist, self.props, self.fixture.public))
+
+    def test_linux_entry_is_signed_per_architecture(self):
+        dist = self.root / "dist"
+        self.fixture.assemble(dist, "beta", "1.0.0-beta.1", 262981315, "v1.0.0-beta.1", linux=True)
+        feed = json.loads((dist / "channels" / "beta.json").read_text())
+        linux = feed["linux"]
+        self.assertEqual((linux["version"], linux["build"]), ("1.0.0-beta.1", 262981315))
+        for arch in rrrelease.LINUX_ARCHES:
+            source = getattr(self.fixture, f"linux_{arch}")
+            self.assertTrue(linux[arch]["url"].endswith(f"/v1.0.0-beta.1/Bridgey-RR-1.0.0-beta.1-linux-{arch}.AppImage"))
+            self.assertEqual(linux[arch]["sha256"], rrrelease.sha256_file(source))
+            self.assertTrue(rrrelease.ed_verify(self.fixture.public, source, linux[arch]["edSignature"]))
+        self.assertIn("windows", feed, "Windows is unchanged beside it")
+        report = rrrelease.verify(dist, self.props, self.fixture.public)
+        self.assertIn("beta: Bridgey-RR-1.0.0-beta.1-linux-x86_64.AppImage EdDSA ok", report)
+        self.assertIn("Bridgey-RR-1.0.0-beta.1-Linux.sbom.cdx.json CycloneDX ok", report)
+
+    def test_without_linux_artifacts_a_release_is_as_before(self):
+        dist = self.root / "dist"
+        self.fixture.assemble(dist, "beta", "1.0.0-beta.1", 262981315, "v1.0.0-beta.1")
+        feed = json.loads((dist / "channels" / "beta.json").read_text())
+        self.assertNotIn("linux", feed)
+        self.assertFalse(any("linux" in p.name.lower() for p in (dist / "release").iterdir()))
+
+    def test_a_tampered_linux_appimage_or_entry_is_refused_and_a_later_release_keeps_it(self):
+        first = self.root / "first"
+        self.fixture.assemble(first, "beta", "1.0.0-beta.1", 262981315, "v1.0.0-beta.1", linux=True, linux_arches=("x86_64",))
+        good = json.loads((first / "channels" / "beta.json").read_text())
+        for change in (
+            lambda f: f["linux"].update(version="1.0.0"),
+            lambda f: f["linux"].update(build=0),
+            lambda f: f["linux"]["x86_64"].update(url="https://evil.example/x.AppImage"),
+            lambda f: f["linux"]["x86_64"].update(edSignature="AAAA"),
+            lambda f: f["linux"].pop("x86_64"),
+        ):
+            feed = json.loads(json.dumps(good))
+            change(feed)
+            with self.assertRaises(rrrelease.ReleaseError):
+                rrrelease.validate_feed(feed, "beta", self.props["EDITION_APP_ID"], self.props["UPDATE_ASSET_URL_PREFIX"])
+        second = self.root / "second"
+        self.fixture.assemble(second, "beta", "1.0.0-beta.2", 262991315, "v1.0.0-beta.2", previous=first / "channels")
+        self.assertEqual(json.loads((second / "channels" / "beta.json").read_text())["linux"], good["linux"])
+        (first / "release" / "Bridgey-RR-1.0.0-beta.1-linux-x86_64.AppImage").write_bytes(b"evil")
+        with self.assertRaises(rrrelease.ReleaseError):
+            rrrelease.verify(first, self.props, self.fixture.public)
 
     def test_tampered_zip_fails_verification(self):
         dist = self.root / "dist"

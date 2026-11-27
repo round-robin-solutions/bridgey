@@ -60,6 +60,10 @@ pub struct App {
     last_sent: RefCell<Option<String>>,
     pending_clip: RefCell<Option<PendingClip>>,
     automatic_timer: RefCell<Option<glib::SourceId>>,
+    /// When the background watcher started: what it reports in its first moments was on the clipboard already and is
+    /// not sent by Automatic clipboard.
+    clip_since: Cell<Option<std::time::Instant>>,
+    gtk_clipboard_watched: Cell<bool>,
     ringer: Ringer,
     pub tx: UiTx,
     pub update: RefCell<UpdateStatus>,
@@ -100,6 +104,8 @@ impl App {
             last_sent: RefCell::new(None),
             pending_clip: RefCell::new(None),
             automatic_timer: RefCell::new(None),
+            clip_since: Cell::new(None),
+            gtk_clipboard_watched: Cell::new(false),
             ringer: Ringer::default(),
             tx,
             update: RefCell::new(UpdateStatus::Idle),
@@ -372,10 +378,14 @@ impl App {
             return;
         }
         self.clip_bg.borrow_mut().take();
+        self.clip_since.set(Some(std::time::Instant::now()));
         let (mode, bg) = clipboard::start(self.tx.clone(), enabled);
         self.clip_mode.set(mode);
         *self.clip_bg.borrow_mut() = bg;
         // While the window is in front GTK sees every copy too; in the foreground mode that is the only way.
+        if self.gtk_clipboard_watched.replace(true) {
+            return;
+        }
         if let Some(display) = gdk::Display::default() {
             let me = self.clone();
             display.clipboard().connect_changed(move |cb| {
@@ -426,6 +436,9 @@ impl App {
         *self.last_clip.borrow_mut() = Some(clip.clone());
         let Clip::Text { text, secret } = clip else { return };
         if !self.settings.borrow().automatic_clipboard || secret {
+            return;
+        }
+        if self.clip_bg.borrow().is_some() && self.clip_since.get().is_some_and(|t| t.elapsed() < Duration::from_millis(1500)) {
             return;
         }
         if self.state.borrow().last_received.as_deref() == Some(text.as_str()) || self.last_sent.borrow().as_deref() == Some(text.as_str()) {
@@ -625,13 +638,10 @@ impl App {
     }
 
     pub fn open_path(&self, path: &Path, folder: bool) {
-        let file = gio::File::for_path(path);
-        let launcher = gtk::FileLauncher::new(Some(&file));
-        let window = self.window();
         if folder {
-            launcher.open_containing_folder(window.as_ref(), None::<&gio::Cancellable>, |_| {});
-        } else {
-            launcher.launch(window.as_ref(), None::<&gio::Cancellable>, |_| {});
+            platform::launch::show_in_folder(path);
+        } else if !platform::launch::open_file(path) {
+            self.toast(t("file.no_app"));
         }
     }
 
@@ -640,7 +650,9 @@ impl App {
             eprintln!("bridgey: would open {url}");
             return;
         }
-        gtk::UriLauncher::new(url).launch(self.window().as_ref(), None::<&gio::Cancellable>, |_| {});
+        if !platform::launch::open_uri(url) {
+            self.toast(t("link.no_browser"));
+        }
     }
 
     // ---- Events ----

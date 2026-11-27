@@ -12,6 +12,9 @@
 #   --windows-artifacts D  the Windows x64 and Arm64 zips, release.env, windows.build-info and
 #                        windows-rust-dependencies.txt from D (scripts/rr/ci-release-windows.ps1); without it the
 #                        channel feed keeps the previous Windows entry
+#   --linux-artifacts D  the Linux AppImages (<prefix>-linux-x86_64.AppImage and/or -aarch64), release.env and
+#                        linux.build-info from D (scripts/rr/ci-release-linux.sh); without it the channel feed keeps
+#                        the previous Linux entry (none until Linux ships)
 #   --apk FILE           use an existing signed APK instead of building one
 #   --android-deps FILE  the Android dependency listing for the SBOM (scripts/rr/android-deps.sh output), instead of
 #                        running Gradle for it here (the hosted Android job makes it next to the APK)
@@ -31,7 +34,7 @@ set -eu
 
 CHANNEL=${1:-}
 case "$CHANNEL" in stable|beta|nightly) shift ;; *) sed -n '2,24p' "$0"; exit 2 ;; esac
-VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" ANDROID_DEPS_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0} WIN_ARTIFACTS=""
+VERSION="" NOTES_FILE="" MAC_HOST="" MAC_ARTIFACTS="" SKIP_MAC=0 SKIP_ANDROID=0 APK_IN="" ANDROID_DEPS_IN="" PUBLISH=0 NOW="" BUMP_CASK=${BRIDGEY_RR_BUMP_CASK:-0} WIN_ARTIFACTS="" LIN_ARTIFACTS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
@@ -42,6 +45,7 @@ while [ $# -gt 0 ]; do
     --skip-macos) SKIP_MAC=1; shift ;;
     --skip-android) SKIP_ANDROID=1; shift ;;
     --windows-artifacts) WIN_ARTIFACTS=$2; shift 2 ;;
+    --linux-artifacts) LIN_ARTIFACTS=$2; shift 2 ;;
     --apk) APK_IN=$2; shift 2 ;;
     --android-deps) ANDROID_DEPS_IN=$2; shift 2 ;;
     --now) NOW=$2; shift 2 ;;
@@ -52,7 +56,7 @@ while [ $# -gt 0 ]; do
 done
 [ $SKIP_MAC = 1 ] || [ -n "$MAC_HOST" ] || [ -n "$MAC_ARTIFACTS" ] || die "pass --mac-host, --macos-artifacts or --skip-macos"
 ED_KEY=${BRIDGEY_RR_SPARKLE_KEY:-$HOME/.config/bridgey-rr/sparkle_ed25519_private.key}
-[ $SKIP_MAC = 1 ] && [ -z "$WIN_ARTIFACTS" ] || [ -f "$ED_KEY" ] || die "Sparkle private key not found at $ED_KEY"
+[ $SKIP_MAC = 1 ] && [ -z "$WIN_ARTIFACTS" ] && [ -z "$LIN_ARTIFACTS" ] || [ -f "$ED_KEY" ] || die "Sparkle private key not found at $ED_KEY"
 
 set --
 [ -n "$VERSION" ] && set -- "$@" --version "$VERSION"
@@ -112,13 +116,27 @@ if [ -n "$WIN_ARTIFACTS" ]; then
   [ ! -f "$WIN_ARTIFACTS/windows.build-info" ] || set -- "$@" --windows-build-info "$WIN_ARTIFACTS/windows.build-info"
   [ ! -f "$WIN_ARTIFACTS/windows-rust-dependencies.txt" ] || set -- "$@" --windows-deps "$WIN_ARTIFACTS/windows-rust-dependencies.txt"
 fi
+if [ -n "$LIN_ARTIFACTS" ]; then
+  PREFIX=$(edition_value EDITION_ASSET_PREFIX)
+  found=0
+  for arch in x86_64 aarch64; do
+    # The Linux job's fixed name, or a build-linux.sh AppImage named for this version.
+    image="$LIN_ARTIFACTS/$PREFIX-linux-$arch.AppImage"
+    [ -f "$image" ] || image="$LIN_ARTIFACTS/$PREFIX-$VERSION_NAME-linux-$arch.AppImage"
+    if [ -f "$image" ]; then set -- "$@" --linux-$arch "$image"; found=1; fi
+  done
+  [ $found = 1 ] || die "no Linux AppImage in $LIN_ARTIFACTS"
+  LIN_BUILD=$( [ -f "$LIN_ARTIFACTS/release.env" ] && env_value "$LIN_ARTIFACTS/release.env" BUILD_NUMBER || true)
+  [ -z "$LIN_BUILD" ] || set -- "$@" --linux-build "$LIN_BUILD"
+  [ ! -f "$LIN_ARTIFACTS/linux.build-info" ] || set -- "$@" --linux-build-info "$LIN_ARTIFACTS/linux.build-info"
+fi
 [ -n "$NOTES_FILE" ] && set -- "$@" --notes-file "$NOTES_FILE"
 # The browser extension: one source, a zip per browser, standard-library Python only.
 python3 "$RR_ROOT/extensions/browser/build.py" --version "$VERSION_NAME" --out "$WORK/browser" >/dev/null
 set -- "$@" --browser-extensions "$WORK/browser"
 
 # The Sparkle key signs the Mac zip and the Windows zips (Ed25519; the Windows app checks it against SUPublicEDKey).
-if [ $SKIP_MAC = 0 ] || [ -n "$WIN_ARTIFACTS" ]; then set -- "$@" --ed-key "$ED_KEY"; fi
+if [ $SKIP_MAC = 0 ] || [ -n "$WIN_ARTIFACTS" ] || [ -n "$LIN_ARTIFACTS" ]; then set -- "$@" --ed-key "$ED_KEY"; fi
 python3 "$RR_ROOT/scripts/rr/rrrelease.py" assemble --channel "$CHANNEL" --version "$VERSION_NAME" \
   --build "$BUILD_NUMBER" --tag "$TAG" --dist "$DIST" --fetch-previous "$@"
 python3 "$RR_ROOT/scripts/rr/rrrelease.py" verify --dist "$DIST"

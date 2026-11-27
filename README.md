@@ -342,8 +342,8 @@ and search longer device pickers. These are proposals, not implemented features.
 ### Required platform clients
 
 Android, macOS, Windows, Linux and iOS/iPadOS are core targets. Native Android and
-macOS apps exist, the Windows app is in the beta and the iOS/iPadOS app has its first slice;
-Linux has no client yet.
+macOS apps exist, the Windows app is in the beta, the iOS/iPadOS app has its first slice and
+the Linux app its first milestone.
 Use the existing shared Rust protocol/networking core and native OS adapters,
 with actual capabilities and permissions negotiated per device. See
 [the five-platform architecture and delivery plan](docs/platform-architecture.md).
@@ -352,7 +352,10 @@ with actual capabilities and permissions negotiated per device. See
       with reply, codes, links, media controls, Connect away from home and self-update
       ([#26](https://github.com/round-robin-solutions/bridgey/pull/26), [#28](https://github.com/round-robin-solutions/bridgey/pull/28), [#31](https://github.com/round-robin-solutions/bridgey/pull/31), [#32](https://github.com/round-robin-solutions/bridgey/pull/32), [#34](https://github.com/round-robin-solutions/bridgey/pull/34), [#35](https://github.com/round-robin-solutions/bridgey/pull/35))
 - [ ] Windows M3: messages, Calls window, Phone files and the screen/view/control adapters
-- [ ] Linux native app, including explicit Wayland and X11 capability handling
+- [ ] Linux native app, including explicit Wayland and X11 capability handling: M1 (GTK 4 and libadwaita on the
+      shared core: pairing, clipboard on Wayland and X11, files, notifications with reply, codes, links, battery,
+      find device, media controls, Connect away from home, settings, tray, AppImage with self-update;
+      [notes](linux/README.md)); M2 adds messages, calls, Phone files and the phone's screen
 - [x] iOS/iPadOS first slice: pairing, clipboard text, files and links both ways on the local
       network, and a Share extension ([#33](https://github.com/round-robin-solutions/bridgey/pull/33), [notes](docs/ios.md))
 - [ ] iOS/iPadOS viewer/controller, consented capture and TestFlight; do not promise

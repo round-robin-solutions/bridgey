@@ -388,6 +388,16 @@ def windows_sbom(
     )
 
 
+def linux_sbom(lock_text: str, *, app_name: str, app_id: str, version: str, build: str, timestamp: str) -> dict:
+    """The Linux app's crates: everything linux/Cargo.lock reaches from bridgey-linux (the GTK, libadwaita and D-Bus
+    bindings and the session client). The system libraries the AppImage carries come from Ubuntu 24.04's packages."""
+    components, graph, direct = cargo_components(lock_text, "bridgey-linux")
+    return make_bom(
+        app_name=app_name, app_id=app_id, platform_name="linux", version=version, build=build,
+        timestamp=timestamp, components=components, direct=direct, graph=graph,
+    )
+
+
 def dump_json(document: dict) -> bytes:
     return (json.dumps(document, indent=2, sort_keys=False) + "\n").encode("utf-8")
 

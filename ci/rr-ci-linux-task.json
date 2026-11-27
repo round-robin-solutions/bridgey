@@ -1,0 +1,135 @@
+{
+  "_comment": "The Bridgey linux lanes for RR CI, as the coordinator tasks the CI owner thread adds (request: pa outputs/bridgey/linux/ci-request.md). linux runs every check on GitHub's hosted ubuntu-24.04 runner (x86_64); linux-arm64 builds and starts the aarch64 AppImage on ubuntu-24.04-arm. Both are free for this public repository and need no secrets. rr-dev-1 (the rr-dev-2 box) is the fallback with --container. release-linux(-arm64) and nightly-linux(-arm64) make the release AppImages; ci-release.sh takes them only with BRIDGEY_RELEASE_LINUX=1. See linux/README.md.",
+  "linux": {
+    "command": [
+      "sh",
+      "scripts/rr/build-linux.sh"
+    ],
+    "runs_on": "ubuntu-24.04",
+    "setup": {
+      "python": "3.12"
+    },
+    "inputs": [
+      "linux/**",
+      "rust/**",
+      "protocol/**",
+      "scripts/rr/build-linux.sh",
+      "rr-edition.properties",
+      "macos/Resources/Info.plist"
+    ],
+    "pass_env": [],
+    "timeout_minutes": 60,
+    "fallback": {
+      "hosts": [
+        "rr-dev-1"
+      ],
+      "command": [
+        "sh",
+        "scripts/rr/build-linux.sh",
+        "--container"
+      ],
+      "requires": [
+        "tool:docker",
+        "os:linux"
+      ]
+    },
+    "artifacts": [
+      "linux/out/*.AppImage",
+      "linux/out/SHA256SUMS",
+      "linux/out/screenshots/**/*.png",
+      "linux/out/logs/*.log"
+    ]
+  },
+  "linux-arm64": {
+    "command": [
+      "sh",
+      "scripts/rr/build-linux.sh",
+      "--quick"
+    ],
+    "runs_on": "ubuntu-24.04-arm",
+    "setup": {
+      "python": "3.12"
+    },
+    "inputs": [
+      "linux/**",
+      "rust/**",
+      "scripts/rr/build-linux.sh",
+      "rr-edition.properties"
+    ],
+    "pass_env": [],
+    "timeout_minutes": 60,
+    "required": false,
+    "artifacts": [
+      "linux/out/*.AppImage",
+      "linux/out/SHA256SUMS",
+      "linux/out/screenshots/**/*.png",
+      "linux/out/logs/*.log"
+    ]
+  },
+  "release-linux": {
+    "command": [
+      "sh",
+      "scripts/rr/ci-release-linux.sh",
+      "tag",
+      "linux/release-out"
+    ],
+    "runs_on": "ubuntu-24.04",
+    "pass_env": [
+      "RR_CI_REF",
+      "RR_CI_RELEASE_NOW"
+    ],
+    "timeout_minutes": 60,
+    "artifacts": [
+      "linux/release-out/*"
+    ]
+  },
+  "release-linux-arm64": {
+    "command": [
+      "sh",
+      "scripts/rr/ci-release-linux.sh",
+      "tag",
+      "linux/release-out"
+    ],
+    "runs_on": "ubuntu-24.04-arm",
+    "pass_env": [
+      "RR_CI_REF",
+      "RR_CI_RELEASE_NOW"
+    ],
+    "timeout_minutes": 60,
+    "artifacts": [
+      "linux/release-out/*"
+    ]
+  },
+  "nightly-linux": {
+    "command": [
+      "sh",
+      "scripts/rr/ci-release-linux.sh",
+      "nightly",
+      "linux/release-out"
+    ],
+    "runs_on": "ubuntu-24.04",
+    "pass_env": [
+      "RR_CI_RELEASE_NOW"
+    ],
+    "timeout_minutes": 60,
+    "artifacts": [
+      "linux/release-out/*"
+    ]
+  },
+  "nightly-linux-arm64": {
+    "command": [
+      "sh",
+      "scripts/rr/ci-release-linux.sh",
+      "nightly",
+      "linux/release-out"
+    ],
+    "runs_on": "ubuntu-24.04-arm",
+    "pass_env": [
+      "RR_CI_RELEASE_NOW"
+    ],
+    "timeout_minutes": 60,
+    "artifacts": [
+      "linux/release-out/*"
+    ]
+  }
+}

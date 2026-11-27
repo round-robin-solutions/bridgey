@@ -215,3 +215,13 @@ Commits are on `rr/main`; "Beta N" is the first edition tag `v0.6.0-rr.1-beta.N`
 - The Android preferences of Files places, remote control, fresh screenshots and code access have
   no migration fixtures yet.
 - A macOS downgrade below Beta 8 loses pairing in the older build (see Downgrades).
+
+### Linux
+
+The Linux app (from M1) writes these; it has no released build yet, so there is nothing older to read.
+
+| Store | Where | Shape | Introduced | Fixture |
+| --- | --- | --- | --- | --- |
+| Pairing state | `~/.local/share/in.roundrobin.bridgey/core/*.json` (folder 0700, files 0600) | rust/client's `FileStorage`: the identity key, the trusted devices, Connect away from home's secrets and the resume records, as the agent CLI keeps them | Linux M1 | (rust/client's own tests) |
+| Settings | `~/.local/share/in.roundrobin.bridgey/settings.json` (0600) | camelCase JSON, one key per setting; a missing key reads as its default, a key of the wrong type falls back to its default on its own, unknown keys are ignored | Linux M1 | `settings.m1.json` (`linux/src/settings.rs`) |
+| Notification history (optional, off) | `notification-history.json` beside it (0600) | an array of notifications without codes or icons; 7 days, 200 items; a bad entry is dropped on its own | Linux M1 | (`linux/src/history.rs` tests) |
