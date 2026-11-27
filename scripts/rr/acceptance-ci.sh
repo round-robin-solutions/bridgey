@@ -55,7 +55,11 @@ build_mac() { # <tree> <out app>
 
 if [ $ACCEPT = 1 ]; then
   if [ -z "$BASE" ]; then
-    # Shallow CI checkouts carry no tags: fetch the release tags first.
+    # Shallow CI checkouts (depth 1) carry no tags and no history, so no tag is reachable from HEAD: unshallow
+    # (the repository is small), then fetch the release tags.
+    if [ "$(git -C "$RR_ROOT" rev-parse --is-shallow-repository)" = true ]; then
+      git -C "$RR_ROOT" fetch --quiet --unshallow origin 2>/dev/null || true
+    fi
     git -C "$RR_ROOT" fetch --quiet --tags --force origin 'refs/tags/v*:refs/tags/v*' 2>/dev/null || true
     BASE=$(git -C "$RR_ROOT" tag --merged HEAD --list 'v[0-9]*' --sort=-creatordate | while read -r t; do
       [ "$(git -C "$RR_ROOT" rev-list -n 1 "$t")" = "$(git -C "$RR_ROOT" rev-parse HEAD)" ] || { echo "$t"; break; }
