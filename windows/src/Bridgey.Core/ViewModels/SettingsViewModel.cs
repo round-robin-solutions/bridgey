@@ -13,7 +13,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         new("away", "Away from home", "\uE774", true),
         new("clipboard", "Clipboard", "\uE77F", true),
         new("notifications", "Notifications", "\uEA8F", true),
-        new("messages", "Text messages", "\uE8BD", false),
+        new("messages", "Text messages", "\uE8BD", true),
         new("calls", "Calls", "\uE717", false),
         new("files", "Files", "\uE8B7", true),
         new("media", "Media and actions", "\uE768", true),
@@ -303,7 +303,38 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         ("links", settings.Links),
         ("links_open_draft1", settings.Links),
         ("media", settings.Media),
+        ("sms_draft1", settings.TextMessages),
     ];
+
+    /// <summary>Keep conversations on this PC changed.</summary>
+    public event Action<bool>? KeepConversationsChanged;
+
+    /// <summary>The phone's conversations on this PC (Text messages), off until chosen.</summary>
+    public bool TextMessages
+    {
+        get => settings.TextMessages;
+        set
+        {
+            if (value == settings.TextMessages) return;
+            settings.TextMessages = value;
+            Changed();
+            Raise();
+            FeatureDefaultChanged?.Invoke("sms_draft1", value);
+        }
+    }
+
+    public bool KeepConversations
+    {
+        get => settings.KeepConversations;
+        set
+        {
+            if (value == settings.KeepConversations) return;
+            settings.KeepConversations = value;
+            Changed();
+            Raise();
+            KeepConversationsChanged?.Invoke(value);
+        }
+    }
 
     public event Action? LinksChanged;
     public event Action? MediaChanged;

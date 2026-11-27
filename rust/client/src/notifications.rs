@@ -43,6 +43,11 @@ pub struct Notification {
     pub event_id: Option<String>,
     /// A code found in it (when Codes from messages is on here).
     pub code: Option<crate::codes::Found>,
+    /// Text messages (`sms_draft1`): the phone can answer this SMS notification through `sms.send` with its ID, and
+    /// the conversation it belongs to. Read leniently, as the Mac does: anything but `true` and a positive integer is
+    /// absent.
+    pub sms_reply: bool,
+    pub sms_thread_id: Option<i64>,
 }
 
 /// Visible text, at most `max` characters; line breaks stay, other control and invisible characters go.
@@ -135,6 +140,8 @@ pub fn decode_post(plain: &[u8], routing: bool) -> Option<Notification> {
         quiet,
         event_id,
         code: None,
+        sms_reply: o.get("smsReply").and_then(Value::as_bool) == Some(true),
+        sms_thread_id: crate::phone::integer(o.get("smsThreadId")).filter(|t| (1..=9_007_199_254_740_991).contains(t)),
     })
 }
 
@@ -176,6 +183,8 @@ impl Notification {
             "quiet": self.quiet,
             "redacted": self.redacted.unwrap_or(false),
             "code": self.code.as_ref().map(|c| json!({"code": c.code, "service": c.service, "channel": c.channel.wire()})),
+            "smsReply": self.sms_reply && self.call_type.is_none(),
+            "smsThreadId": self.sms_thread_id,
         })
     }
 }

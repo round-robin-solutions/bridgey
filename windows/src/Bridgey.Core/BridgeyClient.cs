@@ -47,11 +47,28 @@ public enum BridgeyEventKind : uint
     CodesAdvertise = 29,
     MediaCommand = 30,
     ConnectState = 31,
+    /// <summary>The phone's text messages. Name = what changed, Id = the request it answers, Text = JSON detail.</summary>
+    Sms = 32,
+    /// <summary>The Calls window, as <see cref="Sms"/>.</summary>
+    Calls = 33,
+    /// <summary>The phone's files, as <see cref="Sms"/>.</summary>
+    PhoneFiles = 34,
+    /// <summary>The phone's screen, as <see cref="Sms"/>.</summary>
+    Screen = 35,
     /// <summary>
     /// Not from the library: BridgeyClient folds the four file events into one per change, with the whole transfer as
     /// <see cref="TransferInfo"/> JSON in Text and its <see cref="TransferState"/> in Status. Id = transfer.
     /// </summary>
     Transfer = 1000,
+}
+
+/// <summary>BridgeyPhoneArea: which of the phone's own features a <see cref="IBridgeyClient.Phone"/> command is for.</summary>
+public enum PhoneArea : uint
+{
+    Sms = 1,
+    Calls = 2,
+    PhoneFiles = 3,
+    Screen = 4,
 }
 
 /// <summary>This PC's activity for presence.state (bridgey_set_presence).</summary>
@@ -194,6 +211,11 @@ public interface IBridgeyClient : IDisposable
     /// <summary>This PC's player as media.state JSON, or null when nothing plays.</summary>
     void SetMediaState(string? json);
     void SetConnect(bool on, string? controlUrl);
+    /// <summary>
+    /// A command for one of the phone's own features (bridgey_phone): JSON with an "op", answered at once with
+    /// {"ok": true, ...} or {"ok": false, "error": ...}. Answers from the phone arrive later as the area's events.
+    /// </summary>
+    string Phone(PhoneArea area, string deviceId, string command);
 }
 
 /// <summary>
@@ -439,6 +461,9 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
 
     public void SetConnect(bool on, string? controlUrl) => Check(NativeMethods.bridgey_set_connect(_handle, on ? (byte)1 : (byte)0, controlUrl));
 
+    public string Phone(PhoneArea area, string deviceId, string command) =>
+        TakeString(NativeMethods.bridgey_phone(_handle, (uint)area, deviceId, command)) ?? throw new BridgeyException(BridgeyException.Stopped);
+
     /// <summary>Fast transfers with peers that show them; off sends JSON chunks (a test setting).</summary>
     public void SetFastTransfers(bool on) => Check(NativeMethods.bridgey_set_fast_transfers(_handle, on ? (byte)1 : (byte)0));
 
@@ -644,6 +669,10 @@ public sealed class PhoneNotification
     public bool Quiet { get; set; }
     public bool Redacted { get; set; }
     public FoundCode? Code { get; set; }
+    /// <summary>Text messages: the phone answers this SMS notification through an sms send with its ID.</summary>
+    public bool SmsReply { get; set; }
+    /// <summary>Text messages: the conversation the newest message belongs to.</summary>
+    public long? SmsThreadId { get; set; }
 
     public static PhoneNotification? Parse(string? json)
     {

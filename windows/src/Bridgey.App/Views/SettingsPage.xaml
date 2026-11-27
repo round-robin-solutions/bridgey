@@ -357,6 +357,37 @@
                 </StackPanel>
 
                 <!-- Media and actions -->
+                <!-- Text messages -->
+                <StackPanel x:Name="MessagesSection" Spacing="8" Tag="messages">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Text messages" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Read and send your phone's texts on this PC. Turn it on for this PC in Bridgey on the phone too." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.TextMessages, Mode=TwoWay}" AutomationProperties.Name="Text messages" AutomationProperties.AutomationId="TextMessagesOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Keep conversations on this PC" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Up to 200 conversations, encrypted for your Windows account. Off keeps them only while Bridgey runs." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.KeepConversations, Mode=TwoWay}" IsEnabled="{x:Bind Settings.TextMessages, Mode=OneWay}"
+                                          AutomationProperties.Name="Keep conversations on this PC" AutomationProperties.AutomationId="KeepConversations" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
                 <StackPanel x:Name="MediaSection" Spacing="8" Tag="media">
                     <Border Style="{StaticResource Row}">
                         <Grid ColumnSpacing="16">

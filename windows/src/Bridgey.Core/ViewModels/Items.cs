@@ -12,6 +12,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
     private bool _findReady;
     private bool _ringing;
     private bool _linksReady;
+    private bool _messagesReady;
     private bool _away;
     private bool _clipboardAllowed = true;
     private string _status = "Not connected";
@@ -102,6 +103,13 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         set => Set(ref _linksReady, value);
     }
 
+    /// <summary>Text messages on at both ends.</summary>
+    public bool MessagesReady
+    {
+        get => _messagesReady;
+        set => Set(ref _messagesReady, value);
+    }
+
     /// <summary>Connect away from home is set up with this device (it can reach this PC on other networks).</summary>
     public bool Away
     {
@@ -167,6 +175,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         new(owner, id, "notifications", "Notifications"),
         new(owner, id, "links", "Links"),
         new(owner, id, "media", "Media controls"),
+        new(owner, id, "sms_draft1", "Text messages"),
     ];
 
     internal void ShowSwitches(Dictionary<string, bool> local)

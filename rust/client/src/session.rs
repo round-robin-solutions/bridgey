@@ -174,6 +174,10 @@ pub trait Host: Send + Sync + 'static {
     fn resume_timing(&self) -> (Duration, Duration, Duration) {
         (RESUME_ANSWER_TIMEOUT, RESUME_WAIT_EVERY, Duration::ZERO)
     }
+    /// A phone feature's kind this end takes (phone.rs), with its feature key and size limit.
+    fn phone_kind(&self, kind: &str) -> Option<crate::phone::Incoming> {
+        crate::phone::incoming(kind)
+    }
     /// The size of the chunks this end sends: 24 KiB as JSON, 256 KiB as binary frames (tests use smaller ones).
     fn chunk_size(&self, fast: bool) -> usize {
         if fast {
@@ -1362,6 +1366,20 @@ impl Session {
                 self.host.event(Event::QuickResult { device_id, request_id: request_id.to_string(), accepted, opened });
                 Step::Continue
             }
+            // The phone's own features (phone.rs). Drafts: a payload that does not open, or is over its kind's limit, is
+            // dropped and the session stays.
+            kind if self.host.phone_kind(kind).is_some() => {
+                let spec = self.host.phone_kind(kind).unwrap();
+                if m.message_id.is_none() {
+                    return Step::Continue;
+                }
+                let Some(plain) = self.open(&m).filter(|p| p.len() <= spec.max) else { return Step::Continue };
+                if !self.host.policy(&device_id).get(spec.feature) {
+                    return Step::Continue;
+                }
+                self.host.event(Event::Payload { device_id, kind: spec.kind, plain });
+                Step::Continue
+            }
             // Unknown kinds and features this client does not offer: ignored, the session stays.
             _ => Step::Continue,
         }
@@ -2162,7 +2180,12 @@ mod tests {
     fn contract_lists_the_kinds_this_client_uses() {
         let session = include_str!("session.rs");
         let client = include_str!("client.rs");
-        let code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
+        // The phone's own features (phone.rs), each in its own module.
+        let areas = [include_str!("sms.rs")];
+        let mut code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
+        for area in areas {
+            code.push_str(area.split("#[cfg(test)]\nmod tests").next().unwrap());
+        }
         let is_kind = |s: &str| {
             let mut parts = s.split('.');
             let first = parts.next().unwrap_or("");

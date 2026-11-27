@@ -231,8 +231,11 @@ public partial class App : Application, ITrayHost
         input.TryGetValue("reply", out var reply);
         switch (arguments.TryGetValue("action", out var action) ? action : "")
         {
-            case "phoneAction" or "phoneDismiss" or "copyCode" when device is not null && id is not null:
+            case "phoneAction" or "phoneDismiss" or "copyCode" or "smsReply" when device is not null && id is not null:
                 Model.Notifications.FromBanner(device, id, action, token, reply);
+                break;
+            case "openConversation" when device is not null && arguments.TryGetValue("thread", out var thread) && long.TryParse(thread, out var threadId):
+                _window?.OpenConversation(device, threadId);
                 break;
             case "openNotifications":
                 _window?.ShowAnimated();

@@ -62,6 +62,15 @@ internal sealed class FakeClient : IBridgeyClient
     public void MediaResult(string deviceId, string requestId, bool accepted) => Calls.Add($"media-result {requestId} {accepted}");
     public void SetMediaState(string? json) => Calls.Add($"media-state {(json is null ? "none" : json.Contains("\"title\":\"Song\"") ? "song" : "other")}");
     public void SetConnect(bool on, string? controlUrl) => Calls.Add($"connect {on} {controlUrl}");
+    /// <summary>Phone commands (area, device, JSON), and what each op answers (default: ok).</summary>
+    public readonly List<(PhoneArea Area, string Device, string Command)> PhoneCommands = new();
+    public readonly Dictionary<string, string> PhoneAnswers = new();
+    public string Phone(PhoneArea area, string deviceId, string command)
+    {
+        PhoneCommands.Add((area, deviceId, command));
+        var op = System.Text.Json.Nodes.JsonNode.Parse(command)?["op"]?.GetValue<string>() ?? "";
+        return PhoneAnswers.TryGetValue(op, out var answer) ? answer : "{\"ok\":true}";
+    }
     public void Dispose() { }
 }
 

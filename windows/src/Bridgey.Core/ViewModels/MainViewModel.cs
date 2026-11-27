@@ -44,6 +44,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public PairingViewModel Pairing { get; }
     public SettingsViewModel Settings { get; }
     public NotificationsViewModel Notifications { get; }
+    /// <summary>The phone's conversations (Text messages).</summary>
+    public MessagesViewModel Messages { get; }
     /// <summary>Self-update; set by the host before the window opens (none in tests that do not need it).</summary>
     public UpdatesViewModel? Updates { get; set; }
 
@@ -61,6 +63,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Settings = settings;
         Pairing = new PairingViewModel(this, client);
         Notifications = new NotificationsViewModel(client, settings, notifier ?? new NoNotifier(), clipboard, history, advertiser, NameOf);
+        Messages = new MessagesViewModel(client, NameOf);
+        Notifications.SmsReply = Messages.ReplyToNotification;
         Devices.CollectionChanged += (_, _) => DevicesChanged();
         Activity.CollectionChanged += (_, _) =>
         {
@@ -87,6 +91,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Settings.ConnectChanged += ApplyConnect;
         ApplyConnect();
         Refresh();
+        Settings.KeepConversationsChanged += Messages.Keep;
+        if (!Settings.KeepConversations) Messages.Keep(false);
     }
 
     private void ApplyMedia()
@@ -349,7 +355,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             if (d.Remote is not null) _remote[d.DeviceId] = d.Remote;
             UpdateReadiness(item, d.Local);
         }
-        foreach (var gone in Devices.Where(d => !seen.Contains(d.Id)).ToList()) Devices.Remove(gone);
+        foreach (var gone in Devices.Where(d => !seen.Contains(d.Id)).ToList())
+        {
+            Devices.Remove(gone);
+            Messages.Forgotten(gone.Id);
+        }
         if (snapshot.Connect is { } connect) ConnectState = connect.State;
         foreach (var t in snapshot.Transfers.Where(t => t.State is "queued" or "offered" or "sending" or "receiving")) UpdateTransfer(t.Request, t);
         Nearby.Clear();
@@ -382,6 +392,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         item.FilesReady = item.IsConnected && On(local, "files") && On(remote, "files");
         item.FindReady = item.IsConnected && On(local, "find_device") && On(remote, "find_device");
         item.LinksReady = item.IsConnected && On(local, "links") && On(remote, "links");
+        item.MessagesReady = item.IsConnected && On(local, "sms_draft1") && On(remote, "sms_draft1");
+        Messages.Readiness(item, item.MessagesReady);
         if (!(On(local, "battery") && On(remote, "battery"))) item.BatteryLevel = null;
         Raise(nameof(CanSendDraft));
         Raise(nameof(CanSendFiles));
@@ -398,6 +410,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         Pairing.Handle(e);
         Notifications.Handle(e);
+        Messages.Handle(e);
         switch (e.Kind)
         {
             case BridgeyEventKind.DeviceFound when e.Text is not null:
@@ -760,6 +773,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         Try(() => _client.Forget(device.Id));
         Devices.Remove(device);
+        Messages.Forgotten(device.Id);
     }
 
     /// <summary>

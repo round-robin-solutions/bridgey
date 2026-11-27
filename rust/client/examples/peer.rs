@@ -14,7 +14,10 @@
 //!   media <action> [value]   a media button (toggle, pause, next, previous, seek, volume)
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
-//!        [--receive-dir <folder>] [--seconds 300]
+//!        [--receive-dir <folder>] [--seconds 300] [--phone]
+//!
+//! `--phone` answers the other device's requests for the phone's own features as a phone would, with canned
+//! conversations (Text messages), so an app's windows for them can be tested without a phone.
 //!   peer --sign-update <file>    a test release key's signature over a file (self-update tests), then exit
 //!
 //! Files, battery, find device and notifications (with routing, presence and code status) are on. It never touches a real device's settings: identity and trust live in
@@ -41,6 +44,7 @@ fn main() {
     let mut seconds = 300u64;
     let mut discover = false;
     let mut receive_dir: Option<String> = None;
+    let mut phone = false;
     let mut args = std::env::args().skip(1);
     if std::env::args().nth(1).as_deref() == Some("--sign-update") {
         // A fixed test key, never the release key: self-update tests serve a feed signed by it.
@@ -63,6 +67,7 @@ fn main() {
             "--seconds" => seconds = value().parse().expect("seconds"),
             "--discover" => discover = true,
             "--receive-dir" => receive_dir = Some(value()),
+            "--phone" => phone = true,
             other => panic!("unknown argument {other}"),
         }
     }
@@ -72,7 +77,13 @@ fn main() {
     for key in ["files", "battery", "find_device", "notifications", "notification_routing_draft1", "device_presence_draft1", "sms_codes_draft1", "links", "media"] {
         config.defaults.set(key, true);
     }
+    if phone {
+        for key in ["sms_draft1"] {
+            config.defaults.set(key, true);
+        }
+    }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
+    client.simulate_phone_for_tests(phone);
     if let Some(dir) = &receive_dir {
         client.set_receive_dir(Some(std::path::Path::new(dir)));
     }

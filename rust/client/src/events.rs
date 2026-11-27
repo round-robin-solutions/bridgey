@@ -77,6 +77,10 @@ pub enum Event {
     /// Connect away from home: off, disabled (no control service), connecting, unreachable or online, and the paired
     /// devices the control service says are online.
     ConnectState { state: String, online: Vec<String> },
+    /// The phone's own features (phone.rs): text messages, the Calls window, its files and its screen. `what` names
+    /// the change, `id` is the request it answers (0 for none) and `json` holds the detail; each area's module
+    /// documents both.
+    Phone { area: crate::phone::Area, device_id: String, what: String, id: u64, json: String },
     Dropped { count: u64 },
     Error { text: String },
 }

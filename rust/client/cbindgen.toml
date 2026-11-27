@@ -18,7 +18,7 @@ sys_includes = ["stdint.h", "stddef.h"]
 no_includes = true
 
 [export]
-include = ["BridgeySendStatus"]
+include = ["BridgeySendStatus", "BridgeyPhoneArea"]
 exclude = ["ABI_VERSION", "DEFAULT_PORT", "ALLOW_DEFAULT", "CLIPBOARD_MAX", "HEARTBEAT", "HEARTBEAT_TIMEOUT", "HANDSHAKE_TIMEOUT", "CODE_TIMEOUT", "MAX_BAD_FRAMES", "REPLAY_WINDOW", "MAX_FRAME", "PROTOCOL_VERSION", "REQUIRED", "OPTIONAL", "ADDRESSES_PER_DEVICE", "BLOCK", "LIFETIME_MS", "PER_PEER", "TOTAL", "MAX_KEPT_BYTES", "CHECKPOINT_EVERY", "MAX_MESSAGE", "READ_BUDGET", "READ_QUEUE", "FREE_SPACE_MARGIN"]
 
 [enum]

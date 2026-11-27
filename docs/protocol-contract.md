@@ -1398,24 +1398,24 @@ Ends the stream and any control with it. A viewer refusing a start sends it with
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `sms.status` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.changed` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.threads` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.threads_page` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.messages` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.messages_page` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.sync` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.sync_page` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.send` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.send_status` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.attachment` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.attachment_data` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.contacts` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.contacts_result` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.mark_read` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.mark_read_result` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.blocked_numbers` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `sms.blocked_numbers_result` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `sms.status` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.changed` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 256 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.threads` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.threads_page` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.messages` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.messages_page` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.sync` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.sync_page` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.send` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.send_status` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.attachment` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.attachment_data` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.contacts` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.contacts_result` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.mark_read` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.mark_read_result` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 4,096 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.blocked_numbers` | edition-draft | extension | mac-to-phone | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `sms.blocked_numbers_result` | edition-draft | extension | phone-to-mac | sms_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `sms.status`
 

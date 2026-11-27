@@ -68,6 +68,10 @@ public sealed class AppSettings
     public bool BrowserSupport { get; set; }
     /// <summary>The phone's media controls for this PC's player. Off until chosen, as on the Mac.</summary>
     public bool Media { get; set; }
+    /// <summary>Text messages: the phone's conversations on this PC. Off until chosen, as on the Mac.</summary>
+    public bool TextMessages { get; set; }
+    /// <summary>Keep the phone's conversations on this PC between runs (encrypted for this Windows user).</summary>
+    public bool KeepConversations { get; set; } = true;
     /// <summary>Connect away from home: paired devices reach this PC off the local network (on, as on the Mac).</summary>
     public bool ConnectAway { get; set; } = true;
     /// <summary>stable, beta or nightly. Empty: the channel this build came from (a beta build follows Beta).</summary>

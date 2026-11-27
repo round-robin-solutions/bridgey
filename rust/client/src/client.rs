@@ -251,7 +251,7 @@ pub(crate) struct Inner {
     local: Local,
     platform: String,
     port: AtomicU64,
-    storage: Arc<dyn Storage>,
+    pub(crate) storage: Arc<dyn Storage>,
     defaults: RwLock<FeatureMap>,
     receive_dir: RwLock<Option<PathBuf>>,
     manual: bool,
@@ -283,10 +283,14 @@ pub(crate) struct Inner {
     connect: Mutex<Connect>,
     /// Tests only: off stops local network connections, so a session can only come up over a tunnel.
     lan: AtomicBool,
-    rt: tokio::runtime::Handle,
+    pub(crate) rt: tokio::runtime::Handle,
     me: Weak<Inner>,
     #[cfg(feature = "mdns")]
     discovery: Mutex<Option<crate::discovery::Discovery>>,
+    /// The phone's own features (phone.rs), each area's state.
+    pub(crate) phone: crate::phone::State,
+    /// Tests and the scripted peer: phone requests from the other device are answered as a phone would.
+    pub(crate) simulating: AtomicBool,
 }
 
 pub struct Client {
@@ -336,6 +340,8 @@ impl Client {
             me: me.clone(),
             #[cfg(feature = "mdns")]
             discovery: Mutex::new(None),
+            phone: Default::default(),
+            simulating: AtomicBool::new(false),
         });
         if config.listen {
             let listener = runtime.block_on(bind(config.port)).map_err(|e| ClientError::Io(format!("port {}: {e}", config.port)))?;
@@ -553,6 +559,7 @@ impl Client {
             }
             st.wanted.remove(&id);
         }
+        crate::phone::forgotten(&self.inner, &id);
         self.inner.emit(Event::TrustChanged { device_id: id, name, trusted: false });
         Ok(())
     }
@@ -726,6 +733,7 @@ impl Client {
         };
         for id in targets {
             self.inner.send_policy(&id);
+            self.inner.phone_features_changed(&id);
         }
         Ok(())
     }
@@ -972,6 +980,26 @@ impl Client {
     pub fn snapshot(&self) -> Value {
         self.inner.snapshot()
     }
+
+    /// A command for one of the phone's own features (phone.rs): text messages, the Calls window, the phone's files
+    /// or its screen. The answer is JSON, `{"ok": true, ...}` or `{"ok": false, "error": ...}`.
+    pub fn phone(&self, area: crate::phone::Area, device_id: &str, command: &Value) -> Value {
+        if self.inner.check().is_err() {
+            return crate::phone::error("stopped");
+        }
+        let id = device_id.to_ascii_lowercase();
+        if self.inner.trust.lock().unwrap().get(&id).is_none() {
+            return crate::phone::error("unknown_device");
+        }
+        crate::phone::command(&self.inner, area, &id, command)
+    }
+
+    /// Tests and the scripted peer only (not in the C ABI): phone requests from other devices are answered with canned
+    /// conversations, calls, files and a test screen, as a phone would answer them.
+    #[doc(hidden)]
+    pub fn simulate_phone_for_tests(&self, on: bool) {
+        self.inner.simulating.store(on, Ordering::Relaxed);
+    }
 }
 
 impl Drop for Client {
@@ -1010,11 +1038,11 @@ impl Inner {
         let _ = self.storage.store(resume::STORAGE_KEY, &store.encode());
     }
 
-    fn arc(&self) -> Arc<Inner> {
+    pub(crate) fn arc(&self) -> Arc<Inner> {
         self.me.upgrade().expect("client alive")
     }
 
-    fn next_id(&self) -> u64 {
+    pub(crate) fn next_id(&self) -> u64 {
         self.ids.fetch_add(1, Ordering::Relaxed)
     }
 
@@ -1030,11 +1058,11 @@ impl Inner {
         }
     }
 
-    fn emit(&self, event: Event) {
+    pub(crate) fn emit(&self, event: Event) {
         self.events.push(event);
     }
 
-    fn policy_for(&self, device_id: &str) -> FeatureMap {
+    pub(crate) fn policy_for(&self, device_id: &str) -> FeatureMap {
         let defaults = self.defaults.read().unwrap().clone();
         let mut policy = match self.trust.lock().unwrap().get(device_id) {
             Some(d) => d.policy(&defaults),
@@ -1537,6 +1565,10 @@ impl session::Host for Inner {
         }
     }
 
+    fn phone_kind(&self, kind: &str) -> Option<crate::phone::Incoming> {
+        crate::phone::incoming(kind).or_else(|| if self.simulating.load(Ordering::Relaxed) { crate::sim::incoming(kind) } else { None })
+    }
+
     fn pin(&self, device_id: &str) -> Option<String> {
         self.trust.lock().unwrap().get(device_id).map(|d| d.identity_key.clone())
     }
@@ -1738,6 +1770,7 @@ impl session::Host for Inner {
                 if features_copy.get(CONNECT_FEATURE) {
                     self.send_addresses(&device_id);
                 }
+                self.phone_features_changed(&device_id);
             }
             session::Event::Battery { device_id, level, charging } => {
                 self.state.lock().unwrap().battery.insert(device_id.clone(), (level, charging));
@@ -1864,6 +1897,7 @@ impl Inner {
             self.sync_peers();
         }
         if let Some(id) = disconnected {
+            crate::phone::disconnected(self, &id);
             if !live.replaced {
                 self.emit(Event::Disconnected { device_id: id.clone(), reason });
             }
@@ -1876,7 +1910,7 @@ impl Inner {
 
 /// Notifications, codes and presence (docs/session-client.md).
 impl Inner {
-    fn encrypted_to(&self, device_id: &str, feature: &str, kind: &'static str, plaintext: String) -> Result<(), ClientError> {
+    pub(crate) fn encrypted_to(&self, device_id: &str, feature: &str, kind: &'static str, plaintext: String) -> Result<(), ClientError> {
         self.check()?;
         let (handle, _) = self.feature_session(device_id, feature)?;
         if handle.send_encrypted(kind, plaintext.into_bytes(), crate::crypto::uuid4()) {
@@ -1884,6 +1918,16 @@ impl Inner {
         } else {
             Err(ClientError::NotConnected)
         }
+    }
+
+    /// The device's latest feature map, while it is connected.
+    pub(crate) fn remote_features(&self, device_id: &str) -> Option<FeatureMap> {
+        self.state.lock().unwrap().remote.get(device_id).cloned()
+    }
+
+    /// Either side's switches changed for a device: each phone feature looks again.
+    fn phone_features_changed(&self, device_id: &str) {
+        crate::phone::features_changed(self, device_id);
     }
 
     /// presence.state to one device that shows device presence at both ends: when the state changed, every ten
@@ -1976,9 +2020,16 @@ impl Inner {
         }
     }
 
-    /// A notification or codes message the session opened.
+    /// A notification, codes or phone feature message the session opened.
     fn payload(&self, device_id: String, kind: &str, plain: &[u8]) {
         use crate::notifications as n;
+        if let Some(spec) = crate::phone::incoming(kind) {
+            crate::phone::receive(self, spec.area, &device_id, kind, plain);
+            return;
+        }
+        if self.simulating.load(Ordering::Relaxed) && crate::sim::receive(self, &device_id, kind, plain) {
+            return;
+        }
         match kind {
             "connect.addresses" => self.connect_addresses(&device_id, plain),
             "connect.setup" => self.connect_setup(&device_id, plain),
