@@ -1,14 +1,16 @@
 # Connect anywhere: deploy runbook
 
-Status: **live since 2026-10-27** (Rahul: "Deploy all"). The Mumbai relay `bom` runs on rr-dev-2 since 2026-11-27. Design: [connect-anywhere.md](connect-anywhere.md).
+Status: **live since 2026-10-27** (Rahul: "Deploy all"). The Mumbai relay `bom` runs on rr-dev-2 since 2026-11-27,
+and the Singapore (`sin`) and France (`sxb`) relays were retired that day (Rahul: "drop the Bridgey Europe and
+Singapore relays"), so the pool is `cf` first and `bom` as the backup. Design: [connect-anywhere.md](connect-anywhere.md).
 
 ## What is live
 
 | Part | Where | Dokploy (Round Robin, project "Bridgey" `hTDw6XwfUgGf-Nmo9Pm5T`) | Check |
 | --- | --- | --- | --- |
 | Control service | https://connect.roundrobin.in (WebSocket `/v1/ws`), rr-web | app `bridgey-rendezvous` (`AWhUiERgwLozVUZrH6aAz`, appName `bridgey-rendezvous-bls5vl`), Dockerfile `server/rendezvous/Dockerfile`, built on `rr-dev-1-builder`, GHCR, port 8080 published on the host as 18450 | `curl https://connect.roundrobin.in/health/ready` says `ready`; `/v1/status` (tailnet only, see below) lists the relays |
-| Relay `sin` | relay-sg.roundrobin.in (15.235.211.41), rb-vps | compose `bridgey-relay-sg` (`sPkcw4V_FcPmlFYpGF8Bw`) on deploy server `client-update-portal-vps` (`FJI1IAi5SEF9_fDNfSV8J`, user ubuntu, port 2222) | `rust/core/examples/turn_check.rs` from another host |
-| Relay `sxb` | relay-eu.roundrobin.in (109.123.243.231), rr-dev-1 | compose `bridgey-relay-eu` (`AUcFGMLUaVr3qgXixmTvn`) on deploy server `rr-dev-1-deploy` (`OJQHZTE0Gl8BYvaS7CcF9`, user `dokploy-deploy`) | same |
+| Relay `sin` (**retired 2026-11-27**: secret out of the control service and of the settings file, compose stopped, auto-deploy off, kept for rollback; DNS record left until the host closes) | relay-sg.roundrobin.in (15.235.211.41), rb-vps | compose `bridgey-relay-sg` (`sPkcw4V_FcPmlFYpGF8Bw`) on deploy server `client-update-portal-vps` (`FJI1IAi5SEF9_fDNfSV8J`, user ubuntu, port 2222) | `rust/core/examples/turn_check.rs` from another host |
+| Relay `sxb` (**retired 2026-11-27**, as `sin`) | relay-eu.roundrobin.in (109.123.243.231), rr-dev-1 | compose `bridgey-relay-eu` (`AUcFGMLUaVr3qgXixmTvn`) on deploy server `rr-dev-1-deploy` (`OJQHZTE0Gl8BYvaS7CcF9`, user `dokploy-deploy`) | same |
 | Relay `bom` | relay-in.roundrobin.in (206.51.227.16), rr-dev-2 (SSD Nodes, Mumbai) | compose `bridgey-relay-in` (`7ZPbPWj8djRLhrIUjnrz1`) on the Dokploy panel host (no deploy server), auto-deploy from `rr/main` | same |
 | Relay `cf` | Cloudflare Realtime TURN, `turn.cloudflare.com` | live since 2026-11-24 14:44 UTC: TURN key `bridgey-relay`, the four `CF_*` variables on the control service | `/v1/status` lists `cf` with a `cloudflare` object; see "Cloudflare relay" below |
 
@@ -17,7 +19,7 @@ service: `rust/**`, `server/rendezvous/**`; relays: `server/relay/**`). **When t
 switch all three to `rr/main`.**
 
 Secrets: vault `Keychain/Bridgey Connect` (one per relay). The control service has
-`TURN_SECRET_SIN` and `TURN_SECRET_SXB`; each relay has its own as `TURN_SECRET`. Dokploy writes each
+`TURN_SECRET_BOM` (`TURN_SECRET_SIN` and `TURN_SECRET_SXB` until 2026-11-27); each relay has its own as `TURN_SECRET`. Dokploy writes each
 relay's environment to a `.env` next to the compose file on that host (folder mode 750, owned by
 the deploy user).
 
@@ -249,8 +251,8 @@ line). Per host:
 | Relay | Host | Dokploy | Environment | Ports to open (UDP) |
 | --- | --- | --- | --- | --- |
 | `bom` | rr-dev-2 | Dokploy panel host | as in "Moving `bom` to another host" above | 3478, 61000-62999 (server baseline firewall) |
-| `sin` | rb-vps | deploy server | `EXTERNAL_IP` and `LISTENING_IP` `15.235.211.41`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=25000000` | 3478, 61000-62999 |
-| `sxb` | rr-dev-1 | deploy server (still the build server) | `EXTERNAL_IP` and `LISTENING_IP` `109.123.243.231`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=37500000`, `COTURN_CPUS=1.5` | 3478, 61000-62999 |
+| `sin` (retired 2026-11-27) | rb-vps | deploy server | `EXTERNAL_IP` and `LISTENING_IP` `15.235.211.41`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=25000000` | 3478, 61000-62999 |
+| `sxb` (retired 2026-11-27) | rr-dev-1 | deploy server (still the build server) | `EXTERNAL_IP` and `LISTENING_IP` `109.123.243.231`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=37500000`, `COTURN_CPUS=1.5` | 3478, 61000-62999 |
 
 The template denies relaying to private, carrier-NAT, tailnet, Docker, link-local and reserved ranges, has no
 TCP relay and no admin CLI. On rr-dev-1 also put the relay ports in the lowest `tc` class so builds

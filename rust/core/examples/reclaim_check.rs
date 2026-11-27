@@ -3,7 +3,7 @@
 //! with its credentials and allocates again. Also checks that two allocations on one relay reach each other
 //! (the pool permission for the relay's own address). The secret never leaves this machine.
 //!
-//! TURN_SECRET=... cargo run --example reclaim_check -- relay-sg.roundrobin.in:3478
+//! TURN_SECRET=... cargo run --example reclaim_check -- relay-in.roundrobin.in:3478
 
 use bridgey_connect::mux::{Mux, Path, Via};
 use bridgey_connect::turn::{self, Allocation};

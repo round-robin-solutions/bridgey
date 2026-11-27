@@ -40,8 +40,8 @@ pending_per_ip = 1000
 sockets_per_rdv = 8
 
 # Relay pool (section 9.1). Cloudflare Realtime TURN comes first for clients that can use it (Rahul, 2026-11-24);
-# the own coturn relays are the backup, and the only relays older clients ever get. Among the own relays,
-# penalties steer India to bom first and keep sxb (the build server) last.
+# the own coturn relay is the backup, and the only relay older clients ever get. Singapore (sin) and France (sxb)
+# were retired on 2026-11-27 when their hosts closed (Rahul: "drop the Bridgey Europe and Singapore relays").
 #
 # Cloudflare: credentials are minted per grant with the TURN key in CF_TURN_KEY_ID and CF_TURN_API_TOKEN. Usage
 # is read from Cloudflare's GraphQL analytics (CF_ACCOUNT_ID, CF_ANALYTICS_TOKEN); without a fresh reading, or at
@@ -81,20 +81,4 @@ kind = "coturn"
 urls = ["turn:relay-in.roundrobin.in:3478?transport=udp"]
 secret_env = "TURN_SECRET_BOM"
 penalty_ms = 0
-max_kbps = 50000
-
-[[relays]]
-id = "sin"
-kind = "coturn"
-urls = ["turn:relay-sg.roundrobin.in:3478?transport=udp"]
-secret_env = "TURN_SECRET_SIN"
-penalty_ms = 10
-max_kbps = 50000
-
-[[relays]]
-id = "sxb"
-kind = "coturn"
-urls = ["turn:relay-eu.roundrobin.in:3478?transport=udp"]
-secret_env = "TURN_SECRET_SXB"
-penalty_ms = 40
 max_kbps = 50000
