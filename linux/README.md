@@ -116,6 +116,9 @@ smoke test drives.
 - This computer's screen on the phone.
 - The clipboard offer protocol (images and files on the clipboard itself, rather than as files).
 - Pairing data in the Secret Service (GNOME Keyring, KWallet).
+- The Bluetooth companion link Android asks for before it shares the text of code messages (Windows advertises it;
+  Linux would through BlueZ). Until then Bridgey answers that it is unsupported, and codes show only where the phone
+  shares the text anyway.
 - A Flatpak, and the portals it would need (the clipboard, a global shortcut for Send copied item).
 - Browser extensions (the native messaging host).
 - Signed AppImages beyond the update signature (an AppImage signature, or a distribution repository).

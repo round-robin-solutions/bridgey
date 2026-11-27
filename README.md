@@ -355,7 +355,8 @@ with actual capabilities and permissions negotiated per device. See
 - [ ] Linux native app, including explicit Wayland and X11 capability handling: M1 (GTK 4 and libadwaita on the
       shared core: pairing, clipboard on Wayland and X11, files, notifications with reply, codes, links, battery,
       find device, media controls, Connect away from home, settings, tray, AppImage with self-update;
-      [notes](linux/README.md)); M2 adds messages, calls, Phone files and the phone's screen
+      [#83](https://github.com/round-robin-solutions/bridgey/pull/83), [notes](linux/README.md)); M2 adds messages,
+      calls, Phone files and the phone's screen
 - [x] iOS/iPadOS first slice: pairing, clipboard text, files and links both ways on the local
       network, and a Share extension ([#33](https://github.com/round-robin-solutions/bridgey/pull/33), [notes](docs/ios.md))
 - [ ] iOS/iPadOS viewer/controller, consented capture and TestFlight; do not promise
