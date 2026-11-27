@@ -1070,6 +1070,11 @@ from this layer:
 
 ## 9. Relay pool
 
+**2026-11-27:** `sin` and `sxb` are retired (their hosts closed; Rahul: "drop the Bridgey Europe and Singapore
+relays. Don't move them"), and `bom` runs on rr-dev-2 (SSD Nodes, Mumbai, 206.51.227.16) instead of oracle. The pool is
+`cf` first and `bom` as the backup. The tables below are the design as written; rows for `sin` and `sxb` are history.
+Deploy details: [connect-anywhere-deploy.md](connect-anywhere-deploy.md).
+
 ### 9.1 Members
 
 | Relay | Host | Provider and plan | Location | Provider allowance | Measured baseline (read-only, 2026-10-25) | Bridgey caps per cycle | Rate caps | IPv6 relay |

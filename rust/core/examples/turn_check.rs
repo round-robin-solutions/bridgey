@@ -2,7 +2,7 @@
 //! and never go on a command line.
 //!
 //! An own (coturn) relay, with its TURN REST secret in the environment:
-//!   TURN_SECRET=... cargo run --example turn_check -- relay-eu.roundrobin.in:3478
+//!   TURN_SECRET=... cargo run --example turn_check -- relay-in.roundrobin.in:3478
 //!
 //! A Cloudflare grant (the JSON TURN entry of a `generate-ice-servers` answer, `{"urls":[...],"username":...,
 //! "credential":...}`, in a file only this user can read): allocations over UDP and over TLS on 443, a STUN check
@@ -89,7 +89,7 @@ async fn cloudflare() {
 
     // The permissions a warm allocation installs for the whole pool (each own relay, and Cloudflare's own address).
     let mut pool: Vec<std::net::IpAddr> = vec![server.ip()];
-    for relay in ["relay-sg.roundrobin.in:3478", "relay-eu.roundrobin.in:3478"] {
+    for relay in ["relay-in.roundrobin.in:3478"] {
         if let Some(addr) = tokio::net::lookup_host(relay).await.ok().and_then(|mut it| it.find(|a| a.is_ipv4())) {
             pool.push(addr.ip());
         }

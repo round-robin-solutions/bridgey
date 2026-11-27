@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Points the three Connect anywhere Dokploy entries (Round Robin Dokploy, project "Bridgey") at a branch,
+# Points the Connect anywhere Dokploy entries (Round Robin Dokploy, project "Bridgey") at a branch,
 # for when rr/connect-anywhere merges into rr/main. Reads the Dokploy API key from the vault note
 # "Keychain/Round Robin Dokploy.md" without printing it, updates each entry, reads it back, and redeploys
 # the control service (the relays only redeploy when asked: their compose file is unchanged).
@@ -27,7 +27,7 @@ HDR=$(mktemp); chmod 600 "$HDR"; trap 'rm -f "$HDR"' EXIT
 printf 'x-api-key: %s\nContent-Type: application/json\n' "$KEY" > "$HDR"
 api() { curl -sS -A 'Mozilla/5.0' -H @"$HDR" "$@"; }
 APP=AWhUiERgwLozVUZrH6aAz          # bridgey-rendezvous (rr-web)
-RELAYS="sPkcw4V_FcPmlFYpGF8Bw AUcFGMLUaVr3qgXixmTvn"  # bridgey-relay-sg (rb-vps), bridgey-relay-eu (rr-dev-1)
+RELAYS="7ZPbPWj8djRLhrIUjnrz1"  # bridgey-relay-in (rr-dev-2); bridgey-relay-sg and bridgey-relay-eu retired 2026-11-27
 
 api -X POST "$URL/api/application.update" -d "{\"applicationId\":\"$APP\",\"branch\":\"$BRANCH\"}" >/dev/null
 for c in $RELAYS; do api -X POST "$URL/api/compose.update" -d "{\"composeId\":\"$c\",\"branch\":\"$BRANCH\"}" >/dev/null; done
