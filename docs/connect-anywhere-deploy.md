@@ -7,7 +7,7 @@ down (steps below). Design: [connect-anywhere.md](connect-anywhere.md).
 
 | Part | Where | Dokploy (Round Robin, project "Bridgey" `hTDw6XwfUgGf-Nmo9Pm5T`) | Check |
 | --- | --- | --- | --- |
-| Control service | https://connect.roundrobin.in (WebSocket `/v1/ws`), rr-web | app `bridgey-rendezvous` (`AWhUiERgwLozVUZrH6aAz`, appName `bridgey-rendezvous-bls5vl`), Dockerfile `server/rendezvous/Dockerfile`, built on `rr-dev-1-builder`, GHCR, port 8080 published on the host as 18450 | `curl https://connect.roundrobin.in/health/ready` says `ready`; `/v1/status` lists the relays |
+| Control service | https://connect.roundrobin.in (WebSocket `/v1/ws`), rr-web | app `bridgey-rendezvous` (`AWhUiERgwLozVUZrH6aAz`, appName `bridgey-rendezvous-bls5vl`), Dockerfile `server/rendezvous/Dockerfile`, built on `rr-dev-1-builder`, GHCR, port 8080 published on the host as 18450 | `curl https://connect.roundrobin.in/health/ready` says `ready`; `/v1/status` (tailnet only, see below) lists the relays |
 | Relay `sin` | relay-sg.roundrobin.in (15.235.211.41), rb-vps | compose `bridgey-relay-sg` (`sPkcw4V_FcPmlFYpGF8Bw`) on deploy server `client-update-portal-vps` (`FJI1IAi5SEF9_fDNfSV8J`, user ubuntu, port 2222) | `rust/core/examples/turn_check.rs` from another host |
 | Relay `sxb` | relay-eu.roundrobin.in (109.123.243.231), rr-dev-1 | compose `bridgey-relay-eu` (`AUcFGMLUaVr3qgXixmTvn`) on deploy server `rr-dev-1-deploy` (`OJQHZTE0Gl8BYvaS7CcF9`, user `dokploy-deploy`) | same |
 | Relay `bom` | relay-in.roundrobin.in, oracle | not deployed (oracle is down); no DNS record yet; no secret in the control service, so nobody is sent there | see "oracle" below |
@@ -228,7 +228,11 @@ restart each relay (a few seconds; grants last 2 hours).
   DNS-only (grey cloud): Cloudflare's proxy closes idle WebSockets after about 100 s, which would
   force phones to send keep-alives every 45 s.
 - **Check:** `curl -s https://connect.roundrobin.in/health/ready` says `ready`, and
-  `curl -s https://connect.roundrobin.in/v1/status` lists the three relays with `"configured":true`.
+  `curl -s --resolve connect.roundrobin.in:443:100.88.161.81 https://connect.roundrobin.in/v1/status` (from the
+  tailnet) lists the relays with `"configured":true`.
+- **`/v1/status` is tailnet only** since 2026-11-27 (security review 1.0, C7): production's Traefik (which replaced
+  host nginx on 15 Nov) routes `/health` and `/health/ready` publicly and `/v1/status` through its `edge-tailnet` allow
+  list (tailnet and the host). From outside it answers 403. Source: PA `outputs/fleet/prod-nginx-to-traefik/generate.py`.
 
 ## 3. The relays
 
@@ -246,7 +250,7 @@ The template denies relaying to private, carrier-NAT, tailnet, Docker, link-loca
 TCP relay and no admin CLI. On rr-dev-1 also put the relay ports in the lowest `tc` class so builds
 and pushes always win (spec 9.10); that script is still to write.
 
-**Relay host firewall** (security review 1.0, C4; to apply at the next relay redeploy, not applied yet). coturn
+**Relay host firewall** (security review 1.0, C4; applied 2026-11-27 on rb-vps and rr-dev-1). coturn
 must be able to relay to its own public address (two peers on the same relay, and the core asks permission for every
 relay in the pool), so it cannot be told to refuse it. Relayed traffic to the host's own address leaves from a relay
 port, so the host keeps it away from everything but other relay ports. On each relay host, with its public IPv4 and
@@ -257,7 +261,10 @@ iptables -I INPUT -p udp -s <public IPv4> --sport 61000:62999 ! --dport 61000:62
 ```
 
 Make it persistent the way the host keeps its other rules, and check with `ss -ulpn` which UDP services listen on
-the public address.
+the public address. On our hosts it is the server baseline's `RELAY_SELF_GUARD="<public IPv4> 61000-62999"` in the
+host's config (PA `infra/server-baseline`, rendered into the `inet rr_firewall` input chain by `firewall.sh apply`).
+Check: send UDP from the public address and a relay port to a listener on another port of the same address; it must
+be dropped, while relay port to relay port still arrives.
 
 Check each relay from another host: a STUN binding to `relay-xx.roundrobin.in:3478` answers, and a probe
 pair (`rust/core/examples/probe.rs` with `--relay-only` and the production control URL) connects
