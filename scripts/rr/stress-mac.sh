@@ -147,9 +147,14 @@ print(json.dumps({"ok": True, "text": s.get("text"), "changeCount": s.get("chang
       rss=$1 cpu=$2
       threads=$(($(ps -M -p "$pid" | wc -l) - 1))
       fds=$(($(lsof -n -P -p "$pid" 2>/dev/null | wc -l) - 1))
-      idlew=$(top -l 1 -pid "$pid" -stats pid,idlew 2>/dev/null | awk -v p="$pid" '$1 == p { print $2 }')
-      printf '{"ok":true,"pid":%s,"rss_kb":%s,"threads":%s,"fds":%s,"cpu":"%s","idle_wakeups":%s}\n' \
-        "$pid" "$rss" "$threads" "$fds" "$cpu" "${idlew:-null}" ;;
+      # top: idle wakeups since launch, and the physical footprint (Activity Monitor's Memory). Resident size also counts
+      # the shared code and the pages malloc keeps after a free, so the footprint is the figure to judge on a Mac.
+      set -- $(top -l 1 -pid "$pid" -stats pid,idlew,mem 2>/dev/null | awk -v p="$pid" '$1 == p { print $2, $3 }')
+      idlew=${1:-} mem=${2:-}
+      footprint=$(printf '%s' "$mem" | tr -d '+-' | awk '/^[0-9.]+[BKMG]$/ { n = substr($0, 1, length($0) - 1); u = substr($0, length($0));
+        printf "%d", n * (u == "G" ? 1048576 : u == "M" ? 1024 : u == "K" ? 1 : 1 / 1024) }')
+      printf '{"ok":true,"pid":%s,"rss_kb":%s,"footprint_kb":%s,"threads":%s,"fds":%s,"cpu":"%s","idle_wakeups":%s}\n' \
+        "$pid" "$rss" "${footprint:-null}" "$threads" "$fds" "$cpu" "${idlew:-null}" ;;
     grants)
       # Per-phone grants as Settings sets them: this Mac's screen Allow without asking, Remote control on (settings
       # only; a test instance never asks for Accessibility), and Unattended access off (the default is on).

@@ -75,7 +75,7 @@ class SoakTests(unittest.TestCase):
                                 'threads': 40, 'fds': 60 if t < hours * 2400 else fds_end, 'javaUsed': 5 * 1024 * 1024, 'cpuMs': t * 2},
                         'peer': {'rss_kb': 9000}})
             if t % 600 == 0:
-                out.append({'kind': 'op', 't': t, 'op': 'send-whole', 'ok': True, 'rounds': [{'done': True, 'size': 8 << 20, 'mib_per_s': 50.0}]})
+                out.append({'kind': 'op', 't': t, 'op': 'send-whole', 'ok': True, 'rounds': [{'done': True, 'size': 32 << 20, 'mib_per_s': 50.0}]})
             t += 60
         return out
 

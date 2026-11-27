@@ -59,9 +59,9 @@ texts and files must move again.
 - a 10-minute quiet period every hour (the first one early enough that a short run has one), with no traffic at all
   but heartbeats;
 - a sampler asks the app for its process figures every `--sample-every` seconds (`proc`): resident memory, threads,
-  open files and CPU time on both; Java heap (after a garbage collection every fifth sample), native heap and wake
-  locks and alarm wakeups the system holds for the app on Android; idle wakeups on the Mac. The driver's own memory,
-  threads and files are sampled too.
+  open files and CPU time on both, and the physical footprint on the Mac; Java heap (after a garbage collection every
+  fifth sample), native heap and wake locks and alarm wakeups the system holds for the app on Android; idle wakeups on
+  the Mac. The driver's own memory, threads and files are sampled too.
 
 No app restarts in a soak: they would reset the figures it watches (the upgrade test covers them). Every scenario keeps
 its own checks, so a soak fails exactly as a stress run would.
@@ -120,14 +120,14 @@ each on runs of three hours or more, a third of the rest on shorter ones.
 | --- | --- |
 | The soak report | every operation passed its scenario's checks; every transfer ended done, cancelled or interrupted; no clipboard text lost while the link was up; no event dropped |
 | No crash | one app process ID for the whole run; no Bridgey line in Android's crash buffer |
-| Resident memory | least-squares slope at most 8 MiB an hour on Android, 16 on the Mac, and the last window's median at most 48 MiB (Android) or 96 MiB (Mac) above the first's |
+| Memory | least-squares slope at most 8 MiB an hour, and the last window's median at most 48 MiB above the first's: resident size on Android, the physical footprint on the Mac (Activity Monitor's Memory; resident size there also counts shared code and pages malloc keeps after a free, so it is charted, not judged) |
 | Java heap after GC (Android) | slope at most 2 MiB an hour, last window at most 12 MiB above the first |
 | Open files | last window's median at most 8 above the first's; never more than 48 above it |
-| Threads | last window's median at most 8 above the first's; never more than 40 above it |
+| Threads | last window's median at most 8 above the first's; never more than 96 above it (batches raise it for a moment by design: Kotlin's IO dispatcher alone may grow to 64 threads) |
 | Driver memory (session client) | slope at most 16 MiB an hour |
-| CPU while idle | at most 2 % of one core across the quiet periods |
+| CPU while idle | at most 2 % of one core across the quiet periods on Android, 3 % on the Mac (the test instance's control timer, five status files a second, takes about 1.6 % by itself) |
 | Wakeups | Android: at most 12 alarm wakeups an hour for the app; Mac: at most 20 idle wakeups a second while quiet |
-| Throughput | per direction, the last window's median speed for files of 1 MiB or more at least half the first's |
+| Throughput | per direction, the last window's median speed for files of 16 MiB or more at least half the first's (smaller files measure per-file round trips more than the link) |
 
 ## Results, 27 November 2026
 

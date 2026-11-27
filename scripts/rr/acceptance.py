@@ -24,9 +24,11 @@ MIB_KB = 1024
 # first 15 % of a shorter run.
 WARMUP_MIN = 20
 THRESHOLDS = {
-    # Resident memory: growth per hour by a least-squares fit, and the last window against the first.
-    "rss_slope_mib_h": {"android": 8.0, "macos": 16.0},
-    "rss_growth_mib": {"android": 48.0, "macos": 96.0},
+    # Memory: growth per hour by a least-squares fit, and the last window against the first. Android: resident size.
+    # Mac: the physical footprint (Activity Monitor's Memory); resident size there also counts the shared code and the
+    # pages malloc keeps after a free, and is only charted.
+    "rss_slope_mib_h": {"android": 8.0, "macos": 8.0},
+    "rss_growth_mib": {"android": 48.0, "macos": 48.0},
     # Java heap after a collection (Android only).
     "heap_slope_mib_h": 2.0,
     "heap_growth_mib": 12.0,
@@ -34,15 +36,19 @@ THRESHOLDS = {
     "fds_growth": 8,
     "fds_peak_over": 48,
     "threads_growth": 8,
-    "threads_peak_over": 40,
+    # Peaks during batches are by design (Kotlin's IO dispatcher alone may grow to 64 threads); runaway growth is not.
+    "threads_peak_over": 96,
     # The driver itself (the session client): resident memory growth per hour.
     "peer_rss_slope_mib_h": 16.0,
-    # Idle periods: the app's CPU time as a share of one core, and wakeups.
-    "idle_cpu_percent": {"android": 2.0, "macos": 2.0},
+    # Idle periods: the app's CPU time as a share of one core, and wakeups. A Mac test instance's control timer (five
+    # status files a second) costs about 1.6 % of a core on its own (sampled 27 Nov 2026), hence the Mac's higher bar.
+    "idle_cpu_percent": {"android": 2.0, "macos": 3.0},
     "alarm_wakeups_per_hour": 12.0,
     "mac_idle_wakeups_per_s": 20.0,
-    # Whole files of at least 1 MiB: the last window's median speed against the first's, per direction.
+    # Whole files of at least 16 MiB (smaller ones measure the per-file round trips more than the link): the last
+    # window's median speed against the first's, per direction, when each window has at least three.
     "throughput_ratio": 0.5,
+    "throughput_min_mib": 16,
 }
 
 # Keys whose values may change between two snapshots of the same install without anything being lost or reset.
@@ -201,6 +207,10 @@ def compare(platform, before, after, final):
             failures.append("screen grants changed: %s -> %s" % (json.dumps(gb), json.dumps(ga)))
         if not gb or gb.get("unattended") is not False or not any(g.get("mode") == "always" for g in (gb.get("grants") or {}).values()):
             failures.append("the set-up did not take: screen grants before the upgrade were %s" % json.dumps(gb))
+        for name, entry in sorted((before.get("files") or {}).items()):
+            mode_a = ((after.get("files") or {}).get(name) or {}).get("mode")
+            if entry.get("mode") and mode_a and mode_a != entry["mode"]:
+                failures.append("%s: permissions went from %s to %s" % (name, entry["mode"], mode_a))
         if not any(k.endswith(".remote_input_draft1") and v is True for k, v in b.items() if k.startswith("settings.device.")):
             failures.append("the set-up did not take: no per-phone Remote control switch before the upgrade")
 
@@ -327,15 +337,20 @@ def judge_soak(platform, report, samples, crash_log):
     after_warmup = lambda pts: [p for p in pts if p[0] >= warmup(t_end)]  # noqa: E731
 
     rss = series("rss_kb", scale=1.0 / MIB_KB)
+    footprint = series("footprint_kb", scale=1.0 / MIB_KB) if platform == "macos" else []
     if rss:
-        first, last = windows(rss, t_end)
-        slope = slope_per_hour(after_warmup(rss))
+        metrics["rss_mib"] = {"start": round(rss[0][1], 1), "end": round(rss[-1][1], 1), "max": round(max(v for _, v in rss), 1),
+                              "slope_per_hour": None if slope_per_hour(after_warmup(rss)) is None else round(slope_per_hour(after_warmup(rss)), 2)}
+    memory, label, key = (footprint, "physical footprint", "footprint_mib") if footprint else (rss, "resident memory", "rss_mib")
+    if memory:
+        first, last = windows(memory, t_end)
+        slope = slope_per_hour(after_warmup(memory))
         growth = (statistics.median(last) - statistics.median(first)) if first and last else None
-        metrics["rss_mib"] = {"start": round(rss[0][1], 1), "first_median": round(statistics.median(first), 1) if first else None,
-                              "last_median": round(statistics.median(last), 1) if last else None, "max": round(max(v for _, v in rss), 1),
-                              "slope_per_hour": round(slope, 2) if slope is not None else None}
+        metrics[key] = {"start": round(memory[0][1], 1), "first_median": round(statistics.median(first), 1) if first else None,
+                        "last_median": round(statistics.median(last), 1) if last else None, "max": round(max(v for _, v in memory), 1),
+                        "slope_per_hour": round(slope, 2) if slope is not None else None, "since_minute": round(memory[0][0] / 60, 1)}
         limit_s, limit_g = THRESHOLDS["rss_slope_mib_h"][platform], THRESHOLDS["rss_growth_mib"][platform]
-        check("resident memory", (slope is None or slope <= limit_s) and (growth is None or growth <= limit_g),
+        check(label, (slope is None or slope <= limit_s) and (growth is None or growth <= limit_g),
               "slope %s MiB/h (limit %s), last window %s MiB over the first (limit %s)" % (
                   None if slope is None else round(slope, 2), limit_s, None if growth is None else round(growth, 1), limit_g))
     if platform == "android":
@@ -414,14 +429,15 @@ def judge_soak(platform, report, samples, crash_log):
     for op in ops:
         if op.get("op") in speeds:
             for r in op.get("rounds") or []:
-                if r.get("done") and (r.get("size") or 0) >= 1024 * 1024 and r.get("mib_per_s"):
+                if r.get("done") and (r.get("size") or 0) >= THRESHOLDS["throughput_min_mib"] << 20 and r.get("mib_per_s"):
                     speeds[op["op"]].append((op["t"], r["mib_per_s"]))
     metrics["throughput_mib_s"] = {}
     for name, pts in speeds.items():
-        if len(pts) < 6:
+        if not pts:
             continue
         first, last = windows(pts, t_end)
-        if len(first) < 2 or len(last) < 2:
+        if len(first) < 3 or len(last) < 3:
+            metrics["throughput_mib_s"][name] = {"n": len(pts), "note": "fewer than three large files in a window", "median": round(statistics.median(v for _, v in pts), 1)}
             continue
         ratio = statistics.median(last) / max(1e-9, statistics.median(first))
         metrics["throughput_mib_s"][name] = {"n": len(pts), "first_median": round(statistics.median(first), 1), "last_median": round(statistics.median(last), 1),
@@ -433,7 +449,7 @@ def judge_soak(platform, report, samples, crash_log):
         m = metrics["operations"].setdefault(op.get("op"), {"n": 0, "failed": 0})
         m["n"] += 1
         m["failed"] += 0 if op.get("ok") else 1
-    return checks, metrics, {"rss": rss, "peer": peer, "ops": ops, "app": app}
+    return checks, metrics, {"rss": rss, "footprint": footprint, "peer": peer, "ops": ops, "app": app}
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -539,16 +555,17 @@ def cmd_soak(args):
 
     app = data["app"]
     pick = lambda key, scale=1.0, gc=False: [(s["t"], s["app"][key] * scale) for s in app if isinstance(s["app"].get(key), (int, float)) and s["app"][key] >= 0 and (s.get("gc") or not gc)]  # noqa: E731
-    chart("rss.svg", "App resident memory", "MiB, by hours into the soak", [("app RSS", data["rss"]), ("driver RSS", data["peer"])], spans, t_end)
+    lines = [("app RSS", data["rss"])] + ([("app footprint", data["footprint"])] if data["footprint"] else []) + [("driver RSS", data["peer"])]
+    chart("rss.svg", "App memory", "MiB, by hours into the soak", lines, spans, t_end)
     if args.platform == "android":
         chart("java-heap.svg", "Java heap after GC", "MiB, by hours into the soak", [("Java heap", pick("javaUsed", 1.0 / (1024 * 1024), gc=True))], spans, t_end)
     chart("fds.svg", "Open files", "file descriptors, by hours into the soak", [("app", pick("fds"))], spans, t_end)
     chart("threads.svg", "Threads", "threads, by hours into the soak", [("app", pick("threads"))], spans, t_end)
     speeds = []
     for name in ("send-whole", "recv-whole"):
-        pts = [(op["t"], r["mib_per_s"]) for op in data["ops"] if op.get("op") == name for r in op.get("rounds") or [] if r.get("done") and (r.get("size") or 0) >= 1024 * 1024 and r.get("mib_per_s")]
+        pts = [(op["t"], r["mib_per_s"]) for op in data["ops"] if op.get("op") == name for r in op.get("rounds") or [] if r.get("done") and (r.get("size") or 0) >= THRESHOLDS["throughput_min_mib"] << 20 and r.get("mib_per_s")]
         speeds.append(({"send-whole": "to the app", "recv-whole": "from the app"}[name], pts))
-    chart("throughput.svg", "Whole-file transfer speed (files of 1 MiB or more)", "MiB/s, by hours into the soak", speeds, spans, t_end, points=True)
+    chart("throughput.svg", "Whole-file transfer speed (files of 16 MiB or more)", "MiB/s, by hours into the soak", speeds, spans, t_end, points=True)
     if args.platform == "android":
         chart("alarm-wakeups.svg", "Alarm wakeups for the app since boot", "count, by hours into the soak", [("wakeups", pick("alarm_wakeups"))], spans, t_end)
     else:
