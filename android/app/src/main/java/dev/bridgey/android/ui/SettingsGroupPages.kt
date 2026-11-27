@@ -590,7 +590,8 @@ private fun ActivityCard(state: SettingsState, actions: SettingsActions) {
             syncRows(SyncKey.ACTIVITY_PREVIEWS, state.sync, actions.sync)
             row { shape ->
                 ListRow(shape, stringResource(R.string.settings_activity), stringResource(R.string.settings_activity_detail), BridgeyIcons.Update, Tint.PURPLE) {
-                    OutlinePillButton(stringResource(R.string.action_clear), null, { confirmClear = true }, enabled = state.activityCount > 0)
+                    OutlinePillButton(stringResource(R.string.action_clear), null, { confirmClear = true }, enabled = state.activityCount > 0,
+                        label = stringResource(R.string.action_clear_activity))
                 }
             }
         },
@@ -642,7 +643,8 @@ private fun GeneralCard(state: SettingsState, actions: SettingsActions) {
                     if (state.batteryExempt) {
                         Icon(BridgeyIcons.Check, null, tint = BridgeyTheme.colors.onTintGreen)
                     } else {
-                        OutlinePillButton(stringResource(R.string.action_allow), null, actions.requestBatteryExemption)
+                        OutlinePillButton(stringResource(R.string.action_allow), null, actions.requestBatteryExemption,
+                            label = stringResource(R.string.action_allow_background))
                     }
                 }
             }

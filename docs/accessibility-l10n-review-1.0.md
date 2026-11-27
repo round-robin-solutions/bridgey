@@ -41,10 +41,11 @@ localisation and copy, AA Android accessibility, AL Android localisation and cop
 | --- | --- | --- | --- |
 | High | 4 | 4 | 0 |
 | Medium | 16 | 16 | 0 |
-| Low | 15 | 10 | 5 |
+| Low | 15 | 13 | 1, plus 1 won't do |
 
 Ten more checks found nothing to change ([Checked and found sound](#checked-and-found-sound)). The open items are
-three design calls and two follow-ups; see [Needs Rahul](#needs-rahul). Nothing here changes the wire protocol.
+The follow-up PR fixed three more and settled the rest ([Follow-up](#follow-up)): the Siri phrases stay English and
+larger text on the Mac is not planned for 1.0. Nothing here changes the wire protocol.
 
 On the base tree, the new Android check counted 92 switches with no state, 75 nodes read twice, 49 cut texts and two
 ATF errors; after the fixes it counts none. The new Mac checks found six unlabelled icon buttons and two keys the code
@@ -61,7 +62,7 @@ used that neither language had.
 | MA4 | Medium | Mac | Messages: conversations only with the mouse | Fixed |
 | MA5 | Medium | Mac | Transfers: items only with the mouse | Fixed |
 | MA6 | Medium | Mac | An empty checkbox outline was 1.3:1 | Fixed |
-| ML2 | Medium | Mac | Status lines were English in Russian | Fixed (progress detail open) |
+| ML2 | Medium | Mac | Status lines were English in Russian | Fixed |
 | ML3 | Medium | Mac | Text hard-coded in views | Fixed |
 | ML4 | Medium | Mac | Plurals | Fixed |
 | AA2 | Medium | Android | Device chips read the device name twice | Fixed |
@@ -82,11 +83,11 @@ used that neither language had.
 | AL6 | Low | Android | Speeds and percentages in the locale | Fixed |
 | AL7 | Low | Android | The media card's default line was English | Fixed |
 | AL8 | Low | Android | Setup questions had an uppercase eyebrow | Fixed |
-| MA9 | Low | Mac | No larger text on the Mac | Open, design |
-| ML7 | Low | Mac | Shortcuts actions and the Focus filter are English only | Open |
-| AA10 | Low | Android | The setup text field's border is 1.14:1 | Open, design |
-| AA13 | Low | Android | Two Clear and two Allow buttons share a name | Open |
-| AL10 | Low | Android | Russian at 200% breaks long words without a hyphen | Open, design |
+| MA9 | Low | Mac | No larger text on the Mac | Won't do for 1.0 |
+| ML7 | Low | Mac | The Siri phrases of the App Shortcuts are English only | Open |
+| AA10 | Low | Android | Text field borders were 1.1:1 to 1.4:1 | Fixed |
+| AA13 | Low | Android | Two Clear and two Allow buttons shared a name | Fixed |
+| AL10 | Low | Android | Russian at 200% broke long words without a hyphen | Fixed |
 
 ## High
 
@@ -193,8 +194,9 @@ used that neither language had.
 - **Fix:** `StatusText` (new, `StatusText.swift`) turns each line into the app's language where it is shown: 48 exact
   lines and 10 patterns ("Saved %1$@ to %2$@", "Sending %@…"), in both tables. The English stays the value inside
   because `TransfersModel` reads words such as "cancelled" from it to choose a chip and a reason.
-- **Status:** Fixed. The progress detail inside "Receiving x: 42% · 12 MB / 40 MB · …" (`Pairing.swift:7473`) stays
-  English; the panel hides it while a transfer runs, so it shows only for a moment at the end. Open, low.
+- **Status:** Fixed. The progress detail inside "Receiving x: 42% · 12 MB / 40 MB · …" (`Pairing.swift:7134`, `:7473`)
+  stayed English at first; the follow-up builds it in the app's language with `TransfersText.progressDetail`
+  ("42 % · 12 МБ / 30 МБ · 3 МБ/с · Осталось 2 мин"), tested by `testTransferProgressShowsInRussian`.
 
 ### ML3. Text hard-coded in views (Mac)
 
@@ -367,33 +369,50 @@ used that neither language had.
 - **Where:** `BrandTheme.swift` (`BrandFont`: fixed sizes, mostly 11 to 15 pt).
 - **What:** macOS has no app-wide Dynamic Type, and its Text size setting reaches only apps that adopt it. Bridgey has
   no text size of its own, so people who need larger text rely on Zoom.
-- **Status:** Open. A Text size choice in Settings > App, scaling `BrandFont`, is a design change; every window would
-  need checking at the larger size.
+- **Status:** Won't do for 1.0. macOS has no system Dynamic Type for apps to follow. Bridgey follows the system's
+  Reduce motion, and Zoom enlarges it as it does any app. A text size of its own would be a new setting and a new look
+  to check in every window.
 
-### ML7. Shortcuts actions and the Focus filter are English only (Mac)
+### ML7. The Siri phrases of the App Shortcuts are English only (Mac)
 
-- **Where:** `BridgeyIntents.swift`, `FocusSync.swift`, `PhoneCamera.swift` (App Intents titles and descriptions).
-- **What:** these are compiled into App Intents metadata. SwiftPM does not extract their strings the way Xcode does,
-  and the tables have no entries for them, so Shortcuts shows them in English in every language.
-- **Status:** Open. It needs a string catalogue for the intents and a build step in `build-app.sh`.
+- **Where:** `BridgeyIntents.swift:212-215` (four `AppShortcut` phrases), `build-app.sh` (`--no-app-shortcuts-localization`).
+- **What:** the actions' titles, descriptions, parameters and dialogs are keyed (`intent.*`, `focus.filter.*`) and were
+  already in both tables; this review first counted them as English, which was wrong. `testEveryKeyTheCodeUsesExists`
+  now checks those keys too. Only the spoken phrases ("Ring my phone with Bridgey") are English in every language.
+- **Status:** Open. Localised phrases need an `AppShortcuts.xcstrings` catalogue, the metadata processor run without
+  `--no-app-shortcuts-localization` (it then validates every phrase), and a check with Siri and Shortcuts on a Mac in
+  Russian, which we do not run on the team's own Macs. That is more than a small build step.
 
-### AA10. The setup text field's border is too faint (Android)
+### AA10. Text field borders were too faint (Android)
 
-- **Where:** `ui/SetupQuestionScreens.kt:567-583`.
-- **What:** unfocused, the border is `outlineVariant` at 1.14:1; a field's boundary needs 3:1.
-- **Status:** Open. It needs a token decision in the Android theme.
+- **Where:** `ui/SetupQuestionScreens.kt:567-583` (setup, `outlineVariant`, 1.14:1); the Material default
+  (`outline`, 1.4:1 in dark) on the device name, tailnet address, folder name, agent invite and reply fields; no
+  edge at all on the pill fields (settings search, the device page's composer, the remote text and Mac screen keyboard
+  fields) or `composerOutline` (1.29:1 in light).
+- **What:** an unfocused field's edge needs 3:1 against what is behind it.
+- **Fix:** `bridgeyTextFieldColors()` (in `Components.kt`) for every `OutlinedTextField` and `fieldBorderColor` for the
+  pill fields, both the existing `onSurfaceVariant` token: 7.3:1 to 8.1:1 on the page, cards and composer in light and
+  dark. Focused, the border stays primary. The home composer, which holds buttons and no field, is unchanged.
+- **Status:** Fixed. `TextFieldContrastTest` checks the ratio in both themes (`followups/aa10-*`).
 
-### AA13. Two Clear and two Allow buttons share a name (Android)
+### AA13. Two Clear and two Allow buttons shared a name (Android)
 
-- **Where:** Settings > Privacy (Activity and Logs), Permissions.
-- **What:** ATF warns; the row title before each gives the context when read in order.
-- **Status:** Open. The pill buttons need a `contentDescription` parameter.
+- **Where:** Settings > Privacy (Activity and Logs), the Allow buttons on the calls and messages access rows, and the
+  battery row's Allow.
+- **What:** ATF warned; the row title before each gave the context only when read in order.
+- **Fix:** `OutlinePillButton` and `TonalPillButton` take a `label` that TalkBack reads instead of the word on the
+  button: "Clear activity", "Clear logs", "Allow background use" and "Allow %1$s" with the row's title (Russian
+  "Разрешить: %1$s").
+- **Status:** Fixed.
 
-### AL10. Russian at 200% breaks long words without a hyphen (Android)
+### AL10. Russian at 200% broke long words without a hyphen (Android)
 
-- **What:** "Автоматическ/ий".
-- **Status:** Open. Hyphenation is on for tab labels only; turning it on everywhere changes how English wraps at
-  normal size, a design call.
+- **What:** "Автоматическ/ий" on Settings > Sharing.
+- **Fix:** every `BridgeyType` style and the default text style hyphenate when the app's language is Russian
+  (`Hyphens.Auto`); English wraps as before.
+- **Status:** Fixed. On the `bridgey-api36` emulator at 200%: "Автоматиче-ский" in Russian, English unchanged
+  (`followups/android-emulator-sharing-*`). Robolectric has no hyphenation patterns, so `RussianHyphenationTest`
+  checks the styles.
 
 ## Checked and found sound
 
@@ -447,11 +466,26 @@ In `outputs/bridgey/a11y-l10n/` in the PA workspace, `before/` (rr/main `a85698c
 - **Android, rr-dev-1:** the `rr-ci/android` lane's command (`lintDebug` and `testDebugUnitTest` for `:app` and
   `:core:discovery`, `assembleDebug`) with the Rust core skipped locally: 2,196 tests, 5 skipped, 0 failures, lint clean.
 - **RR CI:** every lane on the PR (see the PR's checks).
-- **Not run:** TalkBack speech and a real 200% font scale on the `bridgey-api36` emulator, and VoiceOver on a real Mac.
-  The Robolectric and in-process checks cover the semantics those would read, but not the speech itself.
+- **Not run:** TalkBack speech, and VoiceOver on a real Mac. The Robolectric and in-process checks cover the semantics
+  those would read, but not the speech itself. A real 200% font scale ran on the `bridgey-api36` emulator only for
+  the follow-up's Settings > Sharing check.
+
+## Follow-up
+
+The second PR (`rr/a11y-followups`, from `rr/main` `395473d9`) fixed AA10, AA13, AL10 and the rest of ML2, corrected
+ML7 and closed MA9 as won't do for 1.0, with the defaults the coordinator chose under the owner's standing rule.
+
+- **Checks added:** `TextFieldContrastTest`, `RussianHyphenationTest` (Android); `testTransferProgressShowsInRussian`
+  and App Intents keys in `testEveryKeyTheCodeUsesExists` (Mac).
+- **Screenshots:** `outputs/bridgey/a11y-l10n/followups/` in the PA workspace: the setup, device composer, remote and
+  Mac screen keyboard fields before and after in light and dark (Robolectric), and Settings > Sharing at 200% on the
+  emulator in Russian before and after, and English after.
+- **Emulator:** a stress build (its own app ID) on `bridgey-api36` with its app language set to Russian and font scale
+  2.0; afterwards font scale went back to 1.0 and the build was removed.
+- **Local runs:** the `rr-ci/android` lane's command on rr-dev-1, 2,199 tests, 5 skipped, 0 failures, lint clean (the
+  two hyphenation tests first failed on test setup and pass now); the changed Mac tests on the personal Mac with
+  warnings as errors, 0 failures. RR CI ran every lane on the PR.
 
 ## Needs Rahul
 
-- **MA9.** Whether the Mac app should get a Text size choice (Settings > App) that scales its fonts.
-- **AA10.** A stronger border token for Android text fields (3:1), which also changes how fields look elsewhere.
-- **AL10.** Whether Russian should hyphenate everywhere at large text sizes, which also changes English wrapping.
+Nothing open.

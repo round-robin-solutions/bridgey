@@ -421,9 +421,12 @@ private fun HomeComposer(state: HomeState, actions: HomeActions) {
     }
 }
 
-/** The floating bar both composers sit in: 64 dp, fully rounded, 16 dp from the edges. */
+/**
+ * The floating bar both composers sit in: 64 dp, fully rounded, 16 dp from the edges. With a text field in it
+ * ([field], the device page) its edge is the fields' 3:1 border in light and dark.
+ */
 @Composable
-fun ComposerSurface(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+fun ComposerSurface(field: Boolean = false, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
     val colors = BridgeyTheme.colors
     Row(
         Modifier
@@ -433,7 +436,13 @@ fun ComposerSurface(content: @Composable androidx.compose.foundation.layout.RowS
             .shadow(if (colors.isDark) 16.dp else 8.dp, RoundedCornerShape(32.dp), ambientColor = Color.Black.copy(alpha = if (colors.isDark) 1f else 0.2f), spotColor = Color.Black.copy(alpha = if (colors.isDark) 0.5f else 0.2f))
             .clip(RoundedCornerShape(32.dp))
             .background(colors.composer)
-            .then(if (colors.isDark) Modifier else Modifier.border(1.dp, colors.composerOutline, RoundedCornerShape(32.dp)))
+            .then(
+                when {
+                    field -> Modifier.border(1.dp, fieldBorderColor, RoundedCornerShape(32.dp))
+                    colors.isDark -> Modifier
+                    else -> Modifier.border(1.dp, colors.composerOutline, RoundedCornerShape(32.dp))
+                },
+            )
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),

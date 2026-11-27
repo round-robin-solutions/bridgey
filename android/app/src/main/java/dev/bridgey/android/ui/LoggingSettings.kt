@@ -45,7 +45,7 @@ fun LoggingCard(
             }
             row { shape ->
                 ListRow(shape, stringResource(R.string.logging_clear), stringResource(R.string.logging_clear_detail), BridgeyIcons.Delete, Tint.NEUTRAL) {
-                    OutlinePillButton(stringResource(R.string.action_clear), null, { confirmClear = true })
+                    OutlinePillButton(stringResource(R.string.action_clear), null, { confirmClear = true }, label = stringResource(R.string.logging_clear))
                 }
             }
         },

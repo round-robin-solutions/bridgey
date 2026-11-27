@@ -378,6 +378,7 @@ fun PlacesScreen(state: PlacesScreenState, actions: PlacesScreenActions) {
                     onValueChange = { value = it.take(dev.bridgey.android.folders.FolderLimits.MAX_LABEL_CHARS) },
                     label = { Text(stringResource(R.string.places_name)) },
                     singleLine = true,
+                    colors = bridgeyTextFieldColors(),
                 )
             },
             confirmButton = {

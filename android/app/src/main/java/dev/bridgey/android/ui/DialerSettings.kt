@@ -130,7 +130,7 @@ private fun DialerAccessRow(shape: Shape, title: String, detail: String, allowed
         if (allowed) {
             Icon(BridgeyIcons.ChevronRight, null, tint = BridgeyTheme.colors.onSurfaceVariant)
         } else {
-            TonalPillButton(stringResource(R.string.messages_allow), onAllow)
+            TonalPillButton(stringResource(R.string.messages_allow), onAllow, label = stringResource(R.string.action_allow_named, title))
         }
     }
 }

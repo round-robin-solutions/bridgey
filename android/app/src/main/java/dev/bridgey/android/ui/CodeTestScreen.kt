@@ -202,7 +202,7 @@ private fun ReviewCard(state: CodeTestState.Review, actions: CodeTestActions) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = typed, onValueChange = { typed = it.take(24) }, singleLine = true,
-                    placeholder = { Text(stringResource(R.string.codetest_other_hint)) }, modifier = Modifier.weight(1f),
+                    placeholder = { Text(stringResource(R.string.codetest_other_hint)) }, colors = bridgeyTextFieldColors(), modifier = Modifier.weight(1f),
                 )
                 TextButton(
                     onClick = {

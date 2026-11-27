@@ -678,7 +678,7 @@ internal fun RenameDialog(current: String, onDismiss: () -> Unit, onSave: (Strin
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.rename_body))
-                OutlinedTextField(value = name, onValueChange = { name = it.take(64) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = name, onValueChange = { name = it.take(64) }, singleLine = true, colors = bridgeyTextFieldColors(), modifier = Modifier.fillMaxWidth())
             }
         },
         confirmButton = {

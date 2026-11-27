@@ -1848,6 +1848,7 @@ private fun TailnetAddressRow(onPair: (String) -> Unit) {
                 onValueChange = { address = it.take(253) },
                 singleLine = true,
                 placeholder = { Text(stringResource(R.string.pair_tailnet_hint)) },
+                colors = dev.bridgey.android.ui.bridgeyTextFieldColors(),
                 modifier = Modifier.weight(1f).testTag("pair-tailnet-address"),
             )
             TextButton(onClick = { address.trim().takeIf { it.isNotEmpty() }?.let(onPair); address = "" }, enabled = address.isNotBlank()) {

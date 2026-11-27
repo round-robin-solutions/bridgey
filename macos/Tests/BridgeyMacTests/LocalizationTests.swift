@@ -62,8 +62,9 @@ final class LocalizationTests: XCTestCase {
     }
 
     func testEveryKeyTheCodeUsesExists() throws {
-        let helpers = ["text": "Localizable", "plural": "Localizable", "setup": "Setup", "agents": "Agents"]
-        let pattern = try NSRegularExpression(pattern: #"L10n\.(text|plural|setup|agents)\(\s*"([^"\\]+)""#)
+        // Shortcuts actions (App Intents) look their keys up in Localizable too.
+        let helpers = ["text": "Localizable", "plural": "Localizable", "setup": "Setup", "agents": "Agents", "LocalizedStringResource": "Localizable"]
+        let pattern = try NSRegularExpression(pattern: #"(?:L10n\.(text|plural|setup|agents)|(LocalizedStringResource))\(\s*"([^"\\]+)""#)
         let folder = Self.root.appendingPathComponent("Sources/BridgeyMac")
         var missing: [String] = []
         var used = 0
@@ -71,8 +72,8 @@ final class LocalizationTests: XCTestCase {
         for file in try FileManager.default.contentsOfDirectory(atPath: folder.path) where file.hasSuffix(".swift") {
             let source = try String(contentsOf: folder.appendingPathComponent(file), encoding: .utf8)
             for match in pattern.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
-                guard let kind = Range(match.range(at: 1), in: source).map({ String(source[$0]) }),
-                      let key = Range(match.range(at: 2), in: source).map({ String(source[$0]) }), let table = helpers[kind] else { continue }
+                guard let kind = (Range(match.range(at: 1), in: source) ?? Range(match.range(at: 2), in: source)).map({ String(source[$0]) }),
+                      let key = Range(match.range(at: 3), in: source).map({ String(source[$0]) }), let table = helpers[kind] else { continue }
                 used += 1
                 for language in ["en", "ru"] {
                     let id = "\(language)/\(table)"
@@ -81,7 +82,7 @@ final class LocalizationTests: XCTestCase {
                 }
             }
         }
-        XCTAssertGreaterThan(used, 2000)
+        XCTAssertGreaterThan(used, 2040)
         XCTAssertEqual(missing.sorted(), [], "Keys the code uses that a table does not have")
     }
 
@@ -115,6 +116,15 @@ final class LocalizationTests: XCTestCase {
         L10n.bundle = .main
         L10n.language = nil
         XCTAssertEqual(StatusText.localized("Transfer cancelled"), "Transfer cancelled")
+    }
+
+    func testTransferProgressShowsInRussian() throws {
+        L10n.bundle = try bundle("ru")
+        let line = TransfersText.progressDetail(transferred: 12_000_000, total: 30_000_000, bytesPerSecond: 3_000_000)
+        XCTAssertTrue(line.hasPrefix("40 % \u{00B7} "), line)
+        XCTAssertTrue(line.hasSuffix("Осталось 6 с"), line)
+        XCTAssertFalse(line.contains("left") || line.contains("sec"), line)
+        XCTAssertTrue(TransfersText.progressDetail(transferred: 0, total: 10, bytesPerSecond: 0).hasSuffix("оцениваем, сколько осталось"))
     }
 
     /// Text("Off"), .help("…") and the like show English whatever the language. Proper names and symbols are allowed.

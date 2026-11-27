@@ -452,6 +452,10 @@
     <string name="live_reconnecting_detail">Пробуем последний известный адрес</string>
     <string name="action_retry_now">Повторить сейчас</string>
     <string name="action_allow">Разрешить</string>
+    <!-- What TalkBack says for a Clear or Allow button whose word repeats on the page. -->
+    <string name="action_clear_activity">Очистить активность</string>
+    <string name="action_allow_background">Разрешить работу в фоне</string>
+    <string name="action_allow_named">Разрешить: %1$s</string>
     <string name="action_not_now">Не сейчас</string>
     <string name="look_again">Искать устройства снова</string>
     <string name="look_again_detail">Заново объявляет этот телефон и сразу пробует подключить все сопряжённые устройства</string>

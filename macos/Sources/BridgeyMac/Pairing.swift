@@ -7124,14 +7124,7 @@ private final class MacTransferProgress {
         }
         lastAt = now
         lastBytes = transferred
-        let percent = totalBytes == 0 ? 100 : min(100, Int(transferred * 100 / totalBytes))
-        let remaining = max(0, totalBytes - transferred)
-        let eta: String
-        if smoothed >= 1 && remaining > 0 {
-            let seconds = Int64(Double(remaining) / smoothed)
-            eta = seconds < 60 ? "\(max(1, seconds)) sec" : "\(seconds / 60) min \(seconds % 60) sec"
-        } else { eta = "calculating…" }
-        return "\(percent)% · \(ByteCountFormatter.string(fromByteCount: transferred, countStyle: .file)) / \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)) · \(ByteCountFormatter.string(fromByteCount: Int64(smoothed), countStyle: .file))/s · \(eta) left"
+        return TransfersText.progressDetail(transferred: transferred, total: totalBytes, bytesPerSecond: smoothed)
     }
 }
 
@@ -7465,12 +7458,7 @@ final class IncomingFileTransfer {
         }
         lastProgressAt = now
         lastProgressBytes = receivedSize
-        let percent = expectedSize == 0 ? 100 : min(100, Int(receivedSize * 100 / expectedSize))
-        let remaining = max(0, expectedSize - receivedSize)
-        let eta = smoothedBytesPerSecond >= 1 && remaining > 0
-            ? Self.formatDuration(Int64(Double(remaining) / smoothedBytesPerSecond))
-            : "calculating…"
-        return "\(percent)% · \(Self.formatBytes(receivedSize)) / \(Self.formatBytes(expectedSize)) · \(Self.formatBytes(Int64(smoothedBytesPerSecond)))/s · \(eta) left"
+        return TransfersText.progressDetail(transferred: receivedSize, total: expectedSize, bytesPerSecond: smoothedBytesPerSecond)
     }
 
     private func close() {
@@ -7483,17 +7471,6 @@ final class IncomingFileTransfer {
     func cancel() {
         close()
         try? FileManager.default.removeItem(at: partialURL)
-    }
-
-    private static func formatBytes(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private static func formatDuration(_ seconds: Int64) -> String {
-        if seconds < 1 { return "<1 sec" }
-        if seconds < 60 { return "\(seconds) sec" }
-        if seconds < 3_600 { return "\(seconds / 60) min \(seconds % 60) sec" }
-        return "\(seconds / 3_600) h \((seconds % 3_600) / 60) min"
     }
 }
 

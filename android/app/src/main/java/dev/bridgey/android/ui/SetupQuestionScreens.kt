@@ -38,7 +38,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -570,15 +569,7 @@ private fun IntroPage(state: SetupUiState, actions: SetupActions) {
                     minLines = 2,
                     maxLines = 4,
                     shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = colors.primary,
-                        unfocusedBorderColor = colors.outlineVariant,
-                        focusedContainerColor = colors.surface1,
-                        unfocusedContainerColor = colors.surface1,
-                        cursorColor = colors.primary,
-                        focusedPlaceholderColor = colors.onSurfaceVariant,
-                        unfocusedPlaceholderColor = colors.onSurfaceVariant,
-                    ),
+                    colors = bridgeyTextFieldColors(container = colors.surface1),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

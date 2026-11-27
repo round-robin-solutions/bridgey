@@ -2071,3 +2071,7 @@
 "diagnostics.export.title" = "Экспорт диагностики Bridgey";
 "settings.receiveFolder.choose" = "Выберите, куда Bridgey сохраняет полученные файлы";
 "settings.receiveFolder.prompt" = "Выбрать";
+
+/* A file's progress line while it moves (TransfersText.progressDetail). */
+"progress.percent" = "%d %%";
+"progress.calculating" = "оцениваем, сколько осталось";

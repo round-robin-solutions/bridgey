@@ -665,6 +665,7 @@ fun InviteDialog(
                         label = { Text(stringResource(R.string.agent_invite_field)) },
                         singleLine = true,
                         isError = problem != null,
+                        colors = bridgeyTextFieldColors(),
                         modifier = Modifier.fillMaxWidth().testTag("agent-invite-field"),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -740,6 +741,7 @@ fun AskDialog(ask: AskRecord, deviceName: String, onAnswer: (String?, String?) -
                         value = text,
                         onValueChange = { text = it.take(dev.bridgey.android.agents.ASK_TEXT_MAX_CHARS) },
                         label = { Text(ask.textHint ?: stringResource(R.string.agent_reply_hint)) },
+                        colors = bridgeyTextFieldColors(),
                         modifier = Modifier.fillMaxWidth().testTag("agent-ask-text"),
                     )
                 }
