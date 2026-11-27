@@ -45,8 +45,9 @@ final class ScreenshotTests: XCTestCase {
         app.buttons["toolbar.settings"].tap()
         XCTAssertTrue(app.buttons["settings.done"].waitForExistence(timeout: 5))
         shot(app, appearance, "settings")
+        // Settings is a long list: scroll until About is on screen.
         let about = app.buttons["settings.about"]
-        if !about.isHittable { app.swipeUp() }
+        for _ in 0..<8 where !(about.exists && about.isHittable) { app.swipeUp() }
         about.tap()
         XCTAssertTrue(app.staticTexts["about.version"].waitForExistence(timeout: 5) || app.otherElements["about.version"].exists)
         shot(app, appearance, "about")

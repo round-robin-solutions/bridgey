@@ -311,7 +311,10 @@ if [ "$UI_TESTS" = 1 ]; then
     xcrun simctl list devices | grep "$IPAD_SIM" | sed 's/^ */simulator: /'
     xcrun simctl boot "$IPAD_SIM"
     xcrun simctl bootstatus "$IPAD_SIM" -b > /dev/null
-    # The screenshot tests; the tests that need the scripted peers skip themselves without them.
+    # The screenshot tests; the tests that need the scripted peers skip themselves without them. A shell keeps
+    # assignments made in front of a function call, so the iPhone run's peers are forgotten first.
+    unset TEST_RUNNER_BRIDGEY_PEER TEST_RUNNER_BRIDGEY_APP_PORT TEST_RUNNER_BRIDGEY_PEER_NAME TEST_RUNNER_BRIDGEY_PEER_TEXT \
+      TEST_RUNNER_BRIDGEY_MAC TEST_RUNNER_BRIDGEY_MAC_COMMANDS TEST_RUNNER_BRIDGEY_PHONE TEST_RUNNER_BRIDGEY_PHONE_COMMANDS
     run_tests ipad-ui "$IPAD_SIM" -only-testing:BridgeyUITests || FAILED="$FAILED ipad-ui"
   fi
 fi
