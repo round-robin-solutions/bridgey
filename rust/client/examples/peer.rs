@@ -13,8 +13,8 @@
 //!   link <url> | link-open <url>   send a link (kept for Open, or opened right away)
 //!   media <action> [value]   a media button (toggle, pause, next, previous, seek, volume)
 //!   feature <key> <0|1>      this device's switch for the connected device (sms_draft1, ...)
-//!   phone <area> <json>      a command for one of the phone's features as a desktop (area 1 text messages); the
-//!                            answer and the area's events are written out
+//!   phone <area> <json>      a command for one of the phone's features as a desktop (area 1 text messages, 3 phone
+//!                            files); the answer and the area's events are written out
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
 //!        [--receive-dir <folder>] [--seconds 300] [--phone]
@@ -134,6 +134,7 @@ fn main() {
                         let (area, command) = rest.split_once(' ').unwrap_or((rest, "{}"));
                         let area = match area {
                             "1" | "sms" => bridgey_core::phone::Area::Sms,
+                            "3" | "files" => bridgey_core::phone::Area::PhoneFiles,
                             _ => {
                                 out(json!({"event": "command", "ok": false, "error": "unknown area", "line": line}));
                                 continue;
