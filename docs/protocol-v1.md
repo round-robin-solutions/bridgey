@@ -1,8 +1,8 @@
-# Bridgey Protocol v1: proposed compatibility contract
+# Bridgey Protocol v1: compatibility contract
 
-Status: **proposal, 26 November 2026.** Nothing here is frozen until Rahul approves it. Until then the freeze check
-runs in report-only mode, and nothing on the wire changes. This page proposes which parts of the protocol 1.0
-freezes, why, and how the freeze is kept afterwards.
+Status: **frozen, 27 November 2026.** Proposed on 26 November and approved by Rahul on 27 November ("as recommended").
+`protocol/v1-baseline.json` says `"frozen": true`, so the freeze check now fails on any breaking change. Nothing on the
+wire changed with the freeze. This page sets out which parts of the protocol 1.0 freezes, why, and how the freeze is kept.
 
 - Machine-readable copy: the `v1` field on every feature key and message kind in
   [`protocol/messages.json`](../protocol/messages.json), shown in the tables of [protocol-contract.md](protocol-contract.md).
@@ -406,24 +406,32 @@ inbox) and resumes files both ways (`files_resume_draft1`). Its features map is 
 (`agentFeatures`), and its tests run every transfer against `rust/client` over loopback, both ways
 ([agent-cli.md](agent-cli.md#files-2026-11-27)).
 
-## Open questions for Rahul
+## Decisions
 
-Each has a recommendation; answering "as recommended" approves the proposal as written.
+Rahul answered question 1 on 26 November and the rest on 27 November ("as recommended"), which approves the proposal as
+written.
 
 1. **Approve the split?** Core 6 keys and 30 kinds, extension 28 and 130, draft 12 and 42, nothing deprecated.
    *Answered 26 November: approved, with fast transfers moved to core (Rahul: "Fast transfers is core").*
 2. **Deprecation window.** How long a deprecated entry keeps working. *Recommendation: at least 12 months after the
    first Stable release that stops sending it, and never while the upgrade policy supports a build that needs it.*
+   *Answered 27 November: as recommended.*
 3. **Protocol 1 reconnects** for upstream Bridgey and pre-0.10 pairs. *Recommendation: keep them, accept-only and never
    for a first pairing, until 12 months after Stable 1.0; offer protocol 2 to upstream meanwhile.*
+   *Answered 27 November: as recommended.*
 4. **Agent devices now?** The agent keys are frozen in this proposal. The CLI now checks every agent vector it writes or
    reads. *Recommendation: freeze them; the CLI on servers updates separately, so it gains most from a freeze.*
+   *Answered 27 November: as recommended.*
 5. **Connect anywhere scope.** *Recommendation: freeze the peer parts (`connect.setup`, `connect.setup.ack`,
    `connect.addresses`, the pair secret, sealed signals, the QUIC tunnel and `bridgey-auth-v2`); leave node auth and relay
    credentials to the control service's own versioning; keep in-band ICE draft under a new key when built.*
+   *Answered 27 November: as recommended.*
 6. **Keep the `_draft1` names?** *Recommendation: yes. Renaming frozen keys to final names would mean advertising both
    for a whole deprecation window, for no gain on the wire.*
+   *Answered 27 November: as recommended.*
 7. **When to flip.** *Recommendation: as soon as you approve, so the remaining 1.0 betas are already held to it; do not
    wait for Stable.*
+   *Answered 27 November: as recommended.*
 8. **Gaps before the flip.** The CLI vectors and every missing extension vector are in. *Recommendation: flip now; close
    the partial items during 1.x, and add vectors for any extension before its first change.*
+   *Answered 27 November: as recommended.*

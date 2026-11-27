@@ -5,8 +5,8 @@ Bridgey 0.5/0.6 and Bridgey by Round Robin speak today. Nothing here is frozen y
 stabilisation milestone, and this contract is what 1.0 is meant to freeze. Until then, treat the
 `upstream-v1` parts as fixed in practice (upstream peers depend on them) and the drafts as open. This page is the contract; [protocol.md](protocol.md) explains
 the design and behaviour of each feature in prose. Which entries 1.0 freezes, and how, is proposed in
-[protocol-v1.md](protocol-v1.md): the `v1` column in the tables below (core, extension, draft or deprecated). It is a
-proposal until Rahul approves it.
+[protocol-v1.md](protocol-v1.md): the `v1` column in the tables below (core, extension, draft or deprecated). It has
+been frozen since 27 November 2026.
 
 The machine-readable copy is [`protocol/messages.json`](../protocol/messages.json). It is the source:
 the tables at the end of this page are generated from it with

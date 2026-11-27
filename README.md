@@ -287,8 +287,8 @@ The default CLI package does not include the optional local detection model/runn
 
 ### v1.0.0 — stable local companion
 
-- [ ] Freeze and document the Bridgey Protocol v1 compatibility contract
-      ([proposal](docs/protocol-v1.md), waiting for approval; the freeze check runs in report-only mode)
+- [x] Freeze and document the Bridgey Protocol v1 compatibility contract
+      ([contract](docs/protocol-v1.md), frozen 27 November 2026; the freeze check fails on breaking changes)
 - [ ] Complete supported-upgrade acceptance for trust, settings and local history on real devices
 - [ ] Complete long-running sleep, Wi-Fi-change, process-restart and interrupted-transfer acceptance
 - [ ] Extend existing malformed-input, fuzz and cross-platform tests with long-lived device runs
@@ -581,7 +581,7 @@ skips `MacTrustRegistryTests`.
   test on each platform fails if a kind used in code is missing from the list.
 - Every feature key and kind has a proposed `v1` status (core, extension, draft or deprecated); new ones start as
   draft. [docs/protocol-v1.md](docs/protocol-v1.md) says what each means and how a frozen entry may change;
-  `python3 protocol/tools/v1_freeze.py --check` lists changes to frozen entries (report only until the freeze).
+  `python3 protocol/tools/v1_freeze.py --check` lists changes to frozen entries and fails on breaking ones.
 - `protocol/test-vectors/` holds golden vectors that both platforms must match (for example the
   cryptographic vectors in `crypto-v1.properties`). Change a vector only with a protocol change,
   and update both platforms in the same pull request.
