@@ -100,7 +100,7 @@ enum DemoScreens {
                 let w = (s as NSString).size(withAttributes: attributes).width
                 (s as NSString).draw(at: CGPoint(x: (size.width - w) / 2, y: y), withAttributes: attributes)
             }
-            text("09:41", .systemFont(ofSize: 22, weight: .semibold), 14)
+            text("10:24", .systemFont(ofSize: 22, weight: .semibold), 14)
             text("10:24", .systemFont(ofSize: 96, weight: .light), 150)
             text("Friday 28 November", .systemFont(ofSize: 24, weight: .medium), 270)
             let tints: [UIColor] = [.systemBlue, .systemGreen, .systemOrange, .systemPink, .systemPurple, .systemTeal, .systemYellow, .systemRed,
