@@ -48,9 +48,6 @@ public sealed partial class MessagesPage : UserControl
 
     public static HorizontalAlignment Side(bool incoming) => incoming ? HorizontalAlignment.Left : HorizontalAlignment.Right;
 
-    public static Brush Bubble(bool incoming) =>
-        (Brush)Application.Current.Resources[incoming ? "BrandSurfaceAltBrush" : "BrandTintBlueBrush"];
-
     public static Windows.UI.Text.FontWeight Weight(bool unread) => unread ? FontWeights.SemiBold : FontWeights.Normal;
 
     public static Visibility Not(bool value) => value ? Visibility.Collapsed : Visibility.Visible;

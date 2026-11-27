@@ -167,15 +167,18 @@
                                 <DataTemplate x:DataType="vm:MessageItem">
                                     <StackPanel HorizontalAlignment="{x:Bind views:MessagesPage.Side(Incoming), Mode=OneWay}" MaxWidth="440" Spacing="2" Margin="0,3"
                                                 AutomationProperties.Name="{x:Bind Label, Mode=OneWay}">
-                                        <Border CornerRadius="16" Padding="12,8" Background="{x:Bind views:MessagesPage.Bubble(Incoming), Mode=OneWay}">
-                                            <StackPanel Spacing="6">
+                                        <!-- Theme brushes follow light and dark; a brush picked in code would not. -->
+                                        <Grid>
+                                            <Border CornerRadius="16" Background="{ThemeResource BrandSurfaceAltBrush}" Visibility="{x:Bind Incoming, Mode=OneWay}" />
+                                            <Border CornerRadius="16" Background="{ThemeResource BrandTintBlueBrush}" Visibility="{x:Bind Outgoing, Mode=OneWay}" />
+                                            <StackPanel Spacing="6" Padding="12,8">
                                                 <Image Source="{x:Bind views:MessagesPage.Picture(Image), Mode=OneWay}" MaxHeight="280" MaxWidth="280" Stretch="Uniform"
                                                        Visibility="{x:Bind HasImage, Mode=OneWay}" AutomationProperties.Name="Picture" />
                                                 <TextBlock Text="Picture didn't load" Style="{StaticResource BrandSecondary}" Visibility="{x:Bind ImageFailed, Mode=OneWay}" />
                                                 <TextBlock Text="{x:Bind Body, Mode=OneWay}" Style="{StaticResource BrandBody}" IsTextSelectionEnabled="True"
                                                            Visibility="{x:Bind HasBody, Mode=OneWay}" />
                                             </StackPanel>
-                                        </Border>
+                                        </Grid>
                                         <TextBlock Text="{x:Bind Meta, Mode=OneWay}" Style="{StaticResource BrandSecondary}" FontSize="11"
                                                    HorizontalAlignment="{x:Bind views:MessagesPage.Side(Incoming), Mode=OneWay}" Margin="8,0" />
                                         <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Visibility="{x:Bind CanRetry, Mode=OneWay}">
