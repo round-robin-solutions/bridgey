@@ -86,6 +86,8 @@ private struct ScreenTopBar: View {
                     if screen.stream?.screenshots == true {
                         Text("Slower mode")
                             .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .fixedSize()
                             .foregroundStyle(c.tpi)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
