@@ -2,6 +2,13 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 12 (1.0.0-beta.12), 27 November 2026
+
+- Bridgey works better with VoiceOver, TalkBack and the keyboard: every switch in Mac Settings can be reached with Tab and turned with Space, switches say whether they're on, and devices are read once.
+- Large text no longer cuts words or buttons on the phone, and Russian words break with a hyphen.
+- Text fields on the phone have a clearer border.
+- Progress, transfer results and status messages now appear in Russian when the app is set to Russian.
+
 ## 1.0 Beta 11 (1.0.0-beta.11), 26 November 2026
 
 - Settings are easier to find: six groups (Devices, Sharing, Phone, Control, Privacy and App) replace the long list. Each feature has one card with its main switch, the settings you use most and your devices as chips; the rest sits under More options, and search still takes you to the exact row.
