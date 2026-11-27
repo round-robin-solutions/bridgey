@@ -32,6 +32,7 @@ changed.
 | The Calls window (`dialer_draft1`: status, contact search, recent calls, calls through the phone or its WhatsApp) and calls (`calls.request`) | phone side | yes | none | yes, the desktop side, from Windows M3 (`calls.rs`): the Mac's search, list and SIM rules; memory only |
 | Phone files (`files_browse_draft1`: places, folders, photos and recent documents, thumbnails) and folders from the phone (`folders_draft1` receiving, `into` downloads) and to it (`into` uploads) | phone side | yes | none | yes, the desktop side, from Windows M3 (`phone_files.rs`, `folders.rs`): files to the folder being browsed; no folder journal or resume yet |
 | The phone's screen and control of it (`screen_draft1`, `phone_control_draft1`: requests, the stream, frames, acknowledgements, control input on the shared contract) | phone side | yes | `rust/proto` contract only | yes, the viewer and controller side, from Windows M3 (`screen.rs`); frames go to the host through `bridgey_screen_frame`, never the event queue |
+| A Mac's screen and control of it (`screen_control_draft1`, `display.*`: requests, the stream, frames, acknowledgements, control input on the shared contract) | viewer | source | `rust/proto` contract only | yes, the viewer and controller side, from iOS I2 (`display.rs`); frames go to the host through `bridgey_screen_frame`; this device says it is a viewer and controller, never a source or an input host |
 | This device's own screen to the phone (`screen_control_draft1`, `display.*`) | viewer | source | `rust/proto` contract | not yet: Windows does not advertise the key ([below](#not-covered-yet)) |
 | Everything else (sending folders with a root, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
 
@@ -114,8 +115,32 @@ changed.
   with the session's connection nonce, `geometry_ack` first and after each `screen.geometry`, motion coalesced, within
   the phone's rates, a heartbeat every 2 s. Other ops: `status`, `stop`, `decoded`, `keyframe`. Events: `status`,
   `started`, `stats`, `geometry`, `control`, `stopped`.
+- A Mac's screen (area 5, `display.rs`, `screen_control_draft1`) follows the phone's viewer of a Mac (Android's
+  `DisplayViewerHub.kt`) with the same ops, events and JSON as area 4, so a host shows both in one view. `request`
+  sends `display.request` with this device's capabilities: a viewer (H.264 decoding) and a controller (pointer, keys
+  and text), never a source or an input host, since nothing may control an iPhone or iPad. The Mac's `display.status`
+  arrives as `status` (`waiting`, `declined`, `busy`, `disabled`, `permission`, `locked`, `failed`, or `expired`
+  here); `started` carries the stream, its size (the display's geometry), `displayName` and control (`capable` when the
+  two devices' capabilities leave something to control with, `allowed` when the Mac said control may be asked for). A
+  start that does not answer this device's open request is refused with `left_screen`, an invalid one with `invalid`;
+  the last 16 ended stream IDs stay refused. Frames come through `bridgey_screen_frame` as a phone's do. Control:
+  `control_begin` and `control_end`, then `pointer {x, y}` (coalesced), `button {button, down, x, y}` (`primary`,
+  `secondary` or `middle`; transitions never dropped, a release always goes), `scroll`, `key`, `press` and `text`, as
+  `display.input` packets of the shared contract with the session's connection nonce and the stream's counters from
+  `display.start`; `touch` and `navigate` answer `unsupported`. `stop` takes a `reason`: `user` (the default),
+  `left_screen` (the view closed or the app left the screen) or `screen_off`. Positions are fractions of the whole
+  display once the host has taken off its letterbox (`display::letterbox`, the `letterbox` vectors).
+- The screen keys say a role only together with who sends them: a Mac reads `screen_draft1` and
+  `phone_control_draft1` from any device as "this phone shares its screen and may be controlled", and the phone reads
+  `screen_control_draft1` from any device as "this Mac shows its screen". So a host turns `screen_control_draft1` on
+  only for Macs and `screen_draft1` with `phone_control_draft1` only for phones (`bridgey_set_feature` per device, by
+  the platform the device advertised), or a Mac would offer to show, or control, the host itself.
 - ABI 1 grows only at the end: `BridgeyConfig` fields after `data_dir` are read only when `struct_size` covers
   them, and new event kinds are skipped by hosts that don't know them.
+- Two calls at the end of the C ABI are for tests only and never called by an app: `bridgey_simulate_phone_for_tests`
+  (this client answers as a simulated phone and Mac, as the scripted peer's `--phone` and `--mac` do) and
+  `bridgey_send_as_phone_for_tests` (what a phone sends: notifications, codes status, link and media requests), so a
+  host's own tests can run real sessions where no peer process can be started (the iOS simulator).
 - Ownership: client handles are `uint64_t`, so a stopped or freed handle is refused rather than dereferenced.
   Strings in are borrowed for the call; strings and events out are freed by the library. Panics never cross.
 - Media will not use the event path. File bytes never do: the library reads and writes the files itself.
@@ -177,7 +202,15 @@ changed.
   simulated phone (a synthetic 96 by 160 H.264 clip in `tests/fixtures`, sent as unattended screenshots): frames pulled
   and acknowledged, stats, control with touch, text, keys and a rotation, Stop, Show phone screens turned off, and a
   disconnect. The Windows tests check the letterbox against `display-v1.json`.
-- `protocol/messages.json` lists `client` for the 109 kinds it speaks; a test fails if the sources and the list
+- A Mac's screen: every group of `display-v1.json` this device reads or writes (status, start and the Mac's stream
+  messages as read here; the request, started, ack, control and the viewer's stops as written here; frames, the
+  connection nonce and the letterbox), checked in `src/display/tests.rs` with the control sender's pointer and button
+  rules. `tests/display.rs` runs a stream from a simulated Mac (the same synthetic clip, Allow without asking): frames
+  pulled and acknowledged, stats, control with a pointer, buttons, scrolling, text and keys bound to the session's
+  nonce and the stream's counters, a display that changes size, Stop with its reasons, See Mac screens turned off here,
+  the Mac taking its grant away, and a disconnect. `tests/ffi.rs` runs the same through the C ABI with the two
+  tests-only calls.
+- `protocol/messages.json` lists `client` for the 120 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The
