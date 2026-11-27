@@ -1,0 +1,4 @@
+target/
+out/
+core
+core.[0-9]*

@@ -1,8 +1,9 @@
 # Shared session client (`rust/client`)
 
-The Windows and iOS apps, and later Linux, run the Bridgey session from one Rust library, `bridgey_core`,
-behind a C ABI ([`rust/client/include/bridgey_core.h`](../rust/client/include/bridgey_core.h)). Android and the
-Mac keep their own Kotlin and Swift code; nothing in either app changed.
+The Windows, iOS and Linux apps run the Bridgey session from one Rust library, `bridgey_core`: Windows and iOS
+behind a C ABI ([`rust/client/include/bridgey_core.h`](../rust/client/include/bridgey_core.h)), Linux as a Rust crate
+([`linux/`](../linux/README.md)). Android and the Mac keep their own Kotlin and Swift code; nothing in either app
+changed.
 
 ## Where the session lives today
 
@@ -26,7 +27,7 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Codes from messages and email (`codes.*`, the code in a notification) | phone side | model or relay | `rust/codes` (candidate, gate, guard, model) | yes, with a rules reader instead of the model (`codes.rs`); the shared candidate rules and guard decide |
 | The phone's media controls (`quick.request` media, `media.state`) and links the phone asks to open at once (`links_open_draft1`) | yes | yes | none | yes, the desktop side, from Windows M2: Open links right away opens at most one link every 3 s per device; media commands go to the host and are answered once the player has acted; `media.state` on change and every ten seconds while playing |
 | Connect away from home (`connect_draft1`: `connect.setup`, `connect.addresses`, tunnel sessions with `bridgey-auth-v2`) | yes | yes | CLI and the core | yes: the core's node runs in the client, pair secrets and learned addresses are kept with each trusted device, tunnels carry protocol 2 reconnects only |
-| Self-update for direct downloads (the channel feed's `windows` entry; size, SHA-256 and the release key's Ed25519 signature) | Play/APK updater | Sparkle | none | yes (`update.rs`, `bridgey_update_check` and `bridgey_update_verify`, no client needed) |
+| Self-update for direct downloads (the channel feed's `windows` and `linux` entries; size, SHA-256 and the release key's Ed25519 signature) | Play/APK updater | Sparkle | none | yes (`update.rs`: `check_platform` and `verify_file`, `bridgey_update_check` and `bridgey_update_verify` in the C ABI, no client needed) |
 | Text messages (`sms_draft1`: conversations, sync, sends, MMS pictures, contacts, Mark as read, Block on phone) | phone side | yes | none | yes, the desktop side, from Windows M3 (`sms.rs`): the Mac's sync rules and cache, kept in the host's storage |
 | The Calls window (`dialer_draft1`: status, contact search, recent calls, calls through the phone or its WhatsApp) and calls (`calls.request`) | phone side | yes | none | yes, the desktop side, from Windows M3 (`calls.rs`): the Mac's search, list and SIM rules; memory only |
 | Phone files (`files_browse_draft1`: places, folders, photos and recent documents, thumbnails) and folders from the phone (`folders_draft1` receiving, `into` downloads) and to it (`into` uploads) | phone side | yes | none | yes, the desktop side, from Windows M3 (`phone_files.rs`, `folders.rs`): files to the folder being browsed; no folder journal or resume yet |

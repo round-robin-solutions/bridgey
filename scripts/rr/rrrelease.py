@@ -50,6 +50,9 @@ MACOS_MINIMUM_SYSTEM_VERSION = "13.0"
 # Windows 10 version 2004 (build 19041), the Windows App SDK's floor (windows/src/Bridgey.App TargetPlatformMinVersion).
 WINDOWS_MINIMUM_OS_BUILD = 19041
 WINDOWS_ARCHES = ("x64", "arm64")
+# Linux AppImages (linux/packaging/appimage.sh), by the architecture names AppImage uses. Behind
+# BRIDGEY_RELEASE_LINUX in ci-release.sh until Linux ships (linux/README.md).
+LINUX_ARCHES = ("x86_64", "aarch64")
 # Appcast items kept per channel. Nightly matches the number of nightly releases kept on GitHub.
 APPCAST_RETENTION = {"stable": 5, "beta": 5, "nightly": 10}
 MAX_NOTES_LENGTH = 4000
@@ -252,7 +255,23 @@ def validate_feed(feed: dict, channel: str, app_id: str, asset_prefix: str) -> N
             except ValueError:
                 signature = b""
             require(len(signature) == 64, f"Windows {arch} EdDSA signature is invalid")
-    require(android is not None or macos is not None or windows is not None, "feed has no platform entry")
+    linux = feed.get("linux")
+    if linux is not None:
+        # Linux starts at 1.0 too. The app checks these fields (rust/client/src/update.rs, the linux entry) and the
+        # Ed25519 signature over each AppImage, made with the Sparkle key.
+        version = str(linux.get("version", ""))
+        require(versions.matches_channel(version, channel, legacy=False), f"Linux version {version!r} does not match channel")
+        require(isinstance(linux.get("build"), int) and linux["build"] > 0, "Linux build is invalid")
+        arches = [arch for arch in LINUX_ARCHES if linux.get(arch) is not None]
+        require(bool(arches), "Linux entry has no x86_64 or aarch64 AppImage")
+        for arch in arches:
+            check_asset(linux[arch], f"Linux {arch} AppImage")
+            try:
+                signature = base64.b64decode(linux[arch].get("edSignature", ""), validate=True)
+            except ValueError:
+                signature = b""
+            require(len(signature) == 64, f"Linux {arch} EdDSA signature is invalid")
+    require(android is not None or macos is not None or windows is not None or linux is not None, "feed has no platform entry")
 
 
 # ---------------------------------------------------------------- appcast
@@ -359,8 +378,9 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
     if not versions.CURRENT[channel].match(version):
         raise ReleaseError(f"{version!r} is not a valid {channel} version")
     windows_zips = {arch: getattr(args, f"windows_{arch}") for arch in WINDOWS_ARCHES if getattr(args, f"windows_{arch}", None)}
-    if not args.apk and not args.zip and not windows_zips:
-        raise ReleaseError("Nothing to release: pass --apk, --dmg and --zip, and/or --windows-x64 and --windows-arm64")
+    linux_images = {arch: getattr(args, f"linux_{arch}") for arch in LINUX_ARCHES if getattr(args, f"linux_{arch}", None)}
+    if not args.apk and not args.zip and not windows_zips and not linux_images:
+        raise ReleaseError("Nothing to release: pass --apk, --dmg and --zip, --windows-x64 and --windows-arm64, and/or --linux-x86_64")
     if bool(args.dmg) != bool(args.zip):
         raise ReleaseError("macOS needs both --dmg and --zip")
 
@@ -491,6 +511,23 @@ def assemble(args: argparse.Namespace, props: dict[str, str]) -> Path:
         print(f"note: no Windows build in this release; {channel}.json keeps Windows {previous_feed['windows'].get('version')}", file=sys.stderr)
         feed["windows"] = previous_feed["windows"]
 
+    if linux_images:
+        if not args.ed_key:
+            raise ReleaseError("--ed-key is required to sign the Linux update")
+        linux_key = load_private_key(Path(args.ed_key))
+        expected_public = args.ed_public_key or sparkle_public_key()
+        if public_key_b64(linux_key) != expected_public:
+            raise ReleaseError("Sparkle private key does not match SUPublicEDKey in Info.plist")
+        linux: dict = {"version": version, "build": int(getattr(args, "linux_build", None) or build)}
+        for arch, source in linux_images.items():
+            name = f"{prefix}-{version}-linux-{arch}.AppImage"
+            path, digest, size = stage(source, name)
+            linux[arch] = {"url": download_base + name, "sha256": digest, "size": size, "edSignature": ed_sign(linux_key, path)}
+        feed["linux"] = linux
+    elif previous_feed and previous_feed.get("linux"):
+        print(f"note: no Linux build in this release; {channel}.json keeps Linux {previous_feed['linux'].get('version')}", file=sys.stderr)
+        feed["linux"] = previous_feed["linux"]
+
     # The browser extension zips (extensions/browser/build.py): release assets for installing by hand, listed in
     # SHA256SUMS and the provenance, never in a channel feed (browsers do not update them from here).
     if getattr(args, "browser_extensions", None):
@@ -566,6 +603,11 @@ def write_supply_chain(
             add(f"{prefix}-{args.version}-Windows.sbom.cdx.json", supplychain.dump_json(document))
             info = supplychain.read_build_info(Path(args.windows_build_info) if getattr(args, "windows_build_info", None) else None)
             builds["windows"] = supplychain.build_record(info, {"dotnet": info.get("dotnet", "unknown"), "rust": info.get("rust", "unknown")})
+        if any(getattr(args, f"linux_{arch}", None) for arch in LINUX_ARCHES):
+            document = supplychain.linux_sbom((root / "linux/Cargo.lock").read_text(encoding="utf-8"), **common)
+            add(f"{prefix}-{args.version}-Linux.sbom.cdx.json", supplychain.dump_json(document))
+            info = supplychain.read_build_info(Path(args.linux_build_info) if getattr(args, "linux_build_info", None) else None)
+            builds["linux"] = supplychain.build_record(info, {"rust": info.get("rust", "unknown"), "gtk": info.get("gtk", "unknown")})
         provenance = supplychain.build_provenance(
             app_id=props["EDITION_APP_ID"], repo=props["GITHUB_REPO"], channel=args.channel, version=args.version,
             build=int(args.build), tag=args.tag, built_at=iso(published), git=supplychain.git_info(root), builds=builds,
@@ -606,6 +648,10 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
         for arch in WINDOWS_ARCHES:
             if windows.get(arch):
                 assets.append(windows[arch])
+        linux = feed.get("linux") or {}
+        for arch in LINUX_ARCHES:
+            if linux.get(arch):
+                assets.append(linux[arch])
         for asset in assets:
             local = release_dir / asset["url"].rsplit("/", 1)[-1]
             if local.is_file():
@@ -626,6 +672,14 @@ def verify(dist: Path, props: dict[str, str], public_key: str) -> list[str]:
             if local.is_file():
                 if not ed_verify(public_key, local, windows[arch]["edSignature"]):
                     raise ReleaseError(f"Windows {arch} EdDSA signature in {channel}.json does not verify")
+                report.append(f"{channel}: {local.name} EdDSA ok")
+        for arch in LINUX_ARCHES:
+            if not linux.get(arch):
+                continue
+            local = release_dir / linux[arch]["url"].rsplit("/", 1)[-1]
+            if local.is_file():
+                if not ed_verify(public_key, local, linux[arch]["edSignature"]):
+                    raise ReleaseError(f"Linux {arch} EdDSA signature in {channel}.json does not verify")
                 report.append(f"{channel}: {local.name} EdDSA ok")
     if not found:
         raise ReleaseError(f"No channel feeds in {channels_dir}")
@@ -685,6 +739,7 @@ def rebase(dist: Path, previous_dir: Path, props: dict[str, str]) -> list[str]:
         "android": any(n.endswith("-Android.apk") for n in names),
         "macos": any(n.endswith("-macOS.zip") for n in names),
         "windows": any(n.endswith("-windows-x64.zip") or n.endswith("-windows-arm64.zip") for n in names),
+        "linux": any(n.endswith("-linux-x86_64.AppImage") or n.endswith("-linux-aarch64.AppImage") for n in names),
     }
     for platform, present in included.items():
         if present:
@@ -746,6 +801,10 @@ def main(argv: list[str] | None = None) -> int:
     assemble_parser.add_argument("--windows-build", type=int, help="the build number the Windows zips carry, when another than --build")
     assemble_parser.add_argument("--windows-build-info", help="windows.build-info written by ci-release-windows.ps1")
     assemble_parser.add_argument("--windows-deps", help="windows-rust-dependencies.txt (cargo tree for the Windows target) from the Windows job")
+    assemble_parser.add_argument("--linux-x86_64", help="the Linux x86_64 AppImage from scripts/rr/build-linux.sh")
+    assemble_parser.add_argument("--linux-aarch64", help="the Linux aarch64 AppImage from scripts/rr/build-linux.sh")
+    assemble_parser.add_argument("--linux-build", type=int, help="the build number the AppImages carry, when another than --build")
+    assemble_parser.add_argument("--linux-build-info", help="linux.build-info written by ci-release-linux.sh")
     assemble_parser.add_argument("--browser-extensions", help="folder with <prefix>-<version>-{Chrome,Edge,Firefox}.zip from extensions/browser/build.py")
     assemble_parser.add_argument("--repo-root", default=str(REPO_ROOT), help=argparse.SUPPRESS)
     previous = assemble_parser.add_mutually_exclusive_group()

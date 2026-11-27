@@ -13,7 +13,9 @@
 # scripts/rr/ci-release-macos.sh) when RR CI hands its files over in RR_CI_INPUT_DIR; otherwise it is
 # built on BRIDGEY_RR_MAC_HOST (default personal) over SSH. The Windows zips come from the RR CI Windows job
 # (release-windows or nightly-windows, scripts/rr/ci-release-windows.ps1) the same way; without it the release
-# goes out without Windows and the channel feed keeps its previous Windows entry.
+# goes out without Windows and the channel feed keeps its previous Windows entry. The Linux AppImages (release-linux or
+# nightly-linux, scripts/rr/ci-release-linux.sh) join only with BRIDGEY_RELEASE_LINUX=1: off, releases publish what they
+# did before Linux existed.
 # RR CI gives jobs a private HOME, so the keys, the GitHub token and the toolchains come from the
 # worker account's home (RR_CI_HOST_HOME): ~/.config/bridgey-rr/{rr-bridgey.jks,android-signing.env,
 # sparkle_ed25519_private.key,github-token}. Nothing secret is printed.
@@ -97,6 +99,23 @@ if [ -n "${RR_CI_INPUT_DIR:-}" ]; then
     if [ -f "$d/release.env" ]; then WIN_DIR=$d; break; fi
   done
 fi
+# The Linux AppImages from RR CI's Linux jobs (x86_64 and aarch64), only with BRIDGEY_RELEASE_LINUX=1 (off until Linux
+# ships). Both jobs' files go into one folder for release.sh; each must be of this revision.
+LIN_DIR=""
+if [ "${BRIDGEY_RELEASE_LINUX:-0}" = 1 ] && [ -n "${RR_CI_INPUT_DIR:-}" ]; then
+  for d in "$RR_CI_INPUT_DIR/release-linux" "$RR_CI_INPUT_DIR/nightly-linux" "$RR_CI_INPUT_DIR/release-linux-arm64" "$RR_CI_INPUT_DIR/nightly-linux-arm64"; do
+    [ -f "$d/release.env" ] || continue
+    [ "$(env_value "$d/release.env" REVISION)" = "$HEAD" ] || die "a Linux build is not of $HEAD"
+    if [ -z "$LIN_DIR" ]; then
+      LIN_DIR="$SIGNED_DIR/linux"
+      mkdir -p "$LIN_DIR"
+      cp "$d/release.env" "$LIN_DIR/release.env"
+      [ ! -f "$d/linux.build-info" ] || cp "$d/linux.build-info" "$LIN_DIR/linux.build-info"
+    fi
+    [ "$(env_value "$d/release.env" VERSION_NAME)" = "$(env_value "$LIN_DIR/release.env" VERSION_NAME)" ] || die "the Linux builds differ in version"
+    cp "$d"/*.AppImage "$LIN_DIR/"
+  done
+fi
 # The unsigned APK from RR CI's Android job: same revision and the same version and build number (its versionCode).
 AND_DIR=""
 if [ -n "${RR_CI_INPUT_DIR:-}" ]; then
@@ -115,6 +134,9 @@ else
 fi
 if [ -n "$MAC_DIR" ]; then
   [ "$(env_value "$MAC_DIR/release.env" REVISION)" = "$HEAD" ] || die "the Mac build is not of $HEAD"
+fi
+if [ -n "$LIN_DIR" ]; then
+  echo "== Linux $(env_value "$LIN_DIR/release.env" VERSION_NAME) from RR CI's Linux job"
 fi
 if [ -n "$AND_DIR" ]; then
   [ "$(env_value "$AND_DIR/release.env" REVISION)" = "$HEAD" ] || die "the Android build is not of $HEAD"
@@ -135,6 +157,9 @@ job_version() { tr -d '\r' < "$1" | grep -E '^(CHANNEL|VERSION_NAME|BUILD_NUMBER
 if [ -n "$WIN_DIR" ]; then
   [ "$(printf '%s\n' "$WANT" | sed -n 's/^VERSION_NAME=//p')" = "$WIN_VERSION" ] || die "the Windows build's version ($WIN_VERSION) differs from this release's"
 fi
+if [ -n "$LIN_DIR" ]; then
+  [ "$(printf '%s\n' "$WANT" | sed -n 's/^VERSION_NAME=//p')" = "$(env_value "$LIN_DIR/release.env" VERSION_NAME)" ] || die "the Linux build's version differs from this release's"
+fi
 
 if [ -n "$AND_DIR" ]; then
   echo "== Android from RR CI's Android job, signed here"
@@ -149,8 +174,8 @@ fi
 
 if [ -n "$MAC_DIR" ]; then
   echo "== $* from $BRANCH @$SHORT, Mac build from RR CI's Mac job"
-  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --macos-artifacts "$MAC_DIR" ${WIN_DIR:+--windows-artifacts "$WIN_DIR"} --publish
+  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --macos-artifacts "$MAC_DIR" ${WIN_DIR:+--windows-artifacts "$WIN_DIR"} ${LIN_DIR:+--linux-artifacts "$LIN_DIR"} --publish
 else
   echo "== $* from $BRANCH @$SHORT, Mac build on $MAC_HOST"
-  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --mac-host "$MAC_HOST" ${WIN_DIR:+--windows-artifacts "$WIN_DIR"} --publish
+  sh "$RR_ROOT/scripts/rr/release.sh" "$@" --notes-file "$NOTES" --mac-host "$MAC_HOST" ${WIN_DIR:+--windows-artifacts "$WIN_DIR"} ${LIN_DIR:+--linux-artifacts "$LIN_DIR"} --publish
 fi
