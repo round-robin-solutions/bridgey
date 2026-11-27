@@ -2,6 +2,13 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 14 (1.0.0-beta.14), 27 November 2026
+
+- Windows: read and answer your phone's text messages, with unread first, pictures and a choice of SIM. Turn on Text messages in Settings.
+- Windows: a Calls window with a keypad, recent calls and contacts, WhatsApp voice and video, and a call card with Answer, Decline and Hang up. Turn on Calls in Settings.
+- Windows: browse your phone's folders and photos, download files and whole folders, and add files from this PC.
+- Windows: see your phone's screen in a window and control it with the mouse and keyboard. Turn on Show phone screens in Settings.
+
 ## 1.0 Beta 13 (1.0.0-beta.13), 27 November 2026
 
 - The phone keeps at most 8 received-file notifications, so after many files Android no longer blocks Bridgey's other notifications, such as pairing codes, calls and control requests. Received files stay in Download/Bridgey and in Activity.
