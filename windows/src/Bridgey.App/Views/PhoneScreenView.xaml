@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Bridgey.Views.PhoneScreenView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:Bridgey.Views">
+
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="40" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <!-- Shown only where Mica is not available. -->
+        <Border x:Name="BackdropFallback" Grid.RowSpan="3" Background="{ThemeResource BrandWindowBrush}" Visibility="Collapsed" />
+        <Border Grid.RowSpan="3" Background="{ThemeResource BrandWindowTintBrush}" />
+
+        <!-- The title bar: the phone's name, and Slower mode for unattended screenshots. -->
+        <Grid x:Name="TitleBar" Padding="16,0,140,0" ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="{x:Bind Item.Title, Mode=OneWay}" FontFamily="{StaticResource BrandHeadingFont}" FontSize="14" FontWeight="SemiBold"
+                       VerticalAlignment="Center" Foreground="{ThemeResource BrandOnBrush}" AutomationProperties.AutomationId="ScreenTitle" />
+            <Border x:Name="SlowerPill" Grid.Column="1" CornerRadius="10" Padding="8,2" VerticalAlignment="Center" Background="{ThemeResource BrandTintPurpleBrush}"
+                    Visibility="{x:Bind views:PhoneScreenView.Both(Item.IsShowing, Item.Screenshots), Mode=OneWay}"
+                    ToolTipService.ToolTip="Your phone sends screenshots, about three a second, because nobody approved video on it.">
+                <TextBlock Text="Slower mode" FontSize="12" Foreground="{ThemeResource BrandTintPurpleInkBrush}" AutomationProperties.AutomationId="SlowerMode" />
+            </Border>
+        </Grid>
+
+        <!-- The picture, letterboxed. Input goes to the layer above it while controlling. -->
+        <Grid Grid.Row="1" Background="Black">
+            <MediaPlayerElement x:Name="Player" Stretch="Uniform" AreTransportControlsEnabled="False" AutomationProperties.Name="Phone screen"
+                                AutomationProperties.AutomationId="ScreenPicture" />
+            <ContentControl x:Name="InputLayer" IsTabStop="True" UseSystemFocusVisuals="True" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                            Background="Transparent" AutomationProperties.Name="Phone screen"
+                            PointerPressed="OnPointerPressed" PointerMoved="OnPointerMoved" PointerReleased="OnPointerReleased" PointerCanceled="OnPointerCanceled"
+                            PointerCaptureLost="OnPointerCanceled" PointerWheelChanged="OnPointerWheel" KeyDown="OnKeyDown" CharacterReceived="OnCharacter" LostFocus="OnLostFocus">
+                <Border Background="Transparent" />
+            </ContentControl>
+            <StackPanel x:Name="StatusPanel" Spacing="12" MaxWidth="320" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Visibility="{x:Bind Item.HasStatus, Mode=OneWay}">
+                <ProgressRing IsActive="{x:Bind Item.IsBusy, Mode=OneWay}" Visibility="{x:Bind Item.IsBusy, Mode=OneWay}" Width="28" Height="28" Foreground="White" />
+                <TextBlock Text="{x:Bind Item.Status, Mode=OneWay}" Foreground="White" TextAlignment="Center" TextWrapping="Wrap" FontSize="14"
+                           AutomationProperties.AutomationId="ScreenStatus" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Stats, control and Stop. -->
+        <Grid Grid.Row="2" Padding="12,8" ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel VerticalAlignment="Center" Spacing="2">
+                <TextBlock Text="{x:Bind Item.ControlText, Mode=OneWay}" Style="{StaticResource BrandBody}" Visibility="{x:Bind Item.HasControlText, Mode=OneWay}"
+                           TextTrimming="CharacterEllipsis" MaxLines="2" AutomationProperties.AutomationId="ControlText" AutomationProperties.LiveSetting="Polite" />
+                <TextBlock Text="{x:Bind Item.StatsText, Mode=OneWay}" Style="{StaticResource BrandSecondary}" FontSize="12" TextWrapping="NoWrap"
+                           TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="ScreenStats" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <StackPanel x:Name="NavigationBar" Orientation="Horizontal" Spacing="4" Visibility="{x:Bind Item.CanNavigate, Mode=OneWay}">
+                    <Button Click="OnBack" AutomationProperties.Name="Back" AutomationProperties.AutomationId="PhoneBack" ToolTipService.ToolTip="Back">
+                        <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                    </Button>
+                    <Button Click="OnHome" AutomationProperties.Name="Home" AutomationProperties.AutomationId="PhoneHome" ToolTipService.ToolTip="Home">
+                        <FontIcon Glyph="&#xE80F;" FontSize="14" />
+                    </Button>
+                    <Button Click="OnRecents" AutomationProperties.Name="Recents" AutomationProperties.AutomationId="PhoneRecents" ToolTipService.ToolTip="Recents">
+                        <FontIcon Glyph="&#xE8A9;" FontSize="14" />
+                    </Button>
+                </StackPanel>
+                <Button Content="Control" Style="{StaticResource AccentButtonStyle}" Click="OnControl" Visibility="{x:Bind Item.CanControl, Mode=OneWay}"
+                        AutomationProperties.AutomationId="ScreenControl" ToolTipService.ToolTip="Control the phone from this PC" />
+                <Button Content="Stop control" Click="OnStopControl" Visibility="{x:Bind views:PhoneScreenView.Either(Item.IsControlling, Item.IsAskingControl), Mode=OneWay}"
+                        AutomationProperties.AutomationId="StopControl" />
+                <Button Content="Stop" Click="OnStop" Visibility="{x:Bind views:PhoneScreenView.Either(Item.IsShowing, Item.IsAsking), Mode=OneWay}"
+                        AutomationProperties.AutomationId="StopScreen" />
+            </StackPanel>
+        </Grid>
+    </Grid>
+</UserControl>

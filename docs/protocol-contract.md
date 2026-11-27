@@ -680,15 +680,15 @@ Edition extension (links_open_draft1): Send to device sends links action open. T
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `media.state` | upstream-v1 | extension | mac-to-phone | media | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
-| `media.list` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `media.page` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `media.thumbnails` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `media.thumbnails_batch` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.list` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `media.page` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `media.thumbnails` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `media.thumbnails_batch` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 | `media.preview` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `media.preview_part` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `media.range` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `media.range_part` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 45,056 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `media.cancel` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `media.cancel` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `media.state`
 
@@ -867,10 +867,10 @@ messageId is the request's ID. Senders time out after five seconds.
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `calls.request` | upstream-v1 | extension | mac-to-phone | calls | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos |
-| `calls.started` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
-| `calls.confirmation_required` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
-| `calls.rejected` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos |
+| `calls.request` | upstream-v1 | extension | mac-to-phone | calls | yes | messageId | frame | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `calls.started` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos, client |
+| `calls.confirmation_required` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos, client |
+| `calls.rejected` | upstream-v1 | extension | phone-to-mac | calls | no | none | frame | sessionId, messageId | android, macos, client |
 | `calls.quiet_state` | edition-draft | draft | either | call_quiet_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `calls.quiet_result` | edition-draft | draft | either | call_quiet_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
 
@@ -1140,17 +1140,17 @@ accepted also when an update was already running. Progress follows as updates.st
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `screen.request` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.status` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.start` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.started` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.frame` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
-| `screen.ack` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.stats` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.stop` | edition-draft | draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.geometry` | edition-draft | draft | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.control` | edition-draft | draft | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.input` | edition-draft | draft | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.request` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.status` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.start` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.started` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.frame` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos, client |
+| `screen.ack` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.stats` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.stop` | edition-draft | draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.geometry` | edition-draft | draft | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.control` | edition-draft | draft | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.input` | edition-draft | draft | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `screen.request`
 
@@ -1752,17 +1752,17 @@ Either side stops the test (transferId is the test ID): Stop, a stall of 5 secon
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `places.list` | edition-draft | extension | mac-to-phone | places_draft1 \| files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.listed` | edition-draft | extension | phone-to-mac | places_draft1 \| files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.list` | edition-draft | extension | mac-to-phone | places_draft1 \| files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `places.listed` | edition-draft | extension | phone-to-mac | places_draft1 \| files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 | `places.browse` | edition-draft | extension | mac-to-phone | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.children` | edition-draft | extension | phone-to-mac | places_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.create_folder` | edition-draft | extension | mac-to-phone | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `places.folder_created` | edition-draft | extension | phone-to-mac | places_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.error` | edition-draft | extension | phone-to-mac | places_draft1 \| files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.files` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.files_page` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.download` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `places.download_started` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `places.error` | edition-draft | extension | phone-to-mac | places_draft1 \| files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `places.files` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `places.files_page` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `places.download` | edition-draft | extension | mac-to-phone | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `places.download_started` | edition-draft | extension | phone-to-mac | files_browse_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `places.list`
 
@@ -1883,18 +1883,18 @@ Browse lane. The phone then sends folders.offer with into: true and downloadRequ
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `folders.offer` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
-| `folders.manifest` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.waiting` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `folders.offer` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, client |
+| `folders.manifest` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `folders.waiting` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 | `folders.conflict` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
 | `folders.resolve` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.accept` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.rejected` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce?, ciphertext? | android, macos |
-| `folders.entry_failed` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.complete` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.result` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `folders.cancel` | edition-draft | extension | either | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos |
-| `folders.cancel.ack` | edition-draft | extension | either | folders_draft1 \| folders_receive_draft1 | no | none | frame | sessionId, transferId | android, macos |
+| `folders.accept` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `folders.rejected` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce?, ciphertext? | android, macos, client |
+| `folders.entry_failed` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `folders.complete` | edition-draft | extension | sender-to-receiver | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `folders.result` | edition-draft | extension | receiver-to-sender | folders_draft1 \| folders_receive_draft1 | yes | messageId | 32,768 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `folders.cancel` | edition-draft | extension | either | folders_draft1 \| folders_receive_draft1 | yes | messageId | 8,192 B | sessionId, messageId, transferId, nonce, ciphertext | android, macos, client |
+| `folders.cancel.ack` | edition-draft | extension | either | folders_draft1 \| folders_receive_draft1 | no | none | frame | sessionId, transferId | android, macos, client |
 
 `folders.offer`
 
@@ -2257,13 +2257,13 @@ Applied as if switched on the phone, recorded as changed on that Mac.
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `dialer.status` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.contacts` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.contacts_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.recents` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.recents_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.call` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `dialer.call_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `dialer.status` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.contacts` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.contacts_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 16,384 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.recents` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.recents_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 40,960 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.call` | edition-draft | draft | mac-to-phone | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `dialer.call_result` | edition-draft | draft | phone-to-mac | dialer_draft1 | yes | messageId | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `dialer.status`
 

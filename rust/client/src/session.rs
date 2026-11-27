@@ -174,6 +174,11 @@ pub trait Host: Send + Sync + 'static {
     fn resume_timing(&self) -> (Duration, Duration, Duration) {
         (RESUME_ANSWER_TIMEOUT, RESUME_WAIT_EVERY, Duration::ZERO)
     }
+    /// A file of a folder the other device sends (folders_draft1): where it goes, or None when the host refused it (it
+    /// answers the folder itself).
+    fn folder_entry(&self, _peer: &str, _offer: &FolderEntryOffer) -> Option<FolderTarget> {
+        None
+    }
     /// A phone feature's kind this end takes (phone.rs), with its feature key and size limit.
     fn phone_kind(&self, kind: &str) -> Option<crate::phone::Incoming> {
         crate::phone::incoming(kind)
@@ -199,6 +204,37 @@ pub struct OutgoingFile {
     pub sha256: String,
     /// The SHA-256 at every 1 MiB, from the same pass (files_resume_draft1 checks a receiver's prefix against them).
     pub blocks: resume::Blocks,
+    /// A file of a folder this end sends (folders_draft1): its offer carries the folder, the entry and its path.
+    pub folder: Option<FolderFile>,
+}
+
+/// Where a file sits in a folder transfer (docs/protocol.md "Folder transfer", step 5).
+#[derive(Clone, Debug)]
+pub struct FolderFile {
+    pub folder_transfer_id: String,
+    pub entry: u64,
+    pub path: String,
+}
+
+/// A `files.offer` inside a folder transfer from the other device, for the host to place.
+#[derive(Clone, Debug)]
+pub struct FolderEntryOffer {
+    pub transfer_id: String,
+    pub folder_transfer_id: String,
+    pub entry: i64,
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    /// Base64, as in the manifest.
+    pub sha256: String,
+}
+
+/// Where the host puts a folder's file: the folder and the free name it chose, and the transfer ID its events carry.
+#[derive(Clone, Debug)]
+pub struct FolderTarget {
+    pub dir: PathBuf,
+    pub name: String,
+    pub transfer: u64,
 }
 
 /// A kept partial re-read off the session's task: its running hash and SHA-256, or None when it could not be read.
@@ -217,6 +253,12 @@ pub enum Command {
     Link { url: String, request_id: String, open: bool },
     /// Any other encrypted message (battery, find, ...): `plaintext` becomes the AES-GCM payload.
     Encrypted { kind: &'static str, plaintext: Vec<u8>, message_id: String },
+    /// An outer-only answer that echoes the request's message ID (`calls.started` and its siblings).
+    Plain { kind: &'static str, message_id: String },
+    /// An encrypted message that repeats a transfer ID outside (`folders.offer`, `folders.cancel`).
+    EncryptedTransfer { kind: &'static str, plaintext: Vec<u8>, transfer_id: String },
+    /// An outer-only message (`folders.cancel.ack`).
+    Outer { kind: &'static str, transfer_id: String },
     Close(&'static str),
     /// The session's own: a kept partial has been re-read.
     #[doc(hidden)]
@@ -232,6 +274,8 @@ pub struct Handle {
     tx: mpsc::Sender<Command>,
     /// When the session last read a frame, in `clock_ms` time.
     heard: Arc<AtomicU64>,
+    /// The screen control contract's connection nonce for this session, once its key is agreed (screen.rs).
+    connection: Arc<OnceLock<[u8; 16]>>,
 }
 
 /// Milliseconds on a monotonic clock shared by every session.
@@ -274,12 +318,37 @@ impl Handle {
     pub fn send_encrypted(&self, kind: &'static str, plaintext: Vec<u8>, message_id: String) -> bool {
         self.tx.try_send(Command::Encrypted { kind, plaintext, message_id }).is_ok()
     }
+    /// Queues an outer-only answer echoing a request's message ID, or false when the session ended.
+    pub fn send_plain(&self, kind: &'static str, message_id: String) -> bool {
+        self.tx.try_send(Command::Plain { kind, message_id }).is_ok()
+    }
+    /// Queues an encrypted message with the transfer ID repeated outside.
+    pub fn send_encrypted_transfer(&self, kind: &'static str, plaintext: Vec<u8>, transfer_id: String) -> bool {
+        self.tx.try_send(Command::EncryptedTransfer { kind, plaintext, transfer_id }).is_ok()
+    }
+    /// Queues an outer-only message.
+    pub fn send_outer(&self, kind: &'static str, transfer_id: String) -> bool {
+        self.tx.try_send(Command::Outer { kind, transfer_id }).is_ok()
+    }
     pub fn close(&self, why: &'static str) {
         let _ = self.tx.try_send(Command::Close(why));
     }
     pub fn is_open(&self) -> bool {
         !self.tx.is_closed()
     }
+    /// `HMAC-SHA256(session key, "bridgey-screen-control-connection-v1" 0x00 sessionId)[0..16]`, the nonce screen control
+    /// packets carry (docs/protocol.md "Mac screen to phone"); None before the key is agreed.
+    pub fn screen_connection(&self) -> Option<[u8; 16]> {
+        self.connection.get().copied()
+    }
+}
+
+/// The screen control contract's connection nonce from a session key and session ID.
+pub fn screen_connection(key: &[u8; 32], session_id: &str) -> [u8; 16] {
+    let mac = ring::hmac::sign(&ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key), &[b"bridgey-screen-control-connection-v1".as_slice(), &[0], session_id.as_bytes()].concat());
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&mac.as_ref()[..16]);
+    out
 }
 
 struct State {
@@ -337,6 +406,8 @@ struct Incoming {
     /// `received` when the record was last written.
     checkpoint: u64,
 }
+
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
@@ -409,7 +480,7 @@ pub fn spawn(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>) -
 /// tunnel's exporter in the signed transcript (docs/protocol.md "Connect anywhere").
 pub fn spawn_on(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>, tunnel: Option<Tunnel>) -> Handle {
     let (tx, rx) = mpsc::channel(COMMANDS);
-    let handle = Handle { session, tx, heard: Arc::new(AtomicU64::new(clock_ms())) };
+    let handle = Handle { session, tx, heard: Arc::new(AtomicU64::new(clock_ms())), connection: Arc::new(OnceLock::new()) };
     let own = handle.clone();
     tokio::spawn(async move {
         let peer = stream.peer_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
@@ -720,6 +791,24 @@ impl Session {
                 }
                 self.encrypted(kind, &plaintext, message_id).await
             }
+            Command::Plain { kind, message_id } => {
+                if !self.st.authenticated {
+                    return Step::Continue;
+                }
+                self.plain(kind, Some(message_id)).await
+            }
+            Command::EncryptedTransfer { kind, plaintext, transfer_id } => {
+                if !self.st.authenticated {
+                    return Step::Continue;
+                }
+                self.encrypted_for(kind, &plaintext, crypto::uuid4(), Some(&transfer_id)).await
+            }
+            Command::Outer { kind, transfer_id } => {
+                if !self.st.authenticated {
+                    return Step::Continue;
+                }
+                self.outer(kind, &transfer_id, None).await
+            }
             Command::Link { url, request_id, open } => {
                 if !self.st.authenticated {
                     return Step::Continue;
@@ -747,7 +836,8 @@ impl Session {
         let Some(key) = self.st.key else { return Step::Continue };
         let (nonce, ciphertext) = crypto::encrypt(&key, plaintext);
         let mut m = Message::new(kind, &self.st.id);
-        m.message_id = Some(message_id);
+        // An empty ID sends none (screen.frame: its header holds the stream's sequence).
+        m.message_id = Some(message_id).filter(|id| !id.is_empty());
         m.nonce = Some(nonce);
         m.ciphertext = Some(ciphertext);
         m.transfer_id = transfer_id.map(str::to_string);
@@ -867,6 +957,7 @@ impl Session {
         #[cfg(test)]
         KEYLOG.lock().unwrap().push((self.st.id.clone(), prk, key));
         self.st.key = Some(key);
+        let _ = self.handle.connection.set(screen_connection(&key, &self.st.id));
         // Both ends sent protocol 2 (checked before every agreement here), so frames carry tags from now on.
         self.st.envelope = Some(crypto::envelope_key(&key));
         self.st.fast_key = Some(fast::frame_key(&key));
@@ -1097,7 +1188,12 @@ impl Session {
         if id.len() > 128 {
             return None;
         }
-        if matches!(m.kind.as_str(), "heartbeat.pong" | "ping.ack" | "clipboard.ack" | "clipboard.rejected") {
+        if matches!(m.kind.as_str(), "heartbeat.pong" | "ping.ack" | "clipboard.ack" | "clipboard.rejected" | "calls.started" | "calls.confirmation_required" | "calls.rejected") {
+            return Some(true);
+        }
+        // Screen stream messages stay out of the shared window (30 a second would push every other ID out); each stream
+        // numbers its own (docs/protocol.md "Phone screen to Mac").
+        if crate::screen::is_stream(&m.kind) {
             return Some(true);
         }
         if self.st.seen.contains(id) {
@@ -1366,16 +1462,44 @@ impl Session {
                 self.host.event(Event::QuickResult { device_id, request_id: request_id.to_string(), accepted, opened });
                 Step::Continue
             }
+            // The phone's answers to `calls.request` (upstream calls.v1): outer only, echoing the request's message ID,
+            // which is all they carry.
+            "calls.started" | "calls.confirmation_required" | "calls.rejected" => {
+                let Some(message_id) = m.message_id.clone() else { return Step::Continue };
+                if !self.host.policy(&device_id).get("calls") {
+                    return Step::Continue;
+                }
+                let kind = match m.kind.as_str() {
+                    "calls.started" => "calls.started",
+                    "calls.confirmation_required" => "calls.confirmation_required",
+                    _ => "calls.rejected",
+                };
+                self.host.event(Event::Payload { device_id, kind, plain: message_id.into_bytes() });
+                Step::Continue
+            }
             // The phone's own features (phone.rs). Drafts: a payload that does not open, or is over its kind's limit, is
             // dropped and the session stays.
             kind if self.host.phone_kind(kind).is_some() => {
                 let spec = self.host.phone_kind(kind).unwrap();
-                if m.message_id.is_none() {
+                // screen.frame carries no messageId: its header holds the stream's sequence.
+                let message_id = m.message_id.clone();
+                if message_id.is_none() && kind != "screen.frame" {
                     return Step::Continue;
                 }
-                let Some(plain) = self.open(&m).filter(|p| p.len() <= spec.max) else { return Step::Continue };
-                if !self.host.policy(&device_id).get(spec.feature) {
+                let mut plain = match self.open(&m) {
+                    Some(p) => p,
+                    // A receiver with Files off refuses a folder without decrypting it: an outer-only folders.rejected.
+                    None if spec.kind == "folders.rejected" && m.ciphertext.is_none() && m.transfer_id.is_some() => {
+                        json!({"version": 1, "folderTransferId": m.transfer_id, "code": "policy"}).to_string().into_bytes()
+                    }
+                    None => return Step::Continue,
+                };
+                if plain.len() > spec.max || !self.host.policy(&device_id).get(spec.feature) {
                     return Step::Continue;
+                }
+                // A request answered with its own message ID (a simulated phone's calls.request) carries it along.
+                if spec.with_message_id {
+                    plain = json!({"messageId": message_id, "plaintext": String::from_utf8_lossy(&plain)}).to_string().into_bytes();
                 }
                 self.host.event(Event::Payload { device_id, kind: spec.kind, plain });
                 Step::Continue
@@ -1454,8 +1578,14 @@ impl Session {
             };
             let id = crypto::uuid4();
             let mut offer = json!({"transferId": id, "name": file.name, "mimeType": file.mime, "size": file.size, "sha256": file.sha256});
-            // Files over one block may resume from what the receiver kept of an earlier attempt (files_resume_draft1).
-            let resumable = file.size > resume::BLOCK && self.resume_on();
+            if let Some(f) = &file.folder {
+                offer["folderTransferId"] = json!(f.folder_transfer_id);
+                offer["entry"] = json!(f.entry);
+                offer["path"] = json!(f.path);
+            }
+            // Files over one block may resume from what the receiver kept of an earlier attempt (files_resume_draft1);
+            // not inside a folder, where resuming is the folder's.
+            let resumable = file.size > resume::BLOCK && self.resume_on() && file.folder.is_none();
             if resumable {
                 offer["resumable"] = Value::Bool(true);
             }
@@ -1639,7 +1769,7 @@ impl Session {
         let device_id = self.st.remote_id.clone();
         let Some(outer_id) = m.transfer_id.clone() else { return Step::Continue };
         let dir = self.host.receive_dir();
-        if !self.host.policy(&device_id).get("files") || dir.is_none() {
+        if !self.host.policy(&device_id).get("files") {
             // Files is off here: refused without decrypting, then the switches the other device should have had.
             if let Step::Close(r) = self.outer("files.rejected", &outer_id, None).await {
                 return Step::Close(r);
@@ -1653,10 +1783,12 @@ impl Session {
         let transfer_id = field("transferId").and_then(Value::as_str).unwrap_or("");
         let name = field("name").and_then(Value::as_str).unwrap_or("");
         let size = field("size").and_then(Value::as_u64);
-        let sha256 = field("sha256").and_then(Value::as_str).and_then(crypto::unb64).filter(|h| h.len() == 32);
+        let sha256_text = field("sha256").and_then(Value::as_str).unwrap_or("").to_string();
+        let sha256 = crypto::unb64(&sha256_text).filter(|h| h.len() == 32);
         let mime = field("mimeType").and_then(Value::as_str).unwrap_or("application/octet-stream").chars().take(128).collect::<String>();
-        // Clipboard files and folders are drafts this client does not advertise.
-        let other_purpose = field("purpose").is_some_and(|p| !p.is_null()) || field("folderTransferId").is_some_and(|p| !p.is_null());
+        // Clipboard files are a draft this client does not advertise.
+        let other_purpose = field("purpose").is_some_and(|p| !p.is_null());
+        let in_folder = field("folderTransferId").and_then(Value::as_str).map(str::to_string);
         let (Some(size), Some(sha256)) = (size, sha256) else { return self.outer("files.cancel", &outer_id, None).await };
         if other_purpose || transfer_id != outer_id || !crypto::is_uuid(transfer_id) || name.is_empty() || size > MAX_FILE {
             return self.outer("files.cancel", &outer_id, None).await;
@@ -1665,10 +1797,42 @@ impl Session {
         if taken || self.incoming.len() >= MAX_INCOMING {
             return self.outer("files.cancel", &outer_id, None).await;
         }
-        let dir = dir.unwrap();
-        let name = transfer::safe_name(name);
+        // A file of a folder (folders_draft1): the host's folder receiver says where it goes and under which name.
+        let target = match in_folder {
+            Some(folder_transfer_id) => {
+                let entry = FolderEntryOffer {
+                    transfer_id: transfer_id.to_string(),
+                    folder_transfer_id,
+                    entry: field("entry").and_then(Value::as_i64).unwrap_or(-1),
+                    path: field("path").and_then(Value::as_str).unwrap_or("").to_string(),
+                    name: name.to_string(),
+                    size,
+                    sha256: sha256_text,
+                };
+                match self.host.folder_entry(&device_id, &entry) {
+                    Some(t) => Some(t),
+                    None => {
+                        // Refused: the folder receiver answered for it; its chunks are dropped quietly.
+                        self.ended(transfer_id);
+                        return Step::Continue;
+                    }
+                }
+            }
+            None if dir.is_none() => {
+                // No folder for received files: refused, then the switches the other device should have had.
+                if let Step::Close(r) = self.outer("files.rejected", &outer_id, None).await {
+                    return Step::Close(r);
+                }
+                return self.send_features().await;
+            }
+            None => None,
+        };
+        let (dir, name) = match &target {
+            Some(t) => (t.dir.clone(), t.name.clone()),
+            None => (dir.unwrap(), transfer::safe_name(name)),
+        };
         // files_resume_draft1: the sender marked it, both show the key, and it is more than one block.
-        let resumable = field("resumable") == Some(&Value::Bool(true)) && size > resume::BLOCK && self.resume_on();
+        let resumable = field("resumable") == Some(&Value::Bool(true)) && size > resume::BLOCK && self.resume_on() && target.is_none();
         let new = |part: PathBuf, file: std::fs::File, transfer: u64, phase: Phase, checkpoint: u64| Incoming {
             transfer,
             name: name.clone(),
@@ -1723,7 +1887,7 @@ impl Session {
                 return self.outer("files.cancel", &outer_id, None).await;
             }
         };
-        let transfer = self.host.next_id();
+        let transfer = target.as_ref().map(|t| t.transfer).unwrap_or_else(|| self.host.next_id());
         let i = new(part, file, transfer, Phase::Receiving, 0);
         if resumable {
             // A record from the start, so a crash before the first checkpoint leaves no partial behind: the next start
@@ -2181,7 +2345,7 @@ mod tests {
         let session = include_str!("session.rs");
         let client = include_str!("client.rs");
         // The phone's own features (phone.rs), each in its own module.
-        let areas = [include_str!("sms.rs")];
+        let areas = [include_str!("sms.rs"), include_str!("calls.rs"), include_str!("phone_files.rs"), include_str!("screen.rs")];
         let mut code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
         for area in areas {
             code.push_str(area.split("#[cfg(test)]\nmod tests").next().unwrap());

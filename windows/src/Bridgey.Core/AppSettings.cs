@@ -72,6 +72,18 @@ public sealed class AppSettings
     public bool TextMessages { get; set; }
     /// <summary>Keep the phone's conversations on this PC between runs (encrypted for this Windows user).</summary>
     public bool KeepConversations { get; set; } = true;
+    /// <summary>The Calls window: call through a phone from this PC. Off until chosen, as on the Mac.</summary>
+    public bool CallsWindow { get; set; }
+    /// <summary>Phones this PC may call through (device IDs), each off until allowed, as on the Mac.</summary>
+    public List<string> CallsAllowed { get; set; } = new();
+    /// <summary>The SIM to call from on a phone with two: ask, sim1 or sim2.</summary>
+    public string CallsSim { get; set; } = "ask";
+    /// <summary>WhatsApp voice and video calls through the phone's WhatsApp.</summary>
+    public bool CallsShowWhatsApp { get; set; } = true;
+    /// <summary>How many recent calls the Calls window lists.</summary>
+    public int CallsRecentCount { get; set; } = 20;
+    /// <summary>See and control a phone's screen in a window (the phone decides who may). Off until chosen, as on the Mac.</summary>
+    public bool ShowPhoneScreens { get; set; }
     /// <summary>Connect away from home: paired devices reach this PC off the local network (on, as on the Mac).</summary>
     public bool ConnectAway { get; set; } = true;
     /// <summary>stable, beta or nightly. Empty: the channel this build came from (a beta build follows Beta).</summary>

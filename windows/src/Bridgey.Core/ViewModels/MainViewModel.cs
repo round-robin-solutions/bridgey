@@ -46,6 +46,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public NotificationsViewModel Notifications { get; }
     /// <summary>The phone's conversations (Text messages).</summary>
     public MessagesViewModel Messages { get; }
+    /// <summary>The Calls window and the call card.</summary>
+    public CallsViewModel Calls { get; }
+    /// <summary>The phone's files: browse, download, add files.</summary>
+    public PhoneFilesViewModel PhoneFiles { get; }
+    /// <summary>Phones' screens in windows on this PC (Show phone screens).</summary>
+    public ScreenViewModel Screen { get; }
     /// <summary>Self-update; set by the host before the window opens (none in tests that do not need it).</summary>
     public UpdatesViewModel? Updates { get; set; }
 
@@ -64,6 +70,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Pairing = new PairingViewModel(this, client);
         Notifications = new NotificationsViewModel(client, settings, notifier ?? new NoNotifier(), clipboard, history, advertiser, NameOf);
         Messages = new MessagesViewModel(client, NameOf);
+        Calls = new CallsViewModel(client, settings, ui, NameOf);
+        PhoneFiles = new PhoneFilesViewModel(client, NameOf);
+        Screen = new ScreenViewModel(client, NameOf);
         Notifications.SmsReply = Messages.ReplyToNotification;
         Devices.CollectionChanged += (_, _) => DevicesChanged();
         Activity.CollectionChanged += (_, _) =>
@@ -91,6 +100,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Settings.ConnectChanged += ApplyConnect;
         ApplyConnect();
         Refresh();
+        Settings.CallsChanged += () =>
+        {
+            foreach (var d in Devices) UpdateReadiness(d);
+            Calls.SettingsChanged();
+        };
         Settings.KeepConversationsChanged += Messages.Keep;
         if (!Settings.KeepConversations) Messages.Keep(false);
     }
@@ -359,6 +373,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             Devices.Remove(gone);
             Messages.Forgotten(gone.Id);
+            Calls.Forgotten(gone.Id);
+            PhoneFiles.Forgotten(gone.Id);
         }
         if (snapshot.Connect is { } connect) ConnectState = connect.State;
         foreach (var t in snapshot.Transfers.Where(t => t.State is "queued" or "offered" or "sending" or "receiving")) UpdateTransfer(t.Request, t);
@@ -394,6 +410,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         item.LinksReady = item.IsConnected && On(local, "links") && On(remote, "links");
         item.MessagesReady = item.IsConnected && On(local, "sms_draft1") && On(remote, "sms_draft1");
         Messages.Readiness(item, item.MessagesReady);
+        // Calls: Settings > Calls and this phone allowed; never an agent.
+        var calls = Settings.CallsWindow && Settings.IsCallsAllowed(item.Id);
+        if (local is not null)
+            foreach (var key in new[] { "dialer_draft1", "calls" })
+                if (On(local, key) != calls) Try(() => _client.SetFeature(item.Id, key, calls));
+        item.CallsReady = item.IsConnected && calls && !On(remote, "agent_draft1") && (On(remote, "dialer_draft1") || On(remote, "calls"));
+        Calls.Readiness(item, item.CallsReady);
+        item.PhoneFilesReady = item.IsConnected && On(local, "files") && On(remote, "files") && On(remote, "files_browse_draft1");
+        PhoneFiles.Readiness(item, item.PhoneFilesReady);
+        item.ScreenReady = item.IsConnected && On(local, "screen_draft1") && On(remote, "screen_draft1");
+        Screen.Readiness(item, item.ScreenReady);
         if (!(On(local, "battery") && On(remote, "battery"))) item.BatteryLevel = null;
         Raise(nameof(CanSendDraft));
         Raise(nameof(CanSendFiles));
@@ -411,6 +438,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Pairing.Handle(e);
         Notifications.Handle(e);
         Messages.Handle(e);
+        Calls.Handle(e);
+        PhoneFiles.Handle(e);
+        Screen.Handle(e);
         switch (e.Kind)
         {
             case BridgeyEventKind.DeviceFound when e.Text is not null:
@@ -625,9 +655,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         UpdateReadiness(device);
     }
 
+    /// <summary>Settings > Calls: whether this PC may call through the device.</summary>
+    internal void SetCallsAllowed(DeviceItem device, bool on)
+    {
+        Settings.SetCallsAllowed(device.Id, on);
+        UpdateReadiness(device);
+    }
+
     internal void SetDeviceFeature(string deviceId, string key, bool on)
     {
+        if (key == "dialer_draft1" && Find(deviceId) is { } phone)
+        {
+            phone.CallsAllowed = on;
+            return;
+        }
         Try(() => _client.SetFeature(deviceId, key, on));
+        // Phone screen: seeing it and controlling it go together, as the Mac's Show phone screens does.
+        if (key == "screen_draft1") Try(() => _client.SetFeature(deviceId, "phone_control_draft1", on));
         if (Find(deviceId) is { } device)
         {
             if (key == "clipboard") device.ShowClipboardAllowed(on);
@@ -774,6 +818,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Try(() => _client.Forget(device.Id));
         Devices.Remove(device);
         Messages.Forgotten(device.Id);
+        Calls.Forgotten(device.Id);
+        Settings.SetCallsAllowed(device.Id, false);
+        PhoneFiles.Forgotten(device.Id);
     }
 
     /// <summary>

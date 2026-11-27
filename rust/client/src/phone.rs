@@ -44,25 +44,31 @@ pub struct Incoming {
     pub kind: &'static str,
     pub feature: &'static str,
     pub max: usize,
+    /// The area answers with the request's own message ID: the plaintext arrives as `{"messageId", "plaintext"}`.
+    pub with_message_id: bool,
 }
 
 /// Each area's state, kept by the client.
 #[derive(Default)]
 pub struct State {
     pub(crate) sms: std::sync::Mutex<crate::sms::State>,
+    pub(crate) calls: std::sync::Mutex<crate::calls::State>,
+    pub(crate) files: std::sync::Mutex<crate::phone_files::State>,
+    pub(crate) screen: std::sync::Mutex<crate::screen::State>,
 }
 
 /// The area kind a session passes on, if any.
 pub fn incoming(kind: &str) -> Option<Incoming> {
-    crate::sms::incoming(kind)
+    crate::sms::incoming(kind).or_else(|| crate::calls::incoming(kind)).or_else(|| crate::phone_files::incoming(kind)).or_else(|| crate::screen::incoming(kind))
 }
 
 /// A message of an area from a phone, opened by the session (the area's feature is on here).
 pub(crate) fn receive(inner: &crate::client::Inner, area: Area, device_id: &str, kind: &str, plain: &[u8]) {
     match area {
         Area::Sms => crate::sms::receive(inner, device_id, kind, plain),
-        // No kinds of their own yet (incoming lists none).
-        Area::Calls | Area::PhoneFiles | Area::Screen => {}
+        Area::Calls => crate::calls::receive(inner, device_id, kind, plain),
+        Area::PhoneFiles => crate::phone_files::receive(inner, device_id, kind, plain),
+        Area::Screen => crate::screen::receive(inner, device_id, kind, plain),
     }
 }
 
@@ -70,23 +76,34 @@ pub(crate) fn receive(inner: &crate::client::Inner, area: Area, device_id: &str,
 pub(crate) fn command(inner: &crate::client::Inner, area: Area, device_id: &str, command: &Value) -> Value {
     match area {
         Area::Sms => crate::sms::command(inner, device_id, command),
-        Area::Calls | Area::PhoneFiles | Area::Screen => error("unsupported"),
+        Area::Calls => crate::calls::command(inner, device_id, command),
+        Area::PhoneFiles => crate::phone_files::command(inner, device_id, command),
+        Area::Screen => crate::screen::command(inner, device_id, command),
     }
 }
 
 /// Either side's switches changed for a connected device.
 pub(crate) fn features_changed(inner: &crate::client::Inner, device_id: &str) {
     crate::sms::features_changed(inner, device_id);
+    crate::calls::features_changed(inner, device_id);
+    crate::phone_files::features_changed(inner, device_id);
+    crate::screen::features_changed(inner, device_id);
 }
 
 /// The session with the device ended: requests in flight are dropped, what is kept stays.
 pub(crate) fn disconnected(inner: &crate::client::Inner, device_id: &str) {
     crate::sms::disconnected(inner, device_id);
+    crate::calls::disconnected(inner, device_id);
+    crate::phone_files::disconnected(inner, device_id);
+    crate::screen::disconnected(inner, device_id);
 }
 
 /// The device was forgotten: everything kept for it goes.
 pub(crate) fn forgotten(inner: &crate::client::Inner, device_id: &str) {
     crate::sms::forgotten(inner, device_id);
+    crate::calls::forgotten(inner, device_id);
+    crate::phone_files::forgotten(inner, device_id);
+    crate::screen::forgotten(inner, device_id);
 }
 
 /// A command's answer when it worked.

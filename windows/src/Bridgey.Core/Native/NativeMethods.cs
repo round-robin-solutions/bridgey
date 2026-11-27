@@ -140,6 +140,9 @@ internal static unsafe partial class NativeMethods
     public static partial byte* bridgey_phone(ulong handle, uint area, string deviceId, string command);
 
     [LibraryImport(Library)]
+    public static partial int bridgey_screen_frame(ulong handle, ulong stream, uint timeoutMs, byte* buffer, nuint capacity, nuint* length, long* captureMicros, uint* flags);
+
+    [LibraryImport(Library)]
     public static partial int bridgey_buffer_set(nint buffer, byte* data, nuint length);
 }
 

@@ -596,6 +596,24 @@ char *bridgey_phone(uint64_t handle,
                     const char *device_id,
                     const char *command);
 
+// Takes the next whole frame of a phone's screen (the id of a BRIDGEY_EVENT_KIND_SCREEN `started` event): one H.264
+// access unit in Annex B, copied into `buffer`. Frames never go through bridgey_next_event. Waits up to `timeout_ms`.
+// Returns 1 with `*out_len` bytes, `*out_capture_micros` (the phone's capture clock; only differences mean anything)
+// and `*out_flags` (bit 0 a key frame, bit 1 it starts with SPS and PPS); 0 after the timeout;
+// `BRIDGEY_ERR_TOO_LARGE` with `*out_len` the size needed (the frame stays next); `BRIDGEY_ERR_NOT_CONNECTED` once the
+// stream has ended. Taking a frame tells the phone it arrived; a stream keeps at most 8 frames waiting.
+//
+// # Safety
+// `buffer` is valid for `capacity` bytes; the out pointers are valid for writing.
+int32_t bridgey_screen_frame(uint64_t handle,
+                             uint64_t stream,
+                             uint32_t timeout_ms,
+                             uint8_t *buffer,
+                             size_t capacity,
+                             size_t *out_len,
+                             int64_t *out_capture_micros,
+                             uint32_t *out_flags);
+
 // Copies `len` bytes into the buffer a storage `load` callback was given.
 //
 // # Safety

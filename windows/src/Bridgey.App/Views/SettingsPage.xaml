@@ -357,6 +357,91 @@
                 </StackPanel>
 
                 <!-- Media and actions -->
+                <!-- Calls -->
+                <StackPanel x:Name="CallsSection" Spacing="8" Tag="calls">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Calls window" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Call through your phone from this PC. Call audio stays on the phone or its earbuds. Each phone needs this PC allowed in Bridgey there too."
+                                           Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.CallsWindow, Mode=TwoWay}" AutomationProperties.Name="Calls window" AutomationProperties.AutomationId="CallsWindowOn" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Phones" Style="{StaticResource BrandBody}" />
+                            <TextBlock Text="No paired phones yet." Style="{StaticResource BrandSecondary}" Visibility="{x:Bind Model.HasNoDevices, Mode=OneWay}" />
+                            <ItemsRepeater ItemsSource="{x:Bind Model.Devices}">
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:DeviceItem">
+                                        <Grid ColumnSpacing="16" Padding="0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{x:Bind Name, Mode=OneWay}" Style="{StaticResource BrandSecondary}" VerticalAlignment="Center" />
+                                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind CallsAllowed, Mode=TwoWay}" OnContent="" OffContent="" MinWidth="0"
+                                                          AutomationProperties.Name="{x:Bind Name, Mode=OneWay}" AutomationProperties.AutomationId="CallsAllowed" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Call from" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="On a phone with two SIMs" Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ComboBox Grid.Column="1" SelectedIndex="{x:Bind Settings.CallsSimIndex, Mode=TwoWay}" MinWidth="170" VerticalAlignment="Center"
+                                      AutomationProperties.Name="Call from" AutomationProperties.AutomationId="CallsSimSetting">
+                                <ComboBoxItem Content="Ask each time" />
+                                <ComboBoxItem Content="SIM 1" />
+                                <ComboBoxItem Content="SIM 2" />
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Show WhatsApp calls" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="Voice and video through the phone's WhatsApp" Style="{StaticResource BrandSecondary}" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.CallsShowWhatsApp, Mode=TwoWay}" AutomationProperties.Name="Show WhatsApp calls" AutomationProperties.AutomationId="CallsWhatsApp" />
+                        </Grid>
+                    </Border>
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Recent calls" Style="{StaticResource BrandBody}" VerticalAlignment="Center" />
+                            <ComboBox Grid.Column="1" SelectedIndex="{x:Bind Settings.CallsRecentIndex, Mode=TwoWay}" MinWidth="170" VerticalAlignment="Center"
+                                      AutomationProperties.Name="Recent calls" AutomationProperties.AutomationId="CallsRecent">
+                                <ComboBoxItem Content="Last 10" />
+                                <ComboBoxItem Content="Last 20" />
+                                <ComboBoxItem Content="Last 50" />
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
                 <!-- Text messages -->
                 <StackPanel x:Name="MessagesSection" Spacing="8" Tag="messages">
                     <Border Style="{StaticResource Row}">
@@ -478,6 +563,23 @@
                                 <TextBlock Text="One short sound when a paired device pings this PC." Style="{StaticResource BrandSecondary}" />
                             </StackPanel>
                             <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.Ping, Mode=TwoWay}" AutomationProperties.Name="Ping" AutomationProperties.AutomationId="PingOn" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
+                <!-- Remote control -->
+                <StackPanel x:Name="RemoteSection" Spacing="8" Tag="remoteControl">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Show phone screens" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="See your phone's screen in a window and control it. Your phone decides whether this PC may: turn on screen sharing there too." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.ShowPhoneScreens, Mode=TwoWay}" AutomationProperties.Name="Show phone screens" AutomationProperties.AutomationId="ShowPhoneScreens" />
                         </Grid>
                     </Border>
                 </StackPanel>

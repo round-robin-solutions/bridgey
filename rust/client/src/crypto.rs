@@ -53,7 +53,7 @@ pub fn uuid7() -> String {
     format_uuid(&b)
 }
 
-fn format_uuid(b: &[u8; 16]) -> String {
+pub(crate) fn format_uuid(b: &[u8; 16]) -> String {
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
 }

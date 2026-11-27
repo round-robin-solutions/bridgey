@@ -82,6 +82,7 @@ public partial class App : Application, ITrayHost
             new PhoneNotifier(_notifications), new ProtectedHistory(Paths.DataFolder), new CompanionAdvertiser(), new BrowserLinks(), new SystemMedia());
         if (client is BridgeyClient native && !settings.FastTransfers) native.SetFastTransfers(false);
         Model.FilesRequested += device => _ = PickAndSend(device);
+        Model.Screen.WindowRequested += item => queue.TryEnqueue(() => PhoneScreenWindows.Show(item));
         Model.ChooseDeviceForFiles += (paths, devices) => _ = ChooseAndSend(paths, devices);
         Model.PropertyChanged += (_, e) =>
         {
@@ -328,6 +329,7 @@ public partial class App : Application, ITrayHost
         _pairingTimer?.Stop();
         _activityTimer?.Stop();
         Model.StopRinging();
+        PhoneScreenWindows.CloseAll();
         _notifications.Dispose();
         _tray?.Dispose();
         _window?.Close();

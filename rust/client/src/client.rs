@@ -994,6 +994,16 @@ impl Client {
         crate::phone::command(&self.inner, area, &id, command)
     }
 
+    /// The next whole frame of a phone screen stream (screen.rs; `stream` is the id of its `started` event), waiting up
+    /// to `timeout`: Ok(None) after it, Err(None) once the stream has ended, Err(Some(size)) when `capacity` is too small
+    /// (the frame stays next). Taking a frame acknowledges it to the phone.
+    pub fn screen_frame(&self, stream: u64, timeout: Duration, capacity: usize) -> Result<Option<crate::screen::Frame>, Option<usize>> {
+        if self.inner.check().is_err() {
+            return Err(None);
+        }
+        crate::screen::take(&self.inner, stream, timeout, capacity)
+    }
+
     /// Tests and the scripted peer only (not in the C ABI): phone requests from other devices are answered with canned
     /// conversations, calls, files and a test screen, as a phone would answer them.
     #[doc(hidden)]
@@ -1078,7 +1088,7 @@ impl Inner {
     }
 
     /// The session of a connected device, whatever its switches.
-    fn connected_session(&self, device_id: &str) -> Result<Handle, ClientError> {
+    pub(crate) fn connected_session(&self, device_id: &str) -> Result<Handle, ClientError> {
         let id = device_id.to_ascii_lowercase();
         let st = self.state.lock().unwrap();
         let session = st.connected.get(&id).ok_or(ClientError::NotConnected)?;
@@ -1092,7 +1102,7 @@ impl Inner {
         }
     }
 
-    fn feature_session(&self, device_id: &str, feature: &str) -> Result<(Handle, String), ClientError> {
+    pub(crate) fn feature_session(&self, device_id: &str, feature: &str) -> Result<(Handle, String), ClientError> {
         let id = device_id.to_ascii_lowercase();
         let st = self.state.lock().unwrap();
         let session = st.connected.get(&id).ok_or(ClientError::NotConnected)?;
@@ -1288,7 +1298,7 @@ impl Inner {
                 fail("unreadable");
                 continue;
             }
-            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256, blocks };
+            let file = OutgoingFile { transfer, path, name: name.clone(), mime, size, sha256, blocks, folder: None };
             match self.feature_session(&device_id, "files") {
                 Ok((handle, _)) => {
                     // Handed over under the lock, so a cancel goes either here or to the session, never neither.
@@ -1565,6 +1575,10 @@ impl session::Host for Inner {
         }
     }
 
+    fn folder_entry(&self, peer: &str, offer: &session::FolderEntryOffer) -> Option<session::FolderTarget> {
+        crate::phone_files::folder_entry(self, peer, offer)
+    }
+
     fn phone_kind(&self, kind: &str) -> Option<crate::phone::Incoming> {
         crate::phone::incoming(kind).or_else(|| if self.simulating.load(Ordering::Relaxed) { crate::sim::incoming(kind) } else { None })
     }
@@ -1744,6 +1758,22 @@ impl session::Host for Inner {
     }
 
     fn event(&self, event: session::Event) {
+        // A file of a folder the phone's files feature sends or receives: its own bookkeeping, no file events for the host.
+        if let session::Event::FileIncoming { transfer, .. } | session::Event::FileProgress { transfer, .. } | session::Event::FileDone { transfer, .. } | session::Event::FileFailed { transfer, .. } = &event {
+            if crate::phone_files::owns(self, *transfer) {
+                match &event {
+                    session::Event::FileIncoming { transfer, device_id, .. } => {
+                        self.state.lock().unwrap().transfers.insert(*transfer, device_id.clone());
+                    }
+                    session::Event::FileDone { transfer, .. } | session::Event::FileFailed { transfer, .. } => {
+                        self.state.lock().unwrap().transfers.remove(transfer);
+                    }
+                    _ => {}
+                }
+                crate::phone_files::file_event(self, event);
+                return;
+            }
+        }
         match event {
             session::Event::Code { session, device_id, name, code } => {
                 let pairing = {
@@ -1920,9 +1950,56 @@ impl Inner {
         }
     }
 
+    /// An encrypted message to a connected device that shows `feature`, whatever this device's own switch says now, with
+    /// or without a messageId (screen.rs: `screen.stop` once Show phone screens went off here, and `screen.frame`).
+    pub(crate) fn encrypted_to_peer(&self, device_id: &str, feature: &str, kind: &'static str, plaintext: Vec<u8>, message_id: bool) -> Result<(), ClientError> {
+        self.check()?;
+        let id = device_id.to_ascii_lowercase();
+        if !self.state.lock().unwrap().remote.get(&id).is_some_and(|r| r.get(feature)) {
+            return Err(ClientError::FeatureOff);
+        }
+        let handle = self.connected_session(&id)?;
+        if handle.send_encrypted(kind, plaintext, if message_id { crate::crypto::uuid4() } else { String::new() }) {
+            Ok(())
+        } else {
+            Err(ClientError::NotConnected)
+        }
+    }
+
     /// The device's latest feature map, while it is connected.
     pub(crate) fn remote_features(&self, device_id: &str) -> Option<FeatureMap> {
         self.state.lock().unwrap().remote.get(device_id).cloned()
+    }
+
+    /// A connected device's session, whatever the switches.
+    pub(crate) fn connected_handle(&self, device_id: &str) -> Option<Handle> {
+        self.connected_session(device_id).ok()
+    }
+
+    /// Hands a hashed file to a device's session (the phone's files feature sends folders this way). False when it is
+    /// not connected.
+    pub(crate) fn send_hashed_file(&self, device_id: &str, file: OutgoingFile) -> bool {
+        let Some(handle) = self.connected_handle(device_id) else { return false };
+        let transfer = file.transfer;
+        self.state.lock().unwrap().transfers.insert(transfer, device_id.to_string());
+        if handle.send_file(file) {
+            return true;
+        }
+        self.state.lock().unwrap().transfers.remove(&transfer);
+        false
+    }
+
+    /// Stops a transfer in either direction (the session tells the other device).
+    pub(crate) fn cancel_transfer(&self, transfer: u64) {
+        let device = self.state.lock().unwrap().transfers.get(&transfer).cloned();
+        if let Some(handle) = device.and_then(|d| self.connected_handle(&d)) {
+            handle.cancel_file(transfer);
+        }
+    }
+
+    /// The screen control contract's connection nonce of the device's current session (screen.rs).
+    pub(crate) fn screen_connection(&self, device_id: &str) -> Option<[u8; 16]> {
+        self.connected_session(device_id).ok()?.screen_connection()
     }
 
     /// Either side's switches changed for a device: each phone feature looks again.

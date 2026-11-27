@@ -189,10 +189,12 @@ public sealed class FilesViewModelTests
     {
         var model = Connected();
         var phone = model.Devices.Single();
-        Assert.Equal(["Clipboard", "Files", "Battery", "Find device", "Ping", "Notifications", "Links", "Media controls", "Text messages"], phone.Switches.Select(s => s.Title));
-        // Text messages is off until chosen.
-        Assert.All(phone.Switches.Where(s => s.Key != "sms_draft1"), s => Assert.True(s.IsOn));
+        Assert.Equal(["Clipboard", "Files", "Battery", "Find device", "Ping", "Notifications", "Links", "Media controls", "Text messages", "Calls window", "Phone screen"], phone.Switches.Select(s => s.Title));
+        // Text messages, the Calls window and Phone screen are off until chosen.
+        Assert.All(phone.Switches.Where(s => s.Key is not ("sms_draft1" or "dialer_draft1" or "screen_draft1")), s => Assert.True(s.IsOn));
+        Assert.False(phone.Switches.Single(s => s.Key == "screen_draft1").IsOn);
         Assert.False(phone.Switches.Single(s => s.Key == "sms_draft1").IsOn);
+        Assert.False(phone.Switches.Single(s => s.Key == "dialer_draft1").IsOn);
         phone.Switches.Single(s => s.Key == "files").IsOn = false;
         Assert.Contains($"feature {Phone} files False", _client.Calls);
     }
