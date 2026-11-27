@@ -89,8 +89,8 @@ older clients never send it.
 
 - `welcome` lists the pool (`relays`: ID and STUN address). The node probes every relay with one STUN binding at
   once: round trips for the relay choice, and its server-reflexive address from the nearest.
-- `relay.warm` (or the warm request in the sign-in) gives the node credentials of its own, valid 12 hours and
-  renewed in their last hour. The username is `"<expiry>:w.<tag>"`, tag = base64url(HMAC-SHA256(secret,
+- `relay.warm` (or the warm request in the sign-in) gives the node credentials of its own, valid 6 hours (12 until
+  2026-11-27) and renewed in their last hour. The username is `"<expiry>:w.<tag>"`, tag = base64url(HMAC-SHA256(secret,
   "bridgey-warm-v1" \0 nodeId \0 expiry)[0..9]), so the relay sees an opaque name and only the service can tie
   it to the node.
 - Off mobile data (Android tells the core whether the network is metered; a Mac always), the node keeps an
@@ -194,7 +194,7 @@ per foreground after 25 s of quiet, and a moment where the peer sees this device
 | Only paired devices tunnel | Unchanged: signalling is still sealed with the pair secret, tunnels still need `bridgey-auth-v2` signatures bound to the QUIC exporter, and an offer from an untrusted device still closes the tunnel. |
 | The single-flight sign-in cannot be replayed | Signed over the service's host and a timestamp, taken once per (node, cnonce) within two minutes (the service remembers each for the window). A replayed or out-of-window hello is refused and falls back to the challenge. Pre-existing limits (sockets per node, per IP) apply. |
 | Reclaiming needs the device key | The credential of a warm username is returned only on a socket that signed in with the node key the tag was made for. The saved state holds no credential. |
-| The relay learns nothing new | It sees an opaque username per node per 12 hours instead of per session (it already saw the device's IP); payloads stay QUIC-encrypted. |
+| The relay learns nothing new | It sees an opaque username per node per 6 hours instead of per session (it already saw the device's IP); payloads stay QUIC-encrypted. |
 
 ## Battery
 

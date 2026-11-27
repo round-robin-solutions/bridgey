@@ -1,7 +1,6 @@
 # Connect anywhere: deploy runbook
 
-Status: **live since 2026-10-27** (Rahul: "Deploy all"), except the Mumbai relay on oracle, which is
-down (steps below). Design: [connect-anywhere.md](connect-anywhere.md).
+Status: **live since 2026-10-27** (Rahul: "Deploy all"). The Mumbai relay `bom` runs on rr-dev-2 since 2026-11-27. Design: [connect-anywhere.md](connect-anywhere.md).
 
 ## What is live
 
@@ -10,7 +9,7 @@ down (steps below). Design: [connect-anywhere.md](connect-anywhere.md).
 | Control service | https://connect.roundrobin.in (WebSocket `/v1/ws`), rr-web | app `bridgey-rendezvous` (`AWhUiERgwLozVUZrH6aAz`, appName `bridgey-rendezvous-bls5vl`), Dockerfile `server/rendezvous/Dockerfile`, built on `rr-dev-1-builder`, GHCR, port 8080 published on the host as 18450 | `curl https://connect.roundrobin.in/health/ready` says `ready`; `/v1/status` (tailnet only, see below) lists the relays |
 | Relay `sin` | relay-sg.roundrobin.in (15.235.211.41), rb-vps | compose `bridgey-relay-sg` (`sPkcw4V_FcPmlFYpGF8Bw`) on deploy server `client-update-portal-vps` (`FJI1IAi5SEF9_fDNfSV8J`, user ubuntu, port 2222) | `rust/core/examples/turn_check.rs` from another host |
 | Relay `sxb` | relay-eu.roundrobin.in (109.123.243.231), rr-dev-1 | compose `bridgey-relay-eu` (`AUcFGMLUaVr3qgXixmTvn`) on deploy server `rr-dev-1-deploy` (`OJQHZTE0Gl8BYvaS7CcF9`, user `dokploy-deploy`) | same |
-| Relay `bom` | relay-in.roundrobin.in, oracle | not deployed (oracle is down); no DNS record yet; no secret in the control service, so nobody is sent there | see "oracle" below |
+| Relay `bom` | relay-in.roundrobin.in (206.51.227.16), rr-dev-2 (SSD Nodes, Mumbai) | compose `bridgey-relay-in` (`7ZPbPWj8djRLhrIUjnrz1`) on the Dokploy panel host (no deploy server), auto-deploy from `rr/main` | same |
 | Relay `cf` | Cloudflare Realtime TURN, `turn.cloudflare.com` | live since 2026-11-24 14:44 UTC: TURN key `bridgey-relay`, the four `CF_*` variables on the control service | `/v1/status` lists `cf` with a `cloudflare` object; see "Cloudflare relay" below |
 
 All three Dokploy entries follow branch `rr/connect-anywhere` with auto-deploy on push (control
@@ -40,7 +39,13 @@ How it was set up, so it can be repeated:
 - **Firewalls (ufw, both relay hosts):** UDP 3478 and 61000-62999, commented "Bridgey relay". The
   relay range stays above Linux's ephemeral ports (32768-60999).
 
-## oracle (relay-in, Mumbai) when it is back
+## Moving `bom` to another host
+
+Since 2026-11-27 `bom` runs on rr-dev-2: `EXTERNAL_IP` and `LISTENING_IP` `206.51.227.16` (no NAT), `MIN_PORT=61000`,
+`MAX_PORT=62999`, `TOTAL_QUOTA=600`, `BPS_CAPACITY=50000000` (400 Mbit/s), `COTURN_CPUS=2.0`; the host also runs the
+Dokploy panel, n8n, RR CI and the AI gateway, hence the caps. Its firewall (PA `infra/server-baseline`, host
+`ssdnodes-mumbai`) opens UDP 3478 and 61000-62999 and sets `RELAY_SELF_GUARD`. The steps below were written for
+oracle, which sits behind 1:1 NAT; on another host follow the same order.
 
 1. Make sure the VM has its public IP and the personal Dokploy (or register it in the Round Robin
    Dokploy, which already lists it as `personal-oracle-staging`, `Q91K4rsiyqgzY0Fvxb_ax`). Create
@@ -150,14 +155,15 @@ file, per-connection limits; after it is merged with green checks and the coordi
 3. Check `/v1/status`: `cloudflare` shows `credentialsOut` and `budget`, and the container log says either nothing
    about the state file (it loaded) or, on the first start with the volume, "no saved credentials; assuming the
    budget's worth is out". That first start, and any start without the file, brings Cloudflare back gradually over
-   12 hours (credentials the earlier run handed out are assumed out until they would have expired).
+   the warm grant lifetime, 6 hours since 2026-11-27 (credentials the earlier run handed out are assumed out until
+   they would have expired).
 4. The relays: at their next redeploy, add the host firewall rule in section 3.
 
 **Rollback.** In order of size:
 
 - Cloudflare off, same image: `python3 cloudflare-relay-deploy.py env-remove`, then redeploy the same tag (step 4).
   The new image without the `CF_*` variables behaves exactly as the old one; Cloudflare allocations already made
-  end within the grant's lifetime (2 hours, 12 for warm grants), or at once with the TURN key deleted in the
+  end within the grant's lifetime (2 hours, 6 for warm grants), or at once with the TURN key deleted in the
   Cloudflare dashboard (Realtime, TURN).
 - The old image: `python3 cloudflare-relay-deploy.py rollback` (deploys `:rollback-20261124`, the 2026-11-07 image).
   Remove the `CF_*` variables too, or leave them: the old image ignores them.
@@ -242,7 +248,7 @@ line). Per host:
 
 | Relay | Host | Dokploy | Environment | Ports to open (UDP) |
 | --- | --- | --- | --- | --- |
-| `bom` | oracle | personal Dokploy | as in the oracle steps above | 3478, 61000-62999 (OCI security list and host iptables) |
+| `bom` | rr-dev-2 | Dokploy panel host | as in "Moving `bom` to another host" above | 3478, 61000-62999 (server baseline firewall) |
 | `sin` | rb-vps | deploy server | `EXTERNAL_IP` and `LISTENING_IP` `15.235.211.41`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=25000000` | 3478, 61000-62999 |
 | `sxb` | rr-dev-1 | deploy server (still the build server) | `EXTERNAL_IP` and `LISTENING_IP` `109.123.243.231`, `MIN_PORT=61000`, `MAX_PORT=62999`, `TOTAL_QUOTA=300`, `BPS_CAPACITY=37500000`, `COTURN_CPUS=1.5` | 3478, 61000-62999 |
 
