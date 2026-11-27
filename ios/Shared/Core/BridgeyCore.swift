@@ -522,6 +522,18 @@ final class BridgeyCore: CoreClient, @unchecked Sendable {
     }
 
     func setLinksOpen(_ on: Bool) throws { try check(bridgey_set_links_open(handle, on ? 1 : 0)) }
+
+    #if DEBUG
+    /// Tests only: this client answers as a simulated Android phone and Mac (canned conversations, files, a screen clip),
+    /// so unit tests run real sessions where no phone or Mac can start.
+    func simulatePhoneForTests(_ on: Bool) throws { try check(bridgey_simulate_phone_for_tests(handle, on ? 1 : 0)) }
+
+    /// Tests only: sends what a phone sends (notifications.post, notifications.remove, codes.status, quick.request,
+    /// codes.advertise).
+    func sendAsPhoneForTests(_ deviceID: String, kind: String, json: String) throws {
+        try check(bridgey_send_as_phone_for_tests(handle, deviceID, kind, json))
+    }
+    #endif
 }
 
 /// Calls `body` with a C string for `text`, or NULL.

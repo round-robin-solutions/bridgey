@@ -191,7 +191,8 @@ fn main() {
         });
     }
     let deadline = Instant::now() + Duration::from_secs(seconds);
-    let mut sent = false;
+    // Devices the --send text went to: each new device gets it once (UI tests pair a fresh app identity each run).
+    let mut sent: std::collections::HashSet<String> = Default::default();
     while Instant::now() < deadline {
         let Next::Event(e) = client.next_event(Duration::from_millis(200)) else { continue };
         match e {
@@ -205,17 +206,22 @@ fn main() {
                 out(json!({"event": "connected", "deviceId": device_id, "name": name}));
             }
             Event::Disconnected { device_id, reason } => {
-                *connected.lock().unwrap() = None;
+                // An older device going away never takes the commands from the one connected since.
+                let mut current = connected.lock().unwrap();
+                if current.as_deref() == Some(device_id.as_str()) {
+                    *current = None;
+                }
+                drop(current);
                 out(json!({"event": "disconnected", "deviceId": device_id, "reason": reason}));
             }
             Event::Features { device_id, remote, .. } => {
                 out(json!({"event": "features", "deviceId": device_id, "remote": remote.to_json()}));
-                if let (Some(text), false, true) = (&send, sent, remote.get("clipboard")) {
+                if let (Some(text), false, true) = (&send, sent.contains(&device_id), remote.get("clipboard")) {
                     // Give the app a moment to show the device before the text arrives.
                     std::thread::sleep(Duration::from_millis(1500));
                     let r = client.send_clipboard(&device_id, text);
                     out(json!({"event": "sending", "ok": r.is_ok()}));
-                    sent = true;
+                    sent.insert(device_id.clone());
                 }
             }
             Event::Clipboard { device_id, text, .. } => out(json!({"event": "clipboard", "deviceId": device_id, "text": text})),
