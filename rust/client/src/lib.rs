@@ -22,6 +22,7 @@ pub mod phone;
 pub mod phone_files;
 pub mod quick;
 pub mod resume;
+pub mod screen;
 pub mod session;
 mod sim;
 pub mod sms;

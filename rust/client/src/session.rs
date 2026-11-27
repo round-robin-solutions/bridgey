@@ -274,6 +274,8 @@ pub struct Handle {
     tx: mpsc::Sender<Command>,
     /// When the session last read a frame, in `clock_ms` time.
     heard: Arc<AtomicU64>,
+    /// The screen control contract's connection nonce for this session, once its key is agreed (screen.rs).
+    connection: Arc<OnceLock<[u8; 16]>>,
 }
 
 /// Milliseconds on a monotonic clock shared by every session.
@@ -334,6 +336,19 @@ impl Handle {
     pub fn is_open(&self) -> bool {
         !self.tx.is_closed()
     }
+    /// `HMAC-SHA256(session key, "bridgey-screen-control-connection-v1" 0x00 sessionId)[0..16]`, the nonce screen control
+    /// packets carry (docs/protocol.md "Mac screen to phone"); None before the key is agreed.
+    pub fn screen_connection(&self) -> Option<[u8; 16]> {
+        self.connection.get().copied()
+    }
+}
+
+/// The screen control contract's connection nonce from a session key and session ID.
+pub fn screen_connection(key: &[u8; 32], session_id: &str) -> [u8; 16] {
+    let mac = ring::hmac::sign(&ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key), &[b"bridgey-screen-control-connection-v1".as_slice(), &[0], session_id.as_bytes()].concat());
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&mac.as_ref()[..16]);
+    out
 }
 
 struct State {
@@ -465,7 +480,7 @@ pub fn spawn(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>) -
 /// tunnel's exporter in the signed transcript (docs/protocol.md "Connect anywhere").
 pub fn spawn_on(session: u64, stream: TcpStream, role: Role, host: Arc<dyn Host>, tunnel: Option<Tunnel>) -> Handle {
     let (tx, rx) = mpsc::channel(COMMANDS);
-    let handle = Handle { session, tx, heard: Arc::new(AtomicU64::new(clock_ms())) };
+    let handle = Handle { session, tx, heard: Arc::new(AtomicU64::new(clock_ms())), connection: Arc::new(OnceLock::new()) };
     let own = handle.clone();
     tokio::spawn(async move {
         let peer = stream.peer_addr().unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
@@ -821,7 +836,8 @@ impl Session {
         let Some(key) = self.st.key else { return Step::Continue };
         let (nonce, ciphertext) = crypto::encrypt(&key, plaintext);
         let mut m = Message::new(kind, &self.st.id);
-        m.message_id = Some(message_id);
+        // An empty ID sends none (screen.frame: its header holds the stream's sequence).
+        m.message_id = Some(message_id).filter(|id| !id.is_empty());
         m.nonce = Some(nonce);
         m.ciphertext = Some(ciphertext);
         m.transfer_id = transfer_id.map(str::to_string);
@@ -941,6 +957,7 @@ impl Session {
         #[cfg(test)]
         KEYLOG.lock().unwrap().push((self.st.id.clone(), prk, key));
         self.st.key = Some(key);
+        let _ = self.handle.connection.set(screen_connection(&key, &self.st.id));
         // Both ends sent protocol 2 (checked before every agreement here), so frames carry tags from now on.
         self.st.envelope = Some(crypto::envelope_key(&key));
         self.st.fast_key = Some(fast::frame_key(&key));
@@ -1172,6 +1189,11 @@ impl Session {
             return None;
         }
         if matches!(m.kind.as_str(), "heartbeat.pong" | "ping.ack" | "clipboard.ack" | "clipboard.rejected" | "calls.started" | "calls.confirmation_required" | "calls.rejected") {
+            return Some(true);
+        }
+        // Screen stream messages stay out of the shared window (30 a second would push every other ID out); each stream
+        // numbers its own (docs/protocol.md "Phone screen to Mac").
+        if crate::screen::is_stream(&m.kind) {
             return Some(true);
         }
         if self.st.seen.contains(id) {
@@ -1459,7 +1481,11 @@ impl Session {
             // dropped and the session stays.
             kind if self.host.phone_kind(kind).is_some() => {
                 let spec = self.host.phone_kind(kind).unwrap();
-                let Some(message_id) = m.message_id.clone() else { return Step::Continue };
+                // screen.frame carries no messageId: its header holds the stream's sequence.
+                let message_id = m.message_id.clone();
+                if message_id.is_none() && kind != "screen.frame" {
+                    return Step::Continue;
+                }
                 let mut plain = match self.open(&m) {
                     Some(p) => p,
                     // A receiver with Files off refuses a folder without decrypting it: an outer-only folders.rejected.
@@ -2319,7 +2345,7 @@ mod tests {
         let session = include_str!("session.rs");
         let client = include_str!("client.rs");
         // The phone's own features (phone.rs), each in its own module.
-        let areas = [include_str!("sms.rs"), include_str!("calls.rs"), include_str!("phone_files.rs")];
+        let areas = [include_str!("sms.rs"), include_str!("calls.rs"), include_str!("phone_files.rs"), include_str!("screen.rs")];
         let mut code = format!("{}{}", &session[..session.find("#[cfg(test)]\nmod tests").unwrap()], client.split("#[cfg(test)]\nmod tests").next().unwrap());
         for area in areas {
             code.push_str(area.split("#[cfg(test)]\nmod tests").next().unwrap());

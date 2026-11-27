@@ -1044,6 +1044,40 @@ pub unsafe extern "C" fn bridgey_phone(handle: u64, area: u32, device_id: *const
     .unwrap_or(std::ptr::null_mut())
 }
 
+/// Takes the next whole frame of a phone's screen (the id of a BRIDGEY_EVENT_KIND_SCREEN `started` event): one H.264
+/// access unit in Annex B, copied into `buffer`. Frames never go through bridgey_next_event. Waits up to `timeout_ms`.
+/// Returns 1 with `*out_len` bytes, `*out_capture_micros` (the phone's capture clock; only differences mean anything)
+/// and `*out_flags` (bit 0 a key frame, bit 1 it starts with SPS and PPS); 0 after the timeout;
+/// `BRIDGEY_ERR_TOO_LARGE` with `*out_len` the size needed (the frame stays next); `BRIDGEY_ERR_NOT_CONNECTED` once the
+/// stream has ended. Taking a frame tells the phone it arrived; a stream keeps at most 8 frames waiting.
+///
+/// # Safety
+/// `buffer` is valid for `capacity` bytes; the out pointers are valid for writing.
+#[no_mangle]
+pub unsafe extern "C" fn bridgey_screen_frame(handle: u64, stream: u64, timeout_ms: u32, buffer: *mut u8, capacity: usize, out_len: *mut usize, out_capture_micros: *mut i64, out_flags: *mut u32) -> i32 {
+    guard(|| {
+        let Some(c) = client(handle) else { return BRIDGEY_ERR_STOPPED };
+        if out_len.is_null() || out_capture_micros.is_null() || out_flags.is_null() || (buffer.is_null() && capacity > 0) {
+            return BRIDGEY_ERR_INVALID_ARGUMENT;
+        }
+        match c.screen_frame(stream, Duration::from_millis(u64::from(timeout_ms)), capacity) {
+            Ok(Some(frame)) => {
+                std::ptr::copy_nonoverlapping(frame.data.as_ptr(), buffer, frame.data.len());
+                *out_len = frame.data.len();
+                *out_capture_micros = frame.capture_micros;
+                *out_flags = u32::from(frame.key) | u32::from(frame.parameter_sets) << 1;
+                1
+            }
+            Ok(None) => 0,
+            Err(Some(needed)) => {
+                *out_len = needed;
+                BRIDGEY_ERR_TOO_LARGE
+            }
+            Err(None) => BRIDGEY_ERR_NOT_CONNECTED,
+        }
+    })
+}
+
 /// Copies `len` bytes into the buffer a storage `load` callback was given.
 ///
 /// # Safety

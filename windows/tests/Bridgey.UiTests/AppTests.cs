@@ -67,7 +67,8 @@ public sealed partial class AppTests : IDisposable
             foreach (var theme in new[] { "Light", "Dark" })
             {
                 var t = theme.ToLowerInvariant();
-                window = Launch(theme, setupDone: true, textMessages: theme == "Dark", calls: theme == "Dark");
+                // The light run turns these on in Settings; the dark run starts with them on.
+                window = Launch(theme, setupDone: true, textMessages: theme == "Dark", calls: theme == "Dark", phoneScreens: theme == "Dark");
                 Find(window, "HomeStatus");
                 if (theme == "Light") Shot(window, "home-empty-light");
 
@@ -99,6 +100,7 @@ public sealed partial class AppTests : IDisposable
                     TextMessages(window);
                     CallsWindow(window);
                     PhoneFiles(window);
+                    PhoneScreen(window, "light");
                 }
                 else
                 {
@@ -122,6 +124,7 @@ public sealed partial class AppTests : IDisposable
 
                 if (theme == "Dark")
                 {
+                    PhoneScreen(window, "dark");
                     // Text messages stays on, and the conversations come back from the encrypted cache.
                     Click(window, "NavMessages");
                     var asha = WaitFor(() => Find(window, "Conversations").FindFirstDescendant(c => c.ByName("Asha", FlaUI.Core.Definitions.PropertyConditionFlags.MatchSubstring)), "the conversations in the dark run");
@@ -477,6 +480,37 @@ public sealed partial class AppTests : IDisposable
         Click(window, "SectionFolders");
     }
 
+    /// <summary>
+    /// The peer's screen (--phone streams a synthetic clip as unattended screenshots): Show phone screens on, Show screen
+    /// on the card opens the window, Slower mode, control with the phone's buttons, then Stop closes it. Windows'
+    /// decoder may be missing on a server image, so the picture itself is only captured, never asserted.
+    /// </summary>
+    private void PhoneScreen(Window window, string theme)
+    {
+        if (theme == "light")
+        {
+            Click(window, "NavSettings");
+            SelectSection(window, "Remote control");
+            var on = Find(window, "ShowPhoneScreens");
+            if (on.Patterns.Toggle.IsSupported) on.Patterns.Toggle.Pattern.Toggle();
+            Shot(window, "settings-remote-light");
+        }
+        Click(window, "NavHome");
+        Click(window, "ShowScreen");
+        var screen = WaitFor(() => _app!.GetAllTopLevelWindows(_automation).FirstOrDefault(w => w.Name == $"{PeerName}'s screen"), "the phone screen window");
+        WaitFor(() => screen.FindFirstDescendant(c => c.ByAutomationId("SlowerMode")), "the stream in Slower mode");
+        Thread.Sleep(1500);
+        Shot(screen, $"phone-screen-{theme}");
+        Click(screen, "ScreenControl");
+        WaitFor(() => screen.FindFirstDescendant(c => c.ByAutomationId("ControlText"))?.Name == "Controlling" ? "ok" : null, "control on");
+        Click(screen, "PhoneHome");
+        Shot(screen, $"phone-screen-control-{theme}");
+        Click(screen, "StopControl");
+        WaitFor(() => screen.FindFirstDescendant(c => c.ByAutomationId("ScreenControl")) is not null ? "ok" : null, "Control again after Stop control");
+        Click(screen, "StopScreen");
+        WaitFor(() => _app!.GetAllTopLevelWindows(_automation).Any(w => w.Name == $"{PeerName}'s screen") ? null : "ok", "the window closed after Stop");
+    }
+
     private void PeerCommand(string line)
     {
         _peer!.StandardInput.WriteLine(line);
@@ -503,10 +537,11 @@ public sealed partial class AppTests : IDisposable
     }
 
     /// <summary>
-    /// Starts the app with fresh settings; <paramref name="textMessages"/> keeps Text messages on from the light run and
-    /// <paramref name="calls"/> the Calls window, with the peer allowed.
+    /// Starts the app with fresh settings; <paramref name="textMessages"/> keeps Text messages on from the light run,
+    /// <paramref name="calls"/> the Calls window with the peer allowed, and <paramref name="phoneScreens"/> Show phone
+    /// screens.
     /// </summary>
-    private Window Launch(string theme, bool setupDone, bool textMessages = false, bool calls = false)
+    private Window Launch(string theme, bool setupDone, bool textMessages = false, bool calls = false, bool phoneScreens = false)
     {
         Directory.CreateDirectory(_data);
         File.WriteAllText(Path.Combine(_data, "settings.json"), JsonSerializer.Serialize(new Dictionary<string, object>
@@ -518,6 +553,7 @@ public sealed partial class AppTests : IDisposable
             ["textMessages"] = textMessages,
             ["callsWindow"] = calls,
             ["callsAllowed"] = calls && _peerId is { } peer ? new[] { peer } : Array.Empty<string>(),
+            ["showPhoneScreens"] = phoneScreens,
         }));
         var start = new ProcessStartInfo(_exe) { UseShellExecute = false };
         start.Environment["BRIDGEY_DATA_DIR"] = _data;

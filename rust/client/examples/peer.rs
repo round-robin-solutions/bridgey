@@ -14,15 +14,15 @@
 //!   media <action> [value]   a media button (toggle, pause, next, previous, seek, volume)
 //!   feature <key> <0|1>      this device's switch for the connected device (sms_draft1, ...)
 //!   phone <area> <json>      a command for one of the phone's features as a desktop (area 1 text messages, 2 calls,
-//!                            3 phone files); the answer and the area's events are written out
+//!                            3 phone files, 4 screen); the answer and the area's events are written out
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
 //!        [--receive-dir <folder>] [--seconds 300] [--phone]
 //!
 //! `--phone` answers the other device's requests for the phone's own features as a phone would, with canned
-//! conversations (Text messages), an address book and call log (the Calls window), and a few folders and files
-//! (Phone files: browsing, thumbnails, downloads, and uploads into the receive folder), so an app's windows for them can
-//! be tested without a phone.
+//! conversations (Text messages), an address book and call log (the Calls window), a few folders and files (Phone
+//! files: browsing, thumbnails, downloads, and uploads into the receive folder), and a synthetic screen clip it can be
+//! controlled through, so an app's windows for them can be tested without a phone.
 //!   peer --sign-update <file>    a test release key's signature over a file (self-update tests), then exit
 //!
 //! Files, battery, find device and notifications (with routing, presence and code status) are on. It never touches a real device's settings: identity and trust live in
@@ -87,6 +87,8 @@ fn main() {
         config.defaults.set("dialer_draft1", true);
         config.defaults.set("calls", true);
         config.defaults.set("files_browse_draft1", true);
+        config.defaults.set("screen_draft1", true);
+        config.defaults.set("phone_control_draft1", true);
     }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
     client.simulate_phone_for_tests(phone);
@@ -136,6 +138,7 @@ fn main() {
                             "1" | "sms" => bridgey_core::phone::Area::Sms,
                             "2" | "calls" => bridgey_core::phone::Area::Calls,
                             "3" | "files" => bridgey_core::phone::Area::PhoneFiles,
+                            "4" | "screen" => bridgey_core::phone::Area::Screen,
                             _ => {
                                 out(json!({"event": "command", "ok": false, "error": "unknown area", "line": line}));
                                 continue;

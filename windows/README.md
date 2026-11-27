@@ -33,6 +33,12 @@ files folder (**Download to…** asks where); a name already there gets a number
 or a drop on the page, puts files from this PC in the folder being browsed, when the phone allows changes there. A
 folder the phone sends lands in the received files folder.
 
+**Show screen** on a phone's card opens its screen in a window (Show phone screens, off until you turn it on here;
+the phone decides whether this PC may see it, and asks or not by its own rules). The window says what the phone needs
+in plain words, shows **Slower mode** when the phone sends screenshots because nobody approved video on it, and has
+**Control** when the phone allows it: presses, drags and the wheel go to the phone, with Back, Home and Recents, and
+typing on Android 13 and later. Windows' own H.264 decoder shows the picture.
+
 Files go from the device card's **Send files**, by dragging them onto the window or a device card, from the
 notification area menu, or from Explorer: right-click, **Send to**, **Bridgey**. Received files go to
 Downloads\Bridgey (Settings > Files changes it) and are never overwritten: a second `photo.jpg` becomes
@@ -108,11 +114,12 @@ The settings that change the app's behaviour are in Settings:
 - Text messages, off, and Keep conversations on this PC (on);
 - the Calls window, off, the phones it may call through (each off until allowed), Call from (Ask each time), Show
   WhatsApp calls (on) and Recent calls (last 20);
+- Remote control: Show phone screens, off;
 - Links (on) and Open links right away (on), Browser extensions (off: the extension's native messaging host for
   Chrome, Edge, Brave and Firefox, [docs](../docs/browser-extensions.md)), Media controls (off), Battery, Find device
   and Ping (on);
 - for each paired device, its own Clipboard, Files, Battery, Find device, Ping, Notifications, Links, Media controls,
-  Text messages and Calls window switches;
+  Text messages, Calls window and Phone screen switches;
 - Updates: the channel (the build's own: Beta for a beta), Check for updates when Bridgey opens (on, at most every
   six hours), Check now and Install;
 - start at sign-in, on by default;
@@ -135,10 +142,11 @@ and `BRIDGEY_UPDATE_CURRENT_BUILD` point a separate profile's updater at a test 
 - MSIX and winget.
 - Share from other apps: Windows offers Share targets only to packaged (MSIX) apps; Send to covers Explorer.
 - Sending folders.
-- Screen view and control (M3).
 - Calls from tel: links in the browser extension and from other apps (the Mac asks first); call audio on this PC.
 - Phone files: previews, opening a file without downloading it, adding folders, and continuing a download or upload
   that broke off (it stops, and the files that arrived stay).
+- This PC's screen on the phone. Windows doesn't offer it to phones yet; what it needs is in
+  [session-client.md](../docs/session-client.md#not-covered-yet).
 - Pinning, muting, archiving and deleting conversations, and searching them (the Mac has these).
 
 The activity list is in memory only for now.

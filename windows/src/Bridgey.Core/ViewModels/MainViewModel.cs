@@ -50,6 +50,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public CallsViewModel Calls { get; }
     /// <summary>The phone's files: browse, download, add files.</summary>
     public PhoneFilesViewModel PhoneFiles { get; }
+    /// <summary>Phones' screens in windows on this PC (Show phone screens).</summary>
+    public ScreenViewModel Screen { get; }
     /// <summary>Self-update; set by the host before the window opens (none in tests that do not need it).</summary>
     public UpdatesViewModel? Updates { get; set; }
 
@@ -70,6 +72,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Messages = new MessagesViewModel(client, NameOf);
         Calls = new CallsViewModel(client, settings, ui, NameOf);
         PhoneFiles = new PhoneFilesViewModel(client, NameOf);
+        Screen = new ScreenViewModel(client, NameOf);
         Notifications.SmsReply = Messages.ReplyToNotification;
         Devices.CollectionChanged += (_, _) => DevicesChanged();
         Activity.CollectionChanged += (_, _) =>
@@ -416,6 +419,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Calls.Readiness(item, item.CallsReady);
         item.PhoneFilesReady = item.IsConnected && On(local, "files") && On(remote, "files") && On(remote, "files_browse_draft1");
         PhoneFiles.Readiness(item, item.PhoneFilesReady);
+        item.ScreenReady = item.IsConnected && On(local, "screen_draft1") && On(remote, "screen_draft1");
+        Screen.Readiness(item, item.ScreenReady);
         if (!(On(local, "battery") && On(remote, "battery"))) item.BatteryLevel = null;
         Raise(nameof(CanSendDraft));
         Raise(nameof(CanSendFiles));
@@ -435,6 +440,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Messages.Handle(e);
         Calls.Handle(e);
         PhoneFiles.Handle(e);
+        Screen.Handle(e);
         switch (e.Kind)
         {
             case BridgeyEventKind.DeviceFound when e.Text is not null:
@@ -664,6 +670,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
         Try(() => _client.SetFeature(deviceId, key, on));
+        // Phone screen: seeing it and controlling it go together, as the Mac's Show phone screens does.
+        if (key == "screen_draft1") Try(() => _client.SetFeature(deviceId, "phone_control_draft1", on));
         if (Find(deviceId) is { } device)
         {
             if (key == "clipboard") device.ShowClipboardAllowed(on);

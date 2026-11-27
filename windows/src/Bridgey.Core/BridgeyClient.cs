@@ -216,6 +216,12 @@ public interface IBridgeyClient : IDisposable
     /// {"ok": true, ...} or {"ok": false, "error": ...}. Answers from the phone arrive later as the area's events.
     /// </summary>
     string Phone(PhoneArea area, string deviceId, string command);
+    /// <summary>
+    /// The next whole frame of a phone's screen (bridgey_screen_frame): 1 with <paramref name="length"/> bytes in
+    /// <paramref name="buffer"/>, 0 after the timeout, <see cref="BridgeyException.TooLarge"/> with the size needed,
+    /// <see cref="BridgeyException.NotConnected"/> once the stream has ended. Flags: bit 0 a key frame.
+    /// </summary>
+    int ScreenFrame(ulong stream, uint timeoutMs, byte[] buffer, out int length, out long captureMicros, out uint flags);
 }
 
 /// <summary>
@@ -463,6 +469,19 @@ public sealed unsafe class BridgeyClient : IBridgeyClient
 
     public string Phone(PhoneArea area, string deviceId, string command) =>
         TakeString(NativeMethods.bridgey_phone(_handle, (uint)area, deviceId, command)) ?? throw new BridgeyException(BridgeyException.Stopped);
+
+    public int ScreenFrame(ulong stream, uint timeoutMs, byte[] buffer, out int length, out long captureMicros, out uint flags)
+    {
+        nuint len;
+        long capture;
+        uint f;
+        int rc;
+        fixed (byte* data = buffer) rc = NativeMethods.bridgey_screen_frame(_handle, stream, timeoutMs, data, (nuint)buffer.Length, &len, &capture, &f);
+        length = (int)len;
+        captureMicros = capture;
+        flags = f;
+        return rc;
+    }
 
     /// <summary>Fast transfers with peers that show them; off sends JSON chunks (a test setting).</summary>
     public void SetFastTransfers(bool on) => Check(NativeMethods.bridgey_set_fast_transfers(_handle, on ? (byte)1 : (byte)0));

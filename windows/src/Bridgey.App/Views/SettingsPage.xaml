@@ -567,6 +567,23 @@
                     </Border>
                 </StackPanel>
 
+                <!-- Remote control -->
+                <StackPanel x:Name="RemoteSection" Spacing="8" Tag="remoteControl">
+                    <Border Style="{StaticResource Row}">
+                        <Grid ColumnSpacing="16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Show phone screens" Style="{StaticResource BrandBody}" />
+                                <TextBlock Text="See your phone's screen in a window and control it. Your phone decides whether this PC may: turn on screen sharing there too." Style="{StaticResource BrandSecondary}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" IsOn="{x:Bind Settings.ShowPhoneScreens, Mode=TwoWay}" AutomationProperties.Name="Show phone screens" AutomationProperties.AutomationId="ShowPhoneScreens" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+
                 <!-- Privacy -->
                 <StackPanel x:Name="PrivacySection" Spacing="8" Tag="privacy">
                     <Border Style="{StaticResource Row}">

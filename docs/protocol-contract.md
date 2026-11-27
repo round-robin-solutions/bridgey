@@ -1140,17 +1140,17 @@ accepted also when an update was already running. Progress follows as updates.st
 
 | Kind | Status | v1 (proposed) | Direction | Feature | Encrypted | Replay | Max plaintext | Envelope | Implemented |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `screen.request` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.status` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.start` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.started` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.frame` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos |
-| `screen.ack` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.stats` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.stop` | edition-draft | draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.geometry` | edition-draft | draft | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.control` | edition-draft | draft | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos |
-| `screen.input` | edition-draft | draft | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos |
+| `screen.request` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.status` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | messageId | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.start` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 1,024 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.started` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.frame` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 32,808 B | sessionId, nonce, ciphertext | android, macos, client |
+| `screen.ack` | edition-draft | draft | mac-to-phone | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.stats` | edition-draft | draft | phone-to-mac | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.stop` | edition-draft | draft | either | screen_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.geometry` | edition-draft | draft | phone-to-mac | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.control` | edition-draft | draft | either | phone_control_draft1 | yes | sequence | 512 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
+| `screen.input` | edition-draft | draft | mac-to-phone | phone_control_draft1 | yes | sequence | 2,048 B | sessionId, messageId, nonce, ciphertext | android, macos, client |
 
 `screen.request`
 

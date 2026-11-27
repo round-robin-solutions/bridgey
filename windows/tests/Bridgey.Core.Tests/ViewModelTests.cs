@@ -71,6 +71,24 @@ internal sealed class FakeClient : IBridgeyClient
         var op = System.Text.Json.Nodes.JsonNode.Parse(command)?["op"]?.GetValue<string>() ?? "";
         return PhoneAnswers.TryGetValue(op, out var answer) ? answer : "{\"ok\":true}";
     }
+    /// <summary>Frames the fake hands out for <see cref="ScreenFrame"/>, then the end of the stream.</summary>
+    public readonly Queue<byte[]> ScreenFrames = new();
+    public int ScreenFrame(ulong stream, uint timeoutMs, byte[] buffer, out int length, out long captureMicros, out uint flags)
+    {
+        captureMicros = 0;
+        flags = 0;
+        length = 0;
+        if (!ScreenFrames.TryDequeue(out var frame)) return BridgeyException.NotConnected;
+        if (frame.Length > buffer.Length)
+        {
+            length = frame.Length;
+            return BridgeyException.TooLarge;
+        }
+        frame.CopyTo(buffer, 0);
+        length = frame.Length;
+        flags = 1;
+        return 1;
+    }
     public void Dispose() { }
 }
 

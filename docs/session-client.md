@@ -30,7 +30,9 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
 | Text messages (`sms_draft1`: conversations, sync, sends, MMS pictures, contacts, Mark as read, Block on phone) | phone side | yes | none | yes, the desktop side, from Windows M3 (`sms.rs`): the Mac's sync rules and cache, kept in the host's storage |
 | The Calls window (`dialer_draft1`: status, contact search, recent calls, calls through the phone or its WhatsApp) and calls (`calls.request`) | phone side | yes | none | yes, the desktop side, from Windows M3 (`calls.rs`): the Mac's search, list and SIM rules; memory only |
 | Phone files (`files_browse_draft1`: places, folders, photos and recent documents, thumbnails) and folders from the phone (`folders_draft1` receiving, `into` downloads) and to it (`into` uploads) | phone side | yes | none | yes, the desktop side, from Windows M3 (`phone_files.rs`, `folders.rs`): files to the folder being browsed; no folder journal or resume yet |
-| Everything else (sending folders with a root, screen, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
+| The phone's screen and control of it (`screen_draft1`, `phone_control_draft1`: requests, the stream, frames, acknowledgements, control input on the shared contract) | phone side | yes | `rust/proto` contract only | yes, the viewer and controller side, from Windows M3 (`screen.rs`); frames go to the host through `bridgey_screen_frame`, never the event queue |
+| This device's own screen to the phone (`screen_control_draft1`, `display.*`) | viewer | source | `rust/proto` contract | not yet: Windows does not advertise the key ([below](#not-covered-yet)) |
+| Everything else (sending folders with a root, settings sync, Update all) | yes | yes | none | not yet: each moves when a new platform needs it (Windows M3, iOS I2) |
 
 ## How it works
 
@@ -99,6 +101,18 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   upload offers the files with `into` to the folder being browsed, each name made portable. A folder that breaks off
   is not resumed (the phone hears `resume_unavailable`); the files saved stay. The host advertises
   `folders_receive_draft1` with Files (a switch, so iOS sends nothing new).
+- The phone's screen (area 4, `screen.rs`) follows the Mac's viewer: `request` asks (one open request per phone, at
+  most every 3 s, 2 minutes to answer); the phone's `screen.status` arrives as `status` (with `needs`: `unlock`,
+  `accessibility` or `android_11`); `started` carries the stream (its id is the frame source), size, `screenshots`
+  (unattended access, about 3 a second: the window says Slower mode) and control. Stream messages keep their own
+  sequence outside the shared messageId window, ended stream IDs (the last 1,024) stay refused, and 6 s without a frame
+  or stats ends a stream. The host pulls each whole H.264 access unit (Annex B) with `bridgey_screen_frame`; taking one
+  acknowledges it, at most 8 wait, and a host that falls behind loses them and gets the next key frame. Control:
+  `control_begin` and `control_end`, the phone's states as `control` events, and `touch`, `scroll`, `navigate`, `text`,
+  `key` and `press`, numbered as `screen.input` packets of the shared contract (`rust/proto/src/screen_control.rs`)
+  with the session's connection nonce, `geometry_ack` first and after each `screen.geometry`, motion coalesced, within
+  the phone's rates, a heartbeat every 2 s. Other ops: `status`, `stop`, `decoded`, `keyframe`. Events: `status`,
+  `started`, `stats`, `geometry`, `control`, `stopped`.
 - ABI 1 grows only at the end: `BridgeyConfig` fields after `data_dir` are read only when `struct_size` covers
   them, and new event kinds are skipped by hosts that don't know them.
 - Ownership: client handles are `uint64_t`, so a stopped or freed handle is refused rather than dereferenced.
@@ -154,13 +168,29 @@ Mac keep their own Kotlin and Swift code; nothing in either app changed.
   composes the names it uploads), so the vectors with combining marks are skipped. `tests/phone_files.rs` runs a session
   against a client that answers as a phone: places, folders, photos, thumbnails, the lanes under load, a download of a
   file and a folder tree that lands verified next to a file of the same name, and an upload of two files.
-- `protocol/messages.json` lists `client` for the 98 kinds it speaks; a test fails if the sources and the list
+- The phone's screen: the `screen*` groups of `protocol-v1.json` (status, start, stats and stop as read here; started,
+  ack and stop as written here; the frame header both ways), `phone-control-v1.json` (control objects, the phone's
+  geometry and control messages, begin and end as written, negotiated input) and the connection nonce of
+  `display-v1.json`, checked in `src/screen/tests.rs` with the frame assembler, the frame queue and the control
+  sender's numbering, coalescing, rates, heartbeats and geometry rules. `tests/screen.rs` runs a stream from a
+  simulated phone (a synthetic 96 by 160 H.264 clip in `tests/fixtures`, sent as unattended screenshots): frames pulled
+  and acknowledged, stats, control with touch, text, keys and a rotation, Stop, Show phone screens turned off, and a
+  disconnect. The Windows tests check the letterbox against `display-v1.json`.
+- `protocol/messages.json` lists `client` for the 109 kinds it speaks; a test fails if the sources and the list
   differ.
 
 `include/bridgey_core.h` is generated: `BRIDGEY_WRITE_HEADER=1 cargo test -p bridgey-client --test header`. The
 recorded session is regenerated with `BRIDGEY_WRITE_VECTORS=1 cargo test -p bridgey-client --lib vectors`.
 
 ## Not covered yet
+
+- This device's own screen on the phone (`screen_control_draft1`, `display.*`), with Windows as the source. It needs
+  Windows.Graphics.Capture for the display, a Media Foundation H.264 encoder (hardware where there is one) paced like
+  the phone's, a `SendInput` host behind the contract's `HostSession`, and the Mac's grant model kept on the PC: a
+  per-device Default, Off, Ask each time and Allow without asking in DPAPI-protected storage bound to the pinned key,
+  the Unattended access switch (on by default), servers and agents always Off, an indicator naming the viewer with
+  Stop that is always shown, and the raise guard while anything controls the PC. None of it can be tried without a
+  Windows desktop, so Windows does not advertise the key.
 
 - A live pairing with the shipping apps on real devices or an emulator; the checks above are on the wire format
   and shared code.

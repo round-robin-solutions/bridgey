@@ -15,6 +15,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
     private bool _messagesReady;
     private bool _callsReady;
     private bool _phoneFilesReady;
+    private bool _screenReady;
     private bool _away;
     private bool _clipboardAllowed = true;
     private string _status = "Not connected";
@@ -138,6 +139,13 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         set => Set(ref _phoneFilesReady, value);
     }
 
+    /// <summary>Show phone screens on at both ends: the card offers Show screen.</summary>
+    public bool ScreenReady
+    {
+        get => _screenReady;
+        set => Set(ref _screenReady, value);
+    }
+
     /// <summary>Connect away from home is set up with this device (it can reach this PC on other networks).</summary>
     public bool Away
     {
@@ -205,6 +213,7 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
         new(owner, id, "media", "Media controls"),
         new(owner, id, "sms_draft1", "Text messages"),
         new(owner, id, "dialer_draft1", "Calls window"),
+        new(owner, id, "screen_draft1", "Phone screen"),
     ];
 
     internal void ShowSwitches(Dictionary<string, bool> local)
@@ -252,6 +261,8 @@ public sealed partial class DeviceItem(MainViewModel owner, string id) : Observa
     public void SendFiles() => owner.RequestSendFiles(this);
 
     public void Ring() => owner.Ring(this);
+    /// <summary>The phone's screen in a window on this PC.</summary>
+    public void ShowScreen() => owner.Screen.Request(this);
 
     public void Ping() => owner.Ping(this);
 

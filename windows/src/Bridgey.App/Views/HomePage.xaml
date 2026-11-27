@@ -123,6 +123,8 @@
                                         IsEnabled="{x:Bind ClipboardReady, Mode=OneWay}" AutomationProperties.AutomationId="SendClipboard" />
                                 <Button Content="Send files" Click="{x:Bind SendFiles}" IsEnabled="{x:Bind FilesReady, Mode=OneWay}"
                                         AutomationProperties.AutomationId="SendFiles" />
+                                <Button Content="Show screen" Click="{x:Bind ShowScreen}" Visibility="{x:Bind ScreenReady, Mode=OneWay}"
+                                        AutomationProperties.AutomationId="ShowScreen" ToolTipService.ToolTip="See the phone's screen in a window" />
                             </StackPanel>
                         </Grid>
                     </Border>

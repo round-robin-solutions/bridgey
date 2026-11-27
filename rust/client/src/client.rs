@@ -994,6 +994,16 @@ impl Client {
         crate::phone::command(&self.inner, area, &id, command)
     }
 
+    /// The next whole frame of a phone screen stream (screen.rs; `stream` is the id of its `started` event), waiting up
+    /// to `timeout`: Ok(None) after it, Err(None) once the stream has ended, Err(Some(size)) when `capacity` is too small
+    /// (the frame stays next). Taking a frame acknowledges it to the phone.
+    pub fn screen_frame(&self, stream: u64, timeout: Duration, capacity: usize) -> Result<Option<crate::screen::Frame>, Option<usize>> {
+        if self.inner.check().is_err() {
+            return Err(None);
+        }
+        crate::screen::take(&self.inner, stream, timeout, capacity)
+    }
+
     /// Tests and the scripted peer only (not in the C ABI): phone requests from other devices are answered with canned
     /// conversations, calls, files and a test screen, as a phone would answer them.
     #[doc(hidden)]
@@ -1940,6 +1950,22 @@ impl Inner {
         }
     }
 
+    /// An encrypted message to a connected device that shows `feature`, whatever this device's own switch says now, with
+    /// or without a messageId (screen.rs: `screen.stop` once Show phone screens went off here, and `screen.frame`).
+    pub(crate) fn encrypted_to_peer(&self, device_id: &str, feature: &str, kind: &'static str, plaintext: Vec<u8>, message_id: bool) -> Result<(), ClientError> {
+        self.check()?;
+        let id = device_id.to_ascii_lowercase();
+        if !self.state.lock().unwrap().remote.get(&id).is_some_and(|r| r.get(feature)) {
+            return Err(ClientError::FeatureOff);
+        }
+        let handle = self.connected_session(&id)?;
+        if handle.send_encrypted(kind, plaintext, if message_id { crate::crypto::uuid4() } else { String::new() }) {
+            Ok(())
+        } else {
+            Err(ClientError::NotConnected)
+        }
+    }
+
     /// The device's latest feature map, while it is connected.
     pub(crate) fn remote_features(&self, device_id: &str) -> Option<FeatureMap> {
         self.state.lock().unwrap().remote.get(device_id).cloned()
@@ -1969,6 +1995,11 @@ impl Inner {
         if let Some(handle) = device.and_then(|d| self.connected_handle(&d)) {
             handle.cancel_file(transfer);
         }
+    }
+
+    /// The screen control contract's connection nonce of the device's current session (screen.rs).
+    pub(crate) fn screen_connection(&self, device_id: &str) -> Option<[u8; 16]> {
+        self.connected_session(device_id).ok()?.screen_connection()
     }
 
     /// Either side's switches changed for a device: each phone feature looks again.

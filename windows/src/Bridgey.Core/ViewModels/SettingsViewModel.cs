@@ -17,7 +17,7 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         new("calls", "Calls", "\uE717", true),
         new("files", "Files", "\uE8B7", true),
         new("media", "Media and actions", "\uE768", true),
-        new("remoteControl", "Remote control", "\uE7C9", false),
+        new("remoteControl", "Remote control", "\uE7C9", true),
         new("privacy", "Privacy", "\uE72E", true),
         new("updates", "Updates", "\uE895", true),
         new("general", "General", "\uE713", true),
@@ -307,6 +307,8 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
         ("links_open_draft1", settings.Links),
         ("media", settings.Media),
         ("sms_draft1", settings.TextMessages),
+        ("screen_draft1", settings.ShowPhoneScreens),
+        ("phone_control_draft1", settings.ShowPhoneScreens),
     ];
 
     /// <summary>Keep conversations on this PC changed.</summary>
@@ -323,6 +325,21 @@ public sealed partial class SettingsViewModel(AppSettings settings, Action<AppSe
             Changed();
             Raise();
             FeatureDefaultChanged?.Invoke("sms_draft1", value);
+        }
+    }
+
+    /// <summary>A phone's screen in a window on this PC, and control of it when the phone allows. Off until chosen.</summary>
+    public bool ShowPhoneScreens
+    {
+        get => settings.ShowPhoneScreens;
+        set
+        {
+            if (value == settings.ShowPhoneScreens) return;
+            settings.ShowPhoneScreens = value;
+            Changed();
+            Raise();
+            FeatureDefaultChanged?.Invoke("screen_draft1", value);
+            FeatureDefaultChanged?.Invoke("phone_control_draft1", value);
         }
     }
 
