@@ -13,7 +13,7 @@ pub(crate) fn sim_incoming(kind: &str) -> Option<Incoming> {
         "places.download" => ("places.download", SMALL),
         _ => return None,
     };
-    Some(Incoming { area: Area::PhoneFiles, kind, feature: FILES, max })
+    Some(Incoming { area: Area::PhoneFiles, kind, feature: FILES, max, with_message_id: false })
 }
 
 /// The simulated phone's files: (place, folder path, name, folder or the file's bytes).

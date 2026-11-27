@@ -83,7 +83,7 @@ pub fn incoming(kind: &str) -> Option<Incoming> {
         "folders.cancel" => ("folders.cancel", SMALL),
         _ => return None,
     };
-    Some(Incoming { area: Area::PhoneFiles, kind, feature: FILES, max })
+    Some(Incoming { area: Area::PhoneFiles, kind, feature: FILES, max, with_message_id: false })
 }
 
 // MARK: - The wire
