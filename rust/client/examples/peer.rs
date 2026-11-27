@@ -81,9 +81,7 @@ fn main() {
         config.defaults.set(key, true);
     }
     if phone {
-        for key in ["sms_draft1"] {
-            config.defaults.set(key, true);
-        }
+        config.defaults.set("sms_draft1", true);
     }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
     client.simulate_phone_for_tests(phone);

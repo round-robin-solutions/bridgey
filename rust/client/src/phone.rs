@@ -61,7 +61,8 @@ pub fn incoming(kind: &str) -> Option<Incoming> {
 pub(crate) fn receive(inner: &crate::client::Inner, area: Area, device_id: &str, kind: &str, plain: &[u8]) {
     match area {
         Area::Sms => crate::sms::receive(inner, device_id, kind, plain),
-        _ => {}
+        // No kinds of their own yet (incoming lists none).
+        Area::Calls | Area::PhoneFiles | Area::Screen => {}
     }
 }
 
@@ -69,7 +70,7 @@ pub(crate) fn receive(inner: &crate::client::Inner, area: Area, device_id: &str,
 pub(crate) fn command(inner: &crate::client::Inner, area: Area, device_id: &str, command: &Value) -> Value {
     match area {
         Area::Sms => crate::sms::command(inner, device_id, command),
-        _ => error("unsupported"),
+        Area::Calls | Area::PhoneFiles | Area::Screen => error("unsupported"),
     }
 }
 
