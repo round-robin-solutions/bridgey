@@ -18,6 +18,15 @@ class ReceivedFileNotifierTest {
         assertEquals("image/jpeg", typeOf("photo.final.jpg"))
     }
 
+    @Test fun aLargeBatchKeepsOnlyTheNewestNotifications() {
+        // 60 files: Android would refuse Bridgey's notifications past 50; the oldest are cancelled instead.
+        val shown = (1..60).map { it to 1_000L + it }.shuffled()
+        val retired = receivedToRetire(shown, keep = 8)
+        assertEquals((1..53).toList(), retired.sorted())
+        assertEquals("seven stay, with room for the new one", 7, shown.size - retired.size)
+        assertEquals(emptyList<Int>(), receivedToRetire(listOf(1 to 1L, 2 to 2L), keep = 8))
+    }
+
     @Test fun anAndroidPackageOrUnknownTypeIsNeverOpenedDirectly() {
         assertNull(typeOf("update.apk"))
         assertNull(typeOf("update.APK"))
