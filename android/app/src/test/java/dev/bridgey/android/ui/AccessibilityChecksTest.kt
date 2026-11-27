@@ -273,6 +273,8 @@ class AccessibilityChecksTest {
                 if (System.getenv("BRIDGEY_A11Y_REPORT_ONLY") == null) assertTrue("$tag:\n" + problems.joinToString("\n"), problems.isEmpty())
             }
         }
+        // The window's own native buffers go with the activity; let them be collected before the next look.
+        System.gc()
     }
 
     private val warnings = mutableListOf<String>()
@@ -293,6 +295,9 @@ class AccessibilityChecksTest {
             ViewChecker().setObtainCharacterLocations(false).runChecksOnView(checks, root, parameters)
         } finally {
             if (fingerprint == "robolectric") ShadowBuild.setFingerprint(fingerprint)
+            // About 16 MB of native pixels per look (824 x 4800). Freed now, not at some later GC: 28 of them in one JVM
+            // were followed by a native crash (SIGSEGV in libc) in the next screenshot test on CI.
+            bitmap.recycle()
         }
         if (System.getenv("BRIDGEY_A11Y_REPORT_ONLY") != null) {
             results.filter { it.type == AccessibilityCheckResultType.WARNING }.forEach {
