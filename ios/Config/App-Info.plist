@@ -28,6 +28,8 @@
 	<string>$(BRIDGEY_APP_GROUP)</string>
 	<key>BridgeyKeychainGroup</key>
 	<string>$(BRIDGEY_KEYCHAIN_GROUP)</string>
+	<key>BridgeyConnectControlURL</key>
+	<string>$(BRIDGEY_CONNECT_CONTROL_URL)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>

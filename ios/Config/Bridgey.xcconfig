@@ -13,6 +13,9 @@ MARKETING_VERSION = 1.0.0
 CURRENT_PROJECT_VERSION = 1
 BRIDGEY_VERSION_NAME = $(MARKETING_VERSION)-dev
 BRIDGEY_UPSTREAM_BASE = 0.6.0-rc.2
+// Connect anywhere's control service (rr-edition.properties CONNECT_CONTROL_URL; `$()` keeps "//" from starting a
+// comment). scripts/rr/build-ios.sh passes the edition's value.
+BRIDGEY_CONNECT_CONTROL_URL = wss:/$()/connect.roundrobin.in/v1/ws
 
 IPHONEOS_DEPLOYMENT_TARGET = 17.0
 TARGETED_DEVICE_FAMILY = 1,2

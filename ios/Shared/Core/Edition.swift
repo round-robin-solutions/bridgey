@@ -35,6 +35,9 @@ enum Edition {
     /// names the group; KeychainStore falls back to the app's own Keychain when the entitlement is missing.
     static var keychainGroup: String? { info("BridgeyKeychainGroup") }
 
+    /// Connect anywhere's control service (rr-edition.properties CONNECT_CONTROL_URL); nil: learned addresses only.
+    static var connectControlURL: String? { info("BridgeyConnectControlURL") }
+
     /// About's credit line.
     static var credit: String {
         guard let upstreamBase else { return String(localized: "Built on Bridgey by Semyon Mikhailov (MIT)") }

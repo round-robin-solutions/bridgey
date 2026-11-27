@@ -52,16 +52,26 @@ struct PairContent: View {
                     .listRowBackground(c.s1)
                 }
                 ForEach(model.nearby) { device in
-                    HStack(spacing: 12) {
-                        DeviceRingView(state: .nearby, platform: device.platform, size: 40)
-                        Text(device.name).font(.body.weight(.semibold)).foregroundStyle(c.on).lineLimit(1)
-                        Spacer(minLength: 8)
-                        Button("Pair") { model.pair(device) }
-                            .buttonStyle(PillButtonStyle(kind: .tonal))
-                            .disabled(model.pairing.isActive)
+                    // The whole row pairs, so it is one target for touch and VoiceOver.
+                    Button { model.pair(device) } label: {
+                        HStack(spacing: 12) {
+                            DeviceRingView(state: .nearby, platform: device.platform, size: 40)
+                            Text(device.name).font(.body.weight(.semibold)).foregroundStyle(c.on).lineLimit(1)
+                            Spacer(minLength: 8)
+                            Text("Pair")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(c.tbi)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Capsule().fill(c.tb))
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(PressScaleStyle())
+                    .disabled(model.pairing.isActive)
                     .listRowBackground(c.s1)
-                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(device.name)
+                    .accessibilityHint("Pairs with this device.")
                     .accessibilityIdentifier("pair.nearby")
                 }
             } footer: {

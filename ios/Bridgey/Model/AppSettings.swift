@@ -49,6 +49,27 @@ final class AppSettings: ObservableObject {
     /// The device the send bar sends to.
     @Published var lastDeviceID: String? { didSet { defaults.set(lastDeviceID, forKey: "lastDeviceID") } }
 
+    /// See and control the screens of an Android phone and a Mac. The phone or Mac decides who may.
+    @Published var screens: Bool { didSet { defaults.set(screens, forKey: "screens") } }
+    /// Devices whose screen this device doesn't ask for (Device settings > Screen off).
+    @Published var screensOff: Set<String> { didSet { defaults.set(Array(screensOff).sorted(), forKey: "screensOff") } }
+    /// The phone's conversations here. Off until chosen, as on the Mac and Windows.
+    @Published var textMessages: Bool { didSet { defaults.set(textMessages, forKey: "textMessages") } }
+    /// Keep conversations between launches (this device only, protected until first unlock).
+    @Published var keepConversations: Bool { didSet { defaults.set(keepConversations, forKey: "keepConversations") } }
+    /// The phone's notifications while Bridgey is open.
+    @Published var notifications: Bool { didSet { defaults.set(notifications, forKey: "notifications") } }
+    /// This device's battery on paired devices, and theirs here.
+    @Published var battery: Bool { didSet { defaults.set(battery, forKey: "battery") } }
+    /// Paired devices can ring this one while Bridgey is open, and it can ring them.
+    @Published var findDevice: Bool { didSet { defaults.set(findDevice, forKey: "findDevice") } }
+    /// One-time codes from the phone's text messages, with Copy code. Found here; nothing leaves this device.
+    @Published var codesFromMessages: Bool { didSet { defaults.set(codesFromMessages, forKey: "codesFromMessages") } }
+    /// Also look for codes in email notifications.
+    @Published var codesFromEmail: Bool { didSet { defaults.set(codesFromEmail, forKey: "codesFromEmail") } }
+    /// Connect away from home: reach paired devices off this Wi-Fi while Bridgey is open.
+    @Published var connectAway: Bool { didSet { defaults.set(connectAway, forKey: "connectAway") } }
+
     init(defaults: UserDefaults = SharedStorage.defaults) {
         self.defaults = defaults
         func bool(_ key: String, _ fallback: Bool) -> Bool { defaults.object(forKey: key) as? Bool ?? fallback }
@@ -64,5 +85,15 @@ final class AppSettings: ObservableObject {
         appearance = defaults.string(forKey: "appearance").flatMap(Appearance.init(rawValue:)) ?? .system
         reduceMotion = bool("reduceMotion", false)
         lastDeviceID = defaults.string(forKey: "lastDeviceID")
+        screens = bool("screens", true)
+        screensOff = Set(defaults.stringArray(forKey: "screensOff") ?? [])
+        textMessages = bool("textMessages", false)
+        keepConversations = bool("keepConversations", true)
+        notifications = bool("notifications", true)
+        battery = bool("battery", true)
+        findDevice = bool("findDevice", true)
+        codesFromMessages = bool("codesFromMessages", false)
+        codesFromEmail = bool("codesFromEmail", false)
+        connectAway = bool("connectAway", true)
     }
 }

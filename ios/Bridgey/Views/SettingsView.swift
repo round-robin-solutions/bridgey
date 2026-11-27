@@ -35,6 +35,33 @@ struct SettingsView: View {
                 }
                 .listRowBackground(c.s1)
 
+                Section {
+                    Toggle("Phone notifications", isOn: $settings.notifications)
+                        .accessibilityIdentifier("settings.notifications")
+                    Toggle("Codes from messages", isOn: $settings.codesFromMessages)
+                        .disabled(!settings.notifications)
+                    Toggle("Also read codes in email", isOn: $settings.codesFromEmail)
+                        .disabled(!settings.notifications || !settings.codesFromMessages)
+                    Toggle("Text messages", isOn: $settings.textMessages)
+                        .accessibilityIdentifier("settings.textMessages")
+                    Toggle("Keep conversations", isOn: $settings.keepConversations)
+                        .disabled(!settings.textMessages)
+                } footer: {
+                    Text("From your Android phone, while Bridgey is open. Codes are found on this \(UIDevice.current.localizedModel) and never leave it.")
+                }
+                .listRowBackground(c.s1)
+
+                Section {
+                    Toggle("Screens", isOn: $settings.screens)
+                        .accessibilityIdentifier("settings.screens")
+                    Toggle("Battery", isOn: $settings.battery)
+                    Toggle("Find device", isOn: $settings.findDevice)
+                    Toggle("Connect away from home", isOn: $settings.connectAway)
+                } footer: {
+                    Text("Screens shows an Android phone or a Mac here, and controls it when that device allows.")
+                }
+                .listRowBackground(c.s1)
+
                 Section("Devices") {
                     ForEach(model.devices) { device in
                         NavigationLink {
@@ -102,6 +129,7 @@ struct SettingsView: View {
             .confirmationDialog("Forget all devices?", isPresented: $confirmReset, titleVisibility: .visible) {
                 Button("Forget all", role: .destructive) {
                     for device in model.devices { model.forget(device) }
+                    model.forgetFeatureData()
                 }
             } message: {
                 Text("You’ll need to pair them again.")
@@ -111,6 +139,16 @@ struct SettingsView: View {
         .onChange(of: settings.clipboard) { model.applyDefaults() }
         .onChange(of: settings.files) { model.applyDefaults() }
         .onChange(of: settings.links) { model.applyDefaults() }
+        .onChange(of: settings.openLinksRightAway) { model.applyDefaults() }
+        .onChange(of: settings.notifications) { model.applyDefaults() }
+        .onChange(of: settings.codesFromMessages) { model.applyDefaults() }
+        .onChange(of: settings.codesFromEmail) { model.applyDefaults() }
+        .onChange(of: settings.textMessages) { model.applyDefaults() }
+        .onChange(of: settings.keepConversations) { model.applyDefaults() }
+        .onChange(of: settings.screens) { model.applyDefaults() }
+        .onChange(of: settings.battery) { model.applyDefaults() }
+        .onChange(of: settings.findDevice) { model.applyDefaults() }
+        .onChange(of: settings.connectAway) { model.applyDefaults() }
     }
 
     private var localNetworkText: String {
@@ -128,6 +166,7 @@ struct DeviceSettingsView: View {
     let deviceID: String
     let closes: Bool
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
     @Environment(\.brand) private var c
     @State private var confirmForget = false
@@ -166,6 +205,17 @@ struct DeviceSettingsView: View {
                 toggle("Clipboard", key: "clipboard", device)
                 toggle("Files", key: "files", device)
                 toggle("Links", key: "links", device)
+                toggle("Battery", key: "battery", device)
+                toggle("Find device", key: "find_device", device)
+                if device.isPhone {
+                    toggle("Phone notifications", key: "notifications", device)
+                    toggle("Text messages", key: "sms_draft1", device)
+                }
+                if device.screenArea != nil {
+                    Toggle("Screen", isOn: Binding(get: { settings.screens && !settings.screensOff.contains(device.id) },
+                                                   set: { model.setScreen(device, on: $0) }))
+                        .disabled(!settings.screens)
+                }
             } footer: {
                 Text("Turned off here, \(device.name) can’t send you that, and you can’t send it there.")
             }
@@ -222,7 +272,9 @@ struct AboutView: View {
                 limit("bolt.horizontal", "Bridgey connects while it’s open. iOS pauses it soon after you leave, and it reconnects when you come back.")
                 limit("doc.on.clipboard", "iOS lets apps read the clipboard only when you paste, so sending it takes a tap on Paste.")
                 limit("folder", "Files you receive are in the Files app, under On My \(UIDevice.current.localizedModel) › Bridgey.")
-                limit("hand.raised", "Other devices can’t control this \(UIDevice.current.localizedModel). iOS doesn’t allow it.")
+                limit("hand.raised", "Other devices can’t see or control this \(UIDevice.current.localizedModel). iOS doesn’t allow it.")
+                limit("bell.badge", "Your phone’s notifications, messages and calls show while Bridgey is open.")
+                limit("play.slash", "iOS doesn’t let apps control what other apps play, so your phone can’t control media here.")
             }
             .listRowBackground(c.s1)
 

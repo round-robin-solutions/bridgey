@@ -6,7 +6,7 @@ final class DemoClient: CoreClient {
     static let factory: ClientFactory = { _, onEvent in DemoClient(onEvent: onEvent) }
 
     let deviceID = "7f3c2a9e-1b4d-4c6e-9a8f-2d1e0c3b4a59"
-    private let onEvent: @Sendable (CoreEvent) -> Void
+    let onEvent: @Sendable (CoreEvent) -> Void
     private var next: UInt64 = 100
 
     static let mac = "0b9e3f5c-1d2a-4b6c-8e7f-9a0b1c2d3e4f"
@@ -56,6 +56,30 @@ final class DemoClient: CoreClient {
     func connect(_ deviceID: String) throws {}
     func setReceiveDirectory(_ url: URL?) throws {}
     func stop() {}
+    /// Each area's sample answers live with its feature (DemoClient+<Feature>.swift).
+    func phone(_ area: PhoneArea, deviceID: String, command: [String: Any]) -> [String: Any] {
+        switch area {
+        case .screen, .display: demoScreen(area, deviceID: deviceID, command: command)
+        case .sms: demoMessages(deviceID: deviceID, command: command)
+        case .phoneFiles: demoPhoneFiles(deviceID: deviceID, command: command)
+        case .calls: ["ok": false, "error": "unsupported"]
+        }
+    }
+
+    func screenFrame(_ stream: UInt64, timeoutMs: UInt32, buffer: UnsafeMutableRawBufferPointer) -> ScreenFramePull {
+        demoScreenFrame(stream, timeoutMs: timeoutMs, buffer: buffer)
+    }
+    func setBattery(level: Int?, charging: Bool) throws {}
+    func find(_ deviceID: String, ring: Bool) throws {}
+    func findStopped(_ deviceID: String) throws {}
+    func dismissNotification(_ deviceID: String, notificationID: String) throws {}
+    func notificationAction(_ deviceID: String, notificationID: String, token: String, reply: String?) throws {}
+    func setCodes(sms: Bool, email: Bool) throws {}
+    func codesLinkRequest(_ deviceID: String) throws {}
+    func codesAdvertiseResult(_ deviceID: String, serviceUUID: String, ok: Bool, reason: String?) throws {}
+    func setPresence(state: Int32, idleSeconds: UInt32) throws {}
+    func setConnect(_ on: Bool, controlURL: String?) throws {}
+    func setLinksOpen(_ on: Bool) throws {}
 
     /// Fills the model for one screenshot: `home`, `pair`, `empty`, `setup`, `settings`.
     @MainActor
@@ -87,6 +111,10 @@ final class DemoClient: CoreClient {
         if screen == "pair" {
             model.showDemoCode()
         }
+        seedScreen(model, screen: screen)
+        seedMessages(model, screen: screen)
+        seedPhoneFiles(model, screen: screen)
+        seedAlerts(model, screen: screen)
     }
 }
 

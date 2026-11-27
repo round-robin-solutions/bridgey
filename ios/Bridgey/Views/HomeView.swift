@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 /// the activity stream, and the send bar. On iPad and other wide windows the devices move into a sidebar.
 struct HomeView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var screen: ScreenModel
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.brand) private var c
     @State private var sheet: HomeSheet?
@@ -21,12 +22,15 @@ struct HomeView: View {
                     DeviceSidebar(sheet: $sheet)
                         .navigationSplitViewColumnWidth(min: 280, ideal: 320)
                 } detail: {
-                    NavigationStack { stream(showDevices: false) }
+                    NavigationStack(path: $model.path) { stream(showDevices: false) }
                 }
                 .navigationSplitViewStyle(.balanced)
             } else {
-                NavigationStack { stream(showDevices: true) }
+                NavigationStack(path: $model.path) { stream(showDevices: true) }
             }
+        }
+        .fullScreenCover(isPresented: Binding(get: { screen.viewing != nil }, set: { if !$0 { screen.close() } })) {
+            if let id = screen.viewing { ScreenView(deviceID: id) }
         }
         .sheet(item: $sheet) { which in
             switch which {
@@ -53,6 +57,12 @@ struct HomeView: View {
         }
         .background(c.bg.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
+        .navigationDestination(for: Route.self) { route in
+            switch route {
+            case let .messages(id): MessagesView(deviceID: id)
+            case let .phoneFiles(id): PhoneFilesView(deviceID: id)
+            }
+        }
     }
 }
 
@@ -129,6 +139,11 @@ private struct StreamPane: View {
                     DeviceStrip(sheet: $sheet)
                         .padding(.horizontal, -16)
                 }
+                if let target = model.target {
+                    DeviceActions(device: target)
+                        .padding(.horizontal, -16)
+                }
+                AlertCards()
                 if model.devices.isEmpty {
                     EmptyDevicesCard { sheet = .pair }
                 }
@@ -214,9 +229,8 @@ private struct DeviceChip: View {
                 DeviceRingView(state: device.ring, platform: device.platform, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(device.name).font(.subheadline.weight(.semibold)).foregroundStyle(c.on).lineLimit(1)
-                    Text(device.connected ? "Connected" : "Not connected")
+                    DeviceStatusText(device: device)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(device.connected ? c.tgi : c.on2)
                         .lineLimit(1)
                 }
             }
@@ -233,9 +247,43 @@ private struct DeviceChip: View {
         .contextMenu { DeviceMenu(device: device, sheet: $sheet) }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(device.name)
-        .accessibilityValue(device.connected ? (selected ? "Connected, sending here" : "Connected") : "Not connected")
+        .accessibilityValue(device.statusLabel(selected: selected))
         .accessibilityHint("Sends go to this device. Touch and hold for more.")
         .accessibilityIdentifier("device.chip")
+    }
+}
+
+/// "Connected", with the device's battery when it shares it: "Connected · 82%".
+struct DeviceStatusText: View {
+    let device: DeviceItem
+    @Environment(\.brand) private var c
+
+    var body: some View {
+        Group {
+            if !device.connected {
+                Text("Not connected")
+            } else if let battery = device.battery {
+                HStack(spacing: 2) {
+                    Text("Connected · \(battery.level)%")
+                    if battery.charging { Image(systemName: "bolt.fill").imageScale(.small).accessibilityHidden(true) }
+                }
+            } else {
+                Text("Connected")
+            }
+        }
+        .foregroundStyle(device.connected ? c.tgi : c.on2)
+    }
+}
+
+extension DeviceItem {
+    /// VoiceOver's value for a device's chip or row.
+    func statusLabel(selected: Bool) -> String {
+        guard connected else { return String(localized: "Not connected") }
+        var parts = [selected ? String(localized: "Connected, sending here") : String(localized: "Connected")]
+        if let battery {
+            parts.append(battery.charging ? String(localized: "battery \(battery.level)%, charging") : String(localized: "battery \(battery.level)%"))
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -251,6 +299,9 @@ struct DeviceMenu: View {
         }
         if device.pingReady {
             Button { model.ping(device) } label: { Label("Ping", systemImage: "bell") }
+        }
+        if device.findReady {
+            Button { model.alerts.ring(device) } label: { Label("Ring", systemImage: "bell.and.waves.left.and.right") }
         }
         Button { sheet = .device(device.id) } label: { Label("Device settings", systemImage: "slider.horizontal.3") }
     }
@@ -272,9 +323,8 @@ private struct DeviceSidebar: View {
                         DeviceRingView(state: device.ring, platform: device.platform, size: 40)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(device.name).font(.body.weight(.semibold)).foregroundStyle(c.on)
-                            Text(device.connected ? "Connected" : "Not connected")
+                            DeviceStatusText(device: device)
                                 .font(.caption.weight(.medium))
-                                .foregroundStyle(device.connected ? c.tgi : c.on2)
                         }
                         Spacer(minLength: 0)
                     }

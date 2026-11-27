@@ -3,7 +3,7 @@ import XCTest
 /// Light and dark screenshots of every screen, with sample devices (BRIDGEY_DEMO). scripts/rr/build-ios.sh exports
 /// the attachments as PNGs named <device>-<appearance>-<screen>.png.
 final class ScreenshotTests: XCTestCase {
-    private var device: String {
+    var device: String {
         UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone"
     }
 
@@ -16,7 +16,7 @@ final class ScreenshotTests: XCTestCase {
 
     func testDarkScreens() { capture("dark") }
 
-    private func launch(_ appearance: String, demo: String) -> XCUIApplication {
+    func launch(_ appearance: String, demo: String) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment = ["BRIDGEY_DEMO": demo, "BRIDGEY_APPEARANCE": appearance, "BRIDGEY_DATA": "memory", "BRIDGEY_DISCOVERY": "0"]
         app.launch()
@@ -60,7 +60,7 @@ final class ScreenshotTests: XCTestCase {
         app.terminate()
     }
 
-    private func shot(_ app: XCUIApplication, _ appearance: String, _ screen: String) {
+    func shot(_ app: XCUIApplication, _ appearance: String, _ screen: String) {
         // Let springs settle.
         Thread.sleep(forTimeInterval: 0.8)
         let attachment = XCTAttachment(screenshot: app.screenshot())

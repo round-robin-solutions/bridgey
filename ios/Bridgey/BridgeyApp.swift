@@ -25,7 +25,7 @@ struct BridgeyApp: App {
             settings.deviceName = "Rahul’s iPhone"
         }
         if let appearance = options.appearance { settings.appearance = appearance }
-        let store: SecretStore = options.ephemeral ? MemorySecretStore() : KeychainStore()
+        let store: SecretStore = options.ephemeral ? MemorySecretStore() : HybridStore()
         var factory: ClientFactory = { core, onEvent in try BridgeyCore.start(core, store: store, onEvent: onEvent) }
         #if DEBUG
         if options.demo != nil { factory = DemoClient.factory }
@@ -39,6 +39,10 @@ struct BridgeyApp: App {
             RootView()
                 .environmentObject(model)
                 .environmentObject(settings)
+                .environmentObject(model.screen)
+                .environmentObject(model.messages)
+                .environmentObject(model.phoneFiles)
+                .environmentObject(model.alerts)
                 .onChange(of: phase) { _, phase in
                     switch phase {
                     // Before setup has explained Local Network access, nothing touches the network.
