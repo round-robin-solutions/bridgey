@@ -1,16 +1,6 @@
 {
   "sourceLanguage" : "en-GB",
   "strings" : {
-    "· %@" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "· %@"
-          }
-        }
-      }
-    },
     "%@ couldn’t share its screen." : {
       "localizations" : {
         "ru" : {
@@ -57,6 +47,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ не ответил."
+          }
+        }
+      }
+    },
+    "%@ didn’t answer. Try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ не ответил. Попробуйте снова."
           }
         }
       }
@@ -129,6 +129,26 @@
         }
       }
     },
+    "%@ free" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свободно: %@"
+          }
+        }
+      }
+    },
+    "%@ is busy. Try again in a moment." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ занят. Попробуйте чуть позже."
+          }
+        }
+      }
+    },
     "%@ is locked." : {
       "localizations" : {
         "ru" : {
@@ -195,6 +215,32 @@
         }
       }
     },
+    "%@ needs permission to read texts. Open Bridgey on the phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ нужно разрешение на чтение сообщений. Откройте Bridgey на телефоне."
+          }
+        }
+      }
+    },
+    "%@ of %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ из %2$@"
+          }
+        }
+      }
+    },
     "%@ pinged this %@." : {
       "localizations" : {
         "en-GB" : {
@@ -237,12 +283,32 @@
         }
       }
     },
+    "%lld conversations stay unread on your phone. Open them there to clear them." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На телефоне остаются непрочитанными %lld переписки. Откройте их там, чтобы снять отметку."
+          }
+        }
+      }
+    },
     "%lld files" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Файлов: %lld"
+          }
+        }
+      }
+    },
+    "%lld items" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Объектов: %lld"
           }
         }
       }
@@ -263,22 +329,38 @@
         }
       }
     },
+    "%lld of %lld files, %@ of %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld of %2$lld files, %3$@ of %4$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld из %2$lld файлов, %3$@ из %4$@"
+          }
+        }
+      }
+    },
+    "1 conversation stays unread on your phone. Open it there to clear it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На телефоне остаётся непрочитанной 1 переписка. Откройте её там, чтобы снять отметку."
+          }
+        }
+      }
+    },
     "1 file" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "1 файл"
-          }
-        }
-      }
-    },
-    "a device" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "устройство"
           }
         }
       }
@@ -309,6 +391,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Около трёх кадров в секунду: на телефоне никто не разрешил видео."
+          }
+        }
+      }
+    },
+    "Add files here" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавить файлы сюда"
+          }
+        }
+      }
+    },
+    "Adding %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Добавление: %@"
           }
         }
       }
@@ -393,6 +495,16 @@
         }
       }
     },
+    "Asking the phone…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Запрос к телефону…"
+          }
+        }
+      }
+    },
     "Automatic" : {
       "localizations" : {
         "ru" : {
@@ -423,29 +535,27 @@
         }
       }
     },
-    "battery %lld%%" : {
+    "Block on phone" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "батарея %lld%%"
+            "value" : "Заблокировать на телефоне"
           }
         }
       }
     },
-    "battery %lld%%, charging" : {
+    "Blocked numbers is open on your phone." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "батарея %lld%%, заряжается"
+            "value" : "На телефоне открыт список заблокированных номеров."
           }
         }
       }
     },
-    "Bridgey" : {
-
-    },
+    "Bridgey" : {},
     "Bridgey can’t find that device." : {
       "localizations" : {
         "ru" : {
@@ -536,6 +646,16 @@
         }
       }
     },
+    "Bridgey on %@ lost access to this folder. Grant it again on the phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bridgey на %@ потерял доступ к этой папке. Разрешите его снова на телефоне."
+          }
+        }
+      }
+    },
     "Built on Bridgey %@ by Semyon Mikhailov (MIT)" : {
       "localizations" : {
         "ru" : {
@@ -562,6 +682,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Отмена"
+          }
+        }
+      }
+    },
+    "Cancelled" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменено"
           }
         }
       }
@@ -792,6 +922,16 @@
         }
       }
     },
+    "Date modified" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Дата изменения"
+          }
+        }
+      }
+    },
     "Delivered" : {
       "localizations" : {
         "ru" : {
@@ -832,6 +972,16 @@
         }
       }
     },
+    "Discard" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить"
+          }
+        }
+      }
+    },
     "Dismiss" : {
       "localizations" : {
         "ru" : {
@@ -842,12 +992,92 @@
         }
       }
     },
+    "Documents" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Документы"
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Готово"
+          }
+        }
+      }
+    },
+    "Done, but %lld items didn’t make it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово, но не дошло объектов: %lld"
+          }
+        }
+      }
+    },
+    "Done, but 1 item didn’t make it" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово, но 1 объект не дошёл"
+          }
+        }
+      }
+    },
+    "Done. Items with names already here were numbered." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Готово. Объекты с уже занятыми именами получили номера."
+          }
+        }
+      }
+    },
+    "Download" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачать"
+          }
+        }
+      }
+    },
+    "Download folder" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачать папку"
+          }
+        }
+      }
+    },
+    "Downloading %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Загрузка: %@"
+          }
+        }
+      }
+    },
+    "Downloads it to this %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скачивает на этот %@."
           }
         }
       }
@@ -868,6 +1098,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Файлы"
+          }
+        }
+      }
+    },
+    "Files is off in Settings, so there’s nowhere to save." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файлы выключены в Настройках, поэтому сохранять некуда."
           }
         }
       }
@@ -908,6 +1148,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Найдите свои устройства"
+          }
+        }
+      }
+    },
+    "Finishing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Завершение"
           }
         }
       }
@@ -1012,6 +1262,36 @@
         }
       }
     },
+    "Getting conversations…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Получение переписок…"
+          }
+        }
+      }
+    },
+    "Getting ready" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготовка"
+          }
+        }
+      }
+    },
+    "Group conversations are answered on the phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На групповые переписки отвечайте на телефоне."
+          }
+        }
+      }
+    },
     "Hide keyboard" : {
       "localizations" : {
         "ru" : {
@@ -1028,36 +1308,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Домой"
-          }
-        }
-      }
-    },
-    "iOS doesn’t let apps control what other apps play, so your phone can’t control media here." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iOS не даёт приложениям управлять тем, что играет в других приложениях, поэтому телефон не может управлять музыкой здесь."
-          }
-        }
-      }
-    },
-    "iOS lets apps read the clipboard only when you paste, so sending it takes a tap on Paste." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "iOS даёт приложениям читать буфер обмена только при вставке, поэтому для отправки нажмите «Вставить»."
-          }
-        }
-      }
-    },
-    "iOS’s own Reduce Motion always applies." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Настройка iOS «Уменьшение движения» действует всегда."
           }
         }
       }
@@ -1082,6 +1332,26 @@
         }
       }
     },
+    "It goes to On My %@ › Bridgey in the Files app." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файл попадёт в приложение «Файлы»: На моём %@ › Bridgey."
+          }
+        }
+      }
+    },
+    "It stopped: %@ disconnected." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено: %@ отключился."
+          }
+        }
+      }
+    },
     "Keep conversations" : {
       "localizations" : {
         "ru" : {
@@ -1098,6 +1368,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Клавиатура"
+          }
+        }
+      }
+    },
+    "Kind" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Тип"
           }
         }
       }
@@ -1192,6 +1472,26 @@
         }
       }
     },
+    "Mark as read" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отметить как прочитанное"
+          }
+        }
+      }
+    },
+    "Mark as unread" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отметить как непрочитанное"
+          }
+        }
+      }
+    },
     "Messages" : {
       "localizations" : {
         "ru" : {
@@ -1208,6 +1508,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Имя"
+          }
+        }
+      }
+    },
+    "Name or number" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Имя или номер"
+          }
+        }
+      }
+    },
+    "New message" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Новое сообщение"
           }
         }
       }
@@ -1232,6 +1552,16 @@
         }
       }
     },
+    "No conversations yet." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Переписок пока нет."
+          }
+        }
+      }
+    },
     "No devices yet" : {
       "localizations" : {
         "ru" : {
@@ -1242,12 +1572,52 @@
         }
       }
     },
+    "No documents." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Документов нет."
+          }
+        }
+      }
+    },
+    "No photos or videos." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фото и видео нет."
+          }
+        }
+      }
+    },
+    "No unread conversations." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Непрочитанных переписок нет."
+          }
+        }
+      }
+    },
     "Not asked yet" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ещё не запрошено"
+          }
+        }
+      }
+    },
+    "Not available" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недоступно"
           }
         }
       }
@@ -1282,6 +1652,16 @@
         }
       }
     },
+    "Not sent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не отправлено"
+          }
+        }
+      }
+    },
     "Not working" : {
       "localizations" : {
         "ru" : {
@@ -1292,12 +1672,12 @@
         }
       }
     },
-    "Off" : {
+    "Nothing recent." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Выключено"
+            "value" : "Ничего недавнего."
           }
         }
       }
@@ -1308,6 +1688,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OK"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключено"
           }
         }
       }
@@ -1412,22 +1802,22 @@
         }
       }
     },
-    "Open links right away" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Сразу открывать ссылки"
-          }
-        }
-      }
-    },
     "Open Settings" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Открыть Настройки"
+          }
+        }
+      }
+    },
+    "Open links right away" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сразу открывать ссылки"
           }
         }
       }
@@ -1542,6 +1932,56 @@
         }
       }
     },
+    "Phone storage" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Память телефона"
+          }
+        }
+      }
+    },
+    "Photos and videos" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Фото и видео"
+          }
+        }
+      }
+    },
+    "Picture" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение"
+          }
+        }
+      }
+    },
+    "Picture not available" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение недоступно"
+          }
+        }
+      }
+    },
+    "Picture." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение."
+          }
+        }
+      }
+    },
     "Ping" : {
       "localizations" : {
         "ru" : {
@@ -1562,12 +2002,32 @@
         }
       }
     },
+    "Preparing on the phone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подготовка на телефоне"
+          }
+        }
+      }
+    },
     "Privacy and security" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Конфиденциальность и безопасность"
+          }
+        }
+      }
+    },
+    "Received" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Получено"
           }
         }
       }
@@ -1588,6 +2048,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Получение: %@"
+          }
+        }
+      }
+    },
+    "Recent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недавние"
           }
         }
       }
@@ -1622,8 +2092,15 @@
         }
       }
     },
-    "roundrobin.in/bridgey" : {
-
+    "SIM %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "SIM %lld"
+          }
+        }
+      }
     },
     "Screen" : {
       "localizations" : {
@@ -1661,6 +2138,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "«Экраны» показывают здесь телефон Android или Mac и позволяют управлять ими, если то устройство разрешает."
+          }
+        }
+      }
+    },
+    "See and answer %@’s texts here while Bridgey is open." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Читайте сообщения с %@ и отвечайте на них здесь, пока Bridgey открыт."
           }
         }
       }
@@ -1795,6 +2282,16 @@
         }
       }
     },
+    "Show all conversations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать все переписки"
+          }
+        }
+      }
+    },
     "Show in Files" : {
       "localizations" : {
         "ru" : {
@@ -1805,12 +2302,52 @@
         }
       }
     },
+    "Show older conversations" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать более старые переписки"
+          }
+        }
+      }
+    },
+    "Show older messages" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать более старые сообщения"
+          }
+        }
+      }
+    },
+    "Show unread only" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Только непрочитанные"
+          }
+        }
+      }
+    },
     "Shows the file." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Показывает файл."
+          }
+        }
+      }
+    },
+    "Size" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Размер"
           }
         }
       }
@@ -1841,6 +2378,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Что-то пошло не так (%d)."
+          }
+        }
+      }
+    },
+    "Something went wrong on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Что-то пошло не так на %@."
+          }
+        }
+      }
+    },
+    "Sort" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сортировка"
+          }
+        }
+      }
+    },
+    "Sort by" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сортировать по"
           }
         }
       }
@@ -1885,6 +2452,16 @@
         }
       }
     },
+    "Stopped part way" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Остановлено на полпути"
+          }
+        }
+      }
+    },
     "Stopped." : {
       "localizations" : {
         "ru" : {
@@ -1905,6 +2482,16 @@
         }
       }
     },
+    "Tap the notification on your phone to open Blocked numbers." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Нажмите уведомление на телефоне, чтобы открыть заблокированные номера."
+          }
+        }
+      }
+    },
     "Text" : {
       "localizations" : {
         "ru" : {
@@ -1915,12 +2502,32 @@
         }
       }
     },
+    "Text message" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сообщение"
+          }
+        }
+      }
+    },
     "Text messages" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Текстовые сообщения"
+          }
+        }
+      }
+    },
+    "Text messages is off for this device on your phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На телефоне текстовые сообщения для этого устройства выключены."
           }
         }
       }
@@ -1965,6 +2572,26 @@
         }
       }
     },
+    "That SIM isn’t active on your phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта SIM-карта неактивна на телефоне."
+          }
+        }
+      }
+    },
+    "That can’t be downloaded." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это нельзя скачать."
+          }
+        }
+      }
+    },
     "That device isn’t connected." : {
       "localizations" : {
         "ru" : {
@@ -1981,6 +2608,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Так нельзя."
+          }
+        }
+      }
+    },
+    "That number can’t take texts." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На этот номер нельзя отправить сообщение."
           }
         }
       }
@@ -2045,16 +2682,6 @@
         }
       }
     },
-    "the device" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "устройство"
-          }
-        }
-      }
-    },
     "The file couldn’t be read." : {
       "localizations" : {
         "ru" : {
@@ -2071,16 +2698,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Файл пришёл повреждённым."
-          }
-        }
-      }
-    },
-    "the other device" : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "другое устройство"
           }
         }
       }
@@ -2145,6 +2762,26 @@
         }
       }
     },
+    "The text wasn’t sent." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сообщение не отправлено."
+          }
+        }
+      }
+    },
+    "There isn’t enough free space." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недостаточно свободного места."
+          }
+        }
+      }
+    },
     "There wasn’t room to save it." : {
       "localizations" : {
         "ru" : {
@@ -2195,6 +2832,36 @@
         }
       }
     },
+    "This folder is empty." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Папка пуста."
+          }
+        }
+      }
+    },
+    "This item is no longer on the phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этого больше нет на телефоне."
+          }
+        }
+      }
+    },
+    "Those files can’t be added." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эти файлы нельзя добавить."
+          }
+        }
+      }
+    },
     "To %@" : {
       "localizations" : {
         "ru" : {
@@ -2211,6 +2878,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "На %@ ·"
+          }
+        }
+      }
+    },
+    "Too many texts at once. Try again in a moment." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Слишком много сообщений сразу. Попробуйте чуть позже."
           }
         }
       }
@@ -2235,12 +2912,42 @@
         }
       }
     },
+    "Turn on Allow other devices to change files here on %@ to add files." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы добавлять файлы, включите на %@ «Разрешить другим устройствам менять файлы здесь»."
+          }
+        }
+      }
+    },
     "Turn on Bridgey in Accessibility settings on %@." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Включите Bridgey в настройках специальных возможностей на %@."
+          }
+        }
+      }
+    },
+    "Turn on Let other devices browse this phone in Bridgey on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите в Bridgey на %@ «Разрешить другим устройствам просматривать этот телефон»."
+          }
+        }
+      }
+    },
+    "Turn on Text messages" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включить текстовые сообщения"
           }
         }
       }
@@ -2275,6 +2982,16 @@
         }
       }
     },
+    "Unread" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не прочитано"
+          }
+        }
+      }
+    },
     "Update Bridgey on %@ to pair." : {
       "localizations" : {
         "ru" : {
@@ -2291,6 +3008,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подождите несколько секунд и попробуйте снова."
+          }
+        }
+      }
+    },
+    "Waiting for %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ждём %@"
           }
         }
       }
@@ -2325,22 +3052,12 @@
         }
       }
     },
-    "You’ll need to pair again to use it." : {
+    "Yesterday" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Чтобы пользоваться им, нужно будет связать снова."
-          }
-        }
-      }
-    },
-    "You’ll need to pair them again." : {
-      "localizations" : {
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Их нужно будет связать снова."
+            "value" : "Вчера"
           }
         }
       }
@@ -2365,6 +3082,76 @@
         }
       }
     },
+    "Your phone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваш телефон"
+          }
+        }
+      }
+    },
+    "Your phone can’t send to that number." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Телефон не может отправить сообщение на этот номер."
+          }
+        }
+      }
+    },
+    "Your phone didn’t answer, so it still counts them unread." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Телефон не ответил, поэтому они всё ещё считаются непрочитанными."
+          }
+        }
+      }
+    },
+    "Your phone didn’t answer." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Телефон не ответил."
+          }
+        }
+      }
+    },
+    "Your phone has no Blocked numbers screen." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На телефоне нет экрана заблокированных номеров."
+          }
+        }
+      }
+    },
+    "Your phone has no mobile signal right now." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У телефона сейчас нет сотовой связи."
+          }
+        }
+      }
+    },
+    "Your phone needs permission to send texts. Open Bridgey on the phone." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Телефону нужно разрешение на отправку сообщений. Откройте Bridgey на телефоне."
+          }
+        }
+      }
+    },
     "Your phone’s notifications, messages and calls show while Bridgey is open." : {
       "localizations" : {
         "ru" : {
@@ -2381,6 +3168,127 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ваши касания передаются на %@."
+          }
+        }
+      }
+    },
+    "You’ll need to pair again to use it." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы пользоваться им, нужно будет связать снова."
+          }
+        }
+      }
+    },
+    "You’ll need to pair them again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Их нужно будет связать снова."
+          }
+        }
+      }
+    },
+    "a device" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "устройство"
+          }
+        }
+      }
+    },
+    "battery %lld%%" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "батарея %lld%%"
+          }
+        }
+      }
+    },
+    "battery %lld%%, charging" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "батарея %lld%%, заряжается"
+          }
+        }
+      }
+    },
+    "iOS doesn’t let apps control what other apps play, so your phone can’t control media here." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS не даёт приложениям управлять тем, что играет в других приложениях, поэтому телефон не может управлять музыкой здесь."
+          }
+        }
+      }
+    },
+    "iOS lets apps read the clipboard only when you paste, so sending it takes a tap on Paste." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "iOS даёт приложениям читать буфер обмена только при вставке, поэтому для отправки нажмите «Вставить»."
+          }
+        }
+      }
+    },
+    "iOS’s own Reduce Motion always applies." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройка iOS «Уменьшение движения» действует всегда."
+          }
+        }
+      }
+    },
+    "roundrobin.in/bridgey" : {},
+    "the device" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "устройство"
+          }
+        }
+      }
+    },
+    "the other device" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "другое устройство"
+          }
+        }
+      }
+    },
+    "the phone" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "телефон"
+          }
+        }
+      }
+    },
+    "· %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "· %@"
           }
         }
       }
