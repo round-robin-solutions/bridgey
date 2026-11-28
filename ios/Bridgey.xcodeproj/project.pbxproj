@@ -8,8 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		537A3EB16FD5CC86DEAFD81F /* BridgeyShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6C11C1D6E4474E1A2DF375F7 /* BridgeyShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		6F23F6B4F87E18A5884C5809 /* BridgeyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00A915076ED11553C11D085D /* BridgeyCore.xcframework */; };
-		DC4A108697BB2FEC6B8B18D8 /* BridgeyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00A915076ED11553C11D085D /* BridgeyCore.xcframework */; };
+		6F23F6B4F87E18A5884C5809 /* Frameworks/BridgeyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00A915076ED11553C11D085D /* Frameworks/BridgeyCore.xcframework */; };
+		DC4A108697BB2FEC6B8B18D8 /* Frameworks/BridgeyCore.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 00A915076ED11553C11D085D /* Frameworks/BridgeyCore.xcframework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -40,18 +40,18 @@
 		1CD089FB50A1C683C9E14B23 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
 			files = (
 				537A3EB16FD5CC86DEAFD81F /* BridgeyShare.appex in Embed Foundation Extensions */,
 			);
-			runOnlyForDeploymentPostprocessing = 0;
-			dstPath = "";
-			dstSubfolderSpec = 13;
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		00A915076ED11553C11D085D /* BridgeyCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/BridgeyCore.xcframework; sourceTree = "<group>"; };
+		00A915076ED11553C11D085D /* Frameworks/BridgeyCore.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = Frameworks/BridgeyCore.xcframework; sourceTree = "<group>"; };
 		110046D8AD379A9FFEA597B9 /* Bridgey.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Bridgey.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		38A1867573F9813E2C788F8B /* BridgeyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BridgeyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		53ADA1EA7D3DD33F246C8DAD /* Share-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Share-Info.plist"; sourceTree = "<group>"; };
@@ -62,6 +62,24 @@
 		AD4F01D05080B046949DDF50 /* Bridgey.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Bridgey.xcconfig; sourceTree = "<group>"; };
 		D6FC7989B79D6A37A57AD521 /* Bridgey.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Bridgey.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		31C500FD30BA467500574B7D /* Exceptions for "Bridgey" folder in "Bridgey" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Resources/Share-InfoPlist.xcstrings",
+			);
+			target = C673B71425C12DFCE556C83D /* Bridgey */;
+		};
+		31C500FE30BA467500574B7D /* Exceptions for "Bridgey" folder in "BridgeyShare" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Resources/Localizable.xcstrings,
+				"Resources/Share-InfoPlist.xcstrings",
+			);
+			target = 69A67669A6DA380D4A57F246 /* BridgeyShare */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		306446022EACCD594681DEE4 /* Shared */ = {
@@ -76,6 +94,10 @@
 		};
 		55B87983A9A269110E36E858 /* Bridgey */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				31C500FD30BA467500574B7D /* Exceptions for "Bridgey" folder in "Bridgey" target */,
+				31C500FE30BA467500574B7D /* Exceptions for "Bridgey" folder in "BridgeyShare" target */,
+			);
 			path = Bridgey;
 			sourceTree = "<group>";
 		};
@@ -101,7 +123,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DC4A108697BB2FEC6B8B18D8 /* BridgeyCore.xcframework in Frameworks */,
+				DC4A108697BB2FEC6B8B18D8 /* Frameworks/BridgeyCore.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -109,7 +131,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6F23F6B4F87E18A5884C5809 /* BridgeyCore.xcframework in Frameworks */,
+				6F23F6B4F87E18A5884C5809 /* Frameworks/BridgeyCore.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -171,7 +193,7 @@
 		A60C4A2699D672692B69708B /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				00A915076ED11553C11D085D /* BridgeyCore.xcframework */,
+				00A915076ED11553C11D085D /* Frameworks/BridgeyCore.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -215,8 +237,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				8AA03AD7F806571D9CCDEAEC /* ShareExtension */,
 				306446022EACCD594681DEE4 /* Shared */,
+				8AA03AD7F806571D9CCDEAEC /* ShareExtension */,
 			);
 			name = BridgeyShare;
 			packageProductDependencies = (
@@ -263,8 +285,8 @@
 				7EAE470B81432F4499D84B38 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				55B87983A9A269110E36E858 /* Bridgey */,
 				306446022EACCD594681DEE4 /* Shared */,
+				55B87983A9A269110E36E858 /* Bridgey */,
 			);
 			name = Bridgey;
 			packageProductDependencies = (
@@ -283,19 +305,19 @@
 				LastSwiftUpdateCheck = 2720;
 				LastUpgradeCheck = 2720;
 				TargetAttributes = {
-					C673B71425C12DFCE556C83D = {
-						CreatedOnToolsVersion = 27.2;
-					};
-					69A67669A6DA380D4A57F246 = {
-						CreatedOnToolsVersion = 27.2;
-					};
 					17FD916D5DCC90E2A27129D0 = {
 						CreatedOnToolsVersion = 27.2;
 						TestTargetID = C673B71425C12DFCE556C83D;
 					};
+					69A67669A6DA380D4A57F246 = {
+						CreatedOnToolsVersion = 27.2;
+					};
 					97F06D8A58F6D3DE40B98721 = {
 						CreatedOnToolsVersion = 27.2;
 						TestTargetID = C673B71425C12DFCE556C83D;
+					};
+					C673B71425C12DFCE556C83D = {
+						CreatedOnToolsVersion = 27.2;
 					};
 				};
 			};
@@ -305,6 +327,7 @@
 			knownRegions = (
 				"en-GB",
 				Base,
+				ru,
 			);
 			mainGroup = 739620D9C136A4C0ED692E1A;
 			minimizedProjectReferenceProxies = 1;
@@ -587,7 +610,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		07409E8D3A9435C67320D7D7 /* Build configuration list for project */ = {
+		07409E8D3A9435C67320D7D7 /* Build configuration list for PBXProject "Bridgey" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				17FFC9CB9FA8AD84C7EC3F9F /* Debug */,
@@ -596,7 +619,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		12E26CB0CC6AA8136CDCB982 /* Build configuration list for BridgeyShare */ = {
+		12E26CB0CC6AA8136CDCB982 /* Build configuration list for PBXNativeTarget "BridgeyShare" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C8C5F06085A4B5BFA027CC13 /* Debug */,
@@ -605,7 +628,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		2431C9557E88DE611188A8D9 /* Build configuration list for Bridgey */ = {
+		2431C9557E88DE611188A8D9 /* Build configuration list for PBXNativeTarget "Bridgey" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				F44AD2CE60788E9B17E98938 /* Debug */,
@@ -614,7 +637,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		880F4BA520088FF8DBBD1C51 /* Build configuration list for BridgeyTests */ = {
+		880F4BA520088FF8DBBD1C51 /* Build configuration list for PBXNativeTarget "BridgeyTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				ABC69F0D87423AE3627D10F2 /* Debug */,
@@ -623,7 +646,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BB4BCCF66556D0022ECCFDD0 /* Build configuration list for BridgeyUITests */ = {
+		BB4BCCF66556D0022ECCFDD0 /* Build configuration list for PBXNativeTarget "BridgeyUITests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3366D95F46B6F443B444082F /* Debug */,
@@ -633,7 +656,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = 8A3644E94EDE01F4ABE61CA2 /* Project object */;
 }

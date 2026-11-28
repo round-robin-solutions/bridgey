@@ -16,8 +16,70 @@ struct DeviceItem: Identifiable, Equatable {
     var filesReady: Bool { both("files") }
     var linksReady: Bool { both("links") }
     var pingReady: Bool { both("ping") }
+    var findReady: Bool { both("find_device") }
+    var notificationsReady: Bool { both("notifications") }
+
+    /// The device's battery while connected (Battery on at both ends).
+    var battery: BatteryLevel?
+
+    var isPhone: Bool { platform == "android" }
+    var isMac: Bool { platform == "macos" }
+
+    /// Where its screen comes from: an Android phone's (screen_draft1) or a Mac's (screen_control_draft1). Nil for
+    /// anything else: iOS views screens, and only phones and Macs share theirs with it.
+    var screenArea: PhoneArea? { ScreenRoles.area(platform: platform) }
+    /// Its screen can be asked for now: the key on at both ends. The phone or Mac still decides at the request.
+    var screenReady: Bool {
+        switch screenArea {
+        case .screen: both(ScreenRoles.phoneScreen)
+        case .display: both(ScreenRoles.macScreen)
+        default: false
+        }
+    }
+
+    /// The phone lets this device see its conversations (Text messages on there); `messagesOn` is this end.
+    var messagesOffered: Bool { connected && isPhone && remote?["sms_draft1"] == true }
+    var messagesOn: Bool { local["sms_draft1"] == true }
+    /// The phone's files can be browsed: Files at both ends and the phone allows browsing.
+    var phoneFilesReady: Bool { filesReady && remote?["files_browse_draft1"] == true }
 
     var ring: RingState { connected ? .connected : .offline }
+}
+
+struct BatteryLevel: Equatable {
+    var level: Int
+    var charging: Bool
+}
+
+/// The screen keys this device sends a paired device. The same key means different things to different apps, so
+/// they depend on its platform: an Android phone reads `screen_draft1` (with `phone_control_draft1`) as "this device
+/// wants to see and control my screen", while a Mac reads it as "this phone shares its screen". A Mac reads
+/// `screen_control_draft1` as "this device wants to see my screen", and an Android phone reads that as "this Mac
+/// shares its screen". So iOS sends each device only the viewer key it reads that way, never a source or input host
+/// key, and other apps never offer to view or control an iPhone or iPad.
+enum ScreenRoles {
+    static let phoneScreen = "screen_draft1"
+    static let phoneControl = "phone_control_draft1"
+    static let macScreen = "screen_control_draft1"
+    static let keys = [phoneScreen, phoneControl, macScreen]
+
+    static func area(platform: String?) -> PhoneArea? {
+        switch platform {
+        case "android": .screen
+        case "macos": .display
+        default: nil
+        }
+    }
+
+    /// The keys for a device: on only for the viewer role that platform understands, and only when wanted.
+    static func keys(platform: String?, wanted: Bool) -> [String: Bool] {
+        let area = area(platform: platform)
+        return [
+            phoneScreen: wanted && area == .screen,
+            phoneControl: wanted && area == .screen,
+            macScreen: wanted && area == .display,
+        ]
+    }
 }
 
 /// A device on this network that is not paired.

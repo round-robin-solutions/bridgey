@@ -15,6 +15,9 @@ struct LaunchOptions {
     var appearance: Appearance?
     /// Hosting unit tests: the app itself stays off the network.
     var idle = false
+    /// Devices a test says are on the network (BRIDGEY_FOUND: `id|name|platform|host|port`, `;` between devices), so
+    /// a test can pair with a scripted peer as a phone or a Mac without Bonjour.
+    var found: [FoundDevice] = []
 
     static let current: LaunchOptions = {
         var o = LaunchOptions()
@@ -27,6 +30,11 @@ struct LaunchOptions {
         o.skipSetup = env["BRIDGEY_SKIP_SETUP"] == "1"
         o.demo = env["BRIDGEY_DEMO"].flatMap { $0.isEmpty ? nil : $0 }
         o.appearance = env["BRIDGEY_APPEARANCE"].flatMap(Appearance.init(rawValue:))
+        o.found = (env["BRIDGEY_FOUND"] ?? "").split(separator: ";").compactMap { entry in
+            let f = entry.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard f.count == 5, let port = UInt16(f[4]) else { return nil }
+            return FoundDevice(service: f[1], deviceID: f[0].isEmpty ? nil : f[0], name: f[1], platform: f[2].isEmpty ? nil : f[2], host: f[3], port: port)
+        }
         #endif
         return o
     }()
@@ -79,6 +87,14 @@ final class AppModel: ObservableObject {
     @Published var targetID: String? {
         didSet { if let targetID { settings.lastDeviceID = targetID } }
     }
+    /// The stream's navigation (Messages, the phone's files).
+    @Published var path: [Route] = []
+
+    let screen = ScreenModel()
+    let messages = MessagesModel()
+    let phoneFiles = PhoneFilesModel()
+    let alerts = AlertsModel()
+    private var features: [SessionFeature] { [screen, messages, phoneFiles, alerts] }
 
     init(settings: AppSettings, options: LaunchOptions = .current, system: SystemServices = LiveSystemServices(), activityFile: URL? = AppModel.defaultActivityFile, makeClient: @escaping ClientFactory) {
         self.settings = settings
@@ -88,6 +104,7 @@ final class AppModel: ObservableObject {
         self.makeClient = makeClient
         targetID = settings.lastDeviceID
         loadActivity()
+        for feature in features { feature.attach(self) }
     }
 
     nonisolated static var defaultActivityFile: URL {
@@ -118,8 +135,10 @@ final class AppModel: ObservableObject {
             return
         }
         running = true
+        for feature in features { feature.clientChanged(client) }
         applyDefaults()
         refresh()
+        for device in options.found { found(device) }
         if options.discovery, let client {
             let discovery = BonjourDiscovery(ownDeviceID: client.deviceID)
             discovery.onFound = { [weak self] device in self?.found(device) }
@@ -161,6 +180,8 @@ final class AppModel: ObservableObject {
         client?.stop()
         client = nil
         running = false
+        for feature in features { feature.clientChanged(nil) }
+        path = []
         nearby = []
         for i in devices.indices { devices[i].connected = false }
         transfers = []
@@ -179,13 +200,58 @@ final class AppModel: ObservableObject {
         discovery?.restart()
     }
 
-    /// This device's switches for devices without their own, from Settings.
+    /// This device's switches for devices without their own, from Settings. The screen keys are per device
+    /// (`applyScreenRoles`); media is never offered: iOS doesn't let an app control what other apps play.
+    var featureDefaults: [(String, Bool)] {
+        let s = settings
+        return [
+            ("clipboard", s.clipboard),
+            ("files", s.files),
+            // Folders from the phone: downloads from its files, and folders it sends.
+            ("folders_receive_draft1", s.files),
+            ("links", s.links),
+            ("links_open_draft1", s.links),
+            ("ping", true),
+            ("battery", s.battery),
+            ("find_device", s.findDevice),
+            ("notifications", s.notifications),
+            ("notification_routing_draft1", s.notifications),
+            // Someone using Bridgey is using this device: the phone may send its alerts here while it is open.
+            ("device_presence_draft1", s.notifications),
+            ("sms_codes_draft1", s.notifications),
+            ("email_codes_draft1", s.notifications && s.codesFromMessages && s.codesFromEmail),
+            ("sms_draft1", s.textMessages),
+            ("media", false),
+            ("dialer_draft1", false),
+            ("calls", false),
+        ]
+    }
+
     func applyDefaults() {
         guard let client else { return }
-        for (key, on) in [("clipboard", settings.clipboard), ("files", settings.files), ("links", settings.links), ("ping", true)] {
+        for (key, on) in featureDefaults {
             try? client.setFeature(deviceID: nil, key: key, on: on)
         }
         try? client.setReceiveDirectory(settings.files ? SharedStorage.receivedFiles : nil)
+        try? client.setLinksOpen(settings.openLinksRightAway)
+        try? client.setCodes(sms: settings.notifications && settings.codesFromMessages, email: settings.notifications && settings.codesFromMessages && settings.codesFromEmail)
+        // Tests and screenshots never reach the control service.
+        let away = settings.connectAway && !options.ephemeral && options.demo == nil
+        try? client.setConnect(away, controlURL: away ? Edition.connectControlURL : nil)
+        applyScreenRoles()
+    }
+
+    /// Each device gets only the screen key its platform reads as "this device wants to see your screen"
+    /// (ScreenRoles), unless Screens is off here or for that device.
+    func applyScreenRoles() {
+        guard let client else { return }
+        for device in devices {
+            let wanted = settings.screens && !settings.screensOff.contains(device.id)
+            for (key, on) in ScreenRoles.keys(platform: device.platform, wanted: wanted) where (device.local[key] ?? false) != on {
+                try? client.setFeature(deviceID: device.id, key: key, on: on)
+                update(device.id) { $0.local[key] = on }
+            }
+        }
     }
 
     func renamed() {
@@ -200,11 +266,15 @@ final class AppModel: ObservableObject {
     /// Reads everything again (at start and after dropped events).
     func refresh() {
         guard let snapshot = try? client?.snapshot() else { return }
+        let batteries = Dictionary(devices.map { ($0.id, $0.battery) }, uniquingKeysWith: { a, _ in a })
         devices = snapshot.devices.map { d in
-            DeviceItem(id: d.deviceId, name: d.name, platform: d.platform, connected: d.connected, local: d.local, remote: d.remote)
+            var item = DeviceItem(id: d.deviceId, name: d.name, platform: d.platform, connected: d.connected, local: d.local, remote: d.remote)
+            if d.connected { item.battery = batteries[d.deviceId] ?? nil }
+            return item
         }
         refreshNearby(snapshot)
         fixTarget()
+        applyScreenRoles()
     }
 
     private func refreshNearby(_ given: CoreSnapshot? = nil) {
@@ -241,6 +311,7 @@ final class AppModel: ObservableObject {
 
     func handle(_ e: CoreEvent) {
         apply(e)
+        for feature in features { feature.handle(e) }
         // In the background only to let files finish: stop once they have.
         if backgroundTask != .invalid, transfers.isEmpty { stop() }
     }
@@ -279,6 +350,7 @@ final class AppModel: ObservableObject {
             update(id) {
                 $0.connected = false
                 $0.remote = nil
+                $0.battery = nil
             }
             fixTarget()
         case .features:
@@ -286,7 +358,9 @@ final class AppModel: ObservableObject {
             update(id) {
                 if let local = Self.map(e.text) { $0.local = local }
                 $0.remote = Self.map(e.extra)
+                if $0.remote?["battery"] != true { $0.battery = nil }
             }
+            applyScreenRoles()
             sendOutbox(to: id)
         case .clipboard:
             guard let text = e.text else { break }
@@ -330,6 +404,13 @@ final class AppModel: ObservableObject {
             } else {
                 finishFile(e.id, transfer: transfer, failure: reason)
             }
+        case .battery:
+            guard let id = e.deviceID else { break }
+            update(id) { $0.battery = e.status >= 0 ? BatteryLevel(level: Int(e.status), charging: e.id == 1) : nil }
+        case .findRequested, .findState, .notification, .notificationRemoved, .codesStatus, .codesAdvertise, .mediaCommand,
+             .connectState, .sms, .calls, .phoneFiles, .screen, .display:
+            // The features handle these (AlertsModel, MessagesModel, PhoneFilesModel, ScreenModel).
+            break
         case .link:
             guard let text = e.text, let url = URL(string: text) else { break }
             let from = name(of: e.deviceID)
@@ -656,7 +737,24 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Screen for one device (Device settings): its key follows Settings > Screens unless turned off here.
+    func setScreen(_ device: DeviceItem, on: Bool) {
+        if on { settings.screensOff.remove(device.id) } else { settings.screensOff.insert(device.id) }
+        applyScreenRoles()
+    }
+
+    /// A device's name for messages, or "a device".
+    func deviceName(_ id: String?) -> String { name(of: id) }
+
+    func device(_ id: String?) -> DeviceItem? { devices.first { $0.id == id } }
+
+    /// Forget all devices: what the library kept for features goes too (conversations, partial files).
+    func forgetFeatureData() {
+        if !options.ephemeral { HybridStore.removeFeatureData() }
+    }
+
     func forget(_ device: DeviceItem) {
+        settings.screensOff.remove(device.id)
         try? client?.forget(device.id)
         devices.removeAll { $0.id == device.id }
         if targetID == device.id { targetID = nil }

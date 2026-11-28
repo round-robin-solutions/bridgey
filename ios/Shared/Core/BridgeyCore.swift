@@ -31,6 +31,52 @@ enum CoreEventKind: UInt32, Sendable {
     case fileFailed = 20
     case link = 21
     case linkSent = 22
+    case battery = 23
+    case findRequested = 24
+    case findState = 25
+    case notification = 26
+    case notificationRemoved = 27
+    case codesStatus = 28
+    case codesAdvertise = 29
+    case mediaCommand = 30
+    case connectState = 31
+    /// The phone's own features (bridgey_phone): name = what changed, id = the stream or request, text = JSON.
+    case sms = 32
+    case calls = 33
+    case phoneFiles = 34
+    case screen = 35
+    /// A Mac's screen (screen_control_draft1, display.*), as `screen`.
+    case display = 36
+}
+
+/// BridgeyPhoneArea: which of a device's own features a `phone` command is for.
+enum PhoneArea: UInt32, Sendable {
+    case sms = 1
+    case calls = 2
+    case phoneFiles = 3
+    case screen = 4
+    /// A Mac's screen (screen_control_draft1).
+    case display = 5
+
+    /// The event kind the area's events use.
+    var eventKind: CoreEventKind {
+        switch self {
+        case .sms: .sms
+        case .calls: .calls
+        case .phoneFiles: .phoneFiles
+        case .screen: .screen
+        case .display: .display
+        }
+    }
+}
+
+/// What `screenFrame` got: a whole H.264 access unit (Annex B) in the caller's buffer, nothing yet, a frame that
+/// needs a bigger buffer (it stays next), or the end of the stream.
+enum ScreenFramePull: Equatable, Sendable {
+    case frame(length: Int, captureMicros: Int64, key: Bool, parameterSets: Bool)
+    case timeout
+    case tooLarge(needed: Int)
+    case ended
 }
 
 /// BridgeySendStatus: how a clipboard send, ping or link ended.
@@ -167,6 +213,36 @@ protocol CoreClient: AnyObject {
     func connect(_ deviceID: String) throws
     func setReceiveDirectory(_ url: URL?) throws
     func stop()
+
+    /// A command for one of a device's own features; the answer is `{"ok": true, ...}` or `{"ok": false, "error": ...}`.
+    func phone(_ area: PhoneArea, deviceID: String, command: [String: Any]) -> [String: Any]
+    /// Takes the next frame of a screen stream into `buffer`, waiting up to `timeoutMs`. Frames never use events.
+    func screenFrame(_ stream: UInt64, timeoutMs: UInt32, buffer: UnsafeMutableRawBufferPointer) -> ScreenFramePull
+    /// This device's battery: level 0 to 100, nil for none.
+    func setBattery(level: Int?, charging: Bool) throws
+    /// Rings a connected device (true) or stops it.
+    func find(_ deviceID: String, ring: Bool) throws
+    /// The person stopped the sound a FindRequested started here.
+    func findStopped(_ deviceID: String) throws
+    func dismissNotification(_ deviceID: String, notificationID: String) throws
+    /// A notification's action; `reply` for an action that takes text.
+    func notificationAction(_ deviceID: String, notificationID: String, token: String, reply: String?) throws
+    /// Codes from messages and Also read codes in email, on this device.
+    func setCodes(sms: Bool, email: Bool) throws
+    /// Asks the phone to show its prompt for linking this device (codes).
+    func codesLinkRequest(_ deviceID: String) throws
+    /// The answer to a CodesAdvertise start.
+    func codesAdvertiseResult(_ deviceID: String, serviceUUID: String, ok: Bool, reason: String?) throws
+    /// This device's activity: 0 in use (idle seconds), 1 locked, 2 unknown.
+    func setPresence(state: Int32, idleSeconds: UInt32) throws
+    /// Connect away from home, with the control service's URL (nil: learned addresses only).
+    func setConnect(_ on: Bool, controlURL: String?) throws
+    func setLinksOpen(_ on: Bool) throws
+}
+
+extension CoreClient {
+    /// The answer's `ok`.
+    static func ok(_ answer: [String: Any]) -> Bool { answer["ok"] as? Bool == true }
 }
 
 /// The library's own version and ABI, for About and a start-up check.
@@ -390,6 +466,74 @@ final class BridgeyCore: CoreClient, @unchecked Sendable {
     func setReceiveDirectory(_ url: URL?) throws {
         try withOptionalCString(url?.path) { dir in try check(bridgey_set_receive_dir(handle, dir)) }
     }
+
+    func phone(_ area: PhoneArea, deviceID: String, command: [String: Any]) -> [String: Any] {
+        guard let data = try? JSONSerialization.data(withJSONObject: command), let text = String(data: data, encoding: .utf8) else {
+            return ["ok": false, "error": "invalid"]
+        }
+        guard let answer = bridgey_phone(handle, area.rawValue, deviceID, text) else { return ["ok": false, "error": "stopped"] }
+        defer { bridgey_string_free(answer) }
+        let bytes = Data(bytes: answer, count: strlen(answer))
+        return (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any] ?? ["ok": false, "error": "invalid"]
+    }
+
+    func screenFrame(_ stream: UInt64, timeoutMs: UInt32, buffer: UnsafeMutableRawBufferPointer) -> ScreenFramePull {
+        var length = 0
+        var capture: Int64 = 0
+        var flags: UInt32 = 0
+        let base = buffer.baseAddress?.assumingMemoryBound(to: UInt8.self)
+        let rc = bridgey_screen_frame(handle, stream, timeoutMs, base, buffer.count, &length, &capture, &flags)
+        switch rc {
+        case 1: return .frame(length: length, captureMicros: capture, key: flags & 1 != 0, parameterSets: flags & 2 != 0)
+        case 0: return .timeout
+        case CoreError.tooLarge: return .tooLarge(needed: length)
+        default: return .ended
+        }
+    }
+
+    func setBattery(level: Int?, charging: Bool) throws {
+        try check(bridgey_set_battery(handle, Int32(level.map { min(100, max(0, $0)) } ?? -1), charging ? 1 : 0))
+    }
+
+    func find(_ deviceID: String, ring: Bool) throws { try check(bridgey_find(handle, deviceID, ring ? 1 : 0)) }
+
+    func findStopped(_ deviceID: String) throws { try check(bridgey_find_stopped(handle, deviceID)) }
+
+    func dismissNotification(_ deviceID: String, notificationID: String) throws {
+        try check(bridgey_notification_dismiss(handle, deviceID, notificationID))
+    }
+
+    func notificationAction(_ deviceID: String, notificationID: String, token: String, reply: String?) throws {
+        try withOptionalCString(reply) { reply in try check(bridgey_notification_action(handle, deviceID, notificationID, token, reply)) }
+    }
+
+    func setCodes(sms: Bool, email: Bool) throws { try check(bridgey_set_codes(handle, sms ? 1 : 0, email ? 1 : 0)) }
+
+    func codesLinkRequest(_ deviceID: String) throws { try check(bridgey_codes_link_request(handle, deviceID)) }
+
+    func codesAdvertiseResult(_ deviceID: String, serviceUUID: String, ok: Bool, reason: String?) throws {
+        try withOptionalCString(reason) { reason in try check(bridgey_codes_advertise_result(handle, deviceID, serviceUUID, ok ? 1 : 0, reason)) }
+    }
+
+    func setPresence(state: Int32, idleSeconds: UInt32) throws { try check(bridgey_set_presence(handle, state, idleSeconds)) }
+
+    func setConnect(_ on: Bool, controlURL: String?) throws {
+        try withOptionalCString(controlURL) { url in try check(bridgey_set_connect(handle, on ? 1 : 0, url)) }
+    }
+
+    func setLinksOpen(_ on: Bool) throws { try check(bridgey_set_links_open(handle, on ? 1 : 0)) }
+
+    #if DEBUG
+    /// Tests only: this client answers as a simulated Android phone and Mac (canned conversations, files, a screen clip),
+    /// so unit tests run real sessions where no phone or Mac can start.
+    func simulatePhoneForTests(_ on: Bool) throws { try check(bridgey_simulate_phone_for_tests(handle, on ? 1 : 0)) }
+
+    /// Tests only: sends what a phone sends (notifications.post, notifications.remove, codes.status, quick.request,
+    /// codes.advertise).
+    func sendAsPhoneForTests(_ deviceID: String, kind: String, json: String) throws {
+        try check(bridgey_send_as_phone_for_tests(handle, deviceID, kind, json))
+    }
+    #endif
 }
 
 /// Calls `body` with a C string for `text`, or NULL.

@@ -1,0 +1,48 @@
+{
+  "sourceLanguage" : "en-GB",
+  "strings" : {
+    "CFBundleDisplayName" : {
+      "comment" : "Bundle display name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Bridgey"
+          }
+        }
+      }
+    },
+    "CFBundleName" : {
+      "comment" : "Bundle name",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Bridgey"
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription" : {
+      "comment" : "Privacy - Local Network Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Bridgey finds your Mac, PC and Android phone on this Wi-Fi and connects to them directly, to send text, links and files."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bridgey находит ваши Mac, ПК и телефон Android в этой сети Wi-Fi и подключается к ним напрямую, чтобы передавать текст, ссылки и файлы."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.3"
+}

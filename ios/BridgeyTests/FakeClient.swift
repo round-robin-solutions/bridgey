@@ -43,6 +43,43 @@ final class FakeClient: CoreClient {
     func connect(_ deviceID: String) throws { _ = try record("connect \(deviceID)") }
     func setReceiveDirectory(_ url: URL?) throws { _ = try record("receive \(url == nil ? "off" : "on")") }
     func stop() { calls.append("stop") }
+
+    /// Commands sent with `phone`, and the answer for each op (default `{"ok": true}`).
+    var phoneCommands: [(area: PhoneArea, deviceID: String, command: [String: Any])] = []
+    var phoneAnswers: [String: [String: Any]] = [:]
+    /// Frames `screenFrame` hands out, in order, then `.timeout`.
+    var frames: [Data] = []
+
+    func phone(_ area: PhoneArea, deviceID: String, command: [String: Any]) -> [String: Any] {
+        phoneCommands.append((area, deviceID, command))
+        let op = command["op"] as? String ?? ""
+        calls.append("phone \(area.rawValue) \(op)")
+        return phoneAnswers[op] ?? ["ok": true]
+    }
+
+    func screenFrame(_ stream: UInt64, timeoutMs: UInt32, buffer: UnsafeMutableRawBufferPointer) -> ScreenFramePull {
+        guard !frames.isEmpty else { return .timeout }
+        let frame = frames.removeFirst()
+        guard frame.count <= buffer.count else { return .tooLarge(needed: frame.count) }
+        frame.copyBytes(to: buffer)
+        return .frame(length: frame.count, captureMicros: 0, key: true, parameterSets: true)
+    }
+
+    func setBattery(level: Int?, charging: Bool) throws { _ = try record("battery \(level.map(String.init) ?? "none") \(charging)") }
+    func find(_ deviceID: String, ring: Bool) throws { _ = try record("find \(deviceID) \(ring)") }
+    func findStopped(_ deviceID: String) throws { _ = try record("findStopped \(deviceID)") }
+    func dismissNotification(_ deviceID: String, notificationID: String) throws { _ = try record("dismiss \(notificationID)") }
+    func notificationAction(_ deviceID: String, notificationID: String, token: String, reply: String?) throws {
+        _ = try record("action \(notificationID) \(token) \(reply ?? "-")")
+    }
+    func setCodes(sms: Bool, email: Bool) throws { _ = try record("codes \(sms) \(email)") }
+    func codesLinkRequest(_ deviceID: String) throws { _ = try record("codesLink \(deviceID)") }
+    func codesAdvertiseResult(_ deviceID: String, serviceUUID: String, ok: Bool, reason: String?) throws {
+        _ = try record("advertise \(ok) \(reason ?? "-")")
+    }
+    func setPresence(state: Int32, idleSeconds: UInt32) throws { _ = try record("presence \(state)") }
+    func setConnect(_ on: Bool, controlURL: String?) throws { _ = try record("connect \(on) \(controlURL ?? "-")") }
+    func setLinksOpen(_ on: Bool) throws { _ = try record("linksOpen \(on)") }
 }
 
 final class FakeSystem: SystemServices {
