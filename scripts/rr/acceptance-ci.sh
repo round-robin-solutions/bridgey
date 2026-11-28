@@ -44,6 +44,13 @@ cargo build --release --locked -p bridgey-client --example stress --manifest-pat
 PEER="$TMP/stress"
 cp "$RR_ROOT/rust/target/release/examples/stress" "$PEER"
 
+# Versions for the upgrade check: the older build carries its tag's version and build 1, this revision a later version
+# and build 2, so the upgrade is a real one. Without --accept both keep the dev version.
+ACCEPT_BASE_VERSION=""; ACCEPT_HEAD_VERSION=""
+build_versioned() { # <version or empty> <build number> <command...>
+  version=$1; build=$2; shift 2
+  if [ -n "$version" ]; then (export BRIDGEY_VERSION_NAME="$version" BRIDGEY_BUILD_NUMBER="$build"; "$@"); else "$@"; fi
+}
 build_android() { # <tree> <out apk>
   (cd "$1/android" && chmod +x gradlew && ./gradlew --no-daemon --console=plain :app:assembleStress)
   cp "$1/android/app/build/outputs/apk/stress/app-stress.apk" "$2"
@@ -66,7 +73,9 @@ if [ $ACCEPT = 1 ]; then
     done)
   fi
   [ -n "$BASE" ] || die "no release tag before this revision (pass --base)"
-  echo "== the older build: $BASE"
+  ACCEPT_BASE_VERSION=${BASE#v}
+  ACCEPT_HEAD_VERSION="$ACCEPT_BASE_VERSION.accept"   # later than the base in version order (one more pre-release field)
+  echo "== the older build: $BASE (as $ACCEPT_BASE_VERSION build 1; this revision as $ACCEPT_HEAD_VERSION build 2)"
   git -C "$RR_ROOT" fetch --quiet origin "refs/tags/$BASE:refs/tags/$BASE" 2>/dev/null || true
   git -C "$RR_ROOT" worktree add --detach "$TMP/base" "$BASE" >/dev/null
   trap 'git -C "$RR_ROOT" worktree remove --force "$TMP/base" 2>/dev/null || true' EXIT
@@ -77,13 +86,13 @@ STATUS=0
 if [ "$PLATFORM" = android ]; then
   if [ -z "$APK" ]; then
     APK="$TMP/new.apk"
-    build_android "$RR_ROOT" "$APK"
+    build_versioned "$ACCEPT_HEAD_VERSION" 2 build_android "$RR_ROOT" "$APK"
   fi
   if [ $ACCEPT = 1 ]; then
     # This revision's control receiver over the older app: the older app's code, this revision's test commands.
     rm -rf "$TMP/base/android/app/src/stress"
     cp -R "$RR_ROOT/android/app/src/stress" "$TMP/base/android/app/src/stress"
-    build_android "$TMP/base" "$TMP/base.apk"
+    build_versioned "$ACCEPT_BASE_VERSION" 1 build_android "$TMP/base" "$TMP/base.apk"
     STRESS_WORK="$TMP/accept" sh "$RR_ROOT/scripts/rr/stress-android.sh" --driver accept --apk "$TMP/base.apk" --new-apk "$APK" \
       --peer "$PEER" --out "$OUT/accept" --mid 192M || STATUS=1
   fi
@@ -96,7 +105,7 @@ else
   if [ -z "$APP" ]; then
     APP="$TMP/new/Bridgey.app"
     mkdir -p "$TMP/new"
-    build_mac "$RR_ROOT" "$APP"
+    build_versioned "$ACCEPT_HEAD_VERSION" 2 build_mac "$RR_ROOT" "$APP"
   fi
   if [ $ACCEPT = 1 ]; then
     if ! grep -q 'clipboard-text' "$TMP/base/macos/Sources/BridgeyMac/Pairing.swift"; then
@@ -104,7 +113,7 @@ else
       git -C "$TMP/base" apply --3way "$RR_ROOT/scripts/rr/testdata/acceptance/mac-test-pasteboard.patch"
     fi
     mkdir -p "$TMP/old"
-    build_mac "$TMP/base" "$TMP/old/Bridgey.app"
+    build_versioned "$ACCEPT_BASE_VERSION" 1 build_mac "$TMP/base" "$TMP/old/Bridgey.app"
     STRESS_MAC_BID=in.roundrobin.bridgey.test.accept STRESS_MAC_PORT=42498 STRESS_MAC_SERVICE=_bridgeyac._tcp STRESS_WORK="$TMP/accept" \
       sh "$RR_ROOT/scripts/rr/stress-mac.sh" --driver accept --app "$TMP/old/Bridgey.app" --new-app "$APP" --peer "$PEER" \
       --out "$OUT/accept" --proxy-port 42493 --mid 192M || STATUS=1

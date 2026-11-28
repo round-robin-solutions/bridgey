@@ -125,7 +125,7 @@ much the last window grew over the first.
 | Memory | least-squares slope at most 8 MiB an hour, and the last window's median at most 48 MiB above the first's: resident size on Android, the physical footprint on the Mac (Activity Monitor's Memory; resident size there also counts shared code and pages malloc keeps after a free, so it is charted, not judged) |
 | Java heap after GC (Android) | slope at most 2 MiB an hour, last window at most 12 MiB above the first |
 | Open files | last window's median at most 8 above the first's; never more than 48 above it |
-| Threads | last window's median at most 8 above the first's; never more than 96 above it (batches raise it for a moment by design: Kotlin's IO dispatcher alone may grow to 64 threads) |
+| Threads | last window's median at most 8 above the first's, on runs of 2 hours or more (on shorter runs the dispatcher's on-demand threads follow the load); never more than 96 above it on any run (batches raise it for a moment by design: Kotlin's IO dispatcher alone may grow to 64 threads) |
 | Driver memory (session client) | slope at most 16 MiB an hour, last window at most 48 MiB above the first |
 | CPU while idle | at most 2 % of one core across the quiet periods on Android, 3 % on the Mac (the test instance's control timer, five status files a second, takes about 1.6 % by itself) |
 | Wakeups | Android: at most 12 alarm wakeups an hour for the app; Mac: at most 20 idle wakeups a second while quiet |

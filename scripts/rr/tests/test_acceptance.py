@@ -65,14 +65,14 @@ class CompareTests(unittest.TestCase):
 
 
 class SoakTests(unittest.TestCase):
-    def samples(self, hours, rss_growth_per_hour, fds_end=60, pid_change=False):
+    def samples(self, hours, rss_growth_per_hour, fds_end=60, pid_change=False, threads_end=40):
         out = []
         t = 0
         while t <= hours * 3600:
             idle = (t // 600) % 6 == 5
             out.append({'kind': 'app', 't': t, 'gc': (t // 60) % 5 == 0, 'idle': idle,
                         'app': {'ok': True, 'pid': 2 if pid_change and t > 3600 else 1, 'rss_kb': int((120 + rss_growth_per_hour * t / 3600) * 1024),
-                                'threads': 40, 'fds': 60 if t < hours * 2400 else fds_end, 'javaUsed': 5 * 1024 * 1024, 'cpuMs': t * 2},
+                                'threads': 40 if t < hours * 2400 else threads_end, 'fds': 60 if t < hours * 2400 else fds_end, 'javaUsed': 5 * 1024 * 1024, 'cpuMs': t * 2},
                         'peer': {'rss_kb': 9000}})
             if t % 600 == 0:
                 out.append({'kind': 'op', 't': t, 'op': 'send-whole', 'ok': True, 'rounds': [{'done': True, 'size': 32 << 20, 'mib_per_s': 50.0}]})
@@ -100,6 +100,16 @@ class SoakTests(unittest.TestCase):
         self.assertTrue(verdict['resident memory'])
         verdict, _ = self.judge(self.samples(0.5, 300))
         self.assertFalse(verdict['resident memory'])
+
+    def test_thread_growth_counts_only_on_long_runs(self):
+        # 20 minutes with the IO dispatcher's threads up by 10: load, not a leak, so only the peak is judged.
+        verdict, _ = self.judge(self.samples(1 / 3, 0.5, threads_end=50))
+        self.assertTrue(verdict['threads'])
+        # The same growth over 4 hours fails, and a runaway peak fails on any run.
+        verdict, _ = self.judge(self.samples(4, 0.5, threads_end=50))
+        self.assertFalse(verdict['threads'])
+        verdict, _ = self.judge(self.samples(1 / 3, 0.5, threads_end=200))
+        self.assertFalse(verdict['threads'])
 
     def test_graphs_are_written(self):
         with tempfile.TemporaryDirectory() as d:
