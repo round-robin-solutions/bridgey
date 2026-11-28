@@ -85,7 +85,7 @@ internal class RemoteCallRequest(private val context: Context) {
                 ).build(),
             )
             .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        AppNotifications.post(context, NOTIFICATION_ID, notification, urgency = NotificationUrgency.IMMEDIATE)
         return RemoteCallResult.CONFIRMATION_REQUIRED
     }
 

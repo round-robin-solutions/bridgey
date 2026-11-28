@@ -79,8 +79,8 @@ class SoakTests(unittest.TestCase):
             t += 60
         return out
 
-    def judge(self, samples, report=None):
-        checks, metrics, _ = acc.judge_soak('android', report or {'ok': True}, samples, '')
+    def judge(self, samples, report=None, device_log=None):
+        checks, metrics, _ = acc.judge_soak('android', report or {'ok': True}, samples, '', device_log)
         return {c['check']: c['ok'] for c in checks}, metrics
 
     def test_a_steady_run_passes(self):
@@ -110,6 +110,40 @@ class SoakTests(unittest.TestCase):
         self.assertFalse(verdict['threads'])
         verdict, _ = self.judge(self.samples(1 / 3, 0.5, threads_end=200))
         self.assertFalse(verdict['threads'])
+
+    def test_notification_updates_shed_by_android_fail(self):
+        quiet = ('11-28 00:40:01.100  1650  1650 I Bridgey : CLIP sent\n'
+                 '11-28 00:40:02.000   600   640 E NotificationService: Package enqueue rate is 5.31. Shedding '
+                 '0|com.example.other|7|null|10200. package=com.example.other\n')
+        verdict, metrics = self.judge(self.samples(1 / 3, 0.5), device_log=quiet)
+        self.assertTrue(verdict['notification updates shed'])
+        self.assertEqual(metrics['notifications_shed']['lines'], 0)
+        shed = quiet + ('11-28 00:41:10.512   600   641 E NotificationService: Package enqueue rate is 5.6243. Shedding '
+                        '0|in.roundrobin.bridgey.stress|42458|null|10234. package=in.roundrobin.bridgey.stress\n'
+                        '11-28 00:41:16.020   600   641 E NotificationService: Package enqueue rate is 6.0. Shedding '
+                        '0|in.roundrobin.bridgey.stress|50731|null|10234. package=in.roundrobin.bridgey.stress\n')
+        verdict, metrics = self.judge(self.samples(1 / 3, 0.5), device_log=shed)
+        self.assertFalse(verdict['notification updates shed'])
+        self.assertEqual(metrics['notifications_shed'], {'lines': 2, 'max_rate': 6.0, 'ids': ['42458', '50731']})
+        # Without a device log (a run before the check, or the Mac) the check is not made.
+        verdict, _ = self.judge(self.samples(1 / 3, 0.5))
+        self.assertNotIn('notification updates shed', verdict)
+
+    def test_a_missing_device_log_fails_the_check(self):
+        with tempfile.TemporaryDirectory() as d:
+            samples = os.path.join(d, 'samples.jsonl')
+            with open(samples, 'w') as f:
+                for s in self.samples(1 / 3, 0.5):
+                    f.write(json.dumps(s) + '\n')
+            report = os.path.join(d, 'soak.json')
+            with open(report, 'w') as f:
+                json.dump({'ok': True}, f)
+            args = type('A', (), {'platform': 'android', 'report': report, 'samples': samples, 'out': d, 'crash_log': None,
+                                  'device_log': os.path.join(d, 'app.log')})
+            self.assertEqual(acc.cmd_soak(args), 1)
+            with open(os.path.join(d, 'app.log'), 'w') as f:
+                f.write('11-28 00:40:01.100  1650  1650 I Bridgey : CLIP sent\n')
+            self.assertEqual(acc.cmd_soak(args), 0)
 
     def test_graphs_are_written(self):
         with tempfile.TemporaryDirectory() as d:

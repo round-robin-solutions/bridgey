@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.BridgeyApplication
 import dev.bridgey.android.BridgeyLogging
 import dev.bridgey.android.LogCategory
@@ -71,11 +72,7 @@ class ScreenShareService : Service() {
         val notification = ScreenNotifier.sharing(this, macName, sharing = false)
         // Foreground with the mediaProjection type before the projection is taken (Android 14 rule).
         val foreground = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(ScreenNotifier.SHARING_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
-            } else {
-                startForeground(ScreenNotifier.SHARING_NOTIFICATION_ID, notification)
-            }
+            AppNotifications.startForeground(this, ScreenNotifier.SHARING_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION)
         }.onFailure { BridgeyLogging.w(LogCategory.REMOTE_CONTROL, "SCREEN foreground refused", it) }.isSuccess
         val taken = if (foreground && data != null) {
             runCatching { getSystemService(MediaProjectionManager::class.java).getMediaProjection(resultCode, data) }
@@ -137,7 +134,7 @@ class ScreenShareService : Service() {
         thread = null
         stream = null
         (application as BridgeyApplication).screenShare.streamEnded = {}
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        AppNotifications.stopForeground(this, ScreenNotifier.SHARING_NOTIFICATION_ID)
         stopSelf()
     }
 

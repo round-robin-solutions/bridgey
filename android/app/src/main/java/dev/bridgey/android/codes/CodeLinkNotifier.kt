@@ -6,7 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.MainActivity
+import dev.bridgey.android.NotificationUrgency
 import dev.bridgey.android.R
 
 /**
@@ -39,11 +41,11 @@ object CodeLinkNotifier {
             .setAutoCancel(true)
             .setTimeoutAfter(5 * 60_000L)
             .build()
-        runCatching { manager.notify(NOTIFICATION_ID, notification) }
+        AppNotifications.post(context, NOTIFICATION_ID, notification, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     fun dismiss(context: Context) {
-        context.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        AppNotifications.cancel(context, NOTIFICATION_ID)
     }
 
     const val EXTRA_DEVICE_ID = "dev.bridgey.android.extra.LINK_DEVICE_ID"

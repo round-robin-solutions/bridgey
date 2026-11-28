@@ -8,7 +8,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.BridgeyApplication
+import dev.bridgey.android.NotificationUrgency
 import dev.bridgey.android.R
 
 /**
@@ -28,7 +30,7 @@ object PhoneControlNotifier {
     }
 
     fun showAsk(context: Context, macName: String, promptId: Long) {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        context.getSystemService(NotificationManager::class.java) ?: return
         channel(context)
         fun action(allow: Boolean, request: Int): PendingIntent = PendingIntent.getBroadcast(
             context, request, PhoneControlReceiver.answerIntent(context, promptId, allow),
@@ -50,11 +52,11 @@ object PhoneControlNotifier {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setTimeoutAfter(PhoneControlLimits.PROMPT_LIFETIME_MILLIS)
             .build()
-        runCatching { manager.notify(ASK_NOTIFICATION_ID, notification) }
+        AppNotifications.post(context, ASK_NOTIFICATION_ID, notification, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     fun dismissAsk(context: Context) {
-        context.getSystemService(NotificationManager::class.java)?.cancel(ASK_NOTIFICATION_ID)
+        AppNotifications.cancel(context, ASK_NOTIFICATION_ID)
     }
 }
 

@@ -27,7 +27,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.BridgeyApplication
+import dev.bridgey.android.NotificationUrgency
 import dev.bridgey.android.R
 import dev.bridgey.android.ui.CameraPhase
 import dev.bridgey.android.ui.CameraScreen
@@ -265,10 +267,10 @@ object CameraNotifier {
             .setAutoCancel(true)
             .setTimeoutAfter(CAMERA_REQUEST_LIFETIME_MILLIS)
             .build()
-        runCatching { manager.notify(id(request.deviceId), notification) }
+        AppNotifications.post(context, id(request.deviceId), notification, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     fun dismiss(context: Context, deviceId: String) {
-        if (deviceId.isNotEmpty()) context.getSystemService(NotificationManager::class.java).cancel(id(deviceId))
+        if (deviceId.isNotEmpty()) AppNotifications.cancel(context, id(deviceId))
     }
 }

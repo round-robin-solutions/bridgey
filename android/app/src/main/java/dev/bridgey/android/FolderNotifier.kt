@@ -64,7 +64,7 @@ object FolderNotifier {
             builder.setContentIntent(pending)
             builder.addAction(Notification.Action.Builder(null, context.getString(R.string.action_open), pending).build())
         }
-        context.getSystemService(NotificationManager::class.java).notify(resultNotificationId(folder.folderTransferId), builder.build())
+        AppNotifications.post(context, resultNotificationId(folder.folderTransferId), builder.build())
     }
 
     /** Open the saved folder in the Files app when the device can; Download/Bridgey through the existing opener. */
@@ -90,7 +90,7 @@ object FolderNotifier {
             .setContentIntent(openApp(context, null))
             .setAutoCancel(true)
             .build()
-        context.getSystemService(NotificationManager::class.java).notify(LOST_ACCESS_ID, notification)
+        AppNotifications.post(context, LOST_ACCESS_ID, notification)
     }
 
     private fun openApp(context: Context, folderTransferId: String?): PendingIntent {

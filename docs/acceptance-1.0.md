@@ -130,6 +130,7 @@ much the last window grew over the first.
 | CPU while idle | at most 2 % of one core across the quiet periods on Android, 3 % on the Mac (the test instance's control timer, five status files a second, takes about 1.6 % by itself) |
 | Wakeups | Android: at most 12 alarm wakeups an hour for the app; Mac: at most 20 idle wakeups a second while quiet |
 | Notifications (Android) | at most 20 shown at once (Android refuses an app's notifications past 50, which would hide pairing, call and control prompts) |
+| Notification updates shed (Android) | none: no "Package enqueue rate is ... Shedding" line for the app in the device log. Android drops an app's notification updates while it posts more than 5 a second; it logs at most one such line every 5 seconds, so the count is a floor. `stress-android.sh` keeps NotificationService's errors in `app.log` and passes it to the judge (`--device-log`) |
 | Throughput | per direction, the last window's median speed for files of 16 MiB or more at least half the first's (smaller files measure per-file round trips more than the link) |
 
 ## Results, 27 November 2026

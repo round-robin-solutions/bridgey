@@ -8,7 +8,9 @@ import android.app.RemoteInput
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.MainActivity
+import dev.bridgey.android.NotificationUrgency
 import dev.bridgey.android.R
 
 /**
@@ -72,7 +74,7 @@ class AgentNotifier(private val context: Context) {
             .setContentIntent(openDevice(deviceId, code(tag)))
             .setAutoCancel(true)
             .build()
-        runCatching { manager.notify(tag, NOTIFY_ID, notification) }
+        AppNotifications.post(context, NOTIFY_ID, notification, tag = tag)
     }
 
     /**
@@ -115,7 +117,7 @@ class AgentNotifier(private val context: Context) {
                 )
             }
         }
-        runCatching { manager.notify(tag, ASK_ID, builder.build()) }
+        AppNotifications.post(context, ASK_ID, builder.build(), tag = tag, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     private fun action(label: String, pending: PendingIntent, requireUnlock: Boolean): Notification.Action =
@@ -124,7 +126,7 @@ class AgentNotifier(private val context: Context) {
             .build()
 
     fun cancelAsk(deviceId: String, askId: String) {
-        manager.cancel(askTag(deviceId, askId), ASK_ID)
+        AppNotifications.cancel(context, ASK_ID, askTag(deviceId, askId))
     }
 
     /** "<device> wants your clipboard" with Send (opens Bridgey for a moment, to read it) and Deny. */
@@ -145,11 +147,11 @@ class AgentNotifier(private val context: Context) {
             .addAction(Notification.Action.Builder(null, context.getString(R.string.agent_clipboard_deny), deny).build())
             .addAction(Notification.Action.Builder(null, context.getString(R.string.agent_clipboard_send), sendPending).build())
             .build()
-        runCatching { manager.notify(tag, CLIP_ID, notification) }
+        AppNotifications.post(context, CLIP_ID, notification, tag = tag, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     fun cancelClipboardRequest(deviceId: String, requestId: String) {
-        manager.cancel(clipTag(deviceId, requestId), CLIP_ID)
+        AppNotifications.cancel(context, CLIP_ID, clipTag(deviceId, requestId))
     }
 
     /** "<device> asks for: <grants>", opening the device's permissions. */
@@ -163,18 +165,16 @@ class AgentNotifier(private val context: Context) {
             .setAutoCancel(true)
             .setTimeoutAfter(GRANT_WAITING_MILLIS)
             .build()
-        runCatching { manager.notify(tag, GRANT_ID, notification) }
+        AppNotifications.post(context, GRANT_ID, notification, tag = tag, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     fun cancelGrantRequest(deviceId: String) {
-        manager.cancel("agent-grants:$deviceId", GRANT_ID)
+        AppNotifications.cancel(context, GRANT_ID, "agent-grants:$deviceId")
     }
 
     /** Every notification of a forgotten agent. */
     fun cancelAll(deviceId: String) {
-        runCatching {
-            manager.activeNotifications.filter { it.tag?.contains(":$deviceId") == true }.forEach { manager.cancel(it.tag, it.id) }
-        }
+        AppNotifications.cancelWhere(context) { tag, _ -> tag?.contains(":$deviceId") == true }
     }
 
     companion object {

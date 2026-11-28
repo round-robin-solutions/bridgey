@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.telecom.TelecomManager
 import android.widget.Toast
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.R
 
 /**
@@ -63,6 +64,6 @@ object BlockedNumbers {
             .setAutoCancel(true)
             .setTimeoutAfter(LIFETIME_MILLIS)
             .build()
-        return runCatching { manager.notify(NOTIFICATION_ID, notification) }.isSuccess
+        return AppNotifications.post(context, NOTIFICATION_ID, notification)
     }
 }

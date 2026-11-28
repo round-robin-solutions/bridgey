@@ -17,6 +17,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.telecom.TelecomManager
 import android.widget.Toast
+import dev.bridgey.android.AppNotifications
+import dev.bridgey.android.NotificationUrgency
 import dev.bridgey.android.R
 import dev.bridgey.android.normalizedPhoneNumber
 import dev.bridgey.android.sms.SimInfo
@@ -136,11 +138,11 @@ object DialerCalls {
             .setAutoCancel(true)
             .setTimeoutAfter(LIFETIME_MILLIS)
             .build()
-        return runCatching { manager.notify(NOTIFICATION_ID, notification) }.isSuccess
+        return AppNotifications.post(context, NOTIFICATION_ID, notification, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     internal fun cancel(context: Context) {
-        context.getSystemService(NotificationManager::class.java)?.cancel(NOTIFICATION_ID)
+        AppNotifications.cancel(context, NOTIFICATION_ID)
     }
 }
 

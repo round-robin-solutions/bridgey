@@ -48,7 +48,7 @@ object ReceivedFileNotifier {
             val shown = manager.activeNotifications
                 .filter { it.notification.channelId == CHANNEL_ID && it.id != id && (it.notification.flags and Notification.FLAG_GROUP_SUMMARY) == 0 }
                 .map { it.id to it.postTime }
-            receivedToRetire(shown).forEach(manager::cancel)
+            receivedToRetire(shown).forEach { AppNotifications.cancel(context, it) }
         }
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, context.getString(R.string.channel_received), NotificationManager.IMPORTANCE_DEFAULT).apply {
@@ -68,7 +68,8 @@ object ReceivedFileNotifier {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        manager.notify(
+        AppNotifications.post(
+            context,
             id,
             Notification.Builder(context, CHANNEL_ID)
                 .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)

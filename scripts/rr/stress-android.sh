@@ -262,7 +262,9 @@ echo "== port $FORWARD reaches the app through $FORWARD_MODE"
 export STRESS_APP_ID="$APP_ID" STRESS_ADB="$ADB" STRESS_NEW_APK="$NEW_APK"
 sh "$SELF" control start | grep -q '"ok":true' || die "the stress build did not start"
 PID=$("$ADB" shell pidof "$APP_ID" </dev/null | tr -d '\r')
-nohup "$ADB" logcat -v threadtime -s Bridgey:V AndroidRuntime:E ActivityManager:I > "$OUT/app.log" 2>&1 </dev/null &
+# NotificationService's errors include "Package enqueue rate is ... Shedding" when Android drops one of the app's
+# notification updates; the soak's judge counts them.
+nohup "$ADB" logcat -v threadtime -s Bridgey:V AndroidRuntime:E ActivityManager:I NotificationService:E > "$OUT/app.log" 2>&1 </dev/null &
 LOGCAT_PID=$!
 echo "== running the $DRIVER driver (app pid $PID)"
 rm -f "$WORK/events.jsonl" "$WORK"/before.json "$WORK"/after*.json
@@ -282,7 +284,8 @@ JUDGE=0
 case $DRIVER in
   soak)
     cp "$WORK/samples.jsonl" "$OUT/samples.jsonl" 2>/dev/null || true
-    python3 -I "$RR_ROOT/scripts/rr/acceptance.py" soak --platform android --report "$OUT/soak.json" --samples "$OUT/samples.jsonl" --out "$OUT" --crash-log "$OUT/crash.log" || JUDGE=$?
+    python3 -I "$RR_ROOT/scripts/rr/acceptance.py" soak --platform android --report "$OUT/soak.json" --samples "$OUT/samples.jsonl" --out "$OUT" \
+      --crash-log "$OUT/crash.log" --device-log "$OUT/app.log" || JUDGE=$?
     ;;
   accept)
     for f in before.json after.json after-traffic.json; do cp "$WORK/$f" "$OUT/$f" 2>/dev/null || true; done
