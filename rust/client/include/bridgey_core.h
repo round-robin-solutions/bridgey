@@ -179,6 +179,8 @@ enum BridgeyEventKind
   BRIDGEY_EVENT_KIND_PHONE_FILES = 34,
   // The phone's screen (BRIDGEY_PHONE_AREA_SCREEN), as Sms.
   BRIDGEY_EVENT_KIND_SCREEN = 35,
+  // A Mac's screen (BRIDGEY_PHONE_AREA_DISPLAY), as Sms.
+  BRIDGEY_EVENT_KIND_DISPLAY = 36,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -224,6 +226,8 @@ enum BridgeyPhoneArea
   BRIDGEY_PHONE_AREA_PHONE_FILES = 3,
   // The phone's screen (`screen_draft1`, `phone_control_draft1`).
   BRIDGEY_PHONE_AREA_SCREEN = 4,
+  // A Mac's screen and control of it (`screen_control_draft1`): this device as the viewer and controller.
+  BRIDGEY_PHONE_AREA_DISPLAY = 5,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -596,12 +600,13 @@ char *bridgey_phone(uint64_t handle,
                     const char *device_id,
                     const char *command);
 
-// Takes the next whole frame of a phone's screen (the id of a BRIDGEY_EVENT_KIND_SCREEN `started` event): one H.264
-// access unit in Annex B, copied into `buffer`. Frames never go through bridgey_next_event. Waits up to `timeout_ms`.
-// Returns 1 with `*out_len` bytes, `*out_capture_micros` (the phone's capture clock; only differences mean anything)
+// Takes the next whole frame of a phone's or a Mac's screen (the id of a BRIDGEY_EVENT_KIND_SCREEN or
+// BRIDGEY_EVENT_KIND_DISPLAY `started` event): one H.264 access unit in Annex B, copied into `buffer`. Frames never go
+// through bridgey_next_event. Waits up to `timeout_ms`.
+// Returns 1 with `*out_len` bytes, `*out_capture_micros` (the device's capture clock; only differences mean anything)
 // and `*out_flags` (bit 0 a key frame, bit 1 it starts with SPS and PPS); 0 after the timeout;
 // `BRIDGEY_ERR_TOO_LARGE` with `*out_len` the size needed (the frame stays next); `BRIDGEY_ERR_NOT_CONNECTED` once the
-// stream has ended. Taking a frame tells the phone it arrived; a stream keeps at most 8 frames waiting.
+// stream has ended. Taking a frame tells the device it arrived; a stream keeps at most 8 frames waiting.
 //
 // # Safety
 // `buffer` is valid for `capacity` bytes; the out pointers are valid for writing.
@@ -619,6 +624,23 @@ int32_t bridgey_screen_frame(uint64_t handle,
 // # Safety
 // `buffer` is the pointer the callback received; `data` points to `len` bytes.
 int32_t bridgey_buffer_set(struct BridgeyBuffer *buffer, const uint8_t *data, size_t len);
+
+// Tests only, never called by an app: this client answers other devices' requests for a phone's own features and for a
+// Mac's screen as a simulated phone and Mac would (canned conversations, calls, files and a synthetic screen clip), so a
+// host's tests can run real sessions where no phone or Mac can be started (the iOS simulator).
+int32_t bridgey_simulate_phone_for_tests(uint64_t handle,
+                                         uint8_t on);
+
+// Tests only, never called by an app: sends what a phone sends (`kind` notifications.post, notifications.remove,
+// codes.status, quick.request, codes.advertise or codes.advertise_stop, with `json` its payload) to a connected device,
+// as the scripted peer's notify, unnotify, codes-status, link and media commands do.
+//
+// # Safety
+// The strings are NUL-terminated and valid for the call.
+int32_t bridgey_send_as_phone_for_tests(uint64_t handle,
+                                        const char *device_id,
+                                        const char *kind,
+                                        const char *json);
 
 #ifdef __cplusplus
 }  // extern "C"

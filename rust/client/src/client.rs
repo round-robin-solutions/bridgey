@@ -927,8 +927,8 @@ impl Client {
         }
     }
 
-    /// Tests and the scripted peer only (not in the C ABI): sends what a phone sends, so a desktop client can be
-    /// tested against it. `payload` is the JSON plaintext.
+    /// Tests and the scripted peer only (`bridgey_send_as_phone_for_tests` in the C ABI, never called by the apps): sends
+    /// what a phone sends, so a desktop client can be tested against it. `payload` is the JSON plaintext.
     #[doc(hidden)]
     pub fn send_as_phone_for_tests(&self, device_id: &str, kind: &str, payload: &str) -> Result<(), ClientError> {
         let (kind, feature): (&'static str, &str) = match kind {
@@ -994,21 +994,32 @@ impl Client {
         crate::phone::command(&self.inner, area, &id, command)
     }
 
-    /// The next whole frame of a phone screen stream (screen.rs; `stream` is the id of its `started` event), waiting up
-    /// to `timeout`: Ok(None) after it, Err(None) once the stream has ended, Err(Some(size)) when `capacity` is too small
-    /// (the frame stays next). Taking a frame acknowledges it to the phone.
+    /// The next whole frame of a phone's or a Mac's screen stream (screen.rs, display.rs; `stream` is the id of its
+    /// `started` event), waiting up to `timeout`: Ok(None) after it, Err(None) once the stream has ended, Err(Some(size))
+    /// when `capacity` is too small (the frame stays next). Taking a frame acknowledges it to the device.
     pub fn screen_frame(&self, stream: u64, timeout: Duration, capacity: usize) -> Result<Option<crate::screen::Frame>, Option<usize>> {
         if self.inner.check().is_err() {
             return Err(None);
         }
+        if crate::display::owns(&self.inner, stream) {
+            return crate::display::take(&self.inner, stream, timeout, capacity);
+        }
         crate::screen::take(&self.inner, stream, timeout, capacity)
     }
 
-    /// Tests and the scripted peer only (not in the C ABI): phone requests from other devices are answered with canned
-    /// conversations, calls, files and a test screen, as a phone would answer them.
+    /// Tests and the scripted peer only (`bridgey_simulate_phone_for_tests` in the C ABI, never called by the apps):
+    /// phone requests from other devices are answered with canned conversations, calls, files and a test screen, as a
+    /// phone would answer them, and requests for a Mac's screen as a Mac would (display.rs).
     #[doc(hidden)]
     pub fn simulate_phone_for_tests(&self, on: bool) {
         self.inner.simulating.store(on, Ordering::Relaxed);
+    }
+
+    /// Tests only: the simulated Mac's display streamed to `device_id` changes size (a new geometry generation). False
+    /// when no simulated stream runs to that device.
+    #[doc(hidden)]
+    pub fn simulate_display_change_for_tests(&self, device_id: &str) -> bool {
+        crate::display::sim_change_geometry(&self.inner, &device_id.to_ascii_lowercase())
     }
 }
 

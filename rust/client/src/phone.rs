@@ -1,5 +1,5 @@
 //! The phone's own features on this device (docs/session-client.md): text messages (`sms.rs`), the Calls window, the
-//! phone's files and its screen, one module each.
+//! phone's files and its screen, one module each, and a Mac's screen (`display.rs`), which follows the same pattern.
 //!
 //! Each area follows one pattern, so a host learns it once:
 //! - The session hands every encrypted message of an area's kinds, opened and within the kind's size, to the client
@@ -15,13 +15,15 @@
 
 use serde_json::{json, Value};
 
-/// The event kind each area's events use (BridgeyEventKind 32 to 35 in the C ABI).
+/// The event kind each area's events use (BridgeyEventKind 32 to 36 in the C ABI).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Area {
     Sms,
     Calls,
     PhoneFiles,
     Screen,
+    /// A Mac's screen (`screen_control_draft1`, display.rs).
+    Display,
 }
 
 impl Area {
@@ -32,6 +34,7 @@ impl Area {
             Area::Calls => 33,
             Area::PhoneFiles => 34,
             Area::Screen => 35,
+            Area::Display => 36,
         }
     }
 }
@@ -55,11 +58,12 @@ pub struct State {
     pub(crate) calls: std::sync::Mutex<crate::calls::State>,
     pub(crate) files: std::sync::Mutex<crate::phone_files::State>,
     pub(crate) screen: std::sync::Mutex<crate::screen::State>,
+    pub(crate) display: std::sync::Mutex<crate::display::State>,
 }
 
 /// The area kind a session passes on, if any.
 pub fn incoming(kind: &str) -> Option<Incoming> {
-    crate::sms::incoming(kind).or_else(|| crate::calls::incoming(kind)).or_else(|| crate::phone_files::incoming(kind)).or_else(|| crate::screen::incoming(kind))
+    crate::sms::incoming(kind).or_else(|| crate::calls::incoming(kind)).or_else(|| crate::phone_files::incoming(kind)).or_else(|| crate::screen::incoming(kind)).or_else(|| crate::display::incoming(kind))
 }
 
 /// A message of an area from a phone, opened by the session (the area's feature is on here).
@@ -69,6 +73,7 @@ pub(crate) fn receive(inner: &crate::client::Inner, area: Area, device_id: &str,
         Area::Calls => crate::calls::receive(inner, device_id, kind, plain),
         Area::PhoneFiles => crate::phone_files::receive(inner, device_id, kind, plain),
         Area::Screen => crate::screen::receive(inner, device_id, kind, plain),
+        Area::Display => crate::display::receive(inner, device_id, kind, plain),
     }
 }
 
@@ -79,6 +84,7 @@ pub(crate) fn command(inner: &crate::client::Inner, area: Area, device_id: &str,
         Area::Calls => crate::calls::command(inner, device_id, command),
         Area::PhoneFiles => crate::phone_files::command(inner, device_id, command),
         Area::Screen => crate::screen::command(inner, device_id, command),
+        Area::Display => crate::display::command(inner, device_id, command),
     }
 }
 
@@ -88,6 +94,7 @@ pub(crate) fn features_changed(inner: &crate::client::Inner, device_id: &str) {
     crate::calls::features_changed(inner, device_id);
     crate::phone_files::features_changed(inner, device_id);
     crate::screen::features_changed(inner, device_id);
+    crate::display::features_changed(inner, device_id);
 }
 
 /// The session with the device ended: requests in flight are dropped, what is kept stays.
@@ -96,6 +103,7 @@ pub(crate) fn disconnected(inner: &crate::client::Inner, device_id: &str) {
     crate::calls::disconnected(inner, device_id);
     crate::phone_files::disconnected(inner, device_id);
     crate::screen::disconnected(inner, device_id);
+    crate::display::disconnected(inner, device_id);
 }
 
 /// The device was forgotten: everything kept for it goes.
@@ -104,6 +112,7 @@ pub(crate) fn forgotten(inner: &crate::client::Inner, device_id: &str) {
     crate::calls::forgotten(inner, device_id);
     crate::phone_files::forgotten(inner, device_id);
     crate::screen::forgotten(inner, device_id);
+    crate::display::forgotten(inner, device_id);
 }
 
 /// A command's answer when it worked.

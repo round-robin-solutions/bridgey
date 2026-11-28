@@ -14,15 +14,20 @@
 //!   media <action> [value]   a media button (toggle, pause, next, previous, seek, volume)
 //!   feature <key> <0|1>      this device's switch for the connected device (sms_draft1, ...)
 //!   phone <area> <json>      a command for one of the phone's features as a desktop (area 1 text messages, 2 calls,
-//!                            3 phone files, 4 screen); the answer and the area's events are written out
+//!                            3 phone files, 4 screen, 5 or display a Mac's screen); the answer and the area's events
+//!                            are written out
+//!   display-change           (--mac) the simulated display changes size: a new geometry for the viewer
 //!
 //!   peer --name "Test phone" --port 42470 --allow [--send "text"] [--pair 127.0.0.1:42458] [--discover]
-//!        [--receive-dir <folder>] [--seconds 300] [--phone]
+//!        [--receive-dir <folder>] [--seconds 300] [--phone | --mac]
 //!
 //! `--phone` answers the other device's requests for the phone's own features as a phone would, with canned
 //! conversations (Text messages), an address book and call log (the Calls window), a few folders and files (Phone
 //! files: browsing, thumbnails, downloads, and uploads into the receive folder), and a synthetic screen clip it can be
 //! controlled through, so an app's windows for them can be tested without a phone.
+//! `--mac` is a Mac (platform `macos`) whose screen the other device may see and control (screen_control_draft1, Allow
+//! without asking): the same synthetic clip as its display, control answered at once, and the input it gets written out
+//! as `sim_input` events. It offers none of a phone's features.
 //!   peer --sign-update <file>    a test release key's signature over a file (self-update tests), then exit
 //!
 //! Files, battery, find device and notifications (with routing, presence and code status) are on. It never touches a real device's settings: identity and trust live in
@@ -50,6 +55,7 @@ fn main() {
     let mut discover = false;
     let mut receive_dir: Option<String> = None;
     let mut phone = false;
+    let mut mac = false;
     let mut args = std::env::args().skip(1);
     if std::env::args().nth(1).as_deref() == Some("--sign-update") {
         // A fixed test key, never the release key: self-update tests serve a feed signed by it.
@@ -73,10 +79,12 @@ fn main() {
             "--discover" => discover = true,
             "--receive-dir" => receive_dir = Some(value()),
             "--phone" => phone = true,
+            "--mac" => mac = true,
             other => panic!("unknown argument {other}"),
         }
     }
-    let mut config = Config::new(&name, "android");
+    assert!(!(phone && mac), "--phone or --mac, not both");
+    let mut config = Config::new(&name, if mac { "macos" } else { "android" });
     config.port = port;
     config.discovery = discover;
     for key in ["files", "battery", "find_device", "notifications", "notification_routing_draft1", "device_presence_draft1", "sms_codes_draft1", "links", "media"] {
@@ -90,8 +98,12 @@ fn main() {
         config.defaults.set("screen_draft1", true);
         config.defaults.set("phone_control_draft1", true);
     }
+    if mac {
+        // See this Mac's screen and control it; a Mac shows none of a phone's features.
+        config.defaults.set("screen_control_draft1", true);
+    }
     let client = Arc::new(Client::start(config, Arc::new(MemoryStorage::default())).expect("peer starts"));
-    client.simulate_phone_for_tests(phone);
+    client.simulate_phone_for_tests(phone || mac);
     if let Some(dir) = &receive_dir {
         client.set_receive_dir(Some(std::path::Path::new(dir)));
     }
@@ -139,6 +151,7 @@ fn main() {
                             "2" | "calls" => bridgey_core::phone::Area::Calls,
                             "3" | "files" => bridgey_core::phone::Area::PhoneFiles,
                             "4" | "screen" => bridgey_core::phone::Area::Screen,
+                            "5" | "display" => bridgey_core::phone::Area::Display,
                             _ => {
                                 out(json!({"event": "command", "ok": false, "error": "unknown area", "line": line}));
                                 continue;
@@ -146,6 +159,10 @@ fn main() {
                         };
                         let command: serde_json::Value = serde_json::from_str(command).unwrap_or_default();
                         out(json!({"event": "phone", "answer": client.phone(area, &device, &command)}));
+                        Ok(())
+                    }
+                    "display-change" => {
+                        out(json!({"event": "displayChange", "ok": client.simulate_display_change_for_tests(&device)}));
                         Ok(())
                     }
                     "notify" => client.send_as_phone_for_tests(&device, "notifications.post", rest),
