@@ -133,12 +133,11 @@ private struct ScreenTopBar: View {
         .background(c.s1.ignoresSafeArea(edges: .top))
     }
 
-    /// The Mac's display, or how control is going.
+    /// The Mac's display, or that control is being asked for (the switch shows when it is on).
     private var detail: String? {
         switch screen.control.phase {
-        case "starting", "waiting": return String(localized: "Asking for control…")
-        case "active": return String(localized: "Controlling")
-        default: return screen.stream?.displayName
+        case "starting", "waiting": String(localized: "Asking for control…")
+        default: screen.stream?.displayName
         }
     }
 
