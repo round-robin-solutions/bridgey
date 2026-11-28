@@ -359,8 +359,10 @@ with actual capabilities and permissions negotiated per device. See
       calls, Phone files and the phone's screen
 - [x] iOS/iPadOS first slice: pairing, clipboard text, files and links both ways on the local
       network, and a Share extension ([#33](https://github.com/round-robin-solutions/bridgey/pull/33), [notes](docs/ios.md))
-- [ ] iOS/iPadOS viewer/controller, consented capture and TestFlight; do not promise
-      unrestricted remote input into other apps
+- [ ] iOS/iPadOS I2: an Android phone's and a Mac's screen with control, the phone's messages, files,
+      notifications, codes and calls, battery, find device and Connect away from home, in English and Russian
+      ([#85](https://github.com/round-robin-solutions/bridgey/pull/85), [#87](https://github.com/round-robin-solutions/bridgey/pull/87), [notes](docs/ios.md)); still to come: sharing this device's
+      own screen, TestFlight. Never unrestricted remote input into other apps
 - [ ] Cross-platform native builds, mixed-version compatibility and performance acceptance
 
 Time-windowed agent grants, private action audits, image/file clipboard handoff, QR/link server

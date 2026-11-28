@@ -1,8 +1,9 @@
 # Bridgey by Round Robin for iPhone and iPad
 
 The iOS and iPadOS app. It pairs with the Mac, Android and Windows apps (protocol 2), shows your devices in the
-Stream style, and sends clipboard text, links and files both ways. A Share extension sends from any app. What iOS
-allows and doesn't is in [docs/ios.md](../docs/ios.md).
+Stream style, and sends clipboard text, links and files both ways. A Share extension sends from any app. Since I2 it
+also shows and controls an Android phone's or a Mac's screen, and shows the phone's messages, files, notifications
+and calls while it is open. What iOS allows and doesn't is in [docs/ios.md](../docs/ios.md).
 
 ## How it is built
 
@@ -15,11 +16,21 @@ allows and doesn't is in [docs/ios.md](../docs/ios.md).
   `Shared/Core/Discovery.swift` finds devices with Network.framework and advertises this one with DNS-SD.
 - **Pairing data:** the identity and trusted devices are in the Keychain (this device only, after first unlock),
   through the library's storage callbacks. The app and the Share extension share them through a Keychain access
-  group and an App Group.
+  group and an App Group. What the library keeps for features (the phone's conversations, interrupted files) goes
+  to files only the app reads, protected until first unlock and left out of backups (`Shared/Core/HybridStore.swift`).
+- **Features:** `AppModel` runs the session and hands it to one model per feature (`ScreenModel`, `MessagesModel`,
+  `PhoneFilesModel`, `AlertsModel`), which drive `bridgey_phone` and the event kinds 23 to 36. Screen frames come
+  through `bridgey_screen_frame` on their own thread, never through the event queue.
+- **Screen keys by platform:** the same feature key means different things to different apps, so each paired device
+  gets only the viewer key its platform reads that way (`ScreenRoles` in `Model/Items.swift`): `screen_draft1` and
+  `phone_control_draft1` to an Android phone, `screen_control_draft1` to a Mac, none to anything else. No app ever
+  offers to view or control an iPhone or iPad.
+- **Languages:** British English and Russian. `scripts/rr/ios-l10n.py` exports the strings, lists the ones without
+  Russian, fills them in and checks; the build fails on a string without Russian.
 
 | Folder | What it is |
 | --- | --- |
-| `Bridgey/` | The app: model, settings, screens, assets. |
+| `Bridgey/` | The app: model, settings, screens, assets, and the String Catalogs (English and Russian). |
 | `Shared/` | Used by the app and the Share extension: the core wrapper, Keychain, Bonjour, the brand. |
 | `ShareExtension/` | Share > Bridgey. |
 | `BridgeyTests/` | Unit tests, including two real clients pairing through the Swift wrapper. |
@@ -38,16 +49,19 @@ scripts/rr/build-ios.sh              # the core, the app, unit and UI tests, iPa
 scripts/rr/build-ios.sh --core-only  # just Frameworks/BridgeyCore.xcframework, then open Bridgey.xcodeproj
 ```
 
-The script makes throwaway iPhone and iPad simulators and deletes them afterwards. The UI test pairs with
-`rust/client/examples/peer.rs`, run on the same Mac on a free port, and sends text both ways. Output goes to
-`ios/out`: `screenshots/`, `test-results/` (zipped result bundles) and `logs/`.
+The script makes throwaway iPhone and iPad simulators (from the runtime's device types on a Mac that has none) and
+deletes them afterwards. The UI tests pair with two copies of `rust/client/examples/peer.rs` on the same Mac: one as
+an Android phone (`--phone`: conversations, files, a screen clip, notifications) and one as a Mac (`--mac`: a screen
+clip and control). A test sends a peer commands by appending lines to its commands file (`BridgeyUITests/
+ScriptedPeer.swift`). Output goes to `ios/out`: `screenshots/`, `test-results/` (zipped result bundles) and `logs/`.
 
 RR CI runs the same script as the `ios` lane for pull requests that touch `ios/` or `rust/`
 ([`ci/rr-ci-ios-task.json`](../ci/rr-ci-ios-task.json)).
 
 Debug builds read these when a test starts them: `BRIDGEY_DATA=memory` (pairing data in memory, settings in a
 throwaway domain), `BRIDGEY_PORT`, `BRIDGEY_DISCOVERY=0`, `BRIDGEY_SKIP_SETUP=1`, `BRIDGEY_APPEARANCE=light|dark`
-and `BRIDGEY_DEMO=home|empty|pair|setup` (sample devices for screenshots). Release builds ignore them.
+and `BRIDGEY_DEMO=home|empty|pair|setup` and the features' own values (sample devices for screenshots), and
+`BRIDGEY_FOUND=id|name|platform|host|port` (a device on the network without Bonjour). Release builds ignore them.
 
 ## Versions
 
@@ -67,10 +81,17 @@ Each has a sensible default and a switch:
 - Links, on;
 - Open links right away, off;
 - Text previews, on;
+- Phone notifications, on;
+- Codes from messages, off; Also read codes in email, off;
+- Text messages, off until chosen (as on the Mac and Windows); Keep conversations, on;
+- Screens, on (the phone or Mac decides who may see and control it);
+- Battery, on; Find device, on;
+- Connect away from home, on;
 - Appearance, automatic;
 - Reduce motion, off (iOS's own setting always applies).
 
-Each paired device has its own Clipboard, Files and Links switches, a ping and Forget.
+Each paired device has its own Clipboard, Files, Links, Battery and Find device switches, Phone notifications and Text
+messages for a phone, Screen for a phone or a Mac, a ping, Ring and Forget.
 
 ## TestFlight
 
