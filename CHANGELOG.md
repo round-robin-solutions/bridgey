@@ -2,6 +2,10 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 16 (1.0.0-beta.16), 28 November 2026
+
+- Android keeps every notification update: Bridgey no longer updates its notifications faster than Android allows, so the connection notification and transfer progress always show the latest state. Calls, codes and prompts still appear at once, and a finished transfer always shows how it ended.
+
 ## 1.0 Beta 15 (1.0.0-beta.15), 28 November 2026
 
 - Android 16: reinstalling Bridgey no longer crashes it once at start. For the first 10 minutes after a fresh install, the connection notification uses standard buttons, then its full-width buttons return. Updates are unaffected.
