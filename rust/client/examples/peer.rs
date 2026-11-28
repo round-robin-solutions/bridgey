@@ -200,7 +200,13 @@ fn main() {
                 out(json!({"event": "code", "code": code, "name": name}));
                 let _ = client.confirm_pairing(pairing, true);
             }
-            Event::PairingFinished { ok, reason, .. } => out(json!({"event": "paired", "ok": ok, "reason": reason})),
+            Event::PairingFinished { ok, reason, .. } => {
+                out(json!({"event": "paired", "ok": ok, "reason": reason}));
+                // A pairing ends Allow pairing, as it does in the apps; UI tests pair a fresh app each run, so it opens again.
+                if allow {
+                    client.allow_pairing(Duration::from_secs(600));
+                }
+            }
             Event::Connected { device_id, name } => {
                 *connected.lock().unwrap() = Some(device_id.clone());
                 out(json!({"event": "connected", "deviceId": device_id, "name": name}));
