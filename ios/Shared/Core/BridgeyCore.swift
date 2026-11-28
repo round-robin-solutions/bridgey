@@ -170,6 +170,15 @@ struct CoreSnapshot: Decodable, Equatable {
         var lastConnectedMs: Int64?
         var local: [String: Bool]
         var remote: [String: Bool]?
+        /// Connect away from home is set up with it (a pair secret both derived): it can be reached off this network.
+        var away: Bool?
+    }
+
+    /// Connect away from home: off, disabled (learned addresses only), connecting, unreachable or online, and how
+    /// many sessions run over a tunnel.
+    struct Connect: Decodable, Equatable {
+        var state: String
+        var tunnels: Int?
     }
 
     struct Nearby: Decodable, Equatable {
@@ -189,6 +198,7 @@ struct CoreSnapshot: Decodable, Equatable {
     var defaults: [String: Bool]
     var devices: [Device]
     var nearby: [Nearby]
+    var connect: Connect?
 }
 
 /// What the app needs from the session client; view models are tested against a fake.

@@ -175,6 +175,22 @@
         }
       }
     },
+    "%@ is ringing this %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ is ringing this %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ включил сигнал на этом %2$@"
+          }
+        }
+      }
+    },
     "%@ is showing its screen to another device." : {
       "localizations" : {
         "ru" : {
@@ -279,6 +295,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ хочет связаться"
+          }
+        }
+      }
+    },
+    "%@: %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@: %2$@"
           }
         }
       }
@@ -445,12 +477,32 @@
         }
       }
     },
+    "Android hides code messages from Bridgey until you allow it there." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Android скрывает сообщения с кодами от Bridgey, пока вы не разрешите это на телефоне."
+          }
+        }
+      }
+    },
     "Another device is controlling %@." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ уже управляет другое устройство."
+          }
+        }
+      }
+    },
+    "Answer on %@." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответьте на %@."
           }
         }
       }
@@ -471,6 +523,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Запрос"
+          }
+        }
+      }
+    },
+    "Asking %@ to ring…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Просим %@ подать сигнал…"
           }
         }
       }
@@ -676,6 +738,36 @@
         }
       }
     },
+    "Call in progress" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идёт звонок"
+          }
+        }
+      }
+    },
+    "Call in progress · %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Идёт звонок · %@"
+          }
+        }
+      }
+    },
+    "Call screening on %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Проверка звонка на %@"
+          }
+        }
+      }
+    },
     "Cancel" : {
       "localizations" : {
         "ru" : {
@@ -706,6 +798,16 @@
         }
       }
     },
+    "Can’t reach the Round Robin service right now. Devices on this Wi-Fi still connect." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сервис Round Robin сейчас недоступен. Устройства в этой сети Wi-Fi по-прежнему подключаются."
+          }
+        }
+      }
+    },
     "Check %@ shows the same code." : {
       "localizations" : {
         "ru" : {
@@ -726,6 +828,16 @@
         }
       }
     },
+    "Clears it on %@ too." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скрывает его и на %@."
+          }
+        }
+      }
+    },
     "Clipboard" : {
       "localizations" : {
         "ru" : {
@@ -742,6 +854,42 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Буфер обмена выключен на том устройстве."
+          }
+        }
+      }
+    },
+    "Code %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Код %@"
+          }
+        }
+      }
+    },
+    "Code %@ from %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Code %1$@ from %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Код %1$@ от %2$@"
+          }
+        }
+      }
+    },
+    "Code copied" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Код скопирован"
           }
         }
       }
@@ -802,6 +950,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Подключение к %@…"
+          }
+        }
+      }
+    },
+    "Connecting…" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Подключение…"
           }
         }
       }
@@ -898,6 +1056,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Скопировать"
+          }
+        }
+      }
+    },
+    "Copy code" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скопировать код"
           }
         }
       }
@@ -1142,6 +1310,22 @@
         }
       }
     },
+    "Find device is off on %@ or on this %@." : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Find device is off on %1$@ or on this %2$@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Поиск устройства выключен на %1$@ или на этом %2$@."
+          }
+        }
+      }
+    },
     "Find your devices" : {
       "localizations" : {
         "ru" : {
@@ -1322,6 +1506,32 @@
         }
       }
     },
+    "Incoming call on %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Входящий звонок на %@"
+          }
+        }
+      }
+    },
+    "Incoming call on %@: %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Incoming call on %1$@: %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Входящий звонок на %1$@: %2$@"
+          }
+        }
+      }
+    },
     "It didn’t finish." : {
       "localizations" : {
         "ru" : {
@@ -1398,6 +1608,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Ссылка от %@"
+          }
+        }
+      }
+    },
+    "Link this %@ on %@" : {
+      "localizations" : {
+        "en-GB" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Link this %1$@ on %2$@"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Связать этот %1$@ на %2$@"
           }
         }
       }
@@ -1702,6 +1928,16 @@
         }
       }
     },
+    "Off. Only devices on this Wi-Fi connect." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключено. Подключаются только устройства в этой сети Wi-Fi."
+          }
+        }
+      }
+    },
     "On" : {
       "localizations" : {
         "ru" : {
@@ -1748,6 +1984,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "На %@ откройте Bridgey и выберите «Разрешить связь»."
+          }
+        }
+      }
+    },
+    "On %@, tap Bridgey’s notification, then Allow." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На %@ нажмите уведомление Bridgey, затем «Разрешить»."
+          }
+        }
+      }
+    },
+    "On for devices this one has already reached." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включено для устройств, с которыми уже была связь."
+          }
+        }
+      }
+    },
+    "On. Your devices can reach this %@ from other networks while Bridgey is open." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включено. Пока Bridgey открыт, ваши устройства видят этот %@ из других сетей."
           }
         }
       }
@@ -1922,6 +2188,16 @@
         }
       }
     },
+    "Phone call on %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Звонок на %@"
+          }
+        }
+      }
+    },
     "Phone notifications" : {
       "localizations" : {
         "ru" : {
@@ -2082,12 +2358,52 @@
         }
       }
     },
+    "Reply" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответить"
+          }
+        }
+      }
+    },
+    "Reply sent" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответ отправлен"
+          }
+        }
+      }
+    },
+    "Reply to %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответить: %@"
+          }
+        }
+      }
+    },
     "Ring" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Позвонить"
+          }
+        }
+      }
+    },
+    "Ringing %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сигнал на %@"
           }
         }
       }
@@ -2192,6 +2508,16 @@
         }
       }
     },
+    "Send reply" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отправить ответ"
+          }
+        }
+      }
+    },
     "Send to %@" : {
       "localizations" : {
         "ru" : {
@@ -2282,12 +2608,32 @@
         }
       }
     },
+    "Show all %lld" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показать все (%lld)"
+          }
+        }
+      }
+    },
     "Show all conversations" : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Показать все переписки"
+          }
+        }
+      }
+    },
+    "Show fewer" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Свернуть"
           }
         }
       }
@@ -2438,6 +2784,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Стоп"
+          }
+        }
+      }
+    },
+    "Stop ringing" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключить сигнал"
+          }
+        }
+      }
+    },
+    "Stop ringing %@" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключить сигнал на %@"
           }
         }
       }
@@ -2722,6 +3088,16 @@
         }
       }
     },
+    "The reply didn’t go. Open Messages to try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ответ не отправлен. Откройте «Сообщения» и попробуйте снова."
+          }
+        }
+      }
+    },
     "The screen of %@ turned off." : {
       "localizations" : {
         "ru" : {
@@ -2918,6 +3294,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Чтобы добавлять файлы, включите на %@ «Разрешить другим устройствам менять файлы здесь»."
+          }
+        }
+      }
+    },
+    "Turn on Bluetooth to link this %@, then try again." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите Bluetooth, чтобы связать этот %@, и попробуйте снова."
           }
         }
       }
@@ -3283,6 +3669,7 @@
         }
       }
     },
+    "·" : {},
     "· %@" : {
       "localizations" : {
         "ru" : {

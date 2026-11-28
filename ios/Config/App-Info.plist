@@ -34,6 +34,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Bridgey finds your Mac, PC and Android phone on this Wi-Fi and connects to them directly, to send text, links and files.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Bridgey uses Bluetooth only while you link this device with your Android phone, so the phone shares one-time codes with it.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_bridgey._tcp</string>
