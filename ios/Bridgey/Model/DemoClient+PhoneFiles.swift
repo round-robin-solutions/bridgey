@@ -90,7 +90,7 @@ extension DemoClient {
         let image = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96)).image { ctx in
             let colours = [top.cgColor, bottom.cgColor] as CFArray
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colours, locations: [0, 1]) {
-                ctx.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 30, y: 96), options: [])
+                ctx.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: 30, y: 96), options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
             }
             UIColor.white.withAlphaComponent(0.18).setFill()
             ctx.cgContext.fillEllipse(in: CGRect(x: 52 - CGFloat(n % 4) * 8, y: 18, width: 22, height: 22))

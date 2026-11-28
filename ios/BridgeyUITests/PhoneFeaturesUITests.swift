@@ -56,7 +56,7 @@ final class PhoneFeaturesUITests: XCTestCase {
         XCTAssertTrue(photo.waitForExistence(timeout: 15), "the folder's files show")
         keepScreenshot(app, "\(idiom)-peer-files")
         photo.tap()
-        let download = app.buttons["files.confirmDownload"]
+        let download = app.buttons.matching(identifier: "files.confirmDownload").firstMatch
         XCTAssertTrue(download.waitForExistence(timeout: 5))
         download.tap()
         let done = app.descendants(matching: .any).matching(identifier: "files.transfer").containing(NSPredicate(format: "label CONTAINS %@", "Done")).firstMatch
