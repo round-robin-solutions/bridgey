@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -30,6 +31,8 @@ class BridgeyConnectionService : Service() {
     private var wifiKeeper: WifiKeeper? = null
     private var localClipboardAction: ClipboardContextAction? = null
     private var pendingLocalClipboardAction: PendingIntent? = null
+    private var firstInstallTime = 0L
+    private var lastUpdateTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -62,7 +65,20 @@ class BridgeyConnectionService : Service() {
             },
         )
         lastStatus = getString(R.string.service_status_waiting)
+        runCatching { packageManager.getPackageInfo(packageName, 0) }.onSuccess {
+            firstInstallTime = it.firstInstallTime
+            lastUpdateTime = it.lastUpdateTime
+        }
         startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
+        // Just after a fresh install the clipboard controls are standard actions (FRESH_INSTALL_STANDARD_MS); the
+        // full-width buttons return when that time is up.
+        if (!customNotificationLayoutsAllowed(System.currentTimeMillis(), firstInstallTime, lastUpdateTime)) {
+            val wait = firstInstallTime + FRESH_INSTALL_STANDARD_MS - System.currentTimeMillis()
+            serviceScope.launch {
+                delay(wait.coerceIn(0, FRESH_INSTALL_STANDARD_MS) + 1_000)
+                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
+            }
+        }
         serviceScope.launch {
             val pairing = (application as BridgeyApplication).pairing
             combine(pairing.connections, pairing.pairingFlow) { connections, flow ->
@@ -316,10 +332,10 @@ class BridgeyConnectionService : Service() {
         if (connectedDeviceId != null && pairing.isFeatureAvailable(BridgeyFeature.CLIPBOARD)) {
             val action = (application as BridgeyApplication).clipboardContext.action.value
             val pendingLocal = localClipboardPendingIntent(action, captureIntent)
-            notification
-                .setStyle(android.app.Notification.DecoratedCustomViewStyle())
-                .setCustomContentView(clipboardNotificationContent(this, status, pendingCapture, pendingLocal, action?.kind, expanded = false))
-                .setCustomBigContentView(clipboardNotificationContent(this, status, pendingCapture, pendingLocal, action?.kind))
+            notification.clipboardControls(
+                this, status, pendingCapture, pendingLocal, action?.kind,
+                customLayouts = customNotificationLayoutsAllowed(System.currentTimeMillis(), firstInstallTime, lastUpdateTime),
+            )
         } else localClipboardPendingIntent(null, captureIntent)
         return notification
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.notification_turn_off), turnOff)

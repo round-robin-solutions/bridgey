@@ -1,6 +1,7 @@
 package dev.bridgey.android
 
 import android.app.Application
+import android.app.Notification
 import android.app.PendingIntent
 import android.content.ClipData
 import android.content.ClipDescription
@@ -175,5 +176,37 @@ class ClipboardContextActionsTest {
         val collapsed = clipboardNotificationContent(context, "Connected", pending, pending, ClipboardContextKind.LINK, expanded = false).apply(context, parent)
         assertEquals(View.GONE, collapsed.findViewById<TextView>(R.id.notification_status).visibility)
         assertEquals(View.VISIBLE, collapsed.findViewById<TextView>(R.id.notification_local_action).visibility)
+    }
+
+    /**
+     * Regression (acceptance soak, 28 Nov 2026): System UI on Android 16 could not load the app layout of the
+     * foreground-service notification seconds after a fresh reinstall, and Android crashed the app. Just after a
+     * fresh install the notification must carry no app layout, only standard actions; an update keeps the layout.
+     */
+    @Test fun noAppLayoutInTheConnectionNotificationJustAfterAFreshInstall() {
+        val installed = 1_795_826_818_000L
+        assertFalse(customNotificationLayoutsAllowed(installed, installed, installed))
+        assertFalse(customNotificationLayoutsAllowed(installed + FRESH_INSTALL_STANDARD_MS - 1, installed, installed))
+        assertTrue(customNotificationLayoutsAllowed(installed + FRESH_INSTALL_STANDARD_MS, installed, installed))
+        assertTrue("clock set back after the install", customNotificationLayoutsAllowed(installed - 1, installed, installed))
+        assertTrue("updated in place", customNotificationLayoutsAllowed(installed + 1, installed - 86_400_000L, installed))
+
+        val pending = PendingIntent.getActivity(context, 42, Intent("fixture"), PendingIntent.FLAG_IMMUTABLE)
+        fun build(customLayouts: Boolean, kind: ClipboardContextKind?) = Notification.Builder(context, "fixture")
+            .setSmallIcon(R.drawable.ic_bridgey_notification)
+            .clipboardControls(context, "Connected", pending, kind?.let { pending }, kind, customLayouts)
+            .build()
+        val send = context.getString(R.string.notification_send_copied_text)
+
+        val settling = build(customLayouts = false, ClipboardContextKind.LINK)
+        assertNull(settling.contentView)
+        assertNull(settling.bigContentView)
+        assertEquals(listOf(context.getString(R.string.notification_open_link), send), settling.actions.map { it.title.toString() })
+        assertEquals(listOf(send), build(customLayouts = false, kind = null).actions.map { it.title.toString() })
+
+        val settled = build(customLayouts = true, ClipboardContextKind.LINK)
+        assertEquals(R.layout.notification_clipboard_actions, settled.contentView.layoutId)
+        assertEquals(R.layout.notification_clipboard_actions, settled.bigContentView.layoutId)
+        assertNull(settled.actions)
     }
 }
