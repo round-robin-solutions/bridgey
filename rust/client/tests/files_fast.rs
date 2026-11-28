@@ -125,6 +125,9 @@ fn cancels_from_either_end_and_a_dropped_connection_leave_no_partial_files() {
     });
     b.client.cancel_file(receiving).unwrap();
     assert_eq!(ended(&a, "A told", Some(transfer), false), Err("cancelled_remote".into()));
+    // B's own end of that transfer must be seen before clearing, or it can arrive after b.clear() below and be taken
+    // for the next transfer's end ("cancelled" where "cancelled_remote" is expected).
+    assert_eq!(ended(&b, "B cancelled", Some(receiving), true), Err("cancelled".into()));
     assert!(no_partial_files(&db));
 
     // A cancels while sending.

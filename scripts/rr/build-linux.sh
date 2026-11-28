@@ -90,14 +90,22 @@ logged peer "$CARGO" build --locked --manifest-path rust/Cargo.toml -p bridgey-c
 APP="$ROOT/linux/target/release/bridgey-linux"
 PEER="$ROOT/rust/target/debug/examples/peer"
 
+# The UI tests and their helpers (a notification server, a media player, the AT-SPI probe) need GObject
+# introspection, which the distribution's Python has (python3-gi) and a CI-provided Python (actions/setup-python on
+# hosted runners) does not. Use the first Python that can import gi.
+UI_PY=python3
+for p in /usr/bin/python3 python3; do
+  if "$p" -c 'import gi' 2>/dev/null; then UI_PY=$p; break; fi
+done
+
 step "UI smoke tests: X11 (Xvfb)"
 if [ "$QUICK" = 1 ]; then langs=en themes=light; else langs=en,ru themes=light,dark; fi
-logged ui-x11 dbus-run-session -- xvfb-run -a -s "-screen 0 1280x900x24" python3 linux/tests/ui_smoke.py --app "$APP" --peer "$PEER" \
+logged ui-x11 dbus-run-session -- xvfb-run -a -s "-screen 0 1280x900x24" "$UI_PY" linux/tests/ui_smoke.py --app "$APP" --peer "$PEER" \
   --out "$OUT/screenshots/x11" --langs "$langs" --themes "$themes" --expect-clipboard X11
 
 if [ "$QUICK" = 0 ]; then
   step "UI smoke tests: Wayland (headless sway, data-control)"
-  logged ui-wayland dbus-run-session -- linux/tests/headless-sway.sh python3 linux/tests/ui_smoke.py --wayland --expect-clipboard DataControl \
+  logged ui-wayland dbus-run-session -- linux/tests/headless-sway.sh "$UI_PY" linux/tests/ui_smoke.py --wayland --expect-clipboard DataControl \
     --app "$APP" --peer "$PEER" --out "$OUT/screenshots/wayland" --langs en --themes light,dark --skip-update --port 42710
 fi
 
@@ -106,7 +114,7 @@ IMAGE="$OUT/$prefix-$BRIDGEY_VERSION_NAME-linux-$ARCH.AppImage"
 logged appimage sh linux/packaging/appimage.sh "$APP" "$IMAGE"
 # The AppImage itself starts (unpacked, as on a system without FUSE) and draws its window with its own libraries.
 APPIMAGE_EXTRACT_AND_RUN=1 "$IMAGE" --version
-logged appimage-ui dbus-run-session -- xvfb-run -a -s "-screen 0 1280x900x24" python3 linux/tests/appimage_smoke.py "$IMAGE" "$OUT/screenshots/appimage-$ARCH.png"
+logged appimage-ui dbus-run-session -- xvfb-run -a -s "-screen 0 1280x900x24" "$UI_PY" linux/tests/appimage_smoke.py "$IMAGE" "$OUT/screenshots/appimage-$ARCH.png"
 
 (cd "$OUT" && sha256sum ./*.AppImage | sed 's| \./| |' > SHA256SUMS)
 cat "$OUT/SHA256SUMS"
