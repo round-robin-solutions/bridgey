@@ -2,6 +2,10 @@
 
 Bridgey by Round Robin releases, newest first. Nightly builds are not listed. From 1.0 the edition has its own version numbers. Before that, versions followed the upstream Bridgey roadmap milestone a release contained, with -rr.N for Round Robin.
 
+## 1.0 Beta 15 (1.0.0-beta.15), 28 November 2026
+
+- Android 16: reinstalling Bridgey no longer crashes it once at start. For the first 10 minutes after a fresh install, the connection notification uses standard buttons, then its full-width buttons return. Updates are unaffected.
+
 ## 1.0 Beta 14 (1.0.0-beta.14), 27 November 2026
 
 - Windows: read and answer your phone's text messages, with unread first, pictures and a choice of SIM. Turn on Text messages in Settings.
