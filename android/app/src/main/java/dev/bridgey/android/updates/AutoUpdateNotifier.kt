@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.BridgeyApplication
 import dev.bridgey.android.MainActivity
 import dev.bridgey.android.R
@@ -51,7 +52,7 @@ class AutoUpdateNotifier(private val context: Context) {
         if (notice == shown) return
         shown = notice
         if (notice == null) {
-            manager?.cancel(RUN_NOTIFICATION_ID)
+            AppNotifications.cancel(context, RUN_NOTIFICATION_ID)
             return
         }
         if (!allowed()) return
@@ -86,7 +87,7 @@ class AutoUpdateNotifier(private val context: Context) {
             )
             builder.addAction(Notification.Action.Builder(null, context.getString(R.string.updates_later), later).build())
         }
-        runCatching { manager?.notify(RUN_NOTIFICATION_ID, builder.build()) }
+        AppNotifications.post(context, RUN_NOTIFICATION_ID, builder.build())
     }
 
     /** A Mac started this phone's update by itself. Gone after a while, or when the phone restarts into the new version. */
@@ -103,7 +104,7 @@ class AutoUpdateNotifier(private val context: Context) {
             .setTimeoutAfter(STARTED_BY_LIFETIME_MILLIS)
             .setContentIntent(openSettings(STARTED_BY_NOTIFICATION_ID))
             .build()
-        runCatching { manager?.notify(STARTED_BY_NOTIFICATION_ID, notification) }
+        AppNotifications.post(context, STARTED_BY_NOTIFICATION_ID, notification)
     }
 
     private fun busyWords(busy: UpdateBusy): String = context.getString(

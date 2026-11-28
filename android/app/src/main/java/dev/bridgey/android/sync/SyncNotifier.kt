@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.MainActivity
 import dev.bridgey.android.R
 import dev.bridgey.android.ui.SettingsDeepLink
@@ -39,7 +40,7 @@ object SyncNotifier {
             .setCategory(Notification.CATEGORY_STATUS)
         builder.addAction(Notification.Action.Builder(null, context.getString(R.string.settings_sync_allow), open).build())
         // One notification per setting: a later change to the same setting replaces it.
-        manager.notify(NOTIFICATION_BASE + key.ordinal, builder.build())
+        AppNotifications.post(context, NOTIFICATION_BASE + key.ordinal, builder.build())
     }
 
     private const val NOTIFICATION_BASE = 74_000

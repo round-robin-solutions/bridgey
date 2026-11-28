@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.BridgeyApplication
+import dev.bridgey.android.NotificationUrgency
 import dev.bridgey.android.R
 
 /**
@@ -38,7 +40,7 @@ object ScreenNotifier {
 
     /** A Mac asked; Android needs a tap before its dialog can open. */
     fun showAsk(context: Context, request: ScreenRequest) {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
+        context.getSystemService(NotificationManager::class.java) ?: return
         channels(context)
         val share = PendingIntent.getActivity(
             context, askId(request.deviceId),
@@ -61,11 +63,11 @@ object ScreenNotifier {
             .setAutoCancel(true)
             .setTimeoutAfter(ScreenLimits.REQUEST_LIFETIME_MILLIS)
             .build()
-        runCatching { manager.notify(askId(request.deviceId), notification) }
+        AppNotifications.post(context, askId(request.deviceId), notification, urgency = NotificationUrgency.IMMEDIATE)
     }
 
     fun dismissAsk(context: Context, deviceId: String) {
-        if (deviceId.isNotEmpty()) context.getSystemService(NotificationManager::class.java)?.cancel(askId(deviceId))
+        if (deviceId.isNotEmpty()) AppNotifications.cancel(context, askId(deviceId))
     }
 
     /**
@@ -115,7 +117,8 @@ object ScreenNotifier {
 
     fun updateSharing(context: Context, macName: String, sharing: Boolean, controlling: Boolean = false, screenshotsFor: String? = null) {
         runCatching {
-            context.getSystemService(NotificationManager::class.java)?.notify(SHARING_NOTIFICATION_ID, sharing(context, macName, sharing, controlling, screenshotsFor))
+            // Whether the screen is being shared or controlled: never left behind status updates.
+            AppNotifications.post(context, SHARING_NOTIFICATION_ID, sharing(context, macName, sharing, controlling, screenshotsFor), urgency = NotificationUrgency.IMMEDIATE)
         }
     }
 }

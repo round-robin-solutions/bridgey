@@ -3,6 +3,7 @@ package dev.bridgey.android.screen
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.ContextCompat
+import dev.bridgey.android.AppNotifications
 import dev.bridgey.android.BridgeyLogging
 import dev.bridgey.android.LogCategory
 import dev.bridgey.android.PairingCoordinator
@@ -401,7 +402,7 @@ class ScreenShareHub(
                 bar?.hideViewing()
                 // A video share that replaced this one has its own notification under the same ID.
                 if (state.value.phase == ScreenShareState.Phase.IDLE) {
-                    context.getSystemService(android.app.NotificationManager::class.java)?.cancel(ScreenNotifier.SHARING_NOTIFICATION_ID)
+                    AppNotifications.cancel(context, ScreenNotifier.SHARING_NOTIFICATION_ID)
                 }
                 thread.quitSafely()
             }

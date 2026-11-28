@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -69,47 +68,34 @@ class BridgeyConnectionService : Service() {
             firstInstallTime = it.firstInstallTime
             lastUpdateTime = it.lastUpdateTime
         }
-        startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
+        AppNotifications.startForeground(this, NOTIFICATION_ID, buildNotification(lastStatus))
         // Just after a fresh install the clipboard controls are standard actions (FRESH_INSTALL_STANDARD_MS); the
         // full-width buttons return when that time is up.
         if (!customNotificationLayoutsAllowed(System.currentTimeMillis(), firstInstallTime, lastUpdateTime)) {
             val wait = firstInstallTime + FRESH_INSTALL_STANDARD_MS - System.currentTimeMillis()
             serviceScope.launch {
                 delay(wait.coerceIn(0, FRESH_INSTALL_STANDARD_MS) + 1_000)
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
+                refreshNotification()
             }
         }
         serviceScope.launch {
             val pairing = (application as BridgeyApplication).pairing
             combine(pairing.connections, pairing.pairingFlow) { connections, flow ->
-                connectionStatus(connections, flow) { id, args -> getString(id, *args.toTypedArray()) }
+                connectionStatus(connections, flow) { id, args -> getString(id, *args.toTypedArray()) } to (flow is PairingState.Verification)
             }
                 .distinctUntilChanged()
-                .collect { status ->
+                .collect { (status, confirming) ->
                     lastStatus = status
-                    notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
+                    // "Confirm the code" while pairing is a prompt: it does not wait behind status updates.
+                    refreshNotification(if (confirming) NotificationUrgency.IMMEDIATE else NotificationUrgency.NORMAL)
                 }
         }
-        serviceScope.launch {
-            bridgey.pairing.fileTransferActive.collect {
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
-            }
-        }
-        serviceScope.launch {
-            bridgey.settings.state.collect {
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
-            }
-        }
-        serviceScope.launch {
-            bridgey.pairing.connections.collect {
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
-            }
-        }
-        serviceScope.launch {
-            bridgey.clipboardContext.action.collect {
-                notificationManager.notify(NOTIFICATION_ID, buildNotification(lastStatus))
-            }
-        }
+        // Each of these re-posted the connection notification on every change, up to five posts for one event; they
+        // now ask the throttle, which posts the latest state once.
+        serviceScope.launch { bridgey.pairing.fileTransferActive.collect { refreshNotification() } }
+        serviceScope.launch { bridgey.settings.state.collect { refreshNotification() } }
+        serviceScope.launch { bridgey.pairing.connections.collect { refreshNotification() } }
+        serviceScope.launch { bridgey.clipboardContext.action.collect { refreshNotification() } }
         serviceScope.launch { bridgey.pairing.fileTransfers.collect(::updateTransferNotifications) }
         FolderNotifier.ensureChannels(this)
         serviceScope.launch { bridgey.pairing.folderQuestions.collect(::updateFolderQuestionNotifications) }
@@ -134,60 +120,60 @@ class BridgeyConnectionService : Service() {
         }
         serviceScope.launch {
             bridgey.pairing.phoneRinging.collect { ringing ->
-                if (ringing) notificationManager.notify(FIND_NOTIFICATION_ID, buildFindNotification())
-                else notificationManager.cancel(FIND_NOTIFICATION_ID)
+                if (ringing) AppNotifications.post(this@BridgeyConnectionService, FIND_NOTIFICATION_ID, buildFindNotification(), urgency = NotificationUrgency.IMMEDIATE)
+                else AppNotifications.cancel(this@BridgeyConnectionService, FIND_NOTIFICATION_ID)
             }
         }
     }
 
     private val shownTransferNotifications = mutableSetOf<Int>()
-    private val transferNotificationUpdatedAt = mutableMapOf<String, Long>()
 
     private fun updateTransferNotifications(transfers: Map<String, FileTransferState>) {
         // Queued files get no notification until they start: 50 queued files must not post 50 "Cancel" notifications.
         val active = notifiableTransfers(transfers)
         val activeIds = active.map { transferNotificationId(it.id) }.toSet()
-        (shownTransferNotifications - activeIds).forEach(notificationManager::cancel)
-        transferNotificationUpdatedAt.keys.retainAll(active.map { it.id }.toSet())
+        // A transfer that ended (done, failed or cancelled) loses its notification at once, with any update still
+        // waiting for it.
+        (shownTransferNotifications - activeIds).forEach { AppNotifications.cancel(this, it) }
         shownTransferNotifications.clear()
         shownTransferNotifications.addAll(activeIds)
+        // One update a second per transfer; the throttle keeps the latest and builds only that one.
         active.forEach { transfer ->
-            val now = SystemClock.elapsedRealtime()
-            val previous = transferNotificationUpdatedAt[transfer.id] ?: 0L
-            if (now - previous < 1_000) return@forEach
-            transferNotificationUpdatedAt[transfer.id] = now
-            val notificationId = transferNotificationId(transfer.id)
-            val cancelTransfer = PendingIntent.getService(
-                this,
-                notificationId,
-                Intent()
-                    .setComponent(ComponentName(this, BridgeyConnectionService::class.java))
-                    .setAction(ACTION_CANCEL_TRANSFER)
-                    .putExtra(EXTRA_TRANSFER_ID, transfer.id),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val folder = transfer.folder
-            // One notification per folder: "Photos · 37 of 124 files", Cancel cancels the whole folder.
-            val builder = android.app.Notification.Builder(this, TRANSFER_CHANNEL_ID)
-                .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-                .setContentTitle(if (folder != null) FolderNotifier.progressTitle(this, folder) else transfer.name)
-                .setContentText(if (folder != null) FolderNotifier.progressText(this, folder) else compactTransferStatus(transfer))
-                .setSubText(transfer.progressPercent?.let { "$it%" })
-                .setOnlyAlertOnce(true)
-                .setOngoing(true)
-                .setCategory(android.app.Notification.CATEGORY_PROGRESS)
-                .addAction(
-                    android.R.drawable.ic_menu_close_clear_cancel,
-                    getString(if (folder != null) R.string.action_cancel else R.string.file_notification_cancel),
-                    cancelTransfer,
-                )
-            transfer.progressPercent?.let { builder.setProgress(100, it, false) }
-                ?: builder.setProgress(0, 0, true)
-            notificationManager.notify(
-                notificationId,
-                builder.build(),
-            )
+            AppNotifications.post(this, transferNotificationId(transfer.id), minIntervalMs = AppNotifications.PROGRESS_INTERVAL_MS) {
+                transferNotification(transfer)
+            }
         }
+    }
+
+    private fun transferNotification(transfer: FileTransferState): android.app.Notification {
+        val notificationId = transferNotificationId(transfer.id)
+        val cancelTransfer = PendingIntent.getService(
+            this,
+            notificationId,
+            Intent()
+                .setComponent(ComponentName(this, BridgeyConnectionService::class.java))
+                .setAction(ACTION_CANCEL_TRANSFER)
+                .putExtra(EXTRA_TRANSFER_ID, transfer.id),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val folder = transfer.folder
+        // One notification per folder: "Photos · 37 of 124 files", Cancel cancels the whole folder.
+        val builder = android.app.Notification.Builder(this, TRANSFER_CHANNEL_ID)
+            .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
+            .setContentTitle(if (folder != null) FolderNotifier.progressTitle(this, folder) else transfer.name)
+            .setContentText(if (folder != null) FolderNotifier.progressText(this, folder) else compactTransferStatus(transfer))
+            .setSubText(transfer.progressPercent?.let { "$it%" })
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setCategory(android.app.Notification.CATEGORY_PROGRESS)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(if (folder != null) R.string.action_cancel else R.string.file_notification_cancel),
+                cancelTransfer,
+            )
+        transfer.progressPercent?.let { builder.setProgress(100, it, false) }
+            ?: builder.setProgress(0, 0, true)
+        return builder.build()
     }
 
     private val shownFolderQuestions = mutableMapOf<String, dev.bridgey.android.folders.FolderQuestion>()
@@ -195,7 +181,7 @@ class BridgeyConnectionService : Service() {
     /** The phone's folder questions (6.4); a question that is answered, cancelled or timed out loses its notification. */
     private fun updateFolderQuestionNotifications(questions: List<dev.bridgey.android.folders.FolderQuestion>) {
         val current = questions.associateBy { it.folderTransferId }
-        (shownFolderQuestions.keys - current.keys).forEach { notificationManager.cancel(FolderNotifier.questionNotificationId(it)) }
+        (shownFolderQuestions.keys - current.keys).forEach { AppNotifications.cancel(this, FolderNotifier.questionNotificationId(it)) }
         shownFolderQuestions.keys.retainAll(current.keys)
         current.values.forEach { question ->
             if (shownFolderQuestions[question.folderTransferId] == question) return@forEach
@@ -212,54 +198,54 @@ class BridgeyConnectionService : Service() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 )
             }
-            notificationManager.notify(FolderNotifier.questionNotificationId(question.folderTransferId), notification)
+            AppNotifications.post(this, FolderNotifier.questionNotificationId(question.folderTransferId), notification, urgency = NotificationUrgency.IMMEDIATE)
         }
     }
 
     private val shownPasteNotifications = mutableSetOf<Int>()
-    private val pasteNotificationUpdatedAt = mutableMapOf<String, Long>()
 
     /** A paste waiting on a big item from the Mac shows its progress, with Cancel. */
     private fun updatePasteNotifications(fetches: List<ClipFetchProgress>) {
         val big = fetches.filter { it.size >= PASTE_NOTIFICATION_MIN_BYTES }
         val ids = big.map { transferNotificationId(it.transferId) + 1 }.toSet()
-        (shownPasteNotifications - ids).forEach(notificationManager::cancel)
-        pasteNotificationUpdatedAt.keys.retainAll(big.map { it.transferId }.toSet())
+        (shownPasteNotifications - ids).forEach { AppNotifications.cancel(this, it) }
         shownPasteNotifications.clear()
         shownPasteNotifications.addAll(ids)
         big.forEach { fetch ->
-            val now = SystemClock.elapsedRealtime()
-            if (now - (pasteNotificationUpdatedAt[fetch.transferId] ?: 0L) < 1_000 && fetch.received < fetch.size) return@forEach
-            pasteNotificationUpdatedAt[fetch.transferId] = now
-            val notificationId = transferNotificationId(fetch.transferId) + 1
-            val cancel = PendingIntent.getService(
-                this,
-                notificationId,
-                Intent()
-                    .setComponent(ComponentName(this, BridgeyConnectionService::class.java))
-                    .setAction(ACTION_CANCEL_PASTE)
-                    .putExtra(EXTRA_TRANSFER_ID, fetch.transferId),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val percent = if (fetch.size <= 0) 100 else ((fetch.received * 100) / fetch.size).toInt().coerceIn(0, 100)
-            val showName = (application as BridgeyApplication).uiPreferences.showPreviews.value
-            notificationManager.notify(
-                notificationId,
-                android.app.Notification.Builder(this, TRANSFER_CHANNEL_ID)
-                    .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
-                    .setContentTitle(getString(R.string.paste_progress_title, fetch.peerName))
-                    .setContentText(
-                        if (showName) getString(R.string.paste_progress_detail, fetch.name, percent)
-                        else getString(R.string.paste_progress_detail_unnamed, percent),
-                    )
-                    .setOnlyAlertOnce(true)
-                    .setOngoing(true)
-                    .setCategory(android.app.Notification.CATEGORY_PROGRESS)
-                    .setProgress(100, percent, false)
-                    .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.action_cancel), cancel)
-                    .build(),
-            )
+            // The last step (all of it here) does not wait behind progress.
+            val urgency = if (fetch.received < fetch.size) NotificationUrgency.NORMAL else NotificationUrgency.IMMEDIATE
+            AppNotifications.post(this, transferNotificationId(fetch.transferId) + 1, urgency = urgency, minIntervalMs = AppNotifications.PROGRESS_INTERVAL_MS) {
+                pasteNotification(fetch)
+            }
         }
+    }
+
+    private fun pasteNotification(fetch: ClipFetchProgress): android.app.Notification {
+        val notificationId = transferNotificationId(fetch.transferId) + 1
+        val cancel = PendingIntent.getService(
+            this,
+            notificationId,
+            Intent()
+                .setComponent(ComponentName(this, BridgeyConnectionService::class.java))
+                .setAction(ACTION_CANCEL_PASTE)
+                .putExtra(EXTRA_TRANSFER_ID, fetch.transferId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val percent = if (fetch.size <= 0) 100 else ((fetch.received * 100) / fetch.size).toInt().coerceIn(0, 100)
+        val showName = (application as BridgeyApplication).uiPreferences.showPreviews.value
+        return android.app.Notification.Builder(this, TRANSFER_CHANNEL_ID)
+            .setSmallIcon(dev.bridgey.android.R.drawable.ic_bridgey_notification)
+            .setContentTitle(getString(R.string.paste_progress_title, fetch.peerName))
+            .setContentText(
+                if (showName) getString(R.string.paste_progress_detail, fetch.name, percent)
+                else getString(R.string.paste_progress_detail_unnamed, percent),
+            )
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setCategory(android.app.Notification.CATEGORY_PROGRESS)
+            .setProgress(100, percent, false)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, getString(R.string.action_cancel), cancel)
+            .build()
     }
 
     private fun compactTransferStatus(transfer: FileTransferState): String {
@@ -270,6 +256,11 @@ class BridgeyConnectionService : Service() {
     }
 
     private fun transferNotificationId(transferId: String) = 50_000 + (transferId.hashCode() and 0x0fff)
+
+    /** Posts the connection notification's latest state through the throttle, built when it goes out. */
+    private fun refreshNotification(urgency: NotificationUrgency = NotificationUrgency.NORMAL) {
+        AppNotifications.post(this, NOTIFICATION_ID, urgency = urgency) { buildNotification(lastStatus) }
+    }
 
     private fun buildNotification(status: String): android.app.Notification {
         val openAppIntent = Intent()
@@ -381,7 +372,8 @@ class BridgeyConnectionService : Service() {
         if (!supportedProfile) return START_NOT_STICKY
         if (intent?.action == ACTION_TURN_OFF) {
             (application as BridgeyApplication).disableBridgey()
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            // No waiting update may bring the notification back after the process ends.
+            AppNotifications.stopForeground(this, NOTIFICATION_ID)
             stopSelf()
             Handler(Looper.getMainLooper()).postDelayed({
                 android.os.Process.killProcess(android.os.Process.myPid())
@@ -393,7 +385,7 @@ class BridgeyConnectionService : Service() {
             if (transferId != null) (application as BridgeyApplication).pairing.cancelFileTransfer(transferId)
             else (application as BridgeyApplication).pairing.cancelFileTransfer()
             updateTransferNotifications((application as BridgeyApplication).pairing.fileTransfers.value)
-            startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
+            AppNotifications.startForeground(this, NOTIFICATION_ID, buildNotification(lastStatus))
             return START_STICKY
         }
         if (intent?.action == ACTION_FOLDER_ANSWER) {
@@ -408,18 +400,23 @@ class BridgeyConnectionService : Service() {
         }
         if (intent?.action == ACTION_STOP_FINDING) {
             (application as BridgeyApplication).pairing.stopFinding()
-            notificationManager.cancel(FIND_NOTIFICATION_ID)
+            AppNotifications.cancel(this, FIND_NOTIFICATION_ID)
             return START_STICKY
         }
         // Re-post even when the service is already alive: Android 13+ and some
         // Samsung builds allow users to dismiss foreground-service cards.
-        startForeground(NOTIFICATION_ID, buildNotification(lastStatus))
+        AppNotifications.startForeground(this, NOTIFICATION_ID, buildNotification(lastStatus))
         return START_STICKY
     }
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         serviceScope.cancel()
+        if (supportedProfile) {
+            // The service's own notifications go with it, with any update still waiting: a progress notification
+            // whose Cancel reaches a stopped service would otherwise stay up.
+            (shownTransferNotifications + shownPasteNotifications + NOTIFICATION_ID).forEach { AppNotifications.cancel(this, it) }
+        }
         wifiKeeper?.set(false)
         pendingLocalClipboardAction?.cancel()
         pendingLocalClipboardAction = null

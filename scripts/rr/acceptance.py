@@ -7,8 +7,10 @@
       history, resume records and the version. Writes OUT/compare.json; exits 1 when anything was lost or reset.
 
   acceptance.py soak --platform android|macos --report soak.json --samples samples.jsonl --out OUT [--crash-log FILE]
+                    [--device-log FILE]
       Judges a soak's samples against the thresholds below, writes OUT/soak-summary.json and SVG graphs; exits 1 when a
-      threshold fails or the soak report itself failed.
+      threshold fails or the soak report itself failed. On Android --device-log is the device log of the run (the
+      app's log with NotificationService's errors), where every update Android shed for the app counts as a failure.
 """
 
 import argparse
@@ -44,6 +46,9 @@ THRESHOLDS = {
     # Notifications the Android app shows at once: Android refuses an app's notifications past 50, which would hide
     # pairing, call and control prompts.
     "notifications_max": 20,
+    # Notification updates Android shed for the app ("Package enqueue rate is 5.2. Shedding <key>. package=<app>"):
+    # an app over 5 enqueues a second loses updates, a transfer's last state or a prompt among them.
+    "notifications_shed_max": 0,
     # The driver itself (the session client): resident memory growth per hour, and the last window over the first.
     "peer_rss_slope_mib_h": 16.0,
     "peer_rss_growth_mib": 48.0,
@@ -319,7 +324,21 @@ def cpu_seconds(app, platform):
     return int(days or 0) * 86400 + int(hours or 0) * 3600 + int(minutes) * 60 + float(seconds)
 
 
-def judge_soak(platform, report, samples, crash_log):
+# NotificationManagerService's line for a dropped update (it logs at most one every 5 seconds, so the count is a floor).
+SHEDDING = re.compile(r"Package enqueue rate is ([0-9.]+)\. Shedding (\S+)\. package=(\S*bridgey\S*)", re.I)
+
+
+def shed_lines(device_log):
+    """The device log's Shedding lines for a Bridgey package, as (rate, notification key)."""
+    out = []
+    for line in (device_log or "").splitlines():
+        m = SHEDDING.search(line)
+        if m:
+            out.append((float(m.group(1)), m.group(2)))
+    return out
+
+
+def judge_soak(platform, report, samples, crash_log, device_log=None):
     app = [s for s in samples if s.get("kind") == "app" and isinstance(s.get("app"), dict) and s["app"].get("ok", True) and "error" not in s["app"]]
     ops = [s for s in samples if s.get("kind") == "op"]
     t_end = max([s["t"] for s in samples] or [0])
@@ -447,6 +466,14 @@ def judge_soak(platform, report, samples, crash_log):
             peak = max(v for _, v in shown)
             metrics["notifications"] = {"max": peak, "last": shown[-1][1]}
             check("notifications shown", peak <= THRESHOLDS["notifications_max"], "at most %d at once (limit %d; Android refuses past 50)" % (peak, THRESHOLDS["notifications_max"]))
+        if device_log is not None:
+            shed = shed_lines(device_log)
+            ids = sorted({key.split("|")[2] if key.count("|") >= 3 else key for _, key in shed})
+            metrics["notifications_shed"] = {"lines": len(shed), "max_rate": max([r for r, _ in shed] or [0]), "ids": ids}
+            check("notification updates shed", len(shed) <= THRESHOLDS["notifications_shed_max"],
+                  "%d Shedding line%s in the device log (limit %d; Android logs one every 5 s at most)%s" % (
+                      len(shed), "" if len(shed) == 1 else "s", THRESHOLDS["notifications_shed_max"],
+                      ", notification IDs %s, rate up to %.1f a second" % (", ".join(ids), max(r for r, _ in shed)) if shed else ""))
         locks = series("wakelocks")
         if locks:
             metrics["wakelocks_held"] = {"max": max(v for _, v in locks), "idle_max": max([s["app"].get("wakelocks", 0) for s in app if s.get("idle")] or [0])}
@@ -570,7 +597,13 @@ def cmd_soak(args):
             crash = f.read().strip()
         # The crash buffer names every app; only this app's crashes count.
         crash = "\n".join(l for l in crash.splitlines() if "bridgey" in l.lower())
-    checks, metrics, data = judge_soak(args.platform, report, samples, crash)
+    device_log, log_path = None, getattr(args, "device_log", None)
+    if log_path and os.path.exists(log_path):
+        with open(log_path, errors="replace") as f:
+            device_log = f.read()
+    checks, metrics, data = judge_soak(args.platform, report, samples, crash, device_log)
+    if log_path and device_log is None and args.platform == "android":
+        checks.append({"check": "notification updates shed", "ok": False, "detail": "no device log at %s" % log_path})
     os.makedirs(args.out, exist_ok=True)
     t_end = max([s["t"] for s in samples] or [1])
     spans = idle_spans(data["app"])
@@ -621,6 +654,7 @@ def main():
     s.add_argument("--samples", required=True)
     s.add_argument("--out", required=True)
     s.add_argument("--crash-log")
+    s.add_argument("--device-log")
     args = parser.parse_args()
     return cmd_compare(args) if args.cmd == "compare" else cmd_soak(args)
 

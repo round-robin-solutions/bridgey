@@ -16,6 +16,7 @@ import dev.bridgey.android.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import dev.bridgey.android.AppNotifications
 
 sealed interface BenchUiState {
     data object Idle : BenchUiState
@@ -59,11 +60,7 @@ class BenchService : Service() {
             NotificationChannel(CHANNEL_ID, getString(R.string.perf_channel), NotificationManager.IMPORTANCE_LOW),
         )
         val notification = notification(getString(R.string.perf_notification_text))
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        AppNotifications.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         cancelled = false
         BenchState.set(BenchUiState.Running(BenchMode.WRITE_ONLY, 0, BenchMode.entries.size, 0f))
         val lock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
@@ -77,7 +74,7 @@ class BenchService : Service() {
                 if (lock.isHeld) lock.release()
                 wakeLock = null
                 worker = null
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                AppNotifications.stopForeground(this, NOTIFICATION_ID)
                 stopSelf()
             }
         }, "bridgey-perf-test").also { it.start() }

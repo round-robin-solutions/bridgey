@@ -405,7 +405,8 @@ class AppUpdater(
             )
         }
         val open = PendingIntent.getActivity(context, ATTENTION_NOTIFICATION_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        manager.notify(
+        AppNotifications.post(
+            context,
             ATTENTION_NOTIFICATION_ID,
             android.app.Notification.Builder(context, ATTENTION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_bridgey_notification)
@@ -415,11 +416,12 @@ class AppUpdater(
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build(),
+            urgency = NotificationUrgency.IMMEDIATE,
         )
     }
 
     private fun cancelAttention() {
-        context.getSystemService(NotificationManager::class.java).cancel(ATTENTION_NOTIFICATION_ID)
+        AppNotifications.cancel(context, ATTENTION_NOTIFICATION_ID)
     }
 
     private fun lastCheckedAt(): Long = preferences.getLong(KEY_LAST_CHECKED, 0L)
@@ -642,7 +644,8 @@ class AppUpdater(
                 .putExtra(dev.bridgey.android.ui.SettingsDeepLink.EXTRA_SECTION, dev.bridgey.android.ui.SettingsSection.UPDATES.name),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        manager.notify(
+        AppNotifications.post(
+            context,
             NOTIFICATION_ID,
             android.app.Notification.Builder(context, NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_bridgey_notification)
